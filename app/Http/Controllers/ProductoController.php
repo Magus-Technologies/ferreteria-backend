@@ -79,7 +79,11 @@ class ProductoController extends Controller
         }
 
         if ($request->has('estado')) {
-            $query->where('estado', $request->estado);
+            // Convertir 'true'/'false' string a booleano
+            $estadoValue = filter_var($request->estado, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($estadoValue !== null) {
+                $query->where('estado', $estadoValue);
+            }
         }
 
         if ($request->has('categoria_id')) {
@@ -819,3 +823,4 @@ class ProductoController extends Controller
         ]);
     }
 }
+

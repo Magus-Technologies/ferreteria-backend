@@ -238,6 +238,7 @@ class DetallePreciosController extends Controller
         ]);
 
         $results = [];
+        $productosNoEncontrados = [];
 
         foreach ($validated['data'] as $item) {
             $codProducto = $item['cod_producto'];
@@ -247,9 +248,8 @@ class DetallePreciosController extends Controller
             $producto = Producto::where('cod_producto', $codProducto)->first();
 
             if (!$producto) {
-                return response()->json([
-                    'message' => "Producto no encontrado: {$codProducto}",
-                ], 404);
+                $productosNoEncontrados[] = $codProducto;
+                continue;
             }
 
             // Buscar ubicación del almacén
@@ -278,7 +278,19 @@ class DetallePreciosController extends Controller
             ];
         }
 
-        return response()->json(['data' => $results]);
+        // Verificar si hay productos no encontrados
+        // Verificar si hay productos no encontrados (solo advertencia, no error)
+        $advertencias = [];
+        if (!empty($productosNoEncontrados)) {
+            $advertencias[] = 'Productos no encontrados (se omitieron): ' . implode(', ', $productosNoEncontrados);
+        }
+
+
+        $response = ['data' => $results];
+        if (!empty($advertencias)) {
+            $response['advertencias'] = $advertencias;
+        }
+        return response()->json($response);
     }
 
     /**
@@ -311,6 +323,13 @@ class DetallePreciosController extends Controller
             ];
         }
 
-        return response()->json(['data' => $results]);
+        $response = ['data' => $results];
+        if (!empty($advertencias)) {
+            $response['advertencias'] = $advertencias;
+        }
+        return response()->json($response);
     }
 }
+
+
+

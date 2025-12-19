@@ -2,11 +2,16 @@
 
 use App\Http\Controllers\AlmacenController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\DetallePreciosController;
 use App\Http\Controllers\IngresoSalidaController;
+use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\ProductoController;
+use App\Http\Controllers\UbicacionController;
+use App\Http\Controllers\UnidadDerivadaController;
+use App\Http\Controllers\UnidadMedidaController;
 use App\Http\Controllers\VentaController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,6 +33,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Recursos principales
     Route::apiResource('almacenes', AlmacenController::class);
+    Route::apiResource('marcas', MarcaController::class);
+    Route::apiResource('categorias', CategoriaController::class);
+    Route::apiResource('ubicaciones', UbicacionController::class);
+    Route::apiResource('unidades-medida', UnidadMedidaController::class);
+    Route::apiResource('unidades-derivadas', UnidadDerivadaController::class);
 
     // Rutas específicas de productos (antes de apiResource)
     Route::get('productos/validar-codigo', [ProductoController::class, 'validarCodigo']);
@@ -42,8 +52,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('detalle-precios/importar-unidades-derivadas', [DetallePreciosController::class, 'importarUnidadesDerivadas']);
     Route::apiResource('ingresos-salidas', IngresoSalidaController::class);
     Route::apiResource('ventas', VentaController::class);
-    Route::apiResource('cotizaciones', CotizacionController::class);
     Route::apiResource('compras', CompraController::class);
+
+
+    // COTIZACIONES
+    Route::apiResource('cotizaciones', CotizacionController::class);
+
 
     // TODO: Agregar más rutas según necesidad
     // Route::apiResource('clientes', ClienteController::class);
