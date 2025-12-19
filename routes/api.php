@@ -4,6 +4,7 @@ use App\Http\Controllers\AlmacenController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CotizacionController;
+use App\Http\Controllers\DetallePreciosController;
 use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\VentaController;
@@ -34,6 +35,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('productos/import', [ProductoController::class, 'import']);
 
     Route::apiResource('productos', ProductoController::class);
+
+    // Rutas de Detalle de Precios (Unidades Derivadas)
+    Route::post('detalle-precios/import', [DetallePreciosController::class, 'import']);
+    Route::post('detalle-precios/get-producto-almacen', [DetallePreciosController::class, 'getProductoAlmacenByCodProducto']);
+    Route::post('detalle-precios/importar-unidades-derivadas', [DetallePreciosController::class, 'importarUnidadesDerivadas']);
     Route::apiResource('ingresos-salidas', IngresoSalidaController::class);
     Route::apiResource('ventas', VentaController::class);
     Route::apiResource('cotizaciones', CotizacionController::class);

@@ -18,7 +18,7 @@ return [
     'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
         '%s%s%s',
         'localhost,localhost:3000,localhost:3001,127.0.0.1,127.0.0.1:8000,127.0.0.1:3000,::1',
-        ',ferreteria2.test,ferreteria-backend.test',
+        ',ferreteria2.test,ferreteria-backend.test,62.171.147.202',
         Sanctum::currentApplicationUrlWithPort(),
     ))),
 

@@ -761,7 +761,7 @@ class ProductoController extends Controller
                                 'stock_min' => $item['stock_min'] ?? 0,
                                 'stock_max' => $item['stock_max'] ?? null,
                                 'unidades_contenidas' => $item['unidades_contenidas'],
-                                'permitido' => false, // Siempre false en importaciones
+                                'permitido' => $item['permitido'] ?? true, // Por defecto true (igual que CREATE/UPDATE manual)
                                 'estado' => true,
                             ]);
 

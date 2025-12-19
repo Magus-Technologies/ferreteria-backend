@@ -25,6 +25,7 @@ return [
         'http://127.0.0.1:3000',
         'http://ferreteria2.test',
         'http://ferreteria-backend.test',
+        'http://62.171.147.202',
     ],
 
     'allowed_origins_patterns' => [],
