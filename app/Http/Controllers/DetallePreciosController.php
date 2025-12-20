@@ -27,86 +27,26 @@ class DetallePreciosController extends Controller
      */
     public function import(Request $request): JsonResponse
     {
-        // dd($request['data']);
-        // Log::info($request['data']);
-        // dd($request['data']);
-        ini_set('memory_limit', '512M');
-
-        error_log('========================================');
-        error_log('Inicio de importación de detalle de precios');
-        error_log('========================================');
-
-        // Log de datos recibidos
-        $rawData = $request->all();
-        error_log('Cantidad de items recibidos: ' . (isset($rawData['data']) ? count($rawData['data']) : 0));
-
-        // Log del primer item para análisis
-        if (isset($rawData['data'][0])) {
-            error_log('Estructura del primer item:');
-            error_log(json_encode($rawData['data'][0], JSON_PRETTY_PRINT));
-        }
-
-        // Log de los primeros 3 items completos
-        if (isset($rawData['data'])) {
-            $primerosTres = array_slice($rawData['data'], 0, 3);
-            error_log('Primeros 3 items completos:');
-            error_log(json_encode($primerosTres, JSON_PRETTY_PRINT));
-        }
-
-        // $validated = $request->validate([
-        //     'data' => 'required|array',
-        //     'data.*.producto_almacen' => 'required|array',
-        //     'data.*.producto_almacen.connect' => 'required|array',
-        //     'data.*.producto_almacen.connect.id' => 'required|integer',
-        //     'data.*.unidad_derivada' => 'required|array',
-        //     'data.*.unidad_derivada.connect' => 'required|array',
-        //     'data.*.unidad_derivada.connect.id' => 'required|integer',
-        //     'data.*.factor' => 'required|numeric|min:0',
-        //     'data.*.precio_publico' => 'required|numeric|min:0',
-        //     'data.*.comision_publico' => 'nullable|numeric',
-        //     'data.*.precio_especial' => 'nullable|numeric',
-        //     'data.*.comision_especial' => 'nullable|numeric',
-        //     'data.*.activador_especial' => 'nullable|numeric',
-        //     'data.*.precio_minimo' => 'nullable|numeric',
-        //     'data.*.comision_minimo' => 'nullable|numeric',
-        //     'data.*.activador_minimo' => 'nullable|numeric',
-        //     'data.*.precio_ultimo' => 'nullable|numeric',
-        //     'data.*.comision_ultimo' => 'nullable|numeric',
-        //     'data.*.activador_ultimo' => 'nullable|numeric',
-        // ]);
-
-        error_log('Validación exitosa. Total de items validados: ' . count($request['data']));
-
-        // Validar duplicados por producto_almacen_id + factor
-        error_log('Iniciando validación de duplicados...');
         $seen = [];
         foreach ($request['data'] as $index => $item) {
-            $key = $item['producto_almacen']['connect']['id'] . '|' . $item['connect']['factor'];
+            $key = $item['producto_almacen']['connect']['id'] . '|' . $item['factor'];
             if (isset($seen[$key])) {
                 error_log("Duplicado encontrado en índice {$index}: {$key}");
                 throw ValidationException::withMessages([
-                    "data.{$index}.factor" => "Duplicado: producto_almacen_id {$item['producto_almacen']['connect']['id']} con factor {$item['connect']['factor']}"
+                    "data.{$index}.factor" => "Duplicado: producto_almacen_id {$item['producto_almacen']['connect']['id']} con factor {$item['factor']}"
                 ]);
             }
             $seen[$key] = true;
         }
-        error_log('Validación de duplicados completada. No se encontraron duplicados.');
 
         $duplicados = [];
         $chunks = array_chunk($request['data'], 200);
-        error_log('Datos divididos en ' . count($chunks) . ' chunks de máximo 200 items');
         $userId = auth()->id();
-        error_log('Usuario autenticado ID: ' . $userId);
 
         // Obtener tipo de ingreso "AJUSTE"
         $tipoIngreso = TipoIngresoSalida::where('name', 'AJUSTE')->firstOrFail();
-        error_log('Tipo de ingreso AJUSTE encontrado. ID: ' . $tipoIngreso->id);
 
         foreach ($chunks as $chunkIndex => $chunk) {
-            error_log("----------------------------------------");
-            error_log("Procesando chunk " . ($chunkIndex + 1) . " de " . count($chunks) . " (Items: " . count($chunk) . ")");
-            error_log("----------------------------------------");
-
             try {
                 DB::transaction(function () use ($chunk, &$duplicados, $userId, $tipoIngreso, $chunkIndex) {
                     // Obtener todos los ProductoAlmacen necesarios
@@ -154,15 +94,15 @@ class DetallePreciosController extends Controller
                                 'factor' => $item['factor'],
                                 'precio_publico' => $item['precio_publico'],
                                 'comision_publico' => $item['comision_publico'] ?? 0,
-                                'precio_especial' => $item['precio_especial'],
+                                'precio_especial' => $item['precio_especial'] ?? 0,
                                 'comision_especial' => $item['comision_especial'] ?? 0,
-                                'activador_especial' => $item['activador_especial'],
-                                'precio_minimo' => $item['precio_minimo'],
+                                'activador_especial' => $item['activador_especial'] ?? 0,
+                                'precio_minimo' => $item['precio_minimo'] ?? 0,
                                 'comision_minimo' => $item['comision_minimo'] ?? 0,
-                                'activador_minimo' => $item['activador_minimo'],
-                                'precio_ultimo' => $item['precio_ultimo'],
+                                'activador_minimo' => $item['activador_minimo'] ?? 0,
+                                'precio_ultimo' => $item['precio_ultimo'] ?? 0,
                                 'comision_ultimo' => $item['comision_ultimo'] ?? 0,
-                                'activador_ultimo' => $item['activador_ultimo'],
+                                'activador_ultimo' => $item['activador_ultimo'] ?? 0,
                             ]);
                             error_log("    ProductoAlmacenUnidadDerivada creado con ID: " . $productoAlmacenUnidadDerivada->id);
 
@@ -250,7 +190,6 @@ class DetallePreciosController extends Controller
                             }
                             $itemsProcesados++;
                             error_log("    Item procesado exitosamente!");
-
                         } catch (\Illuminate\Database\QueryException $e) {
                             // Si es error de duplicado (unique constraint)
                             if ($e->getCode() === '23000') {
@@ -277,7 +216,7 @@ class DetallePreciosController extends Controller
             } catch (\Exception $e) {
                 error_log("ERROR EN CHUNK {$chunkIndex}: " . $e->getMessage());
                 error_log("Trace: " . $e->getTraceAsString());
-                \Log::error('Error en chunk de importación de detalle de precios', [
+                Log::error('Error en chunk de importación de detalle de precios', [
                     'chunk_index' => $chunkIndex,
                     'error' => $e->getMessage(),
                     'trace' => $e->getTraceAsString()
@@ -287,12 +226,6 @@ class DetallePreciosController extends Controller
         }
 
         $totalImportados = count($request['data']) - count($duplicados);
-        error_log('========================================');
-        error_log("FIN DE IMPORTACIÓN");
-        error_log("Total items recibidos: " . count($request['data']));
-        error_log("Total importados: {$totalImportados}");
-        error_log("Total duplicados: " . count($duplicados));
-        error_log('========================================');
 
         return response()->json([
             'data' => $duplicados,
@@ -404,6 +337,3 @@ class DetallePreciosController extends Controller
         return response()->json($response);
     }
 }
-
-
-
