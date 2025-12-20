@@ -18,13 +18,15 @@ class CotizacionController extends Controller
     /**
      * Listar todas las cotizaciones
      */
-    public function index(Request $request): JsonResponse
-    {
-        $query = Cotizacion::with([
-            'cliente:id,razon_social,ruc,dni',
-            'user:id,name',
-            'almacen:id,name',
-        ]);
+ public function index(Request $request): JsonResponse
+{
+    $query = Cotizacion::with([
+      'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,telefono,email',
+        'user:id,name',
+        'almacen:id,name',
+        'productosPorAlmacen.productoAlmacen.producto.marca',
+        'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+    ]);
 
         // Filtros opcionales
         if ($request->has('estado_cotizacion')) {
@@ -195,9 +197,12 @@ class CotizacionController extends Controller
         ]);
 
         // Buscar o crear UnidadDerivadaInmutable
+        // Primero obtener el nombre de la unidad derivada
+        $unidadDerivada = \App\Models\UnidadDerivada::find($productoData['unidad_derivada_id']);
+        $nombreUnidad = $unidadDerivada ? $unidadDerivada->name : 'UNIDAD';
+
         $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
-            ['unidad_derivada_id' => $productoData['unidad_derivada_id']],
-            ['name' => 'UNIDAD'] // Nombre por defecto
+            ['name' => $nombreUnidad]
         );
 
         // Crear UnidadDerivadaInmutableCotizacion
@@ -217,6 +222,18 @@ class CotizacionController extends Controller
             $cantidadEnFraccion = $productoData['cantidad'] * $productoData['unidad_derivada_factor'];
             $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
         }
+    }
+
+    /**
+     * Obtener el siguiente número de cotización (sin crear la cotización)
+     */
+    public function siguienteNumero(): JsonResponse
+    {
+        $siguienteNumero = $this->generarNumeroCotizacion();
+
+        return response()->json([
+            'numero' => $siguienteNumero,
+        ]);
     }
 
     /**

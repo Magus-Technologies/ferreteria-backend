@@ -10,7 +10,7 @@ class ProductoAlmacenUnidadDerivada extends Model
     /**
      * Tabla asociada al modelo (singular sin guiones bajos)
      */
-    protected $table = 'productoalmacenunidadderivada';
+    protected $table = ' ';
 
     /**
      * Sin timestamps

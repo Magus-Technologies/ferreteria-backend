@@ -56,6 +56,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
     // COTIZACIONES
+    Route::get('cotizaciones/siguiente-numero/preview', [CotizacionController::class, 'siguienteNumero']);
     Route::apiResource('cotizaciones', CotizacionController::class);
 
 
