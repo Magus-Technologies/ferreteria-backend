@@ -68,8 +68,8 @@ class ClienteController extends Controller
                 'max:11',
                 'unique:cliente,numero_documento'
             ],
-            'nombres' => 'nullable|string|max:255',
-            'apellidos' => 'nullable|string|max:255',
+            'nombres' => 'required|string|max:255',
+            'apellidos' => 'required|string|max:255',
             'razon_social' => 'nullable|string|max:255',
             'direccion' => 'nullable|string|max:500',
             'telefono' => 'nullable|string|max:20',
@@ -104,8 +104,8 @@ class ClienteController extends Controller
                 'max:11',
                 Rule::unique('cliente', 'numero_documento')->ignore($cliente->id)
             ],
-            'nombres' => 'nullable|string|max:255',
-            'apellidos' => 'nullable|string|max:255',
+            'nombres' => 'sometimes|required|string|max:255',
+            'apellidos' => 'sometimes|required|string|max:255',
             'razon_social' => 'nullable|string|max:255',
             'direccion' => 'nullable|string|max:500',
             'telefono' => 'nullable|string|max:20',
