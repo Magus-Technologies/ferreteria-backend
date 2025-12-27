@@ -19,9 +19,32 @@ class Empresa extends Model
         'serie_recepcion_almacen',
         'ruc',
         'razon_social',
+        'nombre_comercial',
         'direccion',
+        'ubigeo_id',
+        'departamento',
+        'provincia',
+        'distrito',
+        'regimen',
+        'actividad_economica',
         'telefono',
+        'celular',
         'email',
+        'tipo_identificacion',
+        // Logo
+        'logo',
+        // Gerente o Administrador
+        'gerente_nombre',
+        'gerente_email',
+        'gerente_celular',
+        // Facturación
+        'facturacion_nombre',
+        'facturacion_email',
+        'facturacion_celular',
+        // Contabilidad
+        'contabilidad_nombre',
+        'contabilidad_email',
+        'contabilidad_celular',
     ];
 
     protected function casts(): array
@@ -41,6 +64,11 @@ class Empresa extends Model
     public function marcaPredeterminada(): BelongsTo
     {
         return $this->belongsTo(Marca::class, 'marca_id');
+    }
+
+    public function ubigeo(): BelongsTo
+    {
+        return $this->belongsTo(Distrito::class, 'ubigeo_id', 'id_ubigeo');
     }
 
     public function users(): HasMany

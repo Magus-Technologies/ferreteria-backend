@@ -5,6 +5,11 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CotizacionController;
+use App\Http\Controllers\UsuarioController;
+use App\Http\Controllers\DepartamentoController;
+use App\Http\Controllers\ProvinciaController;
+use App\Http\Controllers\DistritoController;
+use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\DetallePreciosController;
 use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\MarcaController;
@@ -59,6 +64,24 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('cotizaciones/siguiente-numero/preview', [CotizacionController::class, 'siguienteNumero']);
     Route::apiResource('cotizaciones', CotizacionController::class);
 
+
+    // USURIOS
+    Route::apiResource('usuarios', UsuarioController::class);
+
+    // EMPRESA
+    Route::apiResource('empresas', EmpresaController::class);
+
+    // UBIGEO - Departamentos, Provincias y Distritos
+    Route::get('departamentos', [DepartamentoController::class, 'index']);
+    Route::get('departamentos/{id}', [DepartamentoController::class, 'show']);
+    Route::get('departamentos/{codigo}/provincias', [DepartamentoController::class, 'provincias']);
+
+    Route::get('provincias', [ProvinciaController::class, 'index']);
+    Route::get('provincias/{id}', [ProvinciaController::class, 'show']);
+    Route::get('provincias/{departamento}/{provincia}/distritos', [ProvinciaController::class, 'distritos']);
+
+    Route::get('distritos', [DistritoController::class, 'index']);
+    Route::get('distritos/{id}', [DistritoController::class, 'show']);
 
     // TODO: Agregar más rutas según necesidad
     // Route::apiResource('clientes', ClienteController::class);

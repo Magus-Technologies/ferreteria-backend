@@ -31,6 +31,24 @@ class User extends Authenticatable
         'image',
         'empresa_id',
         'efectivo',
+
+        // nuevos campos , info personal
+        'tipo_documento',
+        'numero_documento',
+        'telefono',
+        'celular',
+        'genero',
+        'estado_civil',
+        'email_corporativo',
+
+        // direcciones
+        'direccion_linea1',
+        'direccion_linea2',
+        'ciudad',
+        'nacionalidad',
+        'fecha_nacimiento',
+
+        'estado',
     ];
 
     protected $hidden = [
@@ -43,6 +61,8 @@ class User extends Authenticatable
             'email_verified' => 'datetime',
             'password' => 'hashed',
             'efectivo' => 'decimal:2',
+            'fecha_nacimiento' => 'date',
+            'estado' => 'boolean',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
@@ -123,5 +143,59 @@ class User extends Authenticatable
         $rolePermissions = $this->roles->flatMap->permissions->pluck('name')->toArray();
 
         return array_unique(array_merge($directPermissions, $rolePermissions));
+    }
+
+     public function getTipoDocumentoNombreAttribute(): string
+    {
+        $tipos = [
+            'DNI' => 'Documento Nacional de Identidad',
+            'RUC' => 'Registro Único de Contribuyentes',
+            'CE' => 'Carnet de Extranjería',
+            'PASAPORTE' => 'Pasaporte',
+        ];
+        
+        return $tipos[$this->tipo_documento] ?? $this->tipo_documento;
+    }
+    
+    /**
+     * Obtener nombre completo del género
+     */
+    public function getGeneroNombreAttribute(): ?string
+    {
+        $generos = [
+            'M' => 'Masculino',
+            'F' => 'Femenino',
+            'O' => 'Otro',
+        ];
+        
+        return $generos[$this->genero] ?? null;
+    }
+    
+    /**
+     * Obtener edad del usuario
+     */
+    public function getEdadAttribute(): ?int
+    {
+        if (!$this->fecha_nacimiento) {
+            return null;
+        }
+        
+        return \Carbon\Carbon::parse($this->fecha_nacimiento)->age;
+    }
+    
+    /**
+     * Scope para usuarios activos
+     */
+    public function scopeActivos($query)
+    {
+        return $query->where('estado', true);
+    }
+    
+    /**
+     * Scope para usuarios inactivos
+     */
+    public function scopeInactivos($query)
+    {
+        return $query->where('estado', false);
     }
 }
