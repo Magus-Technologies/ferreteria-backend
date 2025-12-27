@@ -3,6 +3,7 @@
 use App\Http\Controllers\AlmacenController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CategoriaController;
+use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\UsuarioController;
@@ -94,8 +95,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('distritos', [DistritoController::class, 'index']);
     Route::get('distritos/{id}', [DistritoController::class, 'show']);
 
+    // CLIENTES
+    Route::apiResource('clientes', ClienteController::class);
+
     // TODO: Agregar más rutas según necesidad
-    // Route::apiResource('clientes', ClienteController::class);
     // Route::apiResource('proveedores', ProveedorController::class);
     // etc.
 });
