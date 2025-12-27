@@ -18,6 +18,8 @@ class Cliente extends Model
         'apellidos',
         'razon_social',
         'direccion',
+        'direccion_2',
+        'direccion_3',
         'telefono',
         'email',
         'estado',

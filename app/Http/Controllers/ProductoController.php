@@ -168,7 +168,14 @@ class ProductoController extends Controller
 
         // Paginación de 100 items por defecto (requerido para mi-almacen)
         $perPage = $request->get('per_page', 100);
-        $productos = $query->latest()->paginate($perPage);
+
+        // Si hay búsqueda activa, ordenar alfabéticamente por nombre
+        // De lo contrario, ordenar por fecha de creación (más reciente primero)
+        if ($request->has('search') && !empty($request->search)) {
+            $productos = $query->orderBy('name', 'asc')->paginate($perPage);
+        } else {
+            $productos = $query->latest()->paginate($perPage);
+        }
 
         return response()->json($productos);
     }
