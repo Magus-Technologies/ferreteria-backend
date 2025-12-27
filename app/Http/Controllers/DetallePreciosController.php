@@ -248,11 +248,12 @@ class DetallePreciosController extends Controller
         $productosNoEncontrados = [];
 
         foreach ($validated['data'] as $item) {
-            $codProducto = $item['cod_producto'];
+            $codProducto = trim($item['cod_producto']); // Trim para evitar espacios
             $almacenId = $item['almacen_id'];
 
-            // Buscar producto
-            $producto = Producto::where('cod_producto', $codProducto)->first();
+            // Buscar producto - usar BINARY para comparación exacta (case-sensitive)
+            // Esto asegura que "0" se encuentre correctamente
+            $producto = Producto::whereRaw('BINARY cod_producto = ?', [$codProducto])->first();
 
             if (!$producto) {
                 $productosNoEncontrados[] = $codProducto;
