@@ -87,6 +87,13 @@ class EmpresaController extends Controller
             'contabilidad_nombre' => 'nullable|string|max:191',
             'contabilidad_email' => 'nullable|email|max:191',
             'contabilidad_celular' => 'nullable|string|max:50',
+            // Términos de impresión
+            'terminos_comprobantes_ventas' => 'nullable|string',
+            'terminos_letras_cambio' => 'nullable|string',
+            'terminos_guias_remision' => 'nullable|string',
+            'terminos_cotizaciones' => 'nullable|string',
+            'terminos_ordenes_compras' => 'nullable|string',
+            'imprimir_impuestos_boleta' => 'nullable|boolean',
         ]);
 
         // Asignar valores por defecto para las series
@@ -144,6 +151,13 @@ class EmpresaController extends Controller
             'contabilidad_nombre' => 'nullable|string|max:191',
             'contabilidad_email' => 'nullable|email|max:191',
             'contabilidad_celular' => 'nullable|string|max:50',
+            // Términos de impresión
+            'terminos_comprobantes_ventas' => 'nullable|string',
+            'terminos_letras_cambio' => 'nullable|string',
+            'terminos_guias_remision' => 'nullable|string',
+            'terminos_cotizaciones' => 'nullable|string',
+            'terminos_ordenes_compras' => 'nullable|string',
+            'imprimir_impuestos_boleta' => 'nullable|boolean',
         ]);
         // manejar subida del logo 
         if ($request->hasFile('logo')) {

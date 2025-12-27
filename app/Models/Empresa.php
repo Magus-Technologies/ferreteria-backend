@@ -45,6 +45,13 @@ class Empresa extends Model
         'contabilidad_nombre',
         'contabilidad_email',
         'contabilidad_celular',
+        // Términos de impresión
+        'terminos_comprobantes_ventas',
+        'terminos_letras_cambio',
+        'terminos_guias_remision',
+        'terminos_cotizaciones',
+        'terminos_ordenes_compras',
+        'imprimir_impuestos_boleta',
     ];
 
     protected function casts(): array
@@ -53,6 +60,7 @@ class Empresa extends Model
             'serie_ingreso' => 'integer',
             'serie_salida' => 'integer',
             'serie_recepcion_almacen' => 'integer',
+            'imprimir_impuestos_boleta' => 'boolean',
         ];
     }
 

@@ -13,6 +13,7 @@ use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\DetallePreciosController;
 use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\MarcaController;
+use App\Http\Controllers\PrestamoController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\UbicacionController;
 use App\Http\Controllers\UnidadDerivadaController;
@@ -28,6 +29,10 @@ use Illuminate\Support\Facades\Route;
 
 // Rutas públicas
 Route::post('/auth/login', [AuthController::class, 'login']);
+
+// Rutas públicas para ver detalles (necesarias para PDFs compartibles)
+Route::get('cotizaciones/{id}', [CotizacionController::class, 'show']);
+Route::get('prestamos/{id}', [PrestamoController::class, 'show']);
 
 // Rutas protegidas con Sanctum
 Route::middleware('auth:sanctum')->group(function () {
@@ -64,6 +69,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('cotizaciones/siguiente-numero/preview', [CotizacionController::class, 'siguienteNumero']);
     Route::apiResource('cotizaciones', CotizacionController::class);
 
+    // PRÉSTAMOS
+    Route::get('prestamos/siguiente-numero/preview', [PrestamoController::class, 'siguienteNumero']);
+    Route::get('prestamos/{id}/pagos', [PrestamoController::class, 'listarPagos']);
+    Route::post('prestamos/{id}/pagos', [PrestamoController::class, 'registrarPago']);
+    Route::delete('prestamos/{prestamo_id}/pagos/{pago_id}', [PrestamoController::class, 'eliminarPago']);
+    Route::apiResource('prestamos', PrestamoController::class);
 
     // USURIOS
     Route::apiResource('usuarios', UsuarioController::class);

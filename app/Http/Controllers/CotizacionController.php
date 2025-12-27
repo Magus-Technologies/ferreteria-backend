@@ -266,7 +266,7 @@ class CotizacionController extends Controller
             'user',
             'almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
-            'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable.unidadDerivada',
+            'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
         ])->findOrFail($id);
 
         return response()->json(['data' => $cotizacion]);
