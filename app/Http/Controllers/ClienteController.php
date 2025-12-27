@@ -61,7 +61,7 @@ class ClienteController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'tipo_cliente' => ['required', Rule::in(['p', 'e'])],
+            'tipo_cliente' => ['nullable', Rule::in(['p', 'e', 'Persona', 'Empresa'])],
             'numero_documento' => [
                 'required',
                 'string',
@@ -76,6 +76,21 @@ class ClienteController extends Controller
             'email' => 'nullable|email|max:255',
             'estado' => 'nullable|boolean',
         ]);
+
+        // Convertir tipo_cliente a formato correcto si viene como "Persona" o "Empresa"
+        if (isset($validated['tipo_cliente'])) {
+            if ($validated['tipo_cliente'] === 'Persona') {
+                $validated['tipo_cliente'] = 'p';
+            } elseif ($validated['tipo_cliente'] === 'Empresa') {
+                $validated['tipo_cliente'] = 'e';
+            }
+        }
+
+        // Auto-detectar tipo de cliente según longitud del documento
+        if (!isset($validated['tipo_cliente']) || empty($validated['tipo_cliente'])) {
+            $longitudDocumento = strlen($validated['numero_documento']);
+            $validated['tipo_cliente'] = $longitudDocumento === 8 ? 'p' : 'e';
+        }
 
         // Estado por defecto
         $validated['estado'] = $validated['estado'] ?? true;
@@ -96,7 +111,7 @@ class ClienteController extends Controller
         $cliente = Cliente::findOrFail($id);
 
         $validated = $request->validate([
-            'tipo_cliente' => ['sometimes', 'required', Rule::in(['p', 'e'])],
+            'tipo_cliente' => ['sometimes', Rule::in(['p', 'e', 'Persona', 'Empresa'])],
             'numero_documento' => [
                 'sometimes',
                 'required',
@@ -112,6 +127,15 @@ class ClienteController extends Controller
             'email' => 'nullable|email|max:255',
             'estado' => 'nullable|boolean',
         ]);
+
+        // Convertir tipo_cliente a formato correcto si viene como "Persona" o "Empresa"
+        if (isset($validated['tipo_cliente'])) {
+            if ($validated['tipo_cliente'] === 'Persona') {
+                $validated['tipo_cliente'] = 'p';
+            } elseif ($validated['tipo_cliente'] === 'Empresa') {
+                $validated['tipo_cliente'] = 'e';
+            }
+        }
 
         $cliente->update($validated);
 
