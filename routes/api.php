@@ -31,6 +31,11 @@ use Illuminate\Support\Facades\Route;
 // Rutas públicas
 Route::post('/auth/login', [AuthController::class, 'login']);
 
+// Recuperación de contraseña
+Route::post('/password/send-code', [App\Http\Controllers\PasswordResetController::class, 'sendCode']);
+Route::post('/password/verify-code', [App\Http\Controllers\PasswordResetController::class, 'verifyCode']);
+Route::post('/password/reset', [App\Http\Controllers\PasswordResetController::class, 'resetPassword']);
+
 // Rutas públicas para ver detalles (necesarias para PDFs compartibles)
 Route::get('cotizaciones/{id}', [CotizacionController::class, 'show']);
 Route::get('prestamos/{id}', [PrestamoController::class, 'show']);

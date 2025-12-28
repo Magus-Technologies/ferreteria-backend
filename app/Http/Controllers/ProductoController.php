@@ -710,12 +710,73 @@ class ProductoController extends Controller
         $duplicados = [];
         $totalProductos = count($productos);
 
-        // Dividir en lotes de 100 productos (más grande = más rápido)
-        $lotes = array_chunk($productos, 100);
+        // OPTIMIZACIÓN 1: Pre-cargar todos los catálogos en memoria (categorías, marcas, unidades)
+        $categoriasCache = [];
+        $marcasCache = [];
+        $unidadesMedidaCache = [];
+
+        // Extraer todos los nombres únicos de categorías, marcas y unidades antes del loop
+        $categoriasNombres = [];
+        $marcasNombres = [];
+        $unidadesMedidaNombres = [];
+
+        foreach ($productos as $item) {
+            // Categorías
+            if (isset($item['categoria']['connectOrCreate']['where']['name'])) {
+                $categoriasNombres[] = $item['categoria']['connectOrCreate']['where']['name'];
+            }
+            // Marcas
+            if (isset($item['marca']['connectOrCreate']['where']['name'])) {
+                $marcasNombres[] = $item['marca']['connectOrCreate']['where']['name'];
+            }
+            // Unidades de medida
+            if (isset($item['unidad_medida']['connectOrCreate']['where']['name'])) {
+                $unidadesMedidaNombres[] = $item['unidad_medida']['connectOrCreate']['where']['name'];
+            }
+        }
+
+        // Obtener todas las categorías en una sola query
+        $categoriasExistentes = Categoria::whereIn('name', $categoriasNombres)->get()->keyBy('name');
+        foreach ($categoriasNombres as $nombre) {
+            if (isset($categoriasExistentes[$nombre])) {
+                $categoriasCache[$nombre] = $categoriasExistentes[$nombre]->id;
+            } else {
+                // Crear nueva categoría
+                $nuevaCategoria = Categoria::create(['name' => $nombre]);
+                $categoriasCache[$nombre] = $nuevaCategoria->id;
+            }
+        }
+
+        // Obtener todas las marcas en una sola query
+        $marcasExistentes = Marca::whereIn('name', $marcasNombres)->get()->keyBy('name');
+        foreach ($marcasNombres as $nombre) {
+            if (isset($marcasExistentes[$nombre])) {
+                $marcasCache[$nombre] = $marcasExistentes[$nombre]->id;
+            } else {
+                // Crear nueva marca
+                $nuevaMarca = Marca::create(['name' => $nombre, 'estado' => true]);
+                $marcasCache[$nombre] = $nuevaMarca->id;
+            }
+        }
+
+        // Obtener todas las unidades de medida en una sola query
+        $unidadesMedidaExistentes = UnidadMedida::whereIn('name', $unidadesMedidaNombres)->get()->keyBy('name');
+        foreach ($unidadesMedidaNombres as $nombre) {
+            if (isset($unidadesMedidaExistentes[$nombre])) {
+                $unidadesMedidaCache[$nombre] = $unidadesMedidaExistentes[$nombre]->id;
+            } else {
+                // Crear nueva unidad de medida
+                $nuevaUnidad = UnidadMedida::create(['name' => $nombre, 'estado' => true]);
+                $unidadesMedidaCache[$nombre] = $nuevaUnidad->id;
+            }
+        }
+
+        // Dividir en lotes de 50 productos (ajustado para transacciones más pequeñas)
+        $lotes = array_chunk($productos, 50);
 
         foreach ($lotes as $loteIndex => $lote) {
             try {
-                DB::transaction(function () use ($lote, &$duplicados) {
+                DB::transaction(function () use ($lote, &$duplicados, $categoriasCache, $marcasCache, $unidadesMedidaCache) {
                     foreach ($lote as $item) {
                         try {
                             $productoEnAlmacenesCreate = $item['producto_en_almacenes']['create'];
@@ -746,18 +807,22 @@ class ProductoController extends Controller
                                 $unidadMedidaNombre = $item['unidad_medida_id'];
                             }
 
-                            // Resolver IDs (crear si no existen)
+                            // Resolver IDs usando el cache en lugar de firstOrCreate
                             $categoriaId = is_numeric($categoriaNombre)
                                 ? $categoriaNombre
-                                : Categoria::firstOrCreate(['name' => $categoriaNombre])->id;
+                                : ($categoriasCache[$categoriaNombre] ?? null);
 
                             $marcaId = is_numeric($marcaNombre)
                                 ? $marcaNombre
-                                : Marca::firstOrCreate(['name' => $marcaNombre, 'estado' => true])->id;
+                                : ($marcasCache[$marcaNombre] ?? null);
 
                             $unidadMedidaId = is_numeric($unidadMedidaNombre)
                                 ? $unidadMedidaNombre
-                                : UnidadMedida::firstOrCreate(['name' => $unidadMedidaNombre, 'estado' => true])->id;
+                                : ($unidadesMedidaCache[$unidadMedidaNombre] ?? null);
+
+                            if (!$categoriaId || !$marcaId || !$unidadMedidaId) {
+                                throw new \Exception('IDs de catálogo no encontrados');
+                            }
 
                             // Crear producto
                             $producto = Producto::create([

@@ -27,11 +27,14 @@ class DetallePreciosController extends Controller
      */
     public function import(Request $request): JsonResponse
     {
+        // Aumentar timeout y memoria para importaciones grandes
+        set_time_limit(300); // 5 minutos
+        ini_set('memory_limit', '512M');
+
         $seen = [];
         foreach ($request['data'] as $index => $item) {
             $key = $item['producto_almacen']['connect']['id'] . '|' . $item['factor'];
             if (isset($seen[$key])) {
-                error_log("Duplicado encontrado en índice {$index}: {$key}");
                 throw ValidationException::withMessages([
                     "data.{$index}.factor" => "Duplicado: producto_almacen_id {$item['producto_almacen']['connect']['id']} con factor {$item['factor']}"
                 ]);
@@ -46,31 +49,39 @@ class DetallePreciosController extends Controller
         // Obtener tipo de ingreso "AJUSTE"
         $tipoIngreso = TipoIngresoSalida::where('name', 'AJUSTE')->firstOrFail();
 
+        // OPTIMIZACIÓN: Pre-cargar UnidadesDerivadaInmutable y empresa fuera del loop
+        $unidadesDerivadaInmutableCache = [];
+        $empresa = DB::table('user')
+            ->join('empresa', 'user.empresa_id', '=', 'empresa.id')
+            ->where('user.id', $userId)
+            ->select('empresa.serie_ingreso')
+            ->first();
+
+        if (!$empresa) {
+            throw new \Exception('No se encontró la empresa del usuario');
+        }
+
         foreach ($chunks as $chunkIndex => $chunk) {
             try {
-                DB::transaction(function () use ($chunk, &$duplicados, $userId, $tipoIngreso, $chunkIndex) {
+                DB::transaction(function () use ($chunk, &$duplicados, $userId, $tipoIngreso, $chunkIndex, &$unidadesDerivadaInmutableCache, $empresa) {
                     // Obtener todos los ProductoAlmacen necesarios
                     $productoAlmacenIds = array_unique(
                         array_map(fn($item) => $item['producto_almacen']['connect']['id'], $chunk)
                     );
-                    error_log("ProductoAlmacen IDs únicos en chunk: " . implode(', ', $productoAlmacenIds));
 
                     $productoAlmacenes = ProductoAlmacen::with('producto:id,unidades_contenidas')
                         ->whereIn('id', $productoAlmacenIds)
                         ->get()
                         ->keyBy('id');
-                    error_log("ProductoAlmacen encontrados: " . $productoAlmacenes->count());
 
                     // Obtener todas las UnidadesDerivadas necesarias
                     $unidadDerivadaIds = array_unique(
                         array_map(fn($item) => $item['unidad_derivada']['connect']['id'], $chunk)
                     );
-                    error_log("UnidadDerivada IDs únicos en chunk: " . implode(', ', $unidadDerivadaIds));
 
                     $unidadesDerivadas = UnidadDerivada::whereIn('id', $unidadDerivadaIds)
                         ->get()
                         ->keyBy('id');
-                    error_log("UnidadesDerivadas encontradas: " . $unidadesDerivadas->count());
 
                     $itemsProcesados = 0;
                     $itemsDuplicados = 0;
@@ -79,8 +90,6 @@ class DetallePreciosController extends Controller
                         try {
                             $productoAlmacenId = $item['producto_almacen']['connect']['id'];
                             $unidadDerivadaId = $item['unidad_derivada']['connect']['id'];
-
-                            error_log("  Item " . ($itemIndex + 1) . ": ProductoAlmacen={$productoAlmacenId}, UnidadDerivada={$unidadDerivadaId}, Factor={$item['factor']}, Precio={$item['precio_publico']}");
 
                             // Defaults
                             $item['precio_especial'] = $item['precio_especial'] ?? $item['precio_publico'];
@@ -104,38 +113,22 @@ class DetallePreciosController extends Controller
                                 'comision_ultimo' => $item['comision_ultimo'] ?? 0,
                                 'activador_ultimo' => $item['activador_ultimo'] ?? 0,
                             ]);
-                            error_log("    ProductoAlmacenUnidadDerivada creado con ID: " . $productoAlmacenUnidadDerivada->id);
 
                             $productoAlmacen = $productoAlmacenes->get($productoAlmacenId);
                             if (!$productoAlmacen) {
-                                error_log("    ERROR: ProductoAlmacen ID {$productoAlmacenId} no encontrado");
                                 throw new \Exception('El Producto no se encontró en el Almacén');
                             }
 
                             $unidadDerivada = $unidadesDerivadas->get($unidadDerivadaId);
                             if (!$unidadDerivada) {
-                                error_log("    ERROR: UnidadDerivada ID {$unidadDerivadaId} no encontrada");
                                 throw new \Exception('La Unidad Derivada no se encontró');
                             }
 
                             // Si es la unidad derivada por defecto (factor == unidades_contenidas), crear ingreso
                             $esLaUnidadDerivadaPorDefecto = (float) $item['factor'] === (float) $productoAlmacen->producto->unidades_contenidas;
-                            error_log("    Factor: {$item['factor']}, Unidades contenidas: {$productoAlmacen->producto->unidades_contenidas}, Es unidad por defecto: " . ($esLaUnidadDerivadaPorDefecto ? 'SI' : 'NO'));
 
                             if ($esLaUnidadDerivadaPorDefecto) {
-                                error_log("    Creando ingreso inicial para unidad por defecto...");
-                                // Obtener empresa del usuario
-                                $empresa = DB::table('user')
-                                    ->join('empresa', 'user.empresa_id', '=', 'empresa.id')
-                                    ->where('user.id', $userId)
-                                    ->select('empresa.serie_ingreso')
-                                    ->first();
-
-                                if (!$empresa) {
-                                    throw new \Exception('No se encontró la empresa del usuario');
-                                }
-
-                                // Obtener último número de ingreso
+                                // Obtener último número de ingreso (OPTIMIZADO: solo una vez por unidad por defecto)
                                 $ultimoIngreso = IngresoSalida::where('tipo_documento', 'in')
                                     ->where('serie', $empresa->serie_ingreso)
                                     ->orderBy('numero', 'desc')
@@ -143,11 +136,16 @@ class DetallePreciosController extends Controller
 
                                 $nuevoNumero = $ultimoIngreso ? $ultimoIngreso->numero + 1 : 1;
 
-                                // Crear UnidadDerivadaInmutable si no existe
-                                $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
-                                    ['name' => $unidadDerivada->name],
-                                    ['name' => $unidadDerivada->name]
-                                );
+                                // OPTIMIZACIÓN: Usar cache para UnidadDerivadaInmutable
+                                if (!isset($unidadesDerivadaInmutableCache[$unidadDerivada->name])) {
+                                    $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                                        ['name' => $unidadDerivada->name],
+                                        ['name' => $unidadDerivada->name]
+                                    );
+                                    $unidadesDerivadaInmutableCache[$unidadDerivada->name] = $unidadDerivadaInmutable;
+                                } else {
+                                    $unidadDerivadaInmutable = $unidadesDerivadaInmutableCache[$unidadDerivada->name];
+                                }
 
                                 // Calcular cantidad
                                 $cantidadFraccion = (float) $productoAlmacen->stock_fraccion;
@@ -189,37 +187,25 @@ class DetallePreciosController extends Controller
                                 ]);
                             }
                             $itemsProcesados++;
-                            error_log("    Item procesado exitosamente!");
                         } catch (\Illuminate\Database\QueryException $e) {
                             // Si es error de duplicado (unique constraint)
                             if ($e->getCode() === '23000') {
-                                error_log("    DUPLICADO: " . $e->getMessage());
                                 $duplicados[] = $item;
                                 $itemsDuplicados++;
                                 continue;
                             }
-                            error_log("    ERROR DE QUERY: " . $e->getMessage());
-                            throw $e;
-                        } catch (\Exception $e) {
-                            error_log("    ERROR GENERAL: " . $e->getMessage());
                             throw $e;
                         }
                     }
 
-                    error_log("Chunk procesado: {$itemsProcesados} items exitosos, {$itemsDuplicados} duplicados");
-
                     // Actualizar permitido=true para todos los productos afectados
                     $productosIds = $productoAlmacenes->pluck('producto_id')->unique();
                     Producto::whereIn('id', $productosIds)->update(['permitido' => true]);
-                    error_log("Actualizado permitido=true para " . $productosIds->count() . " productos");
                 }, 5);
             } catch (\Exception $e) {
-                error_log("ERROR EN CHUNK {$chunkIndex}: " . $e->getMessage());
-                error_log("Trace: " . $e->getTraceAsString());
                 Log::error('Error en chunk de importación de detalle de precios', [
                     'chunk_index' => $chunkIndex,
                     'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString()
                 ]);
                 continue;
             }
@@ -238,47 +224,124 @@ class DetallePreciosController extends Controller
      */
     public function getProductoAlmacenByCodProducto(Request $request): JsonResponse
     {
+        // Aumentar timeout para importaciones grandes
+        set_time_limit(300); // 5 minutos
+
         $validated = $request->validate([
             'data' => 'required|array',
             'data.*.cod_producto' => 'required|string',
             'data.*.almacen_id' => 'required|integer|exists:almacen,id',
         ]);
 
+        // OPTIMIZACIÓN: Extraer todos los códigos y almacenes únicos
+        $codigosProductos = array_unique(
+            array_map(fn($item) => trim($item['cod_producto']), $validated['data'])
+        );
+
+        $almacenesIds = array_unique(
+            array_map(fn($item) => $item['almacen_id'], $validated['data'])
+        );
+
+        // OPTIMIZACIÓN 1: Obtener todos los productos en una sola query
+        $productos = Producto::whereIn('cod_producto', $codigosProductos)
+            ->get()
+            ->keyBy('cod_producto');
+
+        // OPTIMIZACIÓN 2: Obtener todas las ubicaciones en una sola query
+        $ubicaciones = Ubicacion::whereIn('almacen_id', $almacenesIds)
+            ->get()
+            ->keyBy('almacen_id');
+
+        // Validar que todos los almacenes tengan al menos una ubicación
+        foreach ($almacenesIds as $almacenId) {
+            if (!isset($ubicaciones[$almacenId])) {
+                return response()->json([
+                    'message' => "El almacén ID {$almacenId} debe tener al menos una Ubicación",
+                ], 400);
+            }
+        }
+
+        // OPTIMIZACIÓN 3: Obtener todos los ProductoAlmacen existentes en una sola query
+        $productosAlmacenesExistentes = ProductoAlmacen::whereIn('producto_id', $productos->pluck('id'))
+            ->whereIn('almacen_id', $almacenesIds)
+            ->get()
+            ->keyBy(function($item) {
+                return $item->producto_id . '_' . $item->almacen_id;
+            });
+
         $results = [];
         $productosNoEncontrados = [];
+        $productosAlmacenesParaCrear = [];
 
+        // Procesar cada item
         foreach ($validated['data'] as $item) {
-            $codProducto = trim($item['cod_producto']); // Trim para evitar espacios
+            $codProducto = trim($item['cod_producto']);
             $almacenId = $item['almacen_id'];
 
-            // Buscar producto - usar BINARY para comparación exacta (case-sensitive)
-            // Esto asegura que "0" se encuentre correctamente
-            $producto = Producto::whereRaw('BINARY cod_producto = ?', [$codProducto])->first();
-
-            if (!$producto) {
+            // Verificar si el producto existe
+            if (!isset($productos[$codProducto])) {
                 $productosNoEncontrados[] = $codProducto;
                 continue;
             }
 
-            // Buscar ubicación del almacén
-            $ubicacion = Ubicacion::where('almacen_id', $almacenId)->first();
+            $producto = $productos[$codProducto];
+            $ubicacion = $ubicaciones[$almacenId];
+            $key = $producto->id . '_' . $almacenId;
 
-            if (!$ubicacion) {
-                return response()->json([
-                    'message' => 'Este Almacén debe tener al menos una Ubicación',
-                ], 400);
+            // Verificar si ya existe el ProductoAlmacen
+            if (isset($productosAlmacenesExistentes[$key])) {
+                $productoAlmacen = $productosAlmacenesExistentes[$key];
+
+                // Actualizar ubicación si es diferente
+                if ($productoAlmacen->ubicacion_id !== $ubicacion->id) {
+                    $productoAlmacen->update(['ubicacion_id' => $ubicacion->id]);
+                }
+            } else {
+                // Marcar para crear después
+                if (!isset($productosAlmacenesParaCrear[$key])) {
+                    $productosAlmacenesParaCrear[$key] = [
+                        'producto_id' => $producto->id,
+                        'almacen_id' => $almacenId,
+                        'ubicacion_id' => $ubicacion->id,
+                        'stock_fraccion' => 0,
+                        'costo' => 0,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                }
+            }
+        }
+
+        // OPTIMIZACIÓN 4: Crear todos los ProductoAlmacen faltantes en batch
+        if (!empty($productosAlmacenesParaCrear)) {
+            ProductoAlmacen::insert(array_values($productosAlmacenesParaCrear));
+
+            // Obtener los recién creados
+            $nuevosProductosAlmacenes = ProductoAlmacen::whereIn('producto_id', array_column($productosAlmacenesParaCrear, 'producto_id'))
+                ->whereIn('almacen_id', array_column($productosAlmacenesParaCrear, 'almacen_id'))
+                ->get()
+                ->keyBy(function($item) {
+                    return $item->producto_id . '_' . $item->almacen_id;
+                });
+
+            // Agregar a la colección existente
+            foreach ($nuevosProductosAlmacenes as $key => $item) {
+                $productosAlmacenesExistentes[$key] = $item;
+            }
+        }
+
+        // Construir resultados
+        foreach ($validated['data'] as $item) {
+            $codProducto = trim($item['cod_producto']);
+            $almacenId = $item['almacen_id'];
+
+            if (!isset($productos[$codProducto])) {
+                continue; // Ya fue marcado como no encontrado
             }
 
-            // Crear o encontrar ProductoAlmacen
-            $productoAlmacen = ProductoAlmacen::updateOrCreate(
-                [
-                    'producto_id' => $producto->id,
-                    'almacen_id' => $almacenId,
-                ],
-                [
-                    'ubicacion_id' => $ubicacion->id,
-                ]
-            );
+            $producto = $productos[$codProducto];
+            $key = $producto->id . '_' . $almacenId;
+            $productoAlmacen = $productosAlmacenesExistentes[$key];
 
             $results[] = [
                 'cod_producto' => $codProducto,
@@ -286,13 +349,11 @@ class DetallePreciosController extends Controller
             ];
         }
 
-        // Verificar si hay productos no encontrados
-        // Verificar si hay productos no encontrados (solo advertencia, no error)
+        // Advertencias
         $advertencias = [];
         if (!empty($productosNoEncontrados)) {
             $advertencias[] = 'Productos no encontrados (se omitieron): ' . implode(', ', $productosNoEncontrados);
         }
-
 
         $response = ['data' => $results];
         if (!empty($advertencias)) {
@@ -317,24 +378,46 @@ class DetallePreciosController extends Controller
             ->values()
             ->toArray();
 
+        // OPTIMIZACIÓN: Obtener todas las unidades existentes en una sola query
+        $nombres = array_column($uniqueData, 'name');
+        $unidadesExistentes = UnidadDerivada::whereIn('name', $nombres)
+            ->get()
+            ->keyBy('name');
+
         $results = [];
+        $nuevasUnidades = [];
 
+        // Identificar cuáles necesitan crearse
         foreach ($uniqueData as $item) {
-            $unidadDerivada = UnidadDerivada::firstOrCreate(
-                ['name' => $item['name']],
-                ['name' => $item['name'], 'estado' => true]
-            );
-
-            $results[] = [
-                'id' => $unidadDerivada->id,
-                'name' => $unidadDerivada->name,
-            ];
+            if (isset($unidadesExistentes[$item['name']])) {
+                // Ya existe, agregar al resultado
+                $unidad = $unidadesExistentes[$item['name']];
+                $results[] = [
+                    'id' => $unidad->id,
+                    'name' => $unidad->name,
+                ];
+            } else {
+                // No existe, marcar para crear
+                $nuevasUnidades[] = ['name' => $item['name'], 'estado' => true];
+            }
         }
 
-        $response = ['data' => $results];
-        if (!empty($advertencias)) {
-            $response['advertencias'] = $advertencias;
+        // Crear todas las nuevas unidades en batch (si hay)
+        if (!empty($nuevasUnidades)) {
+            UnidadDerivada::insert($nuevasUnidades);
+
+            // Obtener las recién creadas
+            $nombresNuevos = array_column($nuevasUnidades, 'name');
+            $recienCreadas = UnidadDerivada::whereIn('name', $nombresNuevos)->get();
+
+            foreach ($recienCreadas as $unidad) {
+                $results[] = [
+                    'id' => $unidad->id,
+                    'name' => $unidad->name,
+                ];
+            }
         }
-        return response()->json($response);
+
+        return response()->json(['data' => $results]);
     }
 }

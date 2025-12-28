@@ -48,6 +48,14 @@ class User extends Authenticatable
         'nacionalidad',
         'fecha_nacimiento',
 
+        // Información de Contrato
+        'cargo',
+        'fecha_inicio',
+        'fecha_baja',
+        'vacaciones_dias',
+        'sueldo_boleta',
+        'rol_sistema',
+
         'estado',
     ];
 
@@ -62,6 +70,10 @@ class User extends Authenticatable
             'password' => 'hashed',
             'efectivo' => 'decimal:2',
             'fecha_nacimiento' => 'date',
+            'fecha_inicio' => 'date',
+            'fecha_baja' => 'date',
+            'vacaciones_dias' => 'integer',
+            'sueldo_boleta' => 'decimal:2',
             'estado' => 'boolean',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
