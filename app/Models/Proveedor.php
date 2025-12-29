@@ -12,8 +12,8 @@ class Proveedor extends Model
     protected $table = 'proveedor';
 
     protected $fillable = [
-        'numero_documento',
-        'nombre',
+        'razon_social',
+        'ruc',
         'direccion',
         'telefono',
         'email',
@@ -30,5 +30,25 @@ class Proveedor extends Model
     public function compras(): HasMany
     {
         return $this->hasMany(Compra::class);
+    }
+
+    public function vendedores(): HasMany
+    {
+        return $this->hasMany(Vendedor::class);
+    }
+
+    public function carros(): HasMany
+    {
+        return $this->hasMany(Carro::class);
+    }
+
+    public function choferes(): HasMany
+    {
+        return $this->hasMany(Chofer::class);
+    }
+
+    public function ingresosSalidas(): HasMany
+    {
+        return $this->hasMany(IngresoSalida::class);
     }
 }

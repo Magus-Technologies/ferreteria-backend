@@ -75,6 +75,14 @@ class UsuarioController extends Controller
             'nacionalidad' => 'nullable|string|max:100',
             'fecha_nacimiento' => 'nullable|date',
             
+            // Información de Contrato
+            'cargo' => 'nullable|string|max:100',
+            'fecha_inicio' => 'nullable|date',
+            'fecha_baja' => 'nullable|date',
+            'vacaciones_dias' => 'nullable|integer|min:0',
+            'sueldo_boleta' => 'nullable|numeric|min:0',
+            'rol_sistema' => 'nullable|in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,CONDUCTOR',
+            
             // Otros
             'efectivo' => 'nullable|numeric|min:0',
             'estado' => 'nullable|boolean',
@@ -102,7 +110,7 @@ class UsuarioController extends Controller
         }
 
         $usuario = User::create([
-            'id' => Str::uuid()->toString(),
+            'id' => $this->generateCuid(),
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
@@ -123,6 +131,14 @@ class UsuarioController extends Controller
             'ciudad' => $request->ciudad,
             'nacionalidad' => $request->nacionalidad ?? 'PERUANA',
             'fecha_nacimiento' => $request->fecha_nacimiento,
+            
+            // Información de Contrato
+            'cargo' => $request->cargo,
+            'fecha_inicio' => $request->fecha_inicio,
+            'fecha_baja' => $request->fecha_baja,
+            'vacaciones_dias' => $request->vacaciones_dias ?? 15,
+            'sueldo_boleta' => $request->sueldo_boleta,
+            'rol_sistema' => $request->rol_sistema,
             
             // Otros
             'efectivo' => $request->efectivo ?? 0,
@@ -191,6 +207,14 @@ class UsuarioController extends Controller
             'ciudad' => 'nullable|string|max:100',
             'nacionalidad' => 'nullable|string|max:100',
             'fecha_nacimiento' => 'nullable|date',
+            
+            // Información de Contrato
+            'cargo' => 'nullable|string|max:100',
+            'fecha_inicio' => 'nullable|date',
+            'fecha_baja' => 'nullable|date',
+            'vacaciones_dias' => 'nullable|integer|min:0',
+            'sueldo_boleta' => 'nullable|numeric|min:0',
+            'rol_sistema' => 'nullable|in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,CONDUCTOR',
             
             // Otros
             'efectivo' => 'nullable|numeric|min:0',
@@ -270,6 +294,26 @@ class UsuarioController extends Controller
             $usuario->fecha_nacimiento = $request->fecha_nacimiento;
         }
 
+        // Actualizar información de contrato
+        if ($request->has('cargo')) {
+            $usuario->cargo = $request->cargo;
+        }
+        if ($request->has('fecha_inicio')) {
+            $usuario->fecha_inicio = $request->fecha_inicio;
+        }
+        if ($request->has('fecha_baja')) {
+            $usuario->fecha_baja = $request->fecha_baja;
+        }
+        if ($request->has('vacaciones_dias')) {
+            $usuario->vacaciones_dias = $request->vacaciones_dias;
+        }
+        if ($request->has('sueldo_boleta')) {
+            $usuario->sueldo_boleta = $request->sueldo_boleta;
+        }
+        if ($request->has('rol_sistema')) {
+            $usuario->rol_sistema = $request->rol_sistema;
+        }
+
         // Actualizar otros
         if ($request->has('efectivo')) {
             $usuario->efectivo = $request->efectivo;
@@ -318,5 +362,17 @@ class UsuarioController extends Controller
         return response()->json([
             'message' => 'Usuario desactivado exitosamente'
         ]);
+    }
+
+    /**
+     * Generar un CUID compatible con Prisma
+     */
+    private function generateCuid(): string
+    {
+        // Generar un CUID simple (compatible con Prisma)
+        // Formato: c + timestamp + random
+        $timestamp = base_convert(time(), 10, 36);
+        $random = substr(str_shuffle('0123456789abcdefghijklmnopqrstuvwxyz'), 0, 16);
+        return 'c' . $timestamp . $random;
     }
 }

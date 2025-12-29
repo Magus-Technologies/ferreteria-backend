@@ -24,6 +24,7 @@ class User extends Authenticatable
     const UPDATED_AT = 'updatedAt';
 
     protected $fillable = [
+        'id', // ← IMPORTANTE: Permitir asignar ID manualmente
         'name',
         'email',
         'password',

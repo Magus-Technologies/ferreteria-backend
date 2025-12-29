@@ -88,4 +88,14 @@ class Compra extends Model
     {
         return $this->hasMany(RecepcionAlmacen::class);
     }
+
+    public function despliegueDePago(): BelongsTo
+    {
+        return $this->belongsTo(DespliegueDePago::class);
+    }
+
+    public function egresoDinero(): BelongsTo
+    {
+        return $this->belongsTo(EgresoDinero::class);
+    }
 }

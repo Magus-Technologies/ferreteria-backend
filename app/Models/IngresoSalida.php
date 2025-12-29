@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Enums\TipoDocumento;
 
 class IngresoSalida extends Model
 {
@@ -41,6 +42,7 @@ class IngresoSalida extends Model
     protected function casts(): array
     {
         return [
+            'tipo_documento' => TipoDocumento::class,
             'fecha' => 'datetime',
             'estado' => 'boolean',
             'created_at' => 'datetime',

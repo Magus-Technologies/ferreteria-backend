@@ -194,4 +194,38 @@ class EmpresaController extends Controller
             'message' => 'Empresa eliminada exitosamente',
         ]);
     }
+
+    /**
+     * Obtener datos públicos de la empresa para PDFs
+     * Esta ruta es pública y no requiere autenticación
+     */
+    public function getDatosPublicos(): JsonResponse
+    {
+        // Obtener la primera empresa (normalmente solo hay una)
+        $empresa = Empresa::first();
+
+        if (!$empresa) {
+            return response()->json([
+                'error' => 'No se encontró información de la empresa'
+            ], 404);
+        }
+
+        // Devolver solo los datos necesarios para el PDF
+        return response()->json([
+            'data' => [
+                'id' => $empresa->id,
+                'ruc' => $empresa->ruc,
+                'razon_social' => $empresa->razon_social,
+                'nombre_comercial' => $empresa->nombre_comercial,
+                'direccion' => $empresa->direccion,
+                'departamento' => $empresa->departamento,
+                'provincia' => $empresa->provincia,
+                'distrito' => $empresa->distrito,
+                'telefono' => $empresa->telefono,
+                'celular' => $empresa->celular,
+                'email' => $empresa->email,
+                'logo' => $empresa->logo,
+            ]
+        ]);
+    }
 }

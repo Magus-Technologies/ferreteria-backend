@@ -263,7 +263,11 @@ class CotizacionController extends Controller
     {
         $cotizacion = Cotizacion::with([
             'cliente',
-            'user',
+            'user' => function ($query) {
+                $query->with(['empresa' => function ($q) {
+                    $q->select('id', 'ruc', 'razon_social', 'direccion', 'distrito', 'celular', 'email', 'logo');
+                }]);
+            },
             'almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',

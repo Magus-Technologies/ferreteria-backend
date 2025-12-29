@@ -27,7 +27,7 @@ class AuthController extends Controller
                     $query->select([
                         'id', 'ruc', 'razon_social', 'direccion', 'telefono', 'email',
                         'serie_ingreso', 'serie_salida', 'serie_recepcion_almacen',
-                        'almacen_id', 'marca_id'
+                        'almacen_id', 'marca_id', 'logo'
                     ]);
                 },
                 'permissions:id,name',
@@ -74,7 +74,7 @@ class AuthController extends Controller
                 $query->select([
                     'id', 'ruc', 'razon_social', 'direccion', 'telefono', 'email',
                     'serie_ingreso', 'serie_salida', 'serie_recepcion_almacen',
-                    'almacen_id', 'marca_id'
+                    'almacen_id', 'marca_id', 'logo'
                 ]);
             },
             'permissions:id,name',

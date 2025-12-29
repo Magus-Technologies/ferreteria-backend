@@ -6,6 +6,7 @@ use App\Http\Controllers\CategoriaController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CotizacionController;
+use App\Http\Controllers\DespliegueDePagoController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\DepartamentoController;
 use App\Http\Controllers\ProvinciaController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\MarcaController;
 use App\Http\Controllers\PrestamoController;
 use App\Http\Controllers\ProductoController;
+use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\UbicacionController;
 use App\Http\Controllers\UnidadDerivadaController;
 use App\Http\Controllers\UnidadMedidaController;
@@ -35,6 +37,9 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/password/send-code', [App\Http\Controllers\PasswordResetController::class, 'sendCode']);
 Route::post('/password/verify-code', [App\Http\Controllers\PasswordResetController::class, 'verifyCode']);
 Route::post('/password/reset', [App\Http\Controllers\PasswordResetController::class, 'resetPassword']);
+
+// Datos públicos de la empresa (para PDFs)
+Route::get('/empresa/datos-publicos', [EmpresaController::class, 'getDatosPublicos']);
 
 // Rutas públicas para ver detalles (necesarias para PDFs compartibles)
 Route::get('cotizaciones/{id}', [CotizacionController::class, 'show']);
@@ -103,7 +108,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // CLIENTES
     Route::apiResource('clientes', ClienteController::class);
 
-    // TODO: Agregar más rutas según necesidad
-    // Route::apiResource('proveedores', ProveedorController::class);
-    // etc.
+    // PROVEEDORES
+    Route::apiResource('proveedores', ProveedorController::class);
+
+    // DESPLIEGUE DE PAGO
+    Route::apiResource('despliegues-de-pago', DespliegueDePagoController::class)->only(['index', 'show']);
 });

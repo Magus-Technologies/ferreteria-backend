@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\TipoDocumento;
 use App\Models\IngresoSalida;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenIngresoSalida;
@@ -52,7 +53,11 @@ class IngresoSalidaController extends Controller
         }
 
         if ($request->has('tipo_documento')) {
-            $query->where('tipo_documento', $request->tipo_documento);
+            // Convertir string a enum
+            $tipoDocEnum = $request->tipo_documento === 'Ingreso'
+                ? TipoDocumento::Ingreso
+                : TipoDocumento::Salida;
+            $query->where('tipo_documento', $tipoDocEnum->value);
         }
 
         $perPage = $request->get('per_page', 15);
@@ -91,8 +96,13 @@ class IngresoSalidaController extends Controller
             'vencimiento' => 'nullable|date',
         ]);
 
-        return DB::transaction(function () use ($validated, $request) {
-            $tipoDocumento = $validated['tipo_documento'];
+        return DB::transaction(function () use ($validated) {
+            // Convertir string a enum
+            $tipoDocumentoString = $validated['tipo_documento'];
+            $tipoDocumentoEnum = $tipoDocumentoString === 'Ingreso'
+                ? TipoDocumento::Ingreso
+                : TipoDocumento::Salida;
+
             $almacenId = $validated['almacen_id'];
             $productoId = $validated['producto_id'];
             $unidadDerivadaId = $validated['unidad_derivada_id'];
@@ -115,7 +125,7 @@ class IngresoSalidaController extends Controller
             }
 
             // PASO 2: Calcular cantidad en fracciones
-            $esIngreso = $tipoDocumento === 'Ingreso';
+            $esIngreso = $tipoDocumentoString === 'Ingreso';
             $factor = (float) $unidadDerivada->factor;
             $cantidadFraccion = $factor * $cantidad * ($esIngreso ? 1 : -1);
 
@@ -127,7 +137,7 @@ class IngresoSalidaController extends Controller
             }
 
             // PASO 4: Obtener último número de documento
-            $ultimoIngreso = IngresoSalida::where('tipo_documento', $tipoDocumento)
+            $ultimoIngreso = IngresoSalida::where('tipo_documento', $tipoDocumentoEnum->value)
                 ->orderBy('numero', 'desc')
                 ->first();
             $numero = $ultimoIngreso ? $ultimoIngreso->numero + 1 : 1;
@@ -140,7 +150,7 @@ class IngresoSalidaController extends Controller
 
             // PASO 7: Crear IngresoSalida
             $ingresoSalida = IngresoSalida::create([
-                'tipo_documento' => $tipoDocumento,
+                'tipo_documento' => $tipoDocumentoEnum,
                 'serie' => $serie,
                 'numero' => $numero,
                 'fecha' => $validated['fecha'] ?? now(),

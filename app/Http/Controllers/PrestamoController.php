@@ -87,7 +87,7 @@ class PrestamoController extends Controller
             'productos.*.unidad_derivada_id' => 'required|integer',
             'productos.*.unidad_derivada_factor' => 'required|numeric|min:0',
             'productos.*.cantidad' => 'required|numeric|min:0.001',
-            'productos.*.costo' => 'required|numeric|min:0',
+            // 'productos.*.costo' => 'required|numeric|min:0', // Comentado: Solo se maneja por cantidad
 
             'fecha' => 'required|date',
             'fecha_vencimiento' => 'required|date|after_or_equal:fecha',
@@ -222,7 +222,7 @@ class PrestamoController extends Controller
         $productoAlmacenPrestamo = ProductoAlmacenPrestamo::create([
             'prestamo_id' => $prestamo->id,
             'producto_almacen_id' => $productoAlmacen->id,
-            'costo' => $productoData['costo'],
+            'costo' => 0, // Solo se maneja por cantidad (sin costo)
         ]);
 
         // Buscar la unidad derivada para obtener su nombre
@@ -279,7 +279,11 @@ class PrestamoController extends Controller
         $prestamo = Prestamo::with([
             'cliente',
             'proveedor',
-            'user',
+            'user' => function ($query) {
+                $query->with(['empresa' => function ($q) {
+                    $q->select('id', 'ruc', 'razon_social', 'direccion', 'distrito', 'celular', 'email', 'logo');
+                }]);
+            },
             'almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.unidadesDerivadas',
