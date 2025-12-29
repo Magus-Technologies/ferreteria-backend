@@ -22,6 +22,7 @@ use App\Http\Controllers\UbicacionController;
 use App\Http\Controllers\UnidadDerivadaController;
 use App\Http\Controllers\UnidadMedidaController;
 use App\Http\Controllers\VentaController;
+use App\Http\Controllers\EntregaProductoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -72,7 +73,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('detalle-precios/get-producto-almacen', [DetallePreciosController::class, 'getProductoAlmacenByCodProducto']);
     Route::post('detalle-precios/importar-unidades-derivadas', [DetallePreciosController::class, 'importarUnidadesDerivadas']);
     Route::apiResource('ingresos-salidas', IngresoSalidaController::class);
+
+    // VENTAS
     Route::apiResource('ventas', VentaController::class);
+
+    // ENTREGAS DE PRODUCTOS
+    Route::apiResource('entregas-productos', EntregaProductoController::class);
+
+    // COMPRAS
     Route::apiResource('compras', CompraController::class);
 
 

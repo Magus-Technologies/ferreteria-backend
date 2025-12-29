@@ -87,7 +87,7 @@ class PrestamoController extends Controller
             'productos.*.unidad_derivada_id' => 'required|integer',
             'productos.*.unidad_derivada_factor' => 'required|numeric|min:0',
             'productos.*.cantidad' => 'required|numeric|min:0.001',
-            // 'productos.*.costo' => 'required|numeric|min:0', // Comentado: Solo se maneja por cantidad
+            'productos.*.costo' => 'nullable|numeric|min:0', // Opcional: Solo se maneja por cantidad
 
             'fecha' => 'required|date',
             'fecha_vencimiento' => 'required|date|after_or_equal:fecha',
@@ -102,7 +102,7 @@ class PrestamoController extends Controller
             'telefono' => 'nullable|string|max:20',
             'direccion' => 'nullable|string',
 
-            'monto_total' => 'required|numeric|min:0',
+            'monto_total' => 'nullable|numeric|min:0', // Opcional: Se calcula automáticamente si no se proporciona
             'tasa_interes' => 'nullable|numeric|min:0|max:100',
             'tipo_interes' => ['nullable', Rule::in(['SIMPLE', 'COMPUESTO'])],
             'dias_gracia' => 'nullable|integer|min:0',
@@ -128,6 +128,17 @@ class PrestamoController extends Controller
 
         try {
             DB::beginTransaction();
+
+            // Calcular monto_total si no se proporciona
+            if (!isset($validated['monto_total']) || $validated['monto_total'] === null) {
+                $validated['monto_total'] = 0;
+                foreach ($validated['productos'] as $productoData) {
+                    $costo = $productoData['costo'] ?? 0;
+                    $cantidad = $productoData['cantidad'] ?? 0;
+                    $factor = $productoData['unidad_derivada_factor'] ?? 1;
+                    $validated['monto_total'] += $costo * $cantidad * $factor;
+                }
+            }
 
             // Generar ID y número de préstamo
             $prestamoId = 'pre' . Str::random(10);
@@ -222,7 +233,7 @@ class PrestamoController extends Controller
         $productoAlmacenPrestamo = ProductoAlmacenPrestamo::create([
             'prestamo_id' => $prestamo->id,
             'producto_almacen_id' => $productoAlmacen->id,
-            'costo' => 0, // Solo se maneja por cantidad (sin costo)
+            'costo' => $productoData['costo'] ?? 0, // Usar costo proporcionado o 0
         ]);
 
         // Buscar la unidad derivada para obtener su nombre
