@@ -126,7 +126,7 @@ class VentaController extends Controller
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'required|date',
             'estado_de_venta' => 'required|string',
-            'cliente_id' => 'required|integer',
+            'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
             'recomendado_por_id' => 'nullable|integer',
             'user_id' => 'required|string',
             'almacen_id' => 'required|integer',
@@ -148,6 +148,8 @@ class VentaController extends Controller
             'despliegue_de_pago_ventas' => 'sometimes|array',
             'despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required|string',
             'despliegue_de_pago_ventas.*.monto' => 'required|numeric',
+            'despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
+            'despliegue_de_pago_ventas.*.recibe_efectivo' => 'nullable|numeric',
             'ingreso_dinero_id' => 'nullable|string',
         ]);
 
@@ -166,6 +168,17 @@ class VentaController extends Controller
         \Log::info('=== FIN DEBUG ===');
 
         return DB::transaction(function () use ($validated) {
+            
+            // Si no se proporciona cliente_id, usar "CLIENTE VARIOS" (DNI: 99999999)
+            if (empty($validated['cliente_id'])) {
+                $clienteVarios = \App\Models\Cliente::where('numero_documento', '99999999')->first();
+                
+                if (!$clienteVarios) {
+                    throw new \Exception("No se encontró el cliente 'CLIENTE VARIOS' (DNI: 99999999). Por favor, créelo en la base de datos.");
+                }
+                
+                $validated['cliente_id'] = $clienteVarios->id;
+            }
             
             // Generar serie y número automáticamente si no se proporcionan
             if (empty($validated['serie']) || empty($validated['numero'])) {
@@ -271,6 +284,8 @@ class VentaController extends Controller
                         'venta_id' => $venta->id,
                         'despliegue_de_pago_id' => $desplieguePago['despliegue_de_pago_id'],
                         'monto' => $desplieguePago['monto'],
+                        'referencia' => $desplieguePago['referencia'] ?? null,
+                        'recibe_efectivo' => $desplieguePago['recibe_efectivo'] ?? null,
                     ]);
                 }
             }
@@ -458,6 +473,8 @@ class VentaController extends Controller
                         'venta_id' => $venta->id,
                         'despliegue_de_pago_id' => $desplieguePago['despliegue_de_pago_id'],
                         'monto' => $desplieguePago['monto'],
+                        'referencia' => $desplieguePago['referencia'] ?? null,
+                        'recibe_efectivo' => $desplieguePago['recibe_efectivo'] ?? null,
                     ]);
                 }
             }

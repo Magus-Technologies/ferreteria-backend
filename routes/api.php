@@ -23,6 +23,8 @@ use App\Http\Controllers\UnidadDerivadaController;
 use App\Http\Controllers\UnidadMedidaController;
 use App\Http\Controllers\VentaController;
 use App\Http\Controllers\EntregaProductoController;
+use App\Http\Controllers\SerieDocumentoController;
+use App\Http\Controllers\CajaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -80,6 +82,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // ENTREGAS DE PRODUCTOS
     Route::apiResource('entregas-productos', EntregaProductoController::class);
 
+    // SERIES DE DOCUMENTOS
+    Route::get('series-documentos/siguiente-numero/preview', [SerieDocumentoController::class, 'siguienteNumero']);
+    Route::apiResource('series-documentos', SerieDocumentoController::class);
+
     // COMPRAS
     Route::apiResource('compras', CompraController::class);
 
@@ -114,6 +120,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('distritos/{id}', [DistritoController::class, 'show']);
 
     // CLIENTES
+    Route::post('clientes/check-documento', [ClienteController::class, 'checkDocumento']);
     Route::apiResource('clientes', ClienteController::class);
 
     // PROVEEDORES
@@ -121,4 +128,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // DESPLIEGUE DE PAGO
     Route::apiResource('despliegues-de-pago', DespliegueDePagoController::class)->only(['index', 'show']);
+
+    // CAJA - Apertura y Cierre
+    Route::get('cajas/consulta-apertura', [CajaController::class, 'consultaApertura']);
+    Route::post('cajas/aperturar', [CajaController::class, 'aperturar']);
+    Route::post('cajas/{id}/cerrar', [CajaController::class, 'cerrar']);
+    Route::get('cajas/activa', [CajaController::class, 'cajaActiva']);
+    Route::get('cajas/historial', [CajaController::class, 'historial']);
 });

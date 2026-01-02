@@ -16,6 +16,9 @@ class ClienteController extends Controller
     {
         $query = Cliente::query();
 
+        // Excluir "CLIENTE VARIOS" (DNI: 99999999) de las búsquedas
+        $query->where('numero_documento', '!=', '99999999');
+
         // Filtros opcionales
         if ($request->has('search')) {
             $search = $request->search;
@@ -60,7 +63,22 @@ class ClienteController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate([
+        // Auto-detectar tipo de cliente según longitud del documento
+        $tipoCliente = $request->tipo_cliente;
+        if (!$tipoCliente || empty($tipoCliente)) {
+            $longitudDocumento = strlen($request->numero_documento);
+            $tipoCliente = $longitudDocumento === 8 ? 'p' : 'e';
+        }
+
+        // Convertir tipo_cliente a formato correcto si viene como "Persona" o "Empresa"
+        if ($tipoCliente === 'Persona') {
+            $tipoCliente = 'p';
+        } elseif ($tipoCliente === 'Empresa') {
+            $tipoCliente = 'e';
+        }
+
+        // Validación condicional según tipo de cliente
+        $rules = [
             'tipo_cliente' => ['nullable', Rule::in(['p', 'e', 'Persona', 'Empresa'])],
             'numero_documento' => [
                 'required',
@@ -68,31 +86,32 @@ class ClienteController extends Controller
                 'max:11',
                 'unique:cliente,numero_documento'
             ],
-            'nombres' => 'required|string|max:255',
-            'apellidos' => 'required|string|max:255',
-            'razon_social' => 'nullable|string|max:255',
             'direccion' => 'nullable|string|max:500',
             'direccion_2' => 'nullable|string|max:500',
             'direccion_3' => 'nullable|string|max:500',
+            'direccion_4' => 'nullable|string|max:500',
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
             'estado' => 'nullable|boolean',
-        ]);
+        ];
 
-        // Convertir tipo_cliente a formato correcto si viene como "Persona" o "Empresa"
-        if (isset($validated['tipo_cliente'])) {
-            if ($validated['tipo_cliente'] === 'Persona') {
-                $validated['tipo_cliente'] = 'p';
-            } elseif ($validated['tipo_cliente'] === 'Empresa') {
-                $validated['tipo_cliente'] = 'e';
-            }
+        // Si es Persona (DNI): nombres y apellidos son requeridos
+        if ($tipoCliente === 'p') {
+            $rules['nombres'] = 'required|string|max:255';
+            $rules['apellidos'] = 'required|string|max:255';
+            $rules['razon_social'] = 'nullable|string|max:255';
+        } 
+        // Si es Empresa (RUC): razon_social es requerida
+        else {
+            $rules['nombres'] = 'nullable|string|max:255';
+            $rules['apellidos'] = 'nullable|string|max:255';
+            $rules['razon_social'] = 'required|string|max:255';
         }
 
-        // Auto-detectar tipo de cliente según longitud del documento
-        if (!isset($validated['tipo_cliente']) || empty($validated['tipo_cliente'])) {
-            $longitudDocumento = strlen($validated['numero_documento']);
-            $validated['tipo_cliente'] = $longitudDocumento === 8 ? 'p' : 'e';
-        }
+        $validated = $request->validate($rules);
+
+        // Asignar tipo de cliente detectado
+        $validated['tipo_cliente'] = $tipoCliente;
 
         // Estado por defecto
         $validated['estado'] = $validated['estado'] ?? true;
@@ -112,7 +131,22 @@ class ClienteController extends Controller
     {
         $cliente = Cliente::findOrFail($id);
 
-        $validated = $request->validate([
+        // Auto-detectar tipo de cliente según longitud del documento
+        $tipoCliente = $request->tipo_cliente ?? $cliente->tipo_cliente;
+        if ($request->has('numero_documento')) {
+            $longitudDocumento = strlen($request->numero_documento);
+            $tipoCliente = $longitudDocumento === 8 ? 'p' : 'e';
+        }
+
+        // Convertir tipo_cliente a formato correcto si viene como "Persona" o "Empresa"
+        if ($tipoCliente === 'Persona') {
+            $tipoCliente = 'p';
+        } elseif ($tipoCliente === 'Empresa') {
+            $tipoCliente = 'e';
+        }
+
+        // Validación condicional según tipo de cliente
+        $rules = [
             'tipo_cliente' => ['sometimes', Rule::in(['p', 'e', 'Persona', 'Empresa'])],
             'numero_documento' => [
                 'sometimes',
@@ -121,24 +155,33 @@ class ClienteController extends Controller
                 'max:11',
                 Rule::unique('cliente', 'numero_documento')->ignore($cliente->id)
             ],
-            'nombres' => 'sometimes|required|string|max:255',
-            'apellidos' => 'sometimes|required|string|max:255',
-            'razon_social' => 'nullable|string|max:255',
             'direccion' => 'nullable|string|max:500',
             'direccion_2' => 'nullable|string|max:500',
             'direccion_3' => 'nullable|string|max:500',
+            'direccion_4' => 'nullable|string|max:500',
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
             'estado' => 'nullable|boolean',
-        ]);
+        ];
 
-        // Convertir tipo_cliente a formato correcto si viene como "Persona" o "Empresa"
-        if (isset($validated['tipo_cliente'])) {
-            if ($validated['tipo_cliente'] === 'Persona') {
-                $validated['tipo_cliente'] = 'p';
-            } elseif ($validated['tipo_cliente'] === 'Empresa') {
-                $validated['tipo_cliente'] = 'e';
-            }
+        // Si es Persona (DNI): nombres y apellidos son requeridos
+        if ($tipoCliente === 'p') {
+            $rules['nombres'] = 'sometimes|required|string|max:255';
+            $rules['apellidos'] = 'sometimes|required|string|max:255';
+            $rules['razon_social'] = 'nullable|string|max:255';
+        } 
+        // Si es Empresa (RUC): razon_social es requerida
+        else {
+            $rules['nombres'] = 'nullable|string|max:255';
+            $rules['apellidos'] = 'nullable|string|max:255';
+            $rules['razon_social'] = 'sometimes|required|string|max:255';
+        }
+
+        $validated = $request->validate($rules);
+
+        // Asignar tipo de cliente detectado si cambió el documento
+        if ($request->has('numero_documento')) {
+            $validated['tipo_cliente'] = $tipoCliente;
         }
 
         $cliente->update($validated);
@@ -146,6 +189,31 @@ class ClienteController extends Controller
         return response()->json([
             'data' => $cliente,
             'message' => 'Cliente actualizado exitosamente'
+        ]);
+    }
+
+    /**
+     * Verificar si un documento ya existe
+     */
+    public function checkDocumento(Request $request): JsonResponse
+    {
+        $request->validate([
+            'numero_documento' => 'required|string|max:11',
+            'exclude_id' => 'nullable|string', // Para excluir el ID actual al editar
+        ]);
+
+        $query = Cliente::where('numero_documento', $request->numero_documento);
+
+        // Si estamos editando, excluir el ID actual
+        if ($request->has('exclude_id')) {
+            $query->where('id', '!=', $request->exclude_id);
+        }
+
+        $exists = $query->exists();
+
+        return response()->json([
+            'exists' => $exists,
+            'message' => $exists ? 'El documento ya está registrado' : 'Documento disponible'
         ]);
     }
 

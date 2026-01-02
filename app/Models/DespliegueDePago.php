@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class DespliegueDePago extends Model
 {
-    protected $table = 'DespliegueDePago';
+    protected $table = 'despliegueDePago';
     
     public $incrementing = false;
     protected $keyType = 'string';

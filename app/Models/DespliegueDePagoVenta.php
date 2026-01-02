@@ -24,6 +24,8 @@ class DespliegueDePagoVenta extends Model
         'venta_id',
         'despliegue_de_pago_id',
         'monto',
+        'referencia',
+        'recibe_efectivo',
     ];
 
     /**
@@ -33,6 +35,7 @@ class DespliegueDePagoVenta extends Model
     {
         return [
             'monto' => 'decimal:4',
+            'recibe_efectivo' => 'decimal:4',
         ];
     }
 

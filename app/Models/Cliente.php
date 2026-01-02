@@ -20,6 +20,7 @@ class Cliente extends Model
         'direccion',
         'direccion_2',
         'direccion_3',
+        'direccion_4',
         'telefono',
         'email',
         'estado',
