@@ -61,9 +61,18 @@ class DetallePreciosController extends Controller
             throw new \Exception('No se encontró la empresa del usuario');
         }
 
+        // OPTIMIZACIÓN CRÍTICA: Obtener último número de ingreso UNA SOLA VEZ
+        // En lugar de consultar la BD 5000-6000 veces dentro del loop
+        $ultimoIngreso = IngresoSalida::where('tipo_documento', 'in')
+            ->where('serie', $empresa->serie_ingreso)
+            ->orderBy('numero', 'desc')
+            ->first();
+
+        $contadorNumeroIngreso = $ultimoIngreso ? $ultimoIngreso->numero + 1 : 1;
+
         foreach ($chunks as $chunkIndex => $chunk) {
             try {
-                DB::transaction(function () use ($chunk, &$duplicados, $userId, $tipoIngreso, $chunkIndex, &$unidadesDerivadaInmutableCache, $empresa) {
+                DB::transaction(function () use ($chunk, &$duplicados, $userId, $tipoIngreso, $chunkIndex, &$unidadesDerivadaInmutableCache, $empresa, &$contadorNumeroIngreso) {
                     // Obtener todos los ProductoAlmacen necesarios
                     $productoAlmacenIds = array_unique(
                         array_map(fn($item) => $item['producto_almacen']['connect']['id'], $chunk)
@@ -86,6 +95,14 @@ class DetallePreciosController extends Controller
                     $itemsProcesados = 0;
                     $itemsDuplicados = 0;
 
+                    // OPTIMIZACIÓN CRÍTICA: Acumular datos para batch insert
+                    $batchProductoAlmacenUnidadDerivada = [];
+                    $batchIngresoSalida = [];
+                    $batchProductoAlmacenIngresoSalida = [];
+                    $batchUnidadDerivadaInmutableIngresoSalida = [];
+                    $batchHistorial = [];
+                    $now = now();
+
                     foreach ($chunk as $itemIndex => $item) {
                         try {
                             $productoAlmacenId = $item['producto_almacen']['connect']['id'];
@@ -96,8 +113,8 @@ class DetallePreciosController extends Controller
                             $item['precio_minimo'] = $item['precio_minimo'] ?? $item['precio_publico'];
                             $item['precio_ultimo'] = $item['precio_ultimo'] ?? $item['precio_publico'];
 
-                            // Crear ProductoAlmacenUnidadDerivada
-                            $productoAlmacenUnidadDerivada = ProductoAlmacenUnidadDerivada::create([
+                            // OPTIMIZACIÓN: Acumular en array para batch insert
+                            $batchProductoAlmacenUnidadDerivada[] = [
                                 'producto_almacen_id' => $productoAlmacenId,
                                 'unidad_derivada_id' => $unidadDerivadaId,
                                 'factor' => $item['factor'],
@@ -112,7 +129,8 @@ class DetallePreciosController extends Controller
                                 'precio_ultimo' => $item['precio_ultimo'] ?? 0,
                                 'comision_ultimo' => $item['comision_ultimo'] ?? 0,
                                 'activador_ultimo' => $item['activador_ultimo'] ?? 0,
-                            ]);
+                                // NOTA: Esta tabla NO tiene timestamps (created_at, updated_at)
+                            ];
 
                             $productoAlmacen = $productoAlmacenes->get($productoAlmacenId);
                             if (!$productoAlmacen) {
@@ -124,67 +142,19 @@ class DetallePreciosController extends Controller
                                 throw new \Exception('La Unidad Derivada no se encontró');
                             }
 
-                            // Si es la unidad derivada por defecto (factor == unidades_contenidas), crear ingreso
+                            // Si es la unidad derivada por defecto, preparar datos para ingreso
                             $esLaUnidadDerivadaPorDefecto = (float) $item['factor'] === (float) $productoAlmacen->producto->unidades_contenidas;
 
                             if ($esLaUnidadDerivadaPorDefecto) {
-                                // Obtener último número de ingreso (OPTIMIZADO: solo una vez por unidad por defecto)
-                                $ultimoIngreso = IngresoSalida::where('tipo_documento', 'in')
-                                    ->where('serie', $empresa->serie_ingreso)
-                                    ->orderBy('numero', 'desc')
-                                    ->first();
-
-                                $nuevoNumero = $ultimoIngreso ? $ultimoIngreso->numero + 1 : 1;
-
-                                // OPTIMIZACIÓN: Usar cache para UnidadDerivadaInmutable
-                                if (!isset($unidadesDerivadaInmutableCache[$unidadDerivada->name])) {
-                                    $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
-                                        ['name' => $unidadDerivada->name],
-                                        ['name' => $unidadDerivada->name]
-                                    );
-                                    $unidadesDerivadaInmutableCache[$unidadDerivada->name] = $unidadDerivadaInmutable;
-                                } else {
-                                    $unidadDerivadaInmutable = $unidadesDerivadaInmutableCache[$unidadDerivada->name];
-                                }
-
-                                // Calcular cantidad
-                                $cantidadFraccion = (float) $productoAlmacen->stock_fraccion;
-                                $cantidad = $cantidadFraccion / (float) $productoAlmacenUnidadDerivada->factor;
-
-                                // Crear IngresoSalida
-                                $ingresoSalida = IngresoSalida::create([
-                                    'tipo_ingreso_id' => $tipoIngreso->id,
-                                    'descripcion' => 'Ingreso por Importación de Producto',
-                                    'almacen_id' => $productoAlmacen->almacen_id,
-                                    'user_id' => $userId,
-                                    'tipo_documento' => 'in',
-                                    'serie' => $empresa->serie_ingreso,
-                                    'fecha' => now(),
-                                    'numero' => $nuevoNumero,
-                                ]);
-
-                                // Crear ProductoAlmacenIngresoSalida
-                                $productoAlmacenIngresoSalida = ProductoAlmacenIngresoSalida::create([
-                                    'ingreso_id' => $ingresoSalida->id,
+                                // Guardar referencia para procesar después del batch insert
+                                $batchIngresoSalida[] = [
+                                    'producto_almacen_id' => $productoAlmacenId,
+                                    'unidad_derivada_name' => $unidadDerivada->name,
+                                    'factor' => $item['factor'],
+                                    'stock_fraccion' => (float) $productoAlmacen->stock_fraccion,
                                     'costo' => $productoAlmacen->costo,
-                                    'producto_almacen_id' => $productoAlmacen->id,
-                                ]);
-
-                                // Crear UnidadDerivadaInmutableIngresoSalida
-                                $unidadDerivadaInmutableIngresoSalida = UnidadDerivadaInmutableIngresoSalida::create([
-                                    'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
-                                    'producto_almacen_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
-                                    'factor' => $productoAlmacenUnidadDerivada->factor,
-                                    'cantidad' => $cantidad,
-                                    'cantidad_restante' => $cantidad,
-                                ]);
-
-                                // Crear Historial
-                                HistorialUnidadDerivadaInmutableIngresoSalida::create([
-                                    'unidad_derivada_inmutable_ingreso_salida_id' => $unidadDerivadaInmutableIngresoSalida->id,
-                                    'stock_anterior' => 0,
-                                    'stock_nuevo' => $cantidadFraccion,
-                                ]);
+                                    'almacen_id' => $productoAlmacen->almacen_id,
+                                ];
                             }
                             $itemsProcesados++;
                         } catch (\Illuminate\Database\QueryException $e) {
@@ -195,6 +165,70 @@ class DetallePreciosController extends Controller
                                 continue;
                             }
                             throw $e;
+                        }
+                    }
+
+                    // ========== BATCH INSERTS ==========
+                    // OPTIMIZACIÓN CRÍTICA: Insertar todos los registros de una vez
+                    // Esto reduce de 6000+ queries individuales a solo 1 query por tabla
+
+                    // 1. Batch insert de ProductoAlmacenUnidadDerivada
+                    if (!empty($batchProductoAlmacenUnidadDerivada)) {
+                        try {
+                            DB::table('productoalmacenunidadderivada')->insert($batchProductoAlmacenUnidadDerivada);
+                        } catch (\Illuminate\Database\QueryException $e) {
+                            // Manejar duplicados
+                            if ($e->getCode() === '23000') {
+                                // Si hay duplicados, insertar uno por uno para identificarlos
+                                foreach ($batchProductoAlmacenUnidadDerivada as $index => $record) {
+                                    try {
+                                        DB::table('productoalmacenunidadderivada')->insert($record);
+                                    } catch (\Illuminate\Database\QueryException $e2) {
+                                        if ($e2->getCode() === '23000') {
+                                            $duplicados[] = $chunk[$index] ?? null;
+                                            $itemsDuplicados++;
+                                        }
+                                    }
+                                }
+                            } else {
+                                throw $e;
+                            }
+                        }
+                    }
+
+                    // 2. Procesar IngresoSalida (solo si hay unidades por defecto)
+                    if (!empty($batchIngresoSalida)) {
+                        $ingresoSalidaBatch = [];
+                        foreach ($batchIngresoSalida as $ingresoData) {
+                            // Cache de UnidadDerivadaInmutable
+                            if (!isset($unidadesDerivadaInmutableCache[$ingresoData['unidad_derivada_name']])) {
+                                $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                                    ['name' => $ingresoData['unidad_derivada_name']],
+                                    ['name' => $ingresoData['unidad_derivada_name']]
+                                );
+                                $unidadesDerivadaInmutableCache[$ingresoData['unidad_derivada_name']] = $unidadDerivadaInmutable;
+                            } else {
+                                $unidadDerivadaInmutable = $unidadesDerivadaInmutableCache[$ingresoData['unidad_derivada_name']];
+                            }
+
+                            $nuevoNumero = $contadorNumeroIngreso++;
+
+                            $ingresoSalidaBatch[] = [
+                                'tipo_ingreso_id' => $tipoIngreso->id,
+                                'descripcion' => 'Ingreso por Importación de Producto',
+                                'almacen_id' => $ingresoData['almacen_id'],
+                                'user_id' => $userId,
+                                'tipo_documento' => 'in',
+                                'serie' => $empresa->serie_ingreso,
+                                'fecha' => $now,
+                                'numero' => $nuevoNumero,
+                                'created_at' => $now,
+                                'updated_at' => $now,
+                            ];
+                        }
+
+                        if (!empty($ingresoSalidaBatch)) {
+                            DB::table('ingresosalida')->insert($ingresoSalidaBatch);
                         }
                     }
 
