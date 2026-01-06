@@ -92,6 +92,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // COTIZACIONES
     Route::get('cotizaciones/siguiente-numero/preview', [CotizacionController::class, 'siguienteNumero']);
+    Route::post('cotizaciones/{id}/convertir-a-venta', [CotizacionController::class, 'convertirAVenta']);
     Route::apiResource('cotizaciones', CotizacionController::class);
 
     // PRÉSTAMOS
@@ -122,6 +123,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // CLIENTES
     Route::post('clientes/check-documento', [ClienteController::class, 'checkDocumento']);
     Route::apiResource('clientes', ClienteController::class);
+
+    // CHOFERES
+    Route::get('choferes/buscar-dni/{dni}', [App\Http\Controllers\ChoferController::class, 'buscarPorDni']);
+    Route::apiResource('choferes', App\Http\Controllers\ChoferController::class);
 
     // PROVEEDORES
     Route::apiResource('proveedores', ProveedorController::class);

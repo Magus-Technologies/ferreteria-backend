@@ -322,4 +322,114 @@ class CotizacionController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Convertir cotización a venta
+     * POST /api/cotizaciones/{id}/convertir-a-venta
+     */
+    public function convertirAVenta(string $id): JsonResponse
+    {
+        try {
+            DB::beginTransaction();
+
+            $cotizacion = Cotizacion::with([
+                'productosPorAlmacen.productoAlmacen',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+            ])->findOrFail($id);
+
+            // Validar que no esté ya convertida
+            if ($cotizacion->venta_id) {
+                return response()->json([
+                    'message' => 'Esta cotización ya fue convertida a venta',
+                    'venta_id' => $cotizacion->venta_id,
+                ], 400);
+            }
+
+            // Generar ID y número de venta
+            $ventaId = 'ven' . Str::random(10);
+            
+            // Obtener el siguiente número de serie
+            $ultimaVenta = \App\Models\Venta::where('tipo_documento', $cotizacion->tipo_documento ?? '03')
+                ->orderBy('numero', 'desc')
+                ->first();
+            
+            $numero = $ultimaVenta ? $ultimaVenta->numero + 1 : 1;
+            $serie = $ultimaVenta ? $ultimaVenta->serie : '001';
+
+            // Crear la venta
+            $venta = \App\Models\Venta::create([
+                'id' => $ventaId,
+                'tipo_documento' => $cotizacion->tipo_documento ?? '03', // Boleta por defecto
+                'serie' => $serie,
+                'numero' => $numero,
+                'descripcion' => "Convertida desde cotización {$cotizacion->numero}",
+                'forma_de_pago' => $cotizacion->forma_de_pago ?? 'co', // Contado por defecto
+                'tipo_moneda' => $cotizacion->tipo_moneda,
+                'tipo_de_cambio' => $cotizacion->tipo_de_cambio,
+                'fecha' => now(),
+                'estado_de_venta' => 'pe', // Pendiente
+                'cliente_id' => $cotizacion->cliente_id,
+                'recomendado_por_id' => null,
+                'user_id' => auth()->id(),
+                'almacen_id' => $cotizacion->almacen_id,
+            ]);
+
+            // Copiar productos de la cotización a la venta
+            foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
+                $productoAlmacenVenta = \App\Models\ProductoAlmacenVenta::create([
+                    'venta_id' => $venta->id,
+                    'producto_almacen_id' => $productoAlmacenCotizacion->producto_almacen_id,
+                    'costo' => $productoAlmacenCotizacion->costo,
+                ]);
+
+                foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidadDerivada) {
+                    \App\Models\UnidadDerivadaInmutableVenta::create([
+                        'unidad_derivada_inmutable_id' => $unidadDerivada->unidad_derivada_inmutable_id,
+                        'producto_almacen_venta_id' => $productoAlmacenVenta->id,
+                        'factor' => $unidadDerivada->factor,
+                        'cantidad' => $unidadDerivada->cantidad,
+                        'precio' => $unidadDerivada->precio,
+                        'recargo' => $unidadDerivada->recargo,
+                        'descuento_tipo' => $unidadDerivada->descuento_tipo,
+                        'descuento' => $unidadDerivada->descuento,
+                    ]);
+
+                    // Si la cotización NO tenía stock reservado, descontarlo ahora
+                    if (!$cotizacion->reservar_stock) {
+                        $cantidadEnFraccion = $unidadDerivada->cantidad * $unidadDerivada->factor;
+                        $productoAlmacenCotizacion->productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+                    }
+                }
+            }
+
+            // Actualizar la cotización con el ID de la venta
+            $cotizacion->update([
+                'venta_id' => $venta->id,
+                'estado_cotizacion' => 'co', // Convertida
+            ]);
+
+            DB::commit();
+
+            // Cargar relaciones para la respuesta
+            $venta->load([
+                'cliente',
+                'user',
+                'almacen',
+                'productosPorAlmacen.productoAlmacen.producto',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+            ]);
+
+            return response()->json([
+                'data' => $venta,
+                'message' => 'Cotización convertida a venta exitosamente',
+                'venta_id' => $venta->id,
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al convertir la cotización: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
 }

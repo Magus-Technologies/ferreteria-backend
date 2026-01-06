@@ -45,7 +45,10 @@ class ProductoController extends Controller
                     ->with([
                         'almacen:id,name',
                         'ubicacion:id,name',
-                        'unidadesDerivadas.unidadDerivada:id,name',
+                        'unidadesDerivadas' => function ($udq) {
+                            $udq->with('unidadDerivada:id,name')
+                                ->orderBy('factor', 'desc'); // Ordenar por factor descendente (GALON primero)
+                        },
                         'compras' => function ($cq) {
                             $cq->whereHas('compra', function ($sq) {
                                     $sq->where('estado_de_compra', 'Procesado');
@@ -407,7 +410,9 @@ class ProductoController extends Controller
             'unidadMedida',
             'productoEnAlmacenes.almacen',
             'productoEnAlmacenes.ubicacion',
-            'productoEnAlmacenes.unidadesDerivadas',
+            'productoEnAlmacenes.unidadesDerivadas' => function ($udq) {
+                $udq->orderBy('factor', 'desc'); // Ordenar por factor descendente
+            },
         ])->findOrFail($id);
 
         return response()->json($producto);
@@ -436,7 +441,10 @@ class ProductoController extends Controller
                     ->with([
                         'almacen:id,name',
                         'ubicacion:id,name',
-                        'unidadesDerivadas.unidadDerivada:id,name',
+                        'unidadesDerivadas' => function ($udq) {
+                            $udq->with('unidadDerivada:id,name')
+                                ->orderBy('factor', 'desc'); // Ordenar por factor descendente
+                        },
                     ]);
             }
         ])->findOrFail($id);
@@ -878,17 +886,24 @@ class ProductoController extends Controller
     /**
      * Validar si un código de producto ya existe
      *
-     * GET /api/productos/validar-codigo?cod_producto=ABC123
+     * GET /api/productos/validar-codigo?cod_producto=ABC123&exclude_id=123
      */
     public function validarCodigo(Request $request): JsonResponse
     {
         $request->validate([
             'cod_producto' => 'required|string',
+            'exclude_id' => 'nullable|integer',
         ]);
 
-        $producto = Producto::where('cod_producto', $request->cod_producto)
-            ->select('cod_producto')
-            ->first();
+        $query = Producto::where('cod_producto', $request->cod_producto)
+            ->select('cod_producto');
+
+        // Excluir el producto actual si se está editando
+        if ($request->has('exclude_id') && $request->exclude_id) {
+            $query->where('id', '!=', $request->exclude_id);
+        }
+
+        $producto = $query->first();
 
         return response()->json([
             'data' => $producto?->cod_producto,
