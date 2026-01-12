@@ -30,6 +30,12 @@ class VentaController extends Controller
             'estado_de_venta' => 'sometimes|string',
             'cliente_id' => 'sometimes|integer',
             'tipo_documento' => 'sometimes|string',
+            'forma_de_pago' => 'sometimes|string',
+            'user_id' => 'sometimes|string',
+            'serie' => 'sometimes|string',
+            'numero' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
             'search' => 'sometimes|string',
             'per_page' => 'sometimes|integer|min:1|max:100',
             'page' => 'sometimes|integer|min:1',
@@ -72,6 +78,37 @@ class VentaController extends Controller
             if ($tipoDocEnum) {
                 $query->where('tipo_documento', $tipoDocEnum->value);
             }
+        }
+
+        // Filter by forma_de_pago
+        if ($request->has('forma_de_pago')) {
+            $formaPagoEnum = FormaDePago::tryFrom($request->forma_de_pago);
+            if ($formaPagoEnum) {
+                $query->where('forma_de_pago', $formaPagoEnum->value);
+            }
+        }
+
+        // Filter by user_id (vendedor)
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        // Filter by serie
+        if ($request->has('serie')) {
+            $query->where('serie', $request->serie);
+        }
+
+        // Filter by numero
+        if ($request->has('numero')) {
+            $query->where('numero', $request->numero);
+        }
+
+        // Filter by fecha range (desde/hasta)
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
         }
 
         // Search by serie, numero, or cliente

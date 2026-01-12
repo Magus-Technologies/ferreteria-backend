@@ -27,6 +27,11 @@ class CompraController extends Controller
             'almacen_id' => 'sometimes|integer',
             'estado_de_compra' => 'sometimes|string',
             'proveedor_id' => 'sometimes|integer',
+            'forma_de_pago' => 'sometimes|string',
+            'tipo_documento' => 'sometimes|string',
+            'user_id' => 'sometimes|string',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
             'search' => 'sometimes|string',
             'per_page' => 'sometimes|integer|min:1|max:100',
             'page' => 'sometimes|integer|min:1',
@@ -65,6 +70,32 @@ class CompraController extends Controller
         // Filter by proveedor_id
         if ($request->has('proveedor_id')) {
             $query->where('proveedor_id', $request->proveedor_id);
+        }
+
+        // Filter by forma_de_pago
+        if ($request->has('forma_de_pago')) {
+            $formaPagoEnum = FormaDePago::tryFrom($request->forma_de_pago);
+            if ($formaPagoEnum) {
+                $query->where('forma_de_pago', $formaPagoEnum->value);
+            }
+        }
+
+        // Filter by tipo_documento
+        if ($request->has('tipo_documento')) {
+            $query->where('tipo_documento', $request->tipo_documento);
+        }
+
+        // Filter by user_id
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        // Filter by fecha range (desde/hasta)
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
         }
 
         // Search by serie, numero, or proveedor razon_social
@@ -311,8 +342,21 @@ class CompraController extends Controller
             // Add id to validated data for validation
             $validated['id'] = $id;
 
+            // Merge existing compra data with validated data for validation
+            $dataParaValidar = array_merge([
+                'estado_de_compra' => $compra->estado_de_compra->value,
+                'forma_de_pago' => $compra->forma_de_pago->value,
+                'tipo_moneda' => $compra->tipo_moneda->value,
+                'tipo_de_cambio' => $compra->tipo_de_cambio,
+                'serie' => $compra->serie,
+                'numero' => $compra->numero,
+                'proveedor_id' => $compra->proveedor_id,
+                'egreso_dinero_id' => $compra->egreso_dinero_id,
+                'despliegue_de_pago_id' => $compra->despliegue_de_pago_id,
+            ], $validated);
+
             // Validar nueva compra
-            $this->validarNuevaCompra($validated);
+            $this->validarNuevaCompra($dataParaValidar);
 
             // Devolver dinero de compra anterior
             $this->devolverDineroDeCompra($compra);

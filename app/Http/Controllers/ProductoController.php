@@ -172,13 +172,18 @@ class ProductoController extends Controller
         // Paginación de 100 items por defecto (requerido para mi-almacen)
         $perPage = $request->get('per_page', 100);
 
-        // Si hay búsqueda activa, ordenar alfabéticamente por nombre
-        // De lo contrario, ordenar por fecha de creación (más reciente primero)
-        if ($request->has('search') && !empty($request->search)) {
-            $productos = $query->orderBy('name', 'asc')->paginate($perPage);
-        } else {
-            $productos = $query->latest()->paginate($perPage);
-        }
+        // Ordenar alfabéticamente por nombre (A-Z) siempre
+        $productos = $query->orderBy('name', 'asc')->paginate($perPage);
+
+        // Agregar campo tiene_ingresos a cada producto
+        $productos->getCollection()->transform(function ($producto) {
+            $tieneIngresos = ProductoAlmacenIngresoSalida::whereHas('productoAlmacen', function ($q) use ($producto) {
+                $q->where('producto_id', $producto->id);
+            })->exists();
+
+            $producto->tiene_ingresos = $tieneIngresos;
+            return $producto;
+        });
 
         return response()->json($productos);
     }
@@ -643,6 +648,7 @@ class ProductoController extends Controller
      * Remove the specified resource from storage.
      *
      * Elimina producto con validaciones:
+     * - Verifica que no tenga ingresos/salidas
      * - Verifica que no tenga más de 1 compra
      * - Si tiene 1 compra, verifica que sea stock inicial
      * - Elimina la compra de stock inicial
@@ -653,7 +659,18 @@ class ProductoController extends Controller
         return DB::transaction(function () use ($id) {
             $producto = Producto::findOrFail($id);
 
-            // PASO 1: Buscar compras relacionadas con el producto
+            // PASO 1: Verificar si el producto tiene ingresos/salidas
+            $tieneIngresos = ProductoAlmacenIngresoSalida::whereHas('productoAlmacen', function ($q) use ($id) {
+                $q->where('producto_id', $id);
+            })->exists();
+
+            if ($tieneIngresos) {
+                return response()->json([
+                    'message' => 'No se puede eliminar el producto porque tiene movimientos de inventario (ingresos/salidas)',
+                ], 400);
+            }
+
+            // PASO 2: Buscar compras relacionadas con el producto
             $compras = Compra::whereHas('productosPorAlmacen', function ($q) use ($id) {
                     $q->whereHas('productoAlmacen', function ($paq) use ($id) {
                         $paq->where('producto_id', $id);
@@ -664,14 +681,14 @@ class ProductoController extends Controller
                 ->take(2)
                 ->get();
 
-            // PASO 2: Validar que no tenga más de 1 compra
+            // PASO 3: Validar que no tenga más de 1 compra
             if ($compras->count() > 1) {
                 return response()->json([
                     'message' => 'El producto tiene compras realizadas',
                 ], 400);
             }
 
-            // PASO 3: Si tiene 1 compra, verificar que sea el stock inicial
+            // PASO 4: Si tiene 1 compra, verificar que sea el stock inicial
             if ($compras->count() === 1) {
                 $compra = $compras->first();
                 if ($compra->descripcion !== 'Stock inicial por creación de producto') {
@@ -684,7 +701,7 @@ class ProductoController extends Controller
                 $compra->delete();
             }
 
-            // PASO 4: Eliminar el producto (cascada elimina producto_almacen y precios)
+            // PASO 5: Eliminar el producto (cascada elimina producto_almacen y precios)
             $producto->delete();
 
             return response()->json([

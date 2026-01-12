@@ -25,6 +25,7 @@ use App\Http\Controllers\VentaController;
 use App\Http\Controllers\EntregaProductoController;
 use App\Http\Controllers\SerieDocumentoController;
 use App\Http\Controllers\CajaController;
+use App\Http\Controllers\ConfiguracionImpresionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -140,4 +141,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('cajas/{id}/cerrar', [CajaController::class, 'cerrar']);
     Route::get('cajas/activa', [CajaController::class, 'cajaActiva']);
     Route::get('cajas/historial', [CajaController::class, 'historial']);
+
+    // CONFIGURACIÓN DE IMPRESIÓN
+    Route::get('configuracion-impresion/{tipo_documento}', [ConfiguracionImpresionController::class, 'index']);
+    Route::get('configuracion-impresion/{tipo_documento}/{campo}', [ConfiguracionImpresionController::class, 'show']);
+    Route::put('configuracion-impresion/{tipo_documento}/{campo}', [ConfiguracionImpresionController::class, 'update']);
+    Route::put('configuracion-impresion/{tipo_documento}', [ConfiguracionImpresionController::class, 'updateMultiple']);
+    Route::post('configuracion-impresion/{tipo_documento}/{campo}/reset', [ConfiguracionImpresionController::class, 'resetCampo']);
+    Route::post('configuracion-impresion/{tipo_documento}/reset-all', [ConfiguracionImpresionController::class, 'resetAll']);
 });
