@@ -33,6 +33,7 @@ class Venta extends Model
         'fecha',
         'estado_de_venta',
         'cliente_id',
+        'direccion_seleccionada', // ✅ Agregar campo
         'recomendado_por_id',
         'user_id',
         'almacen_id',

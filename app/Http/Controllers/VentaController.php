@@ -43,7 +43,7 @@ class VentaController extends Controller
 
         $query = Venta::query()
             ->with([
-                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
+                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,direccion_2,direccion_3,direccion_4,telefono,email',
                 'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                 'productosPorAlmacen.productoAlmacen.producto.marca',
                 'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
@@ -164,6 +164,7 @@ class VentaController extends Controller
             'fecha' => 'required|date',
             'estado_de_venta' => 'required|string',
             'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
+            'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
             'user_id' => 'required|string',
             'almacen_id' => 'required|integer',
@@ -190,19 +191,7 @@ class VentaController extends Controller
             'ingreso_dinero_id' => 'nullable|string',
         ]);
 
-        // DEBUG: Ver TODO el request
-        \Log::info('=== INICIO REQUEST VENTA ===');
-        \Log::info('Request completo:', $validated);
-        \Log::info('Tipo documento:', [
-            'valor' => $validated['tipo_documento'],
-            'tipo' => gettype($validated['tipo_documento']),
-            'length' => strlen($validated['tipo_documento'])
-        ]);
-        \Log::info('Forma de pago:', [
-            'valor' => $validated['forma_de_pago'],
-            'tipo' => gettype($validated['forma_de_pago'])
-        ]);
-        \Log::info('=== FIN DEBUG ===');
+       
 
         return DB::transaction(function () use ($validated) {
             
@@ -259,6 +248,7 @@ class VentaController extends Controller
                 'fecha' => $validated['fecha'],
                 'estado_de_venta' => $estadoEnum,
                 'cliente_id' => $validated['cliente_id'],
+                'direccion_seleccionada' => $validated['direccion_seleccionada'] ?? null, // Guardar dirección seleccionada
                 'recomendado_por_id' => $validated['recomendado_por_id'] ?? null,
                 'user_id' => $validated['user_id'],
                 'almacen_id' => $validated['almacen_id'],
@@ -353,7 +343,7 @@ class VentaController extends Controller
     public function show(string $id)
     {
         $venta = Venta::with([
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,telefono,email',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,direccion_2,direccion_3,direccion_4,telefono,email',
             'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
@@ -386,6 +376,7 @@ class VentaController extends Controller
             'fecha' => 'sometimes|date',
             'estado_de_venta' => 'sometimes|string',
             'cliente_id' => 'sometimes|integer',
+            'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
             'user_id' => 'sometimes|string',
             'almacen_id' => 'sometimes|integer',

@@ -129,14 +129,15 @@ class PrestamoController extends Controller
         try {
             DB::beginTransaction();
 
-            // Calcular monto_total si no se proporciona
+            // Calcular monto_total como SUMA DE CANTIDADES (no monto monetario)
+            // El cliente NO maneja precios en préstamos, solo cantidades
             if (!isset($validated['monto_total']) || $validated['monto_total'] === null) {
                 $validated['monto_total'] = 0;
                 foreach ($validated['productos'] as $productoData) {
-                    $costo = $productoData['costo'] ?? 0;
                     $cantidad = $productoData['cantidad'] ?? 0;
                     $factor = $productoData['unidad_derivada_factor'] ?? 1;
-                    $validated['monto_total'] += $costo * $cantidad * $factor;
+                    // Sumar cantidades en unidad base (cantidad * factor)
+                    $validated['monto_total'] += $cantidad * $factor;
                 }
             }
 

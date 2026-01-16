@@ -19,6 +19,7 @@ class EntregaProductoController extends Controller
         $request->validate([
             'venta_id' => 'sometimes|string',
             'almacen_salida_id' => 'sometimes|integer',
+            'chofer_id' => 'sometimes|string',
             'estado_entrega' => 'sometimes|string',
             'fecha_desde' => 'sometimes|date',
             'fecha_hasta' => 'sometimes|date',
@@ -43,6 +44,11 @@ class EntregaProductoController extends Controller
         // Filter by almacen_salida_id
         if ($request->has('almacen_salida_id')) {
             $query->where('almacen_salida_id', $request->almacen_salida_id);
+        }
+
+        // Filter by chofer_id
+        if ($request->has('chofer_id')) {
+            $query->where('chofer_id', $request->chofer_id);
         }
 
         // Filter by estado_entrega
@@ -97,6 +103,7 @@ class EntregaProductoController extends Controller
             'observaciones' => 'nullable|string',
             'almacen_salida_id' => 'required|integer',
             'chofer_id' => 'nullable|string',
+            'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer', // Nuevo campo
             'user_id' => 'required|string',
             'productos_entregados' => 'required|array',
             'productos_entregados.*.unidad_derivada_venta_id' => 'required|integer',
@@ -122,6 +129,7 @@ class EntregaProductoController extends Controller
                 'observaciones' => $validated['observaciones'] ?? null,
                 'almacen_salida_id' => $validated['almacen_salida_id'],
                 'chofer_id' => $validated['chofer_id'] ?? null,
+                'quien_entrega' => $validated['quien_entrega'] ?? null, // Nuevo campo
                 'user_id' => $validated['user_id'],
             ]);
 
@@ -202,6 +210,7 @@ class EntregaProductoController extends Controller
             'observaciones' => 'nullable|string',
             'almacen_salida_id' => 'sometimes|integer',
             'chofer_id' => 'nullable|string',
+            'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer', // Nuevo campo
         ]);
 
         return DB::transaction(function () use ($id, $validated) {

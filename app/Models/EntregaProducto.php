@@ -35,6 +35,7 @@ class EntregaProducto extends Model
         'observaciones',
         'almacen_salida_id',
         'chofer_id',
+        'quien_entrega', // Nuevo: quién realiza la entrega física
         'user_id',
     ];
 

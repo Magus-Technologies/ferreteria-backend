@@ -15,6 +15,7 @@ use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\DetallePreciosController;
 use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\MarcaController;
+use App\Http\Controllers\PaqueteController;
 use App\Http\Controllers\PrestamoController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
@@ -79,6 +80,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // VENTAS
     Route::apiResource('ventas', VentaController::class);
+
+    // PAQUETES
+    Route::apiResource('paquetes', PaqueteController::class);
 
     // ENTREGAS DE PRODUCTOS
     Route::apiResource('entregas-productos', EntregaProductoController::class);
