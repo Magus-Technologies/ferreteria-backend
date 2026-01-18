@@ -69,6 +69,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('productos/validar-codigo', [ProductoController::class, 'validarCodigo']);
     Route::get('productos/{id}/detalle-precios', [ProductoController::class, 'detallePrecios']);
     Route::post('productos/import', [ProductoController::class, 'import']);
+    Route::post('productos/{id}/upload-files', [ProductoController::class, 'uploadFiles']);
 
     Route::apiResource('productos', ProductoController::class);
 
@@ -134,6 +135,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('choferes', App\Http\Controllers\ChoferController::class);
 
     // PROVEEDORES
+    Route::get('proveedores/check-documento', [ProveedorController::class, 'checkDocumento']);
     Route::apiResource('proveedores', ProveedorController::class);
 
     // DESPLIEGUE DE PAGO

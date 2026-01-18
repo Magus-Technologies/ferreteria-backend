@@ -361,4 +361,29 @@ class ProveedorController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Verificar si un RUC ya existe
+     * GET /api/proveedores/check-documento?ruc=...&exclude_id=...
+     */
+    public function checkDocumento(Request $request)
+    {
+        $request->validate([
+            'ruc' => 'required|string',
+            'exclude_id' => 'nullable|integer',
+        ]);
+
+        $query = Proveedor::where('ruc', $request->ruc);
+
+        // Excluir el ID actual si estamos editando
+        if ($request->has('exclude_id')) {
+            $query->where('id', '!=', $request->exclude_id);
+        }
+
+        $exists = $query->exists();
+
+        return response()->json([
+            'exists' => $exists,
+        ]);
+    }
 }

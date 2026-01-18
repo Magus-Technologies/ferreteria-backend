@@ -13,12 +13,14 @@ use App\Models\UnidadDerivadaInmutable;
 use App\Models\TipoIngresoSalida;
 use App\Models\Compra;
 use App\Models\ProductoAlmacenCompra;
+use App\Models\ProductoAlmacenVenta;
 use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\UnidadMedida;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class ProductoController extends Controller
 {
@@ -175,13 +177,24 @@ class ProductoController extends Controller
         // Ordenar alfabéticamente por nombre (A-Z) siempre
         $productos = $query->orderBy('name', 'asc')->paginate($perPage);
 
-        // Agregar campo tiene_ingresos a cada producto
+        // Agregar campo tiene_ingresos a cada producto (verifica ingresos/salidas, ventas y compras)
         $productos->getCollection()->transform(function ($producto) {
+            // Verificar si tiene ingresos/salidas
             $tieneIngresos = ProductoAlmacenIngresoSalida::whereHas('productoAlmacen', function ($q) use ($producto) {
                 $q->where('producto_id', $producto->id);
             })->exists();
 
-            $producto->tiene_ingresos = $tieneIngresos;
+            // Verificar si tiene ventas
+            $tieneVentas = ProductoAlmacenVenta::whereHas('productoAlmacen', function ($q) use ($producto) {
+                $q->where('producto_id', $producto->id);
+            })->exists();
+
+            // Verificar si tiene compras
+            $tieneCompras = ProductoAlmacenCompra::whereHas('productoAlmacen', function ($q) use ($producto) {
+                $q->where('producto_id', $producto->id);
+            })->exists();
+
+            $producto->tiene_ingresos = $tieneIngresos || $tieneVentas || $tieneCompras;
             return $producto;
         });
 
@@ -670,6 +683,17 @@ class ProductoController extends Controller
                 ], 400);
             }
 
+            // PASO 1.5: Verificar si el producto tiene ventas
+            $tieneVentas = ProductoAlmacenVenta::whereHas('productoAlmacen', function ($q) use ($id) {
+                $q->where('producto_id', $id);
+            })->exists();
+
+            if ($tieneVentas) {
+                return response()->json([
+                    'message' => 'No se puede eliminar el producto porque tiene ventas asociadas',
+                ], 400);
+            }
+
             // PASO 2: Buscar compras relacionadas con el producto
             $compras = Compra::whereHas('productosPorAlmacen', function ($q) use ($id) {
                     $q->whereHas('productoAlmacen', function ($paq) use ($id) {
@@ -924,6 +948,63 @@ class ProductoController extends Controller
 
         return response()->json([
             'data' => $producto?->cod_producto,
+        ]);
+    }
+
+    /**
+     * Upload files for a product (image and/or ficha técnica)
+     *
+     * POST /api/productos/{id}/upload-files
+     */
+    public function uploadFiles(Request $request, int $id): JsonResponse
+    {
+        $producto = Producto::findOrFail($id);
+
+        $request->validate([
+            'img_file' => 'nullable|file|image|max:5120', // máximo 5MB
+            'ficha_tecnica_file' => 'nullable|file|mimes:pdf|max:10240', // máximo 10MB
+        ]);
+
+        $updated = false;
+
+        // Procesar imagen
+        if ($request->hasFile('img_file')) {
+            // Eliminar imagen anterior si existe
+            if ($producto->img && Storage::disk('public')->exists($producto->img)) {
+                Storage::disk('public')->delete($producto->img);
+            }
+
+            // Guardar nueva imagen
+            $imgPath = $request->file('img_file')->store('productos/imgs', 'public');
+            $producto->img = $imgPath;
+            $updated = true;
+        }
+
+        // Procesar ficha técnica
+        if ($request->hasFile('ficha_tecnica_file')) {
+            // Eliminar ficha anterior si existe
+            if ($producto->ficha_tecnica && Storage::disk('public')->exists($producto->ficha_tecnica)) {
+                Storage::disk('public')->delete($producto->ficha_tecnica);
+            }
+
+            // Guardar nueva ficha técnica
+            $fichaPath = $request->file('ficha_tecnica_file')->store('productos/fichas-tecnicas', 'public');
+            $producto->ficha_tecnica = $fichaPath;
+            $updated = true;
+        }
+
+        if ($updated) {
+            $producto->save();
+        }
+
+        return response()->json([
+            'data' => [
+                'img' => $producto->img,
+                'ficha_tecnica' => $producto->ficha_tecnica,
+                'img_url' => $producto->img ? asset('storage/' . $producto->img) : null,
+                'ficha_tecnica_url' => $producto->ficha_tecnica ? asset('storage/' . $producto->ficha_tecnica) : null,
+            ],
+            'message' => 'Archivos actualizados exitosamente',
         ]);
     }
 }

@@ -69,11 +69,11 @@ class EntregaProducto extends Model
     }
 
     /**
-     * Relación: Pertenece a un chofer (usuario nullable)
+     * Relación: Pertenece a un chofer (nullable)
      */
     public function chofer(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'chofer_id');
+        return $this->belongsTo(Choferes::class, 'chofer_id');
     }
 
     /**
