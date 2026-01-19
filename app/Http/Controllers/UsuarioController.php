@@ -365,6 +365,35 @@ class UsuarioController extends Controller
     }
 
     /**
+     * Listar vendedores disponibles para asignar caja
+     * GET /api/usuarios/vendedores-disponibles
+     */
+    public function vendedoresDisponibles(Request $request): JsonResponse
+    {
+        $query = User::with(['empresa'])
+            ->where('estado', true);
+
+        // Filtrar por rol si existe
+        if ($request->has('solo_vendedores') && $request->solo_vendedores) {
+            $query->where('rol_sistema', 'VENDEDOR');
+        }
+
+        // Excluir usuarios que ya tienen caja asignada (opcional)
+        if ($request->has('sin_caja') && $request->sin_caja) {
+            $query->whereDoesntHave('cajaPrincipal');
+        }
+
+        $usuarios = $query->orderBy('name', 'asc')
+            ->select('id', 'name', 'email', 'numero_documento', 'rol_sistema', 'empresa_id')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $usuarios
+        ]);
+    }
+
+    /**
      * Generar un CUID compatible con Prisma
      */
     private function generateCuid(): string

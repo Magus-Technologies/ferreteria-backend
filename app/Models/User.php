@@ -137,6 +137,11 @@ class User extends Authenticatable
         return $this->hasMany(EntregaProducto::class, 'chofer_id');
     }
 
+    public function cajaPrincipal()
+    {
+        return $this->hasOne(CajaPrincipal::class, 'user_id');
+    }
+
     // Permisos directos (tabla intermedia de Prisma)
     public function permissions(): BelongsToMany
     {

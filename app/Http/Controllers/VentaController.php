@@ -6,17 +6,22 @@ use App\Enums\EstadoDeVenta;
 use App\Enums\FormaDePago;
 use App\Enums\TipoDocumento;
 use App\Enums\TipoMoneda;
+use App\Models\AperturaCierreCaja;
 use App\Models\DespliegueDePago;
+use App\Models\DespliegueDePagoVenta;
 use App\Models\IngresoDinero;
 use App\Models\MetodoDePago;
+use App\Models\MovimientoCaja;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenVenta;
+use App\Models\SubCaja;
+use App\Models\TransaccionCaja;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableVenta;
-use App\Models\DespliegueDePagoVenta;
 use App\Models\Venta;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class VentaController extends Controller
 {
@@ -112,7 +117,7 @@ class VentaController extends Controller
         }
 
         // Search by serie, numero, or cliente
-        if ($request->has('search') && !empty($request->search)) {
+        if ($request->has('search') && ! empty($request->search)) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('serie', 'LIKE', "%{$search}%")
@@ -191,21 +196,19 @@ class VentaController extends Controller
             'ingreso_dinero_id' => 'nullable|string',
         ]);
 
-       
-
         return DB::transaction(function () use ($validated) {
-            
+
             // Si no se proporciona cliente_id, usar "CLIENTE VARIOS" (DNI: 99999999)
             if (empty($validated['cliente_id'])) {
                 $clienteVarios = \App\Models\Cliente::where('numero_documento', '99999999')->first();
-                
-                if (!$clienteVarios) {
+
+                if (! $clienteVarios) {
                     throw new \Exception("No se encontró el cliente 'CLIENTE VARIOS' (DNI: 99999999). Por favor, créelo en la base de datos.");
                 }
-                
+
                 $validated['cliente_id'] = $clienteVarios->id;
             }
-            
+
             // Generar serie y número automáticamente si no se proporcionan
             if (empty($validated['serie']) || empty($validated['numero'])) {
                 $serieDoc = \App\Models\SerieDocumento::where('tipo_documento', $validated['tipo_documento'])
@@ -214,7 +217,7 @@ class VentaController extends Controller
                     ->orderBy('created_at', 'desc')
                     ->first();
 
-                if (!$serieDoc) {
+                if (! $serieDoc) {
                     throw new \Exception("No se encontró una serie activa para el tipo de documento {$validated['tipo_documento']} en el almacén {$validated['almacen_id']}");
                 }
 
@@ -259,12 +262,12 @@ class VentaController extends Controller
                 // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
                 $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
 
-                if (!$productoAlmacenId && isset($producto['producto_id'])) {
+                if (! $productoAlmacenId && isset($producto['producto_id'])) {
                     $productoAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
                         ->where('almacen_id', $validated['almacen_id'])
                         ->first();
 
-                    if (!$productoAlmacen) {
+                    if (! $productoAlmacen) {
                         throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$validated['almacen_id']}");
                     }
 
@@ -281,7 +284,7 @@ class VentaController extends Controller
                     // Get unidad_derivada_inmutable_id (either provided or firstOrCreate by name)
                     $unidadDerivadaInmutableId = $unidad['unidad_derivada_inmutable_id'] ?? null;
 
-                    if (!$unidadDerivadaInmutableId && isset($unidad['unidad_derivada_inmutable_name'])) {
+                    if (! $unidadDerivadaInmutableId && isset($unidad['unidad_derivada_inmutable_name'])) {
                         $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
                             ['name' => $unidad['unidad_derivada_inmutable_name']],
                             ['name' => $unidad['unidad_derivada_inmutable_name']]
@@ -444,12 +447,12 @@ class VentaController extends Controller
                     // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
                     $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
 
-                    if (!$productoAlmacenId && isset($producto['producto_id'])) {
+                    if (! $productoAlmacenId && isset($producto['producto_id'])) {
                         $productoAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
                             ->where('almacen_id', $venta->almacen_id)
                             ->first();
 
-                        if (!$productoAlmacen) {
+                        if (! $productoAlmacen) {
                             throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$venta->almacen_id}");
                         }
 
@@ -466,7 +469,7 @@ class VentaController extends Controller
                         // Get unidad_derivada_inmutable_id (either provided or firstOrCreate by name)
                         $unidadDerivadaInmutableId = $unidad['unidad_derivada_inmutable_id'] ?? null;
 
-                        if (!$unidadDerivadaInmutableId && isset($unidad['unidad_derivada_inmutable_name'])) {
+                        if (! $unidadDerivadaInmutableId && isset($unidad['unidad_derivada_inmutable_name'])) {
                             $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
                                 ['name' => $unidad['unidad_derivada_inmutable_name']],
                                 ['name' => $unidad['unidad_derivada_inmutable_name']]
@@ -673,8 +676,8 @@ class VentaController extends Controller
         if (
             $estadoEnum === EstadoDeVenta::Creado &&
             $formaDePagoEnum === FormaDePago::Contado &&
-            !isset($venta['ingreso_dinero_id']) &&
-            (!isset($venta['despliegue_de_pago_ventas']) || empty($venta['despliegue_de_pago_ventas']))
+            ! isset($venta['ingreso_dinero_id']) &&
+            (! isset($venta['despliegue_de_pago_ventas']) || empty($venta['despliegue_de_pago_ventas']))
         ) {
             throw new \Exception('En ventas al contado debes seleccionar Ingreso asociado o Métodos de Pago');
         }
@@ -683,14 +686,14 @@ class VentaController extends Controller
         if (
             $estadoEnum === EstadoDeVenta::Creado &&
             $formaDePagoEnum === FormaDePago::Credito &&
-            (isset($venta['ingreso_dinero_id']) || (isset($venta['despliegue_de_pago_ventas']) && !empty($venta['despliegue_de_pago_ventas'])))
+            (isset($venta['ingreso_dinero_id']) || (isset($venta['despliegue_de_pago_ventas']) && ! empty($venta['despliegue_de_pago_ventas'])))
         ) {
             throw new \Exception('En ventas a crédito no debes seleccionar Ingreso asociado ni Métodos de Pago');
         }
     }
 
     /**
-     * Proceso post venta (registrar ingresos en métodos de pago)
+     * Proceso post venta (registrar ingresos en métodos de pago y en caja)
      */
     private function procesoPostVenta($venta)
     {
@@ -716,15 +719,228 @@ class VentaController extends Controller
             }
 
             // Si hay despliegue_de_pago_ventas, incrementar los métodos de pago
-            if (isset($venta['despliegue_de_pago_ventas']) && !empty($venta['despliegue_de_pago_ventas'])) {
+            if (isset($venta['despliegue_de_pago_ventas']) && ! empty($venta['despliegue_de_pago_ventas'])) {
                 foreach ($venta['despliegue_de_pago_ventas'] as $desplieguePago) {
                     $despliegue = DespliegueDePago::findOrFail($desplieguePago['despliegue_de_pago_id']);
 
                     MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
                         ->increment('monto', (float) $desplieguePago['monto']);
                 }
+
+                // ✅ NUEVO: Registrar en caja
+                $this->registrarVentaEnCaja($ventaModel, $venta['despliegue_de_pago_ventas']);
             }
         }
+    }
+
+    /**
+     * Registrar venta en la caja del vendedor
+     */
+    private function registrarVentaEnCaja($venta, $desplieguesDePago)
+    {
+        try {
+            \Log::info('=== INICIANDO REGISTRO EN CAJA ===');
+            \Log::info("Venta ID: {$venta->id}");
+            \Log::info("User ID: {$venta->user_id}");
+
+            // 1. Buscar la caja abierta del vendedor
+            $apertura = AperturaCierreCaja::where('user_id', $venta->user_id)
+                ->where('estado', 'abierta')
+                ->first();
+
+            if (! $apertura) {
+                // Si no hay caja abierta, no registrar (no es error crítico)
+                \Log::warning("❌ Venta {$venta->id} creada sin caja abierta para usuario {$venta->user_id}");
+
+                return;
+            }
+
+            \Log::info("✅ Apertura encontrada: {$apertura->id}");
+            \Log::info("Caja Principal ID: {$apertura->caja_principal_id}");
+
+            $totalVenta = $this->getTotalVenta($venta);
+            \Log::info("Total venta: {$totalVenta}");
+
+            // 2. Procesar cada método de pago
+            foreach ($desplieguesDePago as $desplieguePago) {
+                \Log::info("Procesando método de pago: {$desplieguePago['despliegue_de_pago_id']}");
+
+                $despliegue = DespliegueDePago::with('metodoDePago')->findOrFail($desplieguePago['despliegue_de_pago_id']);
+                $monto = (float) $desplieguePago['monto'];
+
+                \Log::info("Despliegue: {$despliegue->name}, Monto: {$monto}");
+
+                // 3. Determinar si es efectivo o digital
+                $esEfectivo = $this->esMetodoPagoEfectivo($despliegue);
+                \Log::info('Es efectivo: '.($esEfectivo ? 'SÍ' : 'NO'));
+
+                // 4. Buscar la sub-caja correcta
+                if ($esEfectivo) {
+                    // Efectivo va a la Caja Chica
+                    $subCaja = SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
+                        ->where('tipo_caja', 'CC')
+                        ->first();
+                    \Log::info('Buscando Caja Chica...');
+                } else {
+                    // Digital: buscar sub-caja que acepte este método de pago
+                    $subCaja = $this->buscarSubCajaParaMetodoPago(
+                        $apertura->caja_principal_id,
+                        $desplieguePago['despliegue_de_pago_id'],
+                        $venta->tipo_documento->value
+                    );
+
+                    // Si no hay sub-caja específica, usar la Caja Chica
+                    if (! $subCaja) {
+                        $subCaja = SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
+                            ->where('tipo_caja', 'CC')
+                            ->first();
+                    }
+                }
+
+                if (! $subCaja) {
+                    \Log::error("❌ No se encontró sub-caja para registrar venta {$venta->id}");
+
+                    continue;
+                }
+
+                \Log::info("✅ Sub-caja encontrada: {$subCaja->id} - {$subCaja->nombre}");
+
+                // 5. Actualizar saldo de la sub-caja
+                $saldoAnterior = $subCaja->saldo_actual;
+                $subCaja->saldo_actual += $monto;
+                $subCaja->save();
+
+                \Log::info("Saldo actualizado: {$saldoAnterior} -> {$subCaja->saldo_actual}");
+
+                // 6. Registrar transacción en transacciones_caja
+                TransaccionCaja::create([
+                    'id' => (string) Str::ulid(),
+                    'sub_caja_id' => $subCaja->id,
+                    'tipo_transaccion' => 'ingreso',
+                    'monto' => $monto,
+                    'saldo_anterior' => $saldoAnterior,
+                    'saldo_nuevo' => $subCaja->saldo_actual,
+                    'descripcion' => "Venta {$venta->serie}-{$venta->numero}",
+                    'referencia_id' => $venta->id,
+                    'referencia_tipo' => 'venta',
+                    'user_id' => $venta->user_id,
+                    'fecha' => now(),
+                ]);
+
+                // 7. Registrar movimiento en movimiento_caja
+                $clienteNombre = $venta->cliente->razon_social ?? $venta->cliente->nombres ?? 'Cliente';
+
+                MovimientoCaja::create([
+                    'id' => (string) Str::ulid(),
+                    'apertura_cierre_id' => $apertura->id,
+                    'caja_principal_id' => $apertura->caja_principal_id,
+                    'sub_caja_id' => $subCaja->id,
+                    'cajero_id' => $venta->user_id,
+                    'fecha_hora' => now(),
+                    'tipo_movimiento' => 'venta',
+                    'concepto' => "Venta {$venta->serie}-{$venta->numero} - Cliente: {$clienteNombre}",
+                    'saldo_inicial' => $saldoAnterior,
+                    'ingreso' => $monto,
+                    'salida' => 0,
+                    'saldo_final' => $subCaja->saldo_actual,
+                    'estado_caja' => 'abierta',
+                    'tipo_comprobante' => $venta->tipo_documento->value,
+                    'numero_comprobante' => "{$venta->serie}-{$venta->numero}",
+                    'metodo_pago_id' => $despliegue->metodo_de_pago_id,
+                    'referencia_id' => $venta->id,
+                    'referencia_tipo' => 'venta',
+                ]);
+            }
+
+            \Log::info("Venta {$venta->id} registrada en caja {$apertura->id}");
+
+        } catch (\Exception $e) {
+            // Log el error pero no fallar la venta
+            \Log::error('Error al registrar venta en caja: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Determinar si un método de pago es efectivo
+     */
+    private function esMetodoPagoEfectivo($despliegue)
+    {
+        $metodoPago = $despliegue->metodoDePago;
+        if (! $metodoPago) {
+            return false;
+        }
+
+        // Verificar si el nombre contiene palabras clave de efectivo
+        $nombre = strtolower($metodoPago->name);
+
+        return str_contains($nombre, 'efectivo') ||
+               str_contains($nombre, 'cash') ||
+               str_contains($nombre, 'cch') ||
+               str_contains($nombre, 'ca');
+    }
+
+    /**
+     * Buscar sub-caja que acepte un método de pago específico
+     * Prioriza sub-cajas más específicas sobre las que aceptan "*"
+     */
+    private function buscarSubCajaParaMetodoPago($cajaPrincipalId, $desplieguePagoId, $tipoComprobante)
+    {
+        // Buscar sub-cajas que acepten este método de pago y tipo de comprobante
+        $subCajas = SubCaja::where('caja_principal_id', $cajaPrincipalId)
+            ->where('tipo_caja', 'SC')
+            ->where('estado', true)
+            ->get();
+
+        $subCajasCompatibles = [];
+
+        foreach ($subCajas as $subCaja) {
+            $desplieguesIds = $subCaja->despliegues_pago_ids;
+            $tiposComprobante = $subCaja->tipos_comprobante;
+
+            // Verificar si acepta este tipo de comprobante
+            $aceptaComprobante = in_array($tipoComprobante, $tiposComprobante);
+            
+            if (!$aceptaComprobante) {
+                continue; // Si no acepta el tipo de comprobante, saltar
+            }
+
+            // Verificar si acepta este método de pago
+            $aceptaTodos = in_array('*', $desplieguesIds);
+            $aceptaEspecifico = in_array($desplieguePagoId, $desplieguesIds);
+
+            if ($aceptaEspecifico) {
+                // Prioridad 1: Sub-caja específica para este método
+                $subCajasCompatibles[] = [
+                    'subCaja' => $subCaja,
+                    'prioridad' => 1,
+                    'especificidad' => count($desplieguesIds)
+                ];
+            } elseif ($aceptaTodos) {
+                // Prioridad 2: Sub-caja que acepta todos los métodos
+                $subCajasCompatibles[] = [
+                    'subCaja' => $subCaja,
+                    'prioridad' => 2,
+                    'especificidad' => 999
+                ];
+            }
+        }
+
+        if (empty($subCajasCompatibles)) {
+            return null;
+        }
+
+        // Ordenar por prioridad (menor es mejor) y luego por especificidad (menor es más específico)
+        usort($subCajasCompatibles, function ($a, $b) {
+            if ($a['prioridad'] !== $b['prioridad']) {
+                return $a['prioridad'] - $b['prioridad'];
+            }
+            return $a['especificidad'] - $b['especificidad'];
+        });
+
+        \Log::info("Sub-cajas compatibles encontradas: " . count($subCajasCompatibles));
+        \Log::info("Sub-caja seleccionada: {$subCajasCompatibles[0]['subCaja']->nombre} (Prioridad: {$subCajasCompatibles[0]['prioridad']})");
+
+        return $subCajasCompatibles[0]['subCaja'];
     }
 
     /**
