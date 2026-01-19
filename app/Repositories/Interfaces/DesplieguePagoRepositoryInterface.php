@@ -1,0 +1,15 @@
+<?php
+
+namespace App\Repositories\Interfaces;
+
+use App\Models\DespliegueDePago;
+use Illuminate\Database\Eloquent\Collection;
+
+interface DesplieguePagoRepositoryInterface
+{
+    public function findById(string $id): ?DespliegueDePago;
+    
+    public function getAll(): Collection;
+    
+    public function getAllMostrar(): Collection;
+}
