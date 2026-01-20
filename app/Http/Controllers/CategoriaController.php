@@ -22,7 +22,7 @@ class CategoriaController extends Controller
 
         // Buscar por nombre
         if ($request->has('search')) {
-            $query->where('name', 'like', '%' . $request->search . '%');
+            $query->where('name', 'like', '%'.$request->search.'%');
         }
 
         // Ordenar por nombre
@@ -39,6 +39,7 @@ class CategoriaController extends Controller
     public function show($id): JsonResponse
     {
         $categoria = Categoria::findOrFail($id);
+
         return response()->json(['data' => $categoria]);
     }
 
@@ -70,7 +71,7 @@ class CategoriaController extends Controller
         $categoria = Categoria::findOrFail($id);
 
         $validated = $request->validate([
-            'name' => 'required|string|max:191|unique:categoria,name,' . $id,
+            'name' => 'required|string|max:191|unique:categoria,name,'.$id,
             'estado' => 'nullable|boolean',
         ]);
 
