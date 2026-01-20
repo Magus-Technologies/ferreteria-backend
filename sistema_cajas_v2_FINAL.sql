@@ -162,42 +162,6 @@ CREATE TABLE `cierre_caja` (
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Cierres de caja';
 
 -- ----------------------------
--- Tabla: apertura_cierre_caja
--- Control de apertura y cierre diario de cajas
--- ----------------------------
-DROP TABLE IF EXISTS `apertura_cierre_caja`;
-CREATE TABLE `apertura_cierre_caja` (
-  `id` VARCHAR(255) NOT NULL,
-  `caja_principal_id` INT UNSIGNED NOT NULL,
-  `sub_caja_id` INT UNSIGNED NOT NULL COMMENT 'Siempre será la Caja Chica',
-  `user_id` VARCHAR(255) NOT NULL COMMENT 'Usuario que apertura',
-  `monto_apertura` DECIMAL(10, 2) NOT NULL,
-  `fecha_apertura` TIMESTAMP NOT NULL,
-  `monto_cierre` DECIMAL(10, 2) NULL,
-  `fecha_cierre` TIMESTAMP NULL,
-  `estado` ENUM('abierta', 'cerrada') NOT NULL DEFAULT 'abierta',
-  -- Campos de cierre de caja
-  `monto_cierre_efectivo` DECIMAL(10, 2) NULL COMMENT 'Total de efectivo contado al cierre',
-  `monto_cierre_cuentas` DECIMAL(10, 2) NULL COMMENT 'Total de pagos digitales (tarjetas, yape, etc)',
-  `conteo_billetes_monedas` JSON NULL COMMENT 'Detalle del conteo de billetes y monedas',
-  `conceptos_adicionales` JSON NULL COMMENT 'Conceptos extras registrados en el cierre',
-  `comentarios` TEXT NULL COMMENT 'Comentarios del cierre',
-  `supervisor_id` BIGINT UNSIGNED NULL COMMENT 'ID del supervisor que autoriza el cierre',
-  `diferencia_efectivo` DECIMAL(10, 2) NULL COMMENT 'Diferencia entre efectivo esperado y contado',
-  `diferencia_total` DECIMAL(10, 2) NULL COMMENT 'Diferencia total del cierre',
-  `forzar_cierre` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Si el cierre fue forzado por diferencias',
-  `created_at` TIMESTAMP NULL,
-  `updated_at` TIMESTAMP NULL,
-  PRIMARY KEY (`id`),
-  INDEX `apertura_cierre_caja_caja_principal_id_estado_idx` (`caja_principal_id` ASC, `estado` ASC),
-  INDEX `apertura_cierre_caja_sub_caja_id_idx` (`sub_caja_id` ASC),
-  INDEX `apertura_cierre_caja_user_id_idx` (`user_id` ASC),
-  INDEX `apertura_cierre_caja_fecha_apertura_idx` (`fecha_apertura` ASC),
-  INDEX `apertura_cierre_caja_supervisor_id_idx` (`supervisor_id` ASC),
-  CONSTRAINT `apertura_cierre_caja_supervisor_id_fkey` FOREIGN KEY (`supervisor_id`) REFERENCES `user` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Control de apertura y cierre diario de cajas';
-
--- ----------------------------
 -- Tabla: movimiento_caja
 -- Registro detallado de todos los movimientos de caja
 -- ----------------------------
@@ -205,8 +169,8 @@ DROP TABLE IF EXISTS `movimiento_caja`;
 CREATE TABLE `movimiento_caja` (
   `id` VARCHAR(255) NOT NULL,
   `apertura_cierre_id` VARCHAR(255) NOT NULL COMMENT 'ID de la apertura/cierre de caja',
-  `caja_principal_id` INT UNSIGNED NOT NULL,
-  `sub_caja_id` INT UNSIGNED NULL,
+  `caja_principal_id` INT NOT NULL,
+  `sub_caja_id` INT NULL,
   `cajero_id` VARCHAR(255) NOT NULL COMMENT 'Usuario que realiza el movimiento',
   `fecha_hora` TIMESTAMP NOT NULL,
   `tipo_movimiento` ENUM('apertura', 'venta', 'gasto', 'ingreso', 'cobro', 'pago', 'transferencia', 'cierre') NOT NULL DEFAULT 'venta',
@@ -224,8 +188,8 @@ CREATE TABLE `movimiento_caja` (
   `referencia_id` VARCHAR(255) NULL COMMENT 'ID de venta, gasto, etc.',
   `referencia_tipo` VARCHAR(50) NULL COMMENT 'venta, gasto, ingreso, etc.',
   -- Campos para transferencias entre cajas
-  `caja_origen_id` INT UNSIGNED NULL,
-  `caja_destino_id` INT UNSIGNED NULL,
+  `caja_origen_id` INT NULL,
+  `caja_destino_id` INT NULL,
   `monto_transferencia` DECIMAL(10, 2) NULL,
   `observaciones` TEXT NULL,
   `created_at` TIMESTAMP NULL,
@@ -239,7 +203,48 @@ CREATE TABLE `movimiento_caja` (
   CONSTRAINT `movimiento_caja_apertura_cierre_id_fkey` FOREIGN KEY (`apertura_cierre_id`) REFERENCES `apertura_cierre_caja` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Registro detallado de movimientos de caja';
 
-SET FOREIGN_KEY_CHECKS = 1;
+-- ----------------------------
+-- Tabla: movimiento_caja
+-- Registro detallado de todos los movimientos de caja
+-- ----------------------------
+DROP TABLE IF EXISTS `movimiento_caja`;
+CREATE TABLE `movimiento_caja` (
+  `id` VARCHAR(255) NOT NULL,
+  `apertura_cierre_id` VARCHAR(255) NOT NULL COMMENT 'ID de la apertura/cierre de caja',
+  `caja_principal_id` INT NOT NULL,
+  `sub_caja_id` INT NULL,
+  `cajero_id` VARCHAR(255) NOT NULL COMMENT 'Usuario que realiza el movimiento',
+  `fecha_hora` TIMESTAMP NOT NULL,
+  `tipo_movimiento` ENUM('apertura', 'venta', 'gasto', 'ingreso', 'cobro', 'pago', 'transferencia', 'cierre') NOT NULL DEFAULT 'venta',
+  `concepto` VARCHAR(500) NOT NULL,
+  `saldo_inicial` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  `ingreso` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  `salida` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  `saldo_final` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  `registradora` VARCHAR(100) NULL COMMENT 'Punto de venta o caja registradora',
+  `estado_caja` ENUM('abierta', 'cerrada') NOT NULL DEFAULT 'abierta',
+  -- Campos adicionales para detalles
+  `tipo_comprobante` VARCHAR(10) NULL COMMENT '01=Factura, 03=Boleta, nv=Nota Venta',
+  `numero_comprobante` VARCHAR(50) NULL,
+  `metodo_pago_id` VARCHAR(255) NULL COMMENT 'ID del método de pago usado',
+  `referencia_id` VARCHAR(255) NULL COMMENT 'ID de venta, gasto, etc.',
+  `referencia_tipo` VARCHAR(50) NULL COMMENT 'venta, gasto, ingreso, etc.',
+  -- Campos para transferencias entre cajas
+  `caja_origen_id` INT NULL,
+  `caja_destino_id` INT NULL,
+  `monto_transferencia` DECIMAL(10, 2) NULL,
+  `observaciones` TEXT NULL,
+  `created_at` TIMESTAMP NULL,
+  `updated_at` TIMESTAMP NULL,
+  PRIMARY KEY (`id`),
+  INDEX `movimiento_caja_apertura_cierre_id_fecha_hora_idx` (`apertura_cierre_id` ASC, `fecha_hora` ASC),
+  INDEX `movimiento_caja_caja_principal_id_idx` (`caja_principal_id` ASC),
+  INDEX `movimiento_caja_cajero_id_idx` (`cajero_id` ASC),
+  INDEX `movimiento_caja_tipo_movimiento_idx` (`tipo_movimiento` ASC),
+  INDEX `movimiento_caja_fecha_hora_idx` (`fecha_hora` ASC),
+  CONSTRAINT `movimiento_caja_apertura_cierre_id_fkey` FOREIGN KEY (`apertura_cierre_id`) REFERENCES `apertura_cierre_caja` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Registro detallado de movimientos de caja';
+
 
 -- ============================================
 -- NOTAS IMPORTANTES:
