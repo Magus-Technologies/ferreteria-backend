@@ -51,10 +51,13 @@ class CajaPrincipalController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
+            $code = $e->getCode();
+            $statusCode = (is_int($code) && $code >= 100 && $code < 600) ? $code : 500;
+            
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-            ], $e->getCode() ?: 500);
+            ], $statusCode);
         }
     }
 
