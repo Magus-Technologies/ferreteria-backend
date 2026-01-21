@@ -191,6 +191,7 @@ class VentaController extends Controller
             'despliegue_de_pago_ventas' => 'sometimes|array',
             'despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required|string',
             'despliegue_de_pago_ventas.*.monto' => 'required|numeric',
+            'despliegue_de_pago_ventas.*.numero_operacion' => 'nullable|string|max:100',
             'despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
             'despliegue_de_pago_ventas.*.recibe_efectivo' => 'nullable|numeric',
             'ingreso_dinero_id' => 'nullable|string',
@@ -310,10 +311,62 @@ class VentaController extends Controller
             // Create despliegue_de_pago_ventas if provided
             if (isset($validated['despliegue_de_pago_ventas'])) {
                 foreach ($validated['despliegue_de_pago_ventas'] as $desplieguePago) {
+                    // Log para debug
+                    \Log::info('Procesando método de pago:', [
+                        'despliegue_pago_id' => $desplieguePago['despliegue_de_pago_id'],
+                        'monto' => $desplieguePago['monto'],
+                        'numero_operacion' => $desplieguePago['numero_operacion'] ?? 'NO ENVIADO',
+                        'isset' => isset($desplieguePago['numero_operacion']),
+                        'empty' => empty($desplieguePago['numero_operacion']),
+                    ]);
+
+                    // Obtener el método de pago para calcular sobrecargo
+                    $metodoPago = DespliegueDePago::find($desplieguePago['despliegue_de_pago_id']);
+                    
+                    if (!$metodoPago) {
+                        throw new \Exception("Método de pago no encontrado: {$desplieguePago['despliegue_de_pago_id']}");
+                    }
+
+                    \Log::info('Método de pago info:', [
+                        'name' => $metodoPago->name,
+                        'requiere_numero_serie' => $metodoPago->requiere_numero_serie,
+                    ]);
+
+                    // Validar si requiere número de operación
+                    if ($metodoPago->requiere_numero_serie && 
+                        (!isset($desplieguePago['numero_operacion']) || 
+                         trim($desplieguePago['numero_operacion']) === '')) {
+                        throw new \Exception("El método de pago '{$metodoPago->name}' requiere número de operación");
+                    }
+
+                    // Calcular sobrecargo
+                    $sobrecargo = \App\Models\NumeroOperacionPago::calcularSobrecargo($metodoPago, $desplieguePago['monto']);
+                    $montoTotal = $desplieguePago['monto'] + $sobrecargo;
+
+                    // Registrar número de operación si existe
+                    $numeroOperacionId = null;
+                    if (isset($desplieguePago['numero_operacion']) && trim($desplieguePago['numero_operacion']) !== '') {
+                        $numeroOperacion = \App\Models\NumeroOperacionPago::create([
+                            'id' => (string) Str::ulid(),
+                            'venta_id' => $venta->id,
+                            'despliegue_pago_id' => $desplieguePago['despliegue_de_pago_id'],
+                            'numero_operacion' => $desplieguePago['numero_operacion'],
+                            'monto' => $desplieguePago['monto'],
+                            'sobrecargo_aplicado' => $sobrecargo,
+                            'monto_total' => $montoTotal,
+                            'fecha_operacion' => now(),
+                            'user_id' => $validated['user_id'],
+                        ]);
+                        $numeroOperacionId = $numeroOperacion->id;
+                    }
+
+                    // Crear el registro de pago
                     DespliegueDePagoVenta::create([
                         'venta_id' => $venta->id,
                         'despliegue_de_pago_id' => $desplieguePago['despliegue_de_pago_id'],
                         'monto' => $desplieguePago['monto'],
+                        'numero_operacion_id' => $numeroOperacionId,
+                        'sobrecargo_aplicado' => $sobrecargo,
                         'referencia' => $desplieguePago['referencia'] ?? null,
                         'recibe_efectivo' => $desplieguePago['recibe_efectivo'] ?? null,
                     ]);
@@ -770,31 +823,21 @@ class VentaController extends Controller
 
                 \Log::info("Despliegue: {$despliegue->name}, Monto: {$monto}");
 
-                // 3. Determinar si es efectivo o digital
-                $esEfectivo = $this->esMetodoPagoEfectivo($despliegue);
-                \Log::info('Es efectivo: '.($esEfectivo ? 'SÍ' : 'NO'));
+                // 4. Buscar la sub-caja correcta según tipo de comprobante y método de pago
+                $subCaja = $this->buscarSubCajaParaMetodoPago(
+                    $apertura->caja_principal_id,
+                    $desplieguePago['despliegue_de_pago_id'],
+                    $venta->tipo_documento->value
+                );
 
-                // 4. Buscar la sub-caja correcta
-                if ($esEfectivo) {
-                    // Efectivo va a la Caja Chica
+                // Si no se encontró sub-caja específica, intentar con Caja Chica (solo si acepta el tipo de comprobante)
+                if (! $subCaja) {
                     $subCaja = SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
                         ->where('tipo_caja', 'CC')
+                        ->whereJsonContains('tipos_comprobante', $venta->tipo_documento->value)
                         ->first();
-                    \Log::info('Buscando Caja Chica...');
-                } else {
-                    // Digital: buscar sub-caja que acepte este método de pago
-                    $subCaja = $this->buscarSubCajaParaMetodoPago(
-                        $apertura->caja_principal_id,
-                        $desplieguePago['despliegue_de_pago_id'],
-                        $venta->tipo_documento->value
-                    );
-
-                    // Si no hay sub-caja específica, usar la Caja Chica
-                    if (! $subCaja) {
-                        $subCaja = SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
-                            ->where('tipo_caja', 'CC')
-                            ->first();
-                    }
+                    
+                    \Log::info('Intentando con Caja Chica...');
                 }
 
                 if (! $subCaja) {

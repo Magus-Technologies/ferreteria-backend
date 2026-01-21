@@ -35,6 +35,7 @@ class AperturaCajaController extends Controller
 
                 $cajaPrincipalId = $request->validated('caja_principal_id');
                 $montoApertura = $request->validated('monto_apertura');
+                $conteoBilletes = $request->validated('conteo_billetes_monedas');
 
                 // 1. Verificar que la caja principal existe
                 $cajaPrincipal = CajaPrincipal::find($cajaPrincipalId);
@@ -131,6 +132,7 @@ class AperturaCajaController extends Controller
                     'sub_caja_id' => $cajaChica->id,
                     'user_id' => $userId, // Obtenido automáticamente del token
                     'monto_apertura' => $montoApertura,
+                    'conteo_apertura_billetes_monedas' => $conteoBilletes,
                     'fecha_apertura' => now(),
                     'estado' => 'abierta',
                 ]);

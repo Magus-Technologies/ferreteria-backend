@@ -24,6 +24,8 @@ class DespliegueDePagoVenta extends Model
         'venta_id',
         'despliegue_de_pago_id',
         'monto',
+        'numero_operacion_id',
+        'sobrecargo_aplicado',
         'referencia',
         'recibe_efectivo',
     ];
@@ -35,6 +37,7 @@ class DespliegueDePagoVenta extends Model
     {
         return [
             'monto' => 'decimal:4',
+            'sobrecargo_aplicado' => 'decimal:4',
             'recibe_efectivo' => 'decimal:4',
         ];
     }
@@ -53,5 +56,13 @@ class DespliegueDePagoVenta extends Model
     public function despliegueDePago(): BelongsTo
     {
         return $this->belongsTo(DespliegueDePago::class, 'despliegue_de_pago_id');
+    }
+
+    /**
+     * Relación: Pertenece a un número de operación
+     */
+    public function numeroOperacion(): BelongsTo
+    {
+        return $this->belongsTo(NumeroOperacionPago::class, 'numero_operacion_id');
     }
 }

@@ -20,10 +20,12 @@ class TransaccionCaja extends Model
         'saldo_anterior',
         'saldo_nuevo',
         'descripcion',
+        'despliegue_pago_id',
         'referencia_id',
         'referencia_tipo',
         'user_id',
         'fecha',
+        'conteo_billetes_monedas',
     ];
 
     protected $casts = [
@@ -32,6 +34,7 @@ class TransaccionCaja extends Model
         'saldo_nuevo' => 'decimal:2',
         'fecha' => 'datetime',
         'created_at' => 'datetime',
+        'conteo_billetes_monedas' => 'array',
     ];
 
     protected static function boot()
@@ -54,5 +57,10 @@ class TransaccionCaja extends Model
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function desplieguePago()
+    {
+        return $this->belongsTo(DespliegueDePago::class, 'despliegue_pago_id');
     }
 }

@@ -16,6 +16,20 @@ class AperturarCajaRequest extends FormRequest
         return [
             'caja_principal_id' => 'required|integer|exists:cajas_principales,id',
             'monto_apertura' => 'required|numeric|min:0',
+            
+            // Conteo de billetes y monedas (opcional)
+            'conteo_billetes_monedas' => 'nullable|array',
+            'conteo_billetes_monedas.billete_200' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.billete_100' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.billete_50' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.billete_20' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.billete_10' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_5' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_2' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_1' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_050' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_020' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_010' => 'nullable|integer|min:0',
         ];
     }
 

@@ -58,7 +58,9 @@ class TransaccionController extends Controller
                 monto: $request->validated('monto'),
                 descripcion: $request->validated('descripcion'),
                 referenciaId: $request->validated('referencia_id'),
-                referenciaTipo: $request->validated('referencia_tipo')
+                referenciaTipo: $request->validated('referencia_tipo'),
+                conteoBilletesMonedas: $request->validated('conteo_billetes_monedas'),
+                desplieguePagoId: $request->validated('despliegue_pago_id')
             );
 
             $response = $this->registrarTransaccionUseCase->execute($useCaseRequest);

@@ -11,7 +11,9 @@ interface TransaccionServiceInterface
         float $monto,
         string $descripcion,
         ?string $referenciaId = null,
-        ?string $referenciaTipo = null
+        ?string $referenciaTipo = null,
+        ?array $conteoBilletesMonedas = null,
+        ?string $desplieguePagoId = null
     ): TransaccionCaja;
     
     public function registrarEgreso(
@@ -19,7 +21,9 @@ interface TransaccionServiceInterface
         float $monto,
         string $descripcion,
         ?string $referenciaId = null,
-        ?string $referenciaTipo = null
+        ?string $referenciaTipo = null,
+        ?array $conteoBilletesMonedas = null,
+        ?string $desplieguePagoId = null
     ): TransaccionCaja;
     
     public function obtenerTransacciones(int $subCajaId, int $perPage = 15): array;
