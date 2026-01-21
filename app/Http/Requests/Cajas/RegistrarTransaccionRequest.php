@@ -18,7 +18,7 @@ class RegistrarTransaccionRequest extends FormRequest
             'tipo_transaccion' => 'required|string|in:ingreso,egreso',
             'monto' => 'required|numeric|min:0.01',
             'descripcion' => 'required|string|max:500',
-            'despliegue_pago_id' => 'nullable|string|exists:despliegue_de_pago,id',
+            'despliegue_pago_id' => 'nullable|string|exists:desplieguedepago,id',
             'referencia_id' => 'nullable|string|max:191',
             'referencia_tipo' => 'nullable|string|max:50',
             'conteo_billetes_monedas' => 'nullable|array',

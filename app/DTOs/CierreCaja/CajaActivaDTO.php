@@ -8,6 +8,6 @@ class CajaActivaDTO
 {
     public function __construct(
         public AperturaCierreCaja $apertura,
-        public array $resumen
+        public ResumenCajaDTO $resumen
     ) {}
 }

@@ -2,21 +2,24 @@
 
 namespace App\Http\Resources\Cajas;
 
-use App\DTOs\CierreCaja\CierreCajaResultadoDTO;
+use App\DTOs\CierreCaja\ResumenCajaDTO;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class CierreCajaResource extends JsonResource
 {
-    public function __construct(private CierreCajaResultadoDTO $resultado)
+    private ResumenCajaDTO $resumen;
+
+    public function __construct($apertura, ResumenCajaDTO $resumen)
     {
-        parent::__construct($resultado->apertura);
+        parent::__construct($apertura);
+        $this->resumen = $resumen;
     }
 
     public function toArray(Request $request): array
     {
         $base = (new AperturaCierreCajaResource($this->resource))->toArray($request);
-        $base['diferencias'] = $this->resultado->diferencias->toArray();
+        $base['resumen'] = $this->resumen->toArray();
 
         return $base;
     }
