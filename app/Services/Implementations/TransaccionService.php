@@ -22,9 +22,11 @@ class TransaccionService implements TransaccionServiceInterface
         float $monto,
         string $descripcion,
         ?string $referenciaId = null,
-        ?string $referenciaTipo = null
+        ?string $referenciaTipo = null,
+        ?array $conteoBilletesMonedas = null,
+        ?string $desplieguePagoId = null
     ): TransaccionCaja {
-        return DB::transaction(function () use ($subCajaId, $monto, $descripcion, $referenciaId, $referenciaTipo) {
+        return DB::transaction(function () use ($subCajaId, $monto, $descripcion, $referenciaId, $referenciaTipo, $conteoBilletesMonedas, $desplieguePagoId) {
             $subCaja = $this->subCajaRepository->findById($subCajaId);
 
             if (!$subCaja) {
@@ -42,10 +44,12 @@ class TransaccionService implements TransaccionServiceInterface
                 'saldo_anterior' => $saldoAnterior,
                 'saldo_nuevo' => $saldoNuevo,
                 'descripcion' => $descripcion,
+                'despliegue_pago_id' => $desplieguePagoId,
                 'referencia_id' => $referenciaId,
                 'referencia_tipo' => $referenciaTipo,
                 'user_id' => auth()->id(),
                 'fecha' => now(),
+                'conteo_billetes_monedas' => $conteoBilletesMonedas,
             ]);
 
             // Actualizar saldo
@@ -60,9 +64,11 @@ class TransaccionService implements TransaccionServiceInterface
         float $monto,
         string $descripcion,
         ?string $referenciaId = null,
-        ?string $referenciaTipo = null
+        ?string $referenciaTipo = null,
+        ?array $conteoBilletesMonedas = null,
+        ?string $desplieguePagoId = null
     ): TransaccionCaja {
-        return DB::transaction(function () use ($subCajaId, $monto, $descripcion, $referenciaId, $referenciaTipo) {
+        return DB::transaction(function () use ($subCajaId, $monto, $descripcion, $referenciaId, $referenciaTipo, $conteoBilletesMonedas, $desplieguePagoId) {
             $subCaja = $this->subCajaRepository->findById($subCajaId);
 
             if (!$subCaja) {
@@ -87,10 +93,12 @@ class TransaccionService implements TransaccionServiceInterface
                 'saldo_anterior' => $saldoAnterior,
                 'saldo_nuevo' => $saldoNuevo,
                 'descripcion' => $descripcion,
+                'despliegue_pago_id' => $desplieguePagoId,
                 'referencia_id' => $referenciaId,
                 'referencia_tipo' => $referenciaTipo,
                 'user_id' => auth()->id(),
                 'fecha' => now(),
+                'conteo_billetes_monedas' => $conteoBilletesMonedas,
             ]);
 
             // Actualizar saldo

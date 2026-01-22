@@ -18,7 +18,9 @@ class RegistrarTransaccionUseCase
                 $request->monto,
                 $request->descripcion,
                 $request->referenciaId,
-                $request->referenciaTipo
+                $request->referenciaTipo,
+                $request->conteoBilletesMonedas,
+                $request->desplieguePagoId
             );
         } else {
             $transaccion = $this->transaccionService->registrarEgreso(
@@ -26,7 +28,9 @@ class RegistrarTransaccionUseCase
                 $request->monto,
                 $request->descripcion,
                 $request->referenciaId,
-                $request->referenciaTipo
+                $request->referenciaTipo,
+                $request->conteoBilletesMonedas,
+                $request->desplieguePagoId
             );
         }
 

@@ -10,6 +10,8 @@ class RegistrarTransaccionRequest
         public float $monto,
         public string $descripcion,
         public ?string $referenciaId = null,
-        public ?string $referenciaTipo = null
+        public ?string $referenciaTipo = null,
+        public ?array $conteoBilletesMonedas = null,
+        public ?string $desplieguePagoId = null
     ) {}
 }

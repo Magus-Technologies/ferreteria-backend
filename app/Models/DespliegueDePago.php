@@ -20,11 +20,16 @@ class DespliegueDePago extends Model
         'adicional',
         'mostrar',
         'metodo_de_pago_id',
+        'requiere_numero_serie',
+        'sobrecargo_porcentaje',
+        'tipo_sobrecargo',
     ];
 
     protected $casts = [
         'adicional' => 'decimal:2',
         'mostrar' => 'boolean',
+        'requiere_numero_serie' => 'boolean',
+        'sobrecargo_porcentaje' => 'decimal:2',
     ];
 
     public function metodoDePago(): BelongsTo

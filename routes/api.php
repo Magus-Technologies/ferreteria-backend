@@ -139,7 +139,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('proveedores', ProveedorController::class);
 
     // DESPLIEGUE DE PAGO
-    Route::apiResource('despliegues-de-pago', DespliegueDePagoController::class)->only(['index', 'show']);
+    Route::apiResource('despliegues-de-pago', DespliegueDePagoController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 
     // CAJA - Apertura y Cierre
     Route::get('cajas/consulta-apertura', [CajaController::class, 'consultaApertura']);
@@ -205,11 +205,15 @@ Route::middleware('auth:sanctum')->prefix('cajas')->group(function () {
     Route::get('/activa', [CierreCajaController::class, 'obtenerCajaActiva']);
     Route::post('/{id}/cerrar', [CierreCajaController::class, 'cerrarCaja']);
     Route::get('/{id}/resumen-movimientos', [CierreCajaController::class, 'obtenerResumenMovimientos']);
+    Route::get('/{id}/detalle-movimientos', [CierreCajaController::class, 'obtenerDetalleMovimientos']);
     Route::post('/validar-supervisor', [CierreCajaController::class, 'validarSupervisor']);
     
-    // Préstamos entre Cajas
+    // Préstamos entre Cajas (con sistema de aprobación)
     Route::get('/prestamos', [PrestamoEntreCajasController::class, 'index']);
+    Route::get('/prestamos/pendientes', [PrestamoEntreCajasController::class, 'pendientes']);
     Route::post('/prestamos', [PrestamoEntreCajasController::class, 'store']);
+    Route::post('/prestamos/{id}/aprobar', [PrestamoEntreCajasController::class, 'aprobar']);
+    Route::post('/prestamos/{id}/rechazar', [PrestamoEntreCajasController::class, 'rechazar']);
     Route::post('/prestamos/{id}/devolver', [PrestamoEntreCajasController::class, 'devolver']);
     
     // Movimientos Internos

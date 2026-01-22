@@ -18,6 +18,7 @@ class AperturaCierreCaja extends Model
         'sub_caja_id',
         'user_id',
         'monto_apertura',
+        'conteo_apertura_billetes_monedas',
         'fecha_apertura',
         'monto_cierre',
         'fecha_cierre',
@@ -42,6 +43,7 @@ class AperturaCierreCaja extends Model
         'diferencia_total' => 'decimal:2',
         'fecha_apertura' => 'datetime',
         'fecha_cierre' => 'datetime',
+        'conteo_apertura_billetes_monedas' => 'array',
         'conteo_billetes_monedas' => 'array',
         'conceptos_adicionales' => 'array',
         'forzar_cierre' => 'boolean',
@@ -90,5 +92,50 @@ class AperturaCierreCaja extends Model
     public function estaCerrada(): bool
     {
         return $this->estado === 'cerrada';
+    }
+
+    /**
+     * Calcular el total del conteo de billetes/monedas
+     */
+    public static function calcularTotalConteo(?array $conteo): float
+    {
+        if (!$conteo) {
+            return 0.00;
+        }
+
+        $total = 0;
+        $total += ($conteo['billete_200'] ?? 0) * 200;
+        $total += ($conteo['billete_100'] ?? 0) * 100;
+        $total += ($conteo['billete_50'] ?? 0) * 50;
+        $total += ($conteo['billete_20'] ?? 0) * 20;
+        $total += ($conteo['billete_10'] ?? 0) * 10;
+        $total += ($conteo['moneda_5'] ?? 0) * 5;
+        $total += ($conteo['moneda_2'] ?? 0) * 2;
+        $total += ($conteo['moneda_1'] ?? 0) * 1;
+        $total += ($conteo['moneda_050'] ?? 0) * 0.5;
+        $total += ($conteo['moneda_020'] ?? 0) * 0.2;
+        $total += ($conteo['moneda_010'] ?? 0) * 0.1;
+
+        return round($total, 2);
+    }
+
+    /**
+     * Comparar conteo de apertura vs cierre
+     */
+    public function compararConteos(): array
+    {
+        $conteoApertura = $this->conteo_apertura_billetes_monedas ?? [];
+        $conteoCierre = $this->conteo_billetes_monedas ?? [];
+
+        $totalApertura = self::calcularTotalConteo($conteoApertura);
+        $totalCierre = self::calcularTotalConteo($conteoCierre);
+
+        return [
+            'total_apertura' => $totalApertura,
+            'total_cierre' => $totalCierre,
+            'diferencia' => $totalCierre - $totalApertura,
+            'conteo_apertura' => $conteoApertura,
+            'conteo_cierre' => $conteoCierre,
+        ];
     }
 }

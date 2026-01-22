@@ -18,8 +18,21 @@ class RegistrarTransaccionRequest extends FormRequest
             'tipo_transaccion' => 'required|string|in:ingreso,egreso',
             'monto' => 'required|numeric|min:0.01',
             'descripcion' => 'required|string|max:500',
+            'despliegue_pago_id' => 'nullable|string|exists:desplieguedepago,id',
             'referencia_id' => 'nullable|string|max:191',
             'referencia_tipo' => 'nullable|string|max:50',
+            'conteo_billetes_monedas' => 'nullable|array',
+            'conteo_billetes_monedas.billete_200' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.billete_100' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.billete_50' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.billete_20' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.billete_10' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_5' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_2' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_1' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_050' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_020' => 'nullable|integer|min:0',
+            'conteo_billetes_monedas.moneda_010' => 'nullable|integer|min:0',
         ];
     }
 
@@ -35,6 +48,7 @@ class RegistrarTransaccionRequest extends FormRequest
             'monto.min' => 'El monto debe ser mayor a 0',
             'descripcion.required' => 'La descripción es requerida',
             'descripcion.max' => 'La descripción no puede exceder 500 caracteres',
+            'despliegue_pago_id.exists' => 'El método de pago no existe',
             'referencia_id.max' => 'La referencia ID no puede exceder 191 caracteres',
             'referencia_tipo.max' => 'El tipo de referencia no puede exceder 50 caracteres',
         ];

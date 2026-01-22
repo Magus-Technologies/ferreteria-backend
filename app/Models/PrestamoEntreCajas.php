@@ -13,9 +13,14 @@ class PrestamoEntreCajas extends Model
         'id',
         'sub_caja_origen_id',
         'sub_caja_destino_id',
+        'caja_principal_origen_id',
         'monto',
         'despliegue_de_pago_id',
         'estado',
+        'estado_aprobacion',
+        'aprobado_por_id',
+        'fecha_aprobacion',
+        'motivo_rechazo',
         'motivo',
         'user_presta_id',
         'user_recibe_id',
@@ -27,6 +32,7 @@ class PrestamoEntreCajas extends Model
         'monto' => 'decimal:2',
         'fecha_prestamo' => 'datetime',
         'fecha_devolucion' => 'datetime',
+        'fecha_aprobacion' => 'datetime',
     ];
 
     public $incrementing = false;
@@ -34,6 +40,11 @@ class PrestamoEntreCajas extends Model
     public $timestamps = false;
 
     // Relaciones
+    public function cajaPrincipalOrigen(): BelongsTo
+    {
+        return $this->belongsTo(CajaPrincipal::class, 'caja_principal_origen_id');
+    }
+
     public function subCajaOrigen(): BelongsTo
     {
         return $this->belongsTo(SubCaja::class, 'sub_caja_origen_id');
@@ -57,5 +68,10 @@ class PrestamoEntreCajas extends Model
     public function desplieguePago(): BelongsTo
     {
         return $this->belongsTo(DespliegueDePago::class, 'despliegue_de_pago_id');
+    }
+
+    public function aprobadoPor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'aprobado_por_id');
     }
 }

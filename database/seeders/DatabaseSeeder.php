@@ -21,5 +21,12 @@ class DatabaseSeeder extends Seeder
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);
+
+        // Ejecutar seeders de permisos
+        $this->call([
+            CajaPermissionsSeeder::class,
+            VendedorPermissionsSeeder::class,
+            JarumyUserPermissionsSeeder::class,
+        ]);
     }
 }

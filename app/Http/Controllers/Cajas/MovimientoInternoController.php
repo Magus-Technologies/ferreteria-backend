@@ -54,6 +54,13 @@ class MovimientoInternoController extends Controller
                     return response()->json([
                         'success' => false,
                         'message' => 'Solo puedes mover dinero entre tus propias sub-cajas',
+                        'debug' => [
+                            'user_id_actual' => $userId,
+                            'user_id_caja_origen' => $subCajaOrigen->cajaPrincipal->user_id,
+                            'user_id_caja_destino' => $subCajaDestino->cajaPrincipal->user_id,
+                            'caja_origen' => $subCajaOrigen->nombre,
+                            'caja_destino' => $subCajaDestino->nombre,
+                        ],
                     ], 403);
                 }
 
