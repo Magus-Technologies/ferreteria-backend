@@ -648,8 +648,23 @@ class ProductoController extends Controller
 
             ProductoAlmacenUnidadDerivada::insert($preciosData);
 
-            // Cargar relaciones para la respuesta
-            $producto->load(['categoria', 'marca', 'unidadMedida']);
+            // Cargar relaciones completas para la respuesta (igual que en index)
+            $producto->load([
+                'marca:id,name',
+                'categoria:id,name',
+                'unidadMedida:id,name',
+                'productoEnAlmacenes' => function ($q) use ($validated) {
+                    $q->where('almacen_id', $validated['almacen_id'])
+                        ->with([
+                            'almacen:id,name',
+                            'ubicacion:id,name',
+                            'unidadesDerivadas' => function ($udq) {
+                                $udq->with('unidadDerivada:id,name')
+                                    ->orderBy('factor', 'desc'); // Ordenar por factor descendente (GALON primero)
+                            },
+                        ]);
+                }
+            ]);
 
             return response()->json([
                 'data' => $producto,
@@ -1005,6 +1020,79 @@ class ProductoController extends Controller
                 'ficha_tecnica_url' => $producto->ficha_tecnica ? asset('storage/' . $producto->ficha_tecnica) : null,
             ],
             'message' => 'Archivos actualizados exitosamente',
+        ]);
+    }
+
+    /**
+     * Upload multiple files for multiple products at once
+     *
+     * POST /api/productos/upload-files-masivo
+     * 
+     * Body:
+     * - files: array of files
+     * - tipo: 'img' | 'ficha_tecnica'
+     * 
+     * Response:
+     * {
+     *   "data": {
+     *     "uploaded": ["17337", "17338"],
+     *     "not_found": ["99999"]
+     *   }
+     * }
+     */
+    public function uploadFilesMasivo(Request $request): JsonResponse
+    {
+        $request->validate([
+            'files' => 'required|array',
+            'files.*' => 'file|max:10240', // 10MB max por archivo
+            'tipo' => 'required|in:img,ficha_tecnica',
+        ]);
+
+        $tipo = $request->input('tipo');
+        $files = $request->file('files');
+        
+        // Determinar ruta según tipo
+        $ruta = $tipo === 'img' ? 'productos/imgs' : 'productos/fichas-tecnicas';
+        
+        $uploaded = [];
+        $notFound = [];
+
+        foreach ($files as $file) {
+            // Extraer código de producto del nombre del archivo (sin extensión)
+            $fileName = $file->getClientOriginalName();
+            $codProducto = pathinfo($fileName, PATHINFO_FILENAME);
+            
+            // Buscar producto por código
+            $producto = Producto::where('cod_producto', $codProducto)->first();
+            
+            if (!$producto) {
+                $notFound[] = $codProducto;
+                continue;
+            }
+
+            // Eliminar archivo anterior si existe
+            $campoDb = $tipo === 'img' ? 'img' : 'ficha_tecnica';
+            if ($producto->$campoDb && Storage::disk('public')->exists($producto->$campoDb)) {
+                Storage::disk('public')->delete($producto->$campoDb);
+            }
+
+            // Guardar nuevo archivo con nombre original
+            $filePath = $file->storeAs($ruta, $fileName, 'public');
+            
+            // Actualizar base de datos
+            $producto->update([
+                $campoDb => $filePath
+            ]);
+            
+            $uploaded[] = $codProducto;
+        }
+
+        return response()->json([
+            'data' => [
+                'uploaded' => $uploaded,
+                'not_found' => $notFound,
+            ],
+            'message' => count($uploaded) . ' archivos subidos, ' . count($notFound) . ' productos no encontrados',
         ]);
     }
 }

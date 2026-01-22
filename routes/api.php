@@ -69,6 +69,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('productos/validar-codigo', [ProductoController::class, 'validarCodigo']);
     Route::get('productos/{id}/detalle-precios', [ProductoController::class, 'detallePrecios']);
     Route::post('productos/import', [ProductoController::class, 'import']);
+    Route::post('productos/upload-files-masivo', [ProductoController::class, 'uploadFilesMasivo']);
     Route::post('productos/{id}/upload-files', [ProductoController::class, 'uploadFiles']);
 
     Route::apiResource('productos', ProductoController::class);
