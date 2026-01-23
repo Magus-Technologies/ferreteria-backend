@@ -78,15 +78,82 @@ class SubCajaRepository implements SubCajaRepositoryInterface
         array $tiposComprobante,
         ?int $excludeId = null
     ): bool {
+        // Obtener información de los métodos de pago seleccionados
+        $metodosInfo = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
+            ->with('metodoDePago')
+            ->get()
+            ->map(function ($despliegue) {
+                return [
+                    'despliegue_id' => $despliegue->id,
+                    'cuenta_bancaria' => $despliegue->metodoDePago->cuenta_bancaria ?? null,
+                    'nombre_titular' => $despliegue->metodoDePago->nombre_titular ?? null,
+                ];
+            });
+
+        // Buscar sub-cajas con la misma configuración
         $query = SubCaja::where('caja_principal_id', $cajaPrincipalId)
-            ->where('despliegues_pago_ids', json_encode($desplieguePagoIds))
             ->where('tipos_comprobante', json_encode($tiposComprobante));
 
         if ($excludeId) {
             $query->where('id', '!=', $excludeId);
         }
 
-        return $query->exists();
+        $subCajasExistentes = $query->get();
+
+        // Verificar si alguna sub-caja tiene la misma combinación de métodos + titular + cuenta
+        foreach ($subCajasExistentes as $subCaja) {
+            $desplieguePagoIdsExistentes = $subCaja->despliegues_pago_ids;
+            
+            // Si no tienen la misma cantidad de métodos, no es duplicado
+            if (count($desplieguePagoIdsExistentes) !== count($desplieguePagoIds)) {
+                continue;
+            }
+
+            // Si no tienen los mismos IDs de métodos, no es duplicado
+            sort($desplieguePagoIdsExistentes);
+            $desplieguePagoIdsOrdenados = $desplieguePagoIds;
+            sort($desplieguePagoIdsOrdenados);
+            
+            if ($desplieguePagoIdsExistentes !== $desplieguePagoIdsOrdenados) {
+                continue;
+            }
+
+            // Obtener información de los métodos existentes
+            $metodosExistentesInfo = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIdsExistentes)
+                ->with('metodoDePago')
+                ->get()
+                ->map(function ($despliegue) {
+                    return [
+                        'despliegue_id' => $despliegue->id,
+                        'cuenta_bancaria' => $despliegue->metodoDePago->cuenta_bancaria ?? null,
+                        'nombre_titular' => $despliegue->metodoDePago->nombre_titular ?? null,
+                    ];
+                });
+
+            // Comparar titular y cuenta bancaria de cada método
+            $esDuplicado = true;
+            foreach ($metodosInfo as $metodoNuevo) {
+                $metodoExistente = $metodosExistentesInfo->firstWhere('despliegue_id', $metodoNuevo['despliegue_id']);
+                
+                if (!$metodoExistente) {
+                    $esDuplicado = false;
+                    break;
+                }
+
+                // Si el titular o la cuenta son diferentes, no es duplicado
+                if ($metodoExistente['nombre_titular'] !== $metodoNuevo['nombre_titular'] ||
+                    $metodoExistente['cuenta_bancaria'] !== $metodoNuevo['cuenta_bancaria']) {
+                    $esDuplicado = false;
+                    break;
+                }
+            }
+
+            if ($esDuplicado) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function buscarSubCajaParaVenta(

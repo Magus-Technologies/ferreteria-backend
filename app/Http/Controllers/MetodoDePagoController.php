@@ -97,14 +97,21 @@ class MetodoDePagoController extends Controller
                     ->whereNotNull('cuenta_bancaria'),
             ],
             'nombre_titular' => 'nullable|string|max:191',
+            'monto_inicial' => 'nullable|numeric|min:0',
             'subcaja_id' => 'nullable|string|exists:subcaja,id',
         ], [
             'cuenta_bancaria.unique' => 'Este número de cuenta ya está registrado en otro banco',
+            'monto_inicial.numeric' => 'El monto inicial debe ser un número válido',
+            'monto_inicial.min' => 'El monto inicial no puede ser negativo',
         ]);
 
         // Generar ID único
         $validated['id'] = (string) \Illuminate\Support\Str::ulid();
-        $validated['monto'] = 0;
+        
+        // Si se proporciona monto inicial, establecer tanto monto como monto_inicial
+        $montoInicial = $validated['monto_inicial'] ?? 0;
+        $validated['monto'] = $montoInicial;
+        $validated['monto_inicial'] = $montoInicial;
         $validated['activo'] = true;
 
         $item = MetodoDePago::create($validated);

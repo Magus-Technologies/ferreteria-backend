@@ -17,7 +17,7 @@ use Exception;
 class AperturaCajaController extends Controller
 {
     /**
-     * Aperturar una caja principal
+     * Aperturar una caja principal con distribución a vendedores
      */
     public function aperturar(AperturarCajaRequest $request): JsonResponse
     {
@@ -36,6 +36,7 @@ class AperturaCajaController extends Controller
                 $cajaPrincipalId = $request->validated('caja_principal_id');
                 $montoApertura = $request->validated('monto_apertura');
                 $conteoBilletes = $request->validated('conteo_billetes_monedas');
+                $vendedores = $request->validated('vendedores', []); // Array de vendedores
 
                 // 1. Verificar que la caja principal existe
                 $cajaPrincipal = CajaPrincipal::find($cajaPrincipalId);
@@ -58,7 +59,13 @@ class AperturaCajaController extends Controller
                     ], 404);
                 }
 
-                // 3. Verificar si ya hay una apertura activa
+                // 3. Calcular monto total si hay vendedores
+                $montoTotal = $montoApertura;
+                if (!empty($vendedores)) {
+                    $montoTotal = collect($vendedores)->sum('monto');
+                }
+
+                // 4. Verificar si ya hay una apertura activa
                 $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
                     ->where('estado', 'abierta')
                     ->first();
@@ -66,22 +73,40 @@ class AperturaCajaController extends Controller
                 if ($aperturaActiva) {
                     // ✅ Si ya hay apertura, solo agregar el monto a la caja chica
                     $saldoAnterior = $cajaChica->saldo_actual;
-                    $cajaChica->saldo_actual += $montoApertura;
+                    $cajaChica->saldo_actual += $montoTotal;
                     $cajaChica->save();
                     
                     // Actualizar el monto de apertura acumulado
-                    $aperturaActiva->monto_apertura += $montoApertura;
+                    $aperturaActiva->monto_apertura += $montoTotal;
                     $aperturaActiva->save();
+                    
+                    // Registrar distribución a vendedores
+                    if (!empty($vendedores)) {
+                        foreach ($vendedores as $vendedor) {
+                            \App\Models\DistribucionEfectivoVendedor::create([
+                                'apertura_cierre_caja_id' => $aperturaActiva->id,
+                                'user_id' => $vendedor['user_id'],
+                                'monto' => $vendedor['monto'],
+                                'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
+                            ]);
+                        }
+                    }
+                    
+                    // Buscar el despliegue de pago "Efectivo"
+                    $desplieguePagoEfectivo = \App\Models\DespliegueDePago::where('name', 'Efectivo')
+                        ->where('activo', true)
+                        ->first();
                     
                     // Registrar transacción
                     TransaccionCaja::create([
                         'id' => (string) Str::ulid(),
                         'sub_caja_id' => $cajaChica->id,
+                        'despliegue_pago_id' => $desplieguePagoEfectivo?->id,
                         'tipo_transaccion' => 'ingreso',
-                        'monto' => $montoApertura,
+                        'monto' => $montoTotal,
                         'saldo_anterior' => $saldoAnterior,
                         'saldo_nuevo' => $cajaChica->saldo_actual,
-                        'descripcion' => 'Ingreso de efectivo adicional a caja',
+                        'descripcion' => 'Distribución de efectivo a vendedores',
                         'referencia_id' => $aperturaActiva->id,
                         'referencia_tipo' => 'apertura',
                         'user_id' => $userId,
@@ -97,56 +122,69 @@ class AperturaCajaController extends Controller
                         'cajero_id' => $userId,
                         'fecha_hora' => now(),
                         'tipo_movimiento' => 'ingreso',
-                        'concepto' => "Ingreso de efectivo adicional: S/. {$montoApertura}",
+                        'concepto' => "Distribución de efectivo a " . count($vendedores) . " vendedor(es): S/. {$montoTotal}",
                         'saldo_inicial' => $saldoAnterior,
-                        'ingreso' => $montoApertura,
+                        'ingreso' => $montoTotal,
                         'salida' => 0,
                         'saldo_final' => $cajaChica->saldo_actual,
                         'estado_caja' => 'abierta',
                     ]);
                     
-                    $aperturaActiva->load(['cajaPrincipal', 'subCaja', 'user']);
+                    $aperturaActiva->load(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
                     
                     return response()->json([
                         'success' => true,
-                        'message' => "Efectivo agregado exitosamente a la caja. Nuevo saldo: S/. {$cajaChica->saldo_actual}",
+                        'message' => "Efectivo distribuido exitosamente. Nuevo saldo: S/. {$cajaChica->saldo_actual}",
                         'data' => [
                             'apertura_id' => $aperturaActiva->id,
-                            'monto_agregado' => number_format($montoApertura, 2, '.', ''),
+                            'monto_agregado' => number_format($montoTotal, 2, '.', ''),
                             'monto_apertura_total' => number_format($aperturaActiva->monto_apertura, 2, '.', ''),
                             'saldo_anterior' => number_format($saldoAnterior, 2, '.', ''),
                             'saldo_nuevo' => number_format($cajaChica->saldo_actual, 2, '.', ''),
-                            'caja_chica' => [
-                                'id' => $cajaChica->id,
-                                'codigo' => $cajaChica->codigo,
-                                'nombre' => $cajaChica->nombre,
-                                'saldo_actual' => number_format($cajaChica->saldo_actual, 2, '.', ''),
-                            ],
+                            'vendedores_count' => count($vendedores),
+                            'distribuciones' => $aperturaActiva->distribucionesVendedores->map(function ($dist) {
+                                return [
+                                    'vendedor' => $dist->vendedor->name,
+                                    'monto' => number_format($dist->monto, 2, '.', ''),
+                                ];
+                            }),
                         ],
                     ], 200);
                 }
 
-                // 4. Si no hay apertura, crear una nueva
+                // 5. Si no hay apertura, crear una nueva
                 $apertura = AperturaCierreCaja::create([
                     'caja_principal_id' => $cajaPrincipalId,
                     'sub_caja_id' => $cajaChica->id,
-                    'user_id' => $userId, // Obtenido automáticamente del token
-                    'monto_apertura' => $montoApertura,
+                    'user_id' => $userId,
+                    'monto_apertura' => $montoTotal,
                     'conteo_apertura_billetes_monedas' => $conteoBilletes,
                     'fecha_apertura' => now(),
                     'estado' => 'abierta',
                 ]);
 
-                // 5. Actualizar el saldo de la Caja Chica
-                $cajaChica->saldo_actual += $montoApertura;
+                // 6. Registrar distribución a vendedores
+                if (!empty($vendedores)) {
+                    foreach ($vendedores as $vendedor) {
+                        \App\Models\DistribucionEfectivoVendedor::create([
+                            'apertura_cierre_caja_id' => $apertura->id,
+                            'user_id' => $vendedor['user_id'],
+                            'monto' => $vendedor['monto'],
+                            'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
+                        ]);
+                    }
+                }
+
+                // 7. Actualizar el saldo de la Caja Chica
+                $cajaChica->saldo_actual += $montoTotal;
                 $cajaChica->save();
 
-                // 6. Cargar relaciones para la respuesta
-                $apertura->load(['cajaPrincipal', 'subCaja', 'user']);
+                // 8. Cargar relaciones para la respuesta
+                $apertura->load(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Caja aperturada exitosamente',
+                    'message' => 'Caja aperturada y efectivo distribuido exitosamente',
                     'data' => [
                         'id' => $apertura->id,
                         'caja_principal_id' => $apertura->caja_principal_id,
@@ -154,9 +192,15 @@ class AperturaCajaController extends Controller
                         'user_id' => $apertura->user_id,
                         'monto_apertura' => number_format($apertura->monto_apertura, 2, '.', ''),
                         'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
-                        'monto_cierre' => $apertura->monto_cierre,
-                        'fecha_cierre' => $apertura->fecha_cierre,
                         'estado' => $apertura->estado,
+                        'vendedores_count' => count($vendedores),
+                        'distribuciones' => $apertura->distribucionesVendedores->map(function ($dist) {
+                            return [
+                                'vendedor_id' => $dist->user_id,
+                                'vendedor' => $dist->vendedor->name,
+                                'monto' => number_format($dist->monto, 2, '.', ''),
+                            ];
+                        }),
                         'caja_principal' => [
                             'id' => $apertura->cajaPrincipal->id,
                             'codigo' => $apertura->cajaPrincipal->codigo,
@@ -166,13 +210,7 @@ class AperturaCajaController extends Controller
                             'id' => $apertura->subCaja->id,
                             'codigo' => $apertura->subCaja->codigo,
                             'nombre' => $apertura->subCaja->nombre,
-                            'tipo_caja' => $apertura->subCaja->tipo_caja,
                             'saldo_actual' => number_format($apertura->subCaja->saldo_actual, 2, '.', ''),
-                        ],
-                        'user' => [
-                            'id' => $apertura->user->id,
-                            'name' => $apertura->user->name,
-                            'email' => $apertura->user->email,
                         ],
                     ],
                 ], 200);
@@ -305,7 +343,7 @@ class AperturaCajaController extends Controller
             $perPage = request()->query('per_page', 15);
             $cajaPrincipalId = request()->query('caja_principal_id');
             
-            $query = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user']);
+            $query = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
             
             // Filtrar por caja principal si se especifica
             if ($cajaPrincipalId) {
@@ -340,6 +378,13 @@ class AperturaCajaController extends Controller
                             'id' => $apertura->user->id,
                             'name' => $apertura->user->name,
                         ],
+                        'distribuciones_vendedores' => $apertura->distribucionesVendedores->map(function ($dist) {
+                            return [
+                                'vendedor_id' => $dist->user_id,
+                                'vendedor' => $dist->vendedor->name,
+                                'monto' => number_format($dist->monto, 2, '.', ''),
+                            ];
+                        }),
                     ];
                 }),
                 'pagination' => [
