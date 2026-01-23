@@ -37,6 +37,25 @@ class CajaPrincipalController extends Controller
     public function store(HttpCrearCajaPrincipalRequest $request): JsonResponse
     {
         try {
+            // Verificar que el usuario esté autenticado
+            $user = auth()->user();
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Usuario no autenticado',
+                ], 401);
+            }
+
+            // Verificar permisos usando el array all_permissions
+            $hasPermission = in_array('caja.create', $user->all_permissions ?? []);
+            
+            if (!$hasPermission) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tienes permiso para crear cajas principales',
+                ], 403);
+            }
+
             $useCaseRequest = new CrearCajaPrincipalRequest(
                 userId: $request->validated('user_id'),
                 nombre: $request->validated('nombre')

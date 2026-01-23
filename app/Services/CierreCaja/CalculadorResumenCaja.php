@@ -17,36 +17,58 @@ class CalculadorResumenCaja
 
     public function calcular(AperturaCierreCaja $apertura): ResumenCajaDTO
     {
-        // Obtener datos
-        $movimientos = $this->movimientosQuery->obtenerPorApertura($apertura->id);
+        // Obtener ventas usando el repositorio existente
         $ventas = $this->ventaRepository->obtenerPorApertura($apertura->id);
-
-        // Clasificar
-        $clasificacion = $this->clasificador->clasificar($movimientos, $ventas);
-
-        // Calcular totales
-        $totalIngresos = $clasificacion['ingresos']->sum('monto');
-        $totalEgresos = $clasificacion['egresos']->sum('monto');
-        $totalVentas = $clasificacion['ventas']->sum('total');
-
-        $montoEsperado = $apertura->monto_apertura + $totalIngresos - $totalEgresos + $totalVentas;
         
-        // Si la caja está abierta, monto_cierre será null
+        // Consolidar información de todas las subcajas
+        $clasificacion = $this->clasificador->clasificarPorTodasLasSubCajas($apertura->id, $ventas);
+
+        // FÓRMULA DEL CIERRE:
+        // Total en Caja = Apertura + Total Cobros + Otros Ingresos - Gastos - Pagos
+        // (Movimientos internos y préstamos NO afectan el total)
+        
+        $montoEsperado = $apertura->monto_apertura 
+                       + $clasificacion['resumen_ingresos'] 
+                       - $clasificacion['resumen_egresos'];
+        
         $montoCierre = $apertura->monto_cierre;
         $diferencia = $montoCierre !== null ? ($montoCierre - $montoEsperado) : null;
 
+        // Formatear detalles
+        $detalleIngresos = $clasificacion['otros_ingresos']->mapWithKeys(function ($item) {
+            return [$item->id => [
+                'id' => $item->id,
+                'tipo' => 'ingreso_manual',
+                'monto' => number_format($item->monto, 2, '.', ''),
+                'concepto' => $item->descripcion,
+                'sub_caja' => $item->sub_caja,
+                'created_at' => $item->created_at,
+            ]];
+        });
+
+        $detalleEgresos = $clasificacion['gastos_y_pagos']->mapWithKeys(function ($item) {
+            return [$item->id => [
+                'id' => $item->id,
+                'tipo' => $item->tipo,
+                'monto' => number_format($item->monto, 2, '.', ''),
+                'concepto' => $item->descripcion,
+                'sub_caja' => $item->sub_caja,
+                'created_at' => $item->created_at,
+            ]];
+        });
+
         return new ResumenCajaDTO(
             montoApertura: $apertura->monto_apertura,
-            totalIngresos: $totalIngresos,
-            totalEgresos: $totalEgresos,
-            totalVentas: $totalVentas,
+            totalIngresos: $clasificacion['resumen_ingresos'],
+            totalEgresos: $clasificacion['resumen_egresos'],
+            totalVentas: $clasificacion['resumen_ventas'],
             montoEsperado: $montoEsperado,
             montoCierre: $montoCierre,
             diferencia: $diferencia,
-            detalleIngresos: $clasificacion['ingresos'],
-            detalleEgresos: $clasificacion['egresos'],
+            detalleIngresos: $detalleIngresos,
+            detalleEgresos: $detalleEgresos,
             detalleVentas: $clasificacion['ventas'],
-            detalleMetodosPago: $clasificacion['metodosPago']
+            detalleMetodosPago: $clasificacion['cobros_por_metodo']
         );
     }
 }

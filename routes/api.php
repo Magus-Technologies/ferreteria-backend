@@ -138,6 +138,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('proveedores/check-documento', [ProveedorController::class, 'checkDocumento']);
     Route::apiResource('proveedores', ProveedorController::class);
 
+    // MÉTODOS DE PAGO (BANCOS)
+    Route::get('metodos-de-pago/agrupados-por-banco', [App\Http\Controllers\MetodoDePagoController::class, 'agrupadosPorBanco']);
+    Route::apiResource('metodos-de-pago', App\Http\Controllers\MetodoDePagoController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
+
     // DESPLIEGUE DE PAGO
     Route::apiResource('despliegues-de-pago', DespliegueDePagoController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 

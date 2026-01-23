@@ -10,11 +10,21 @@ class DespliegueDePagoController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = DespliegueDePago::query();
+        $query = DespliegueDePago::with('metodoDePago');
+
+        // Filtrar solo activos por defecto
+        if (!$request->has('incluir_inactivos')) {
+            $query->where('activo', true);
+        }
 
         // Filter by mostrar if provided
         if ($request->has('mostrar')) {
             $query->where('mostrar', $request->boolean('mostrar'));
+        }
+
+        // Filter by metodo_de_pago_id if provided
+        if ($request->has('metodo_de_pago_id')) {
+            $query->where('metodo_de_pago_id', $request->input('metodo_de_pago_id'));
         }
 
         $items = $query->get();
@@ -36,24 +46,51 @@ class DespliegueDePagoController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:191|unique:desplieguedepago,name',
+            'name' => [
+                'required',
+                'string',
+                'max:191',
+                // Validar que sea único solo para el mismo banco
+                \Illuminate\Validation\Rule::unique('desplieguedepago', 'name')
+                    ->where(function ($query) use ($request) {
+                        return $query->where('metodo_de_pago_id', $request->input('metodo_de_pago_id'));
+                    }),
+            ],
             'metodo_de_pago_id' => 'nullable|string|exists:metododepago,id',
             'requiere_numero_serie' => 'sometimes|boolean',
             'sobrecargo_porcentaje' => 'sometimes|numeric|min:0|max:100',
             'tipo_sobrecargo' => 'sometimes|in:porcentaje,monto_fijo,ninguno',
             'adicional' => 'sometimes|numeric|min:0',
             'mostrar' => 'sometimes|boolean',
+            'numero_celular' => [
+                'nullable',
+                'string',
+                'max:20',
+                'regex:/^[0-9+\-\s()]+$/', // Solo números, +, -, espacios y paréntesis
+                \Illuminate\Validation\Rule::unique('desplieguedepago', 'numero_celular')
+                    ->whereNotNull('numero_celular'),
+            ],
+        ], [
+            'numero_celular.unique' => 'Este número de celular ya está registrado en otro método de pago',
+            'numero_celular.regex' => 'El número de celular solo puede contener números y símbolos +, -, ( )',
         ]);
 
         // Generar ID único
         $validated['id'] = (string) \Illuminate\Support\Str::ulid();
-        
-        // Si no se proporciona metodo_de_pago_id, usar uno por defecto o el primero disponible
+        $validated['activo'] = true;
+
+        // Si no se proporciona metodo_de_pago_id, crear uno genérico
         if (empty($validated['metodo_de_pago_id'])) {
-            $metodoDefault = \App\Models\MetodoDePago::first();
-            if ($metodoDefault) {
-                $validated['metodo_de_pago_id'] = $metodoDefault->id;
-            }
+            // Buscar o crear método de pago genérico "Sin Banco"
+            $metodoGenerico = \App\Models\MetodoDePago::firstOrCreate(
+                ['name' => 'Sin Banco'],
+                [
+                    'id' => (string) \Illuminate\Support\Str::ulid(),
+                    'monto' => 0,
+                    'activo' => true,
+                ]
+            );
+            $validated['metodo_de_pago_id'] = $metodoGenerico->id;
         }
 
         $item = DespliegueDePago::create($validated);
@@ -66,15 +103,29 @@ class DespliegueDePagoController extends Controller
 
     public function update(Request $request, string $id): JsonResponse
     {
+        $item = DespliegueDePago::findOrFail($id);
+        
         $validated = $request->validate([
+            'name' => 'sometimes|string|max:191|unique:desplieguedepago,name,' . $id,
             'requiere_numero_serie' => 'sometimes|boolean',
             'sobrecargo_porcentaje' => 'sometimes|numeric|min:0|max:100',
             'tipo_sobrecargo' => 'sometimes|in:porcentaje,monto_fijo,ninguno',
             'adicional' => 'sometimes|numeric|min:0',
             'mostrar' => 'sometimes|boolean',
+            'numero_celular' => [
+                'nullable',
+                'string',
+                'max:20',
+                'regex:/^[0-9+\-\s()]+$/',
+                \Illuminate\Validation\Rule::unique('desplieguedepago', 'numero_celular')
+                    ->ignore($id)
+                    ->whereNotNull('numero_celular'),
+            ],
+        ], [
+            'numero_celular.unique' => 'Este número de celular ya está registrado en otro método de pago',
+            'numero_celular.regex' => 'El número de celular solo puede contener números y símbolos +, -, ( )',
         ]);
 
-        $item = DespliegueDePago::findOrFail($id);
         $item->update($validated);
 
         return response()->json([
@@ -87,6 +138,22 @@ class DespliegueDePagoController extends Controller
     {
         try {
             $item = DespliegueDePago::findOrFail($id);
+            
+            // Verificar si está siendo usado en ventas o transacciones
+            $enUso = \DB::table('desplieguedepagoventa')
+                ->where('despliegue_de_pago_id', $id)
+                ->exists();
+            
+            if ($enUso) {
+                // Solo desactivar
+                $item->update(['activo' => false]);
+                
+                return response()->json([
+                    'message' => 'Método desactivado (está siendo usado en ventas)'
+                ]);
+            }
+
+            // Si no está en uso, se puede eliminar
             $item->delete();
 
             return response()->json([
@@ -94,7 +161,7 @@ class DespliegueDePagoController extends Controller
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'No se puede eliminar este método de pago porque está siendo usado en ventas o sub-cajas'
+                'message' => 'No se puede eliminar este método de pago'
             ], 400);
         }
     }

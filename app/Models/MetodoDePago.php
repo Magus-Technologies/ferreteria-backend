@@ -28,10 +28,13 @@ class MetodoDePago extends Model
      * Campos asignables en masa
      */
     protected $fillable = [
+        'id',
         'name',
         'cuenta_bancaria',
+        'nombre_titular',
         'monto',
         'subcaja_id',
+        'activo',
     ];
 
     /**
@@ -41,6 +44,7 @@ class MetodoDePago extends Model
     {
         return [
             'monto' => 'decimal:2',
+            'activo' => 'boolean',
         ];
     }
 
