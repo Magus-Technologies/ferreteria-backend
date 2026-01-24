@@ -179,21 +179,63 @@ class SubCajaController extends Controller
                     $banco = $despliegue->metodoDePago->name ?? 'Sin Banco';
                     $metodo = $despliegue->name;
                     $titular = $despliegue->metodoDePago->nombre_titular ?? '';
+                    $cuentaBancaria = $despliegue->metodoDePago->cuenta_bancaria ?? null;
+                    
+                    // Identificar tipo basándose en el nombre y cuenta bancaria
+                    $tipo = 'efectivo'; // Por defecto
+                    $bancoLower = strtolower($banco);
+                    $metodoLower = strtolower($metodo);
+                    
+                    // Si tiene cuenta bancaria, es banco
+                    if ($cuentaBancaria) {
+                        $tipo = 'banco';
+                    }
+                    // Si el nombre contiene "efectivo", es efectivo
+                    elseif (str_contains($bancoLower, 'efectivo') || str_contains($metodoLower, 'efectivo')) {
+                        $tipo = 'efectivo';
+                    }
+                    // Si contiene nombres de bancos, es banco
+                    elseif (str_contains($bancoLower, 'bcp') || 
+                              str_contains($bancoLower, 'bbva') || 
+                              str_contains($bancoLower, 'interbank') ||
+                              str_contains($bancoLower, 'scotiabank') ||
+                              str_contains($bancoLower, 'banco') ||
+                              str_contains($metodoLower, 'bcp') ||
+                              str_contains($metodoLower, 'bbva') ||
+                              str_contains($metodoLower, 'interbank') ||
+                              str_contains($metodoLower, 'scotiabank')) {
+                        $tipo = 'banco';
+                    }
+                    // Si contiene billeteras digitales
+                    elseif (str_contains($bancoLower, 'yape') || 
+                              str_contains($bancoLower, 'plin') ||
+                              str_contains($bancoLower, 'tunki') ||
+                              str_contains($metodoLower, 'yape') ||
+                              str_contains($metodoLower, 'plin') ||
+                              str_contains($metodoLower, 'tunki')) {
+                        $tipo = 'billetera';
+                    }
                     
                     // Formato: SubCaja/Banco/Método/Titular
                     $label = $titular 
                         ? "{$subCaja->nombre}/{$banco}/{$metodo}/{$titular}"
                         : "{$subCaja->nombre}/{$banco}/{$metodo}";
 
+                    // Crear un identificador único combinando sub_caja_id y despliegue_id
+                    // Esto evita duplicados cuando múltiples sub-cajas usan el mismo despliegue
+                    $uniqueValue = "{$subCaja->id}-{$despliegue->id}";
+                    
                     $metodos[] = [
-                        'value' => $despliegue->id,
+                        'value' => $uniqueValue, // Usar identificador único
                         'label' => $label,
                         'sub_caja_id' => $subCaja->id,
+                        'despliegue_pago_id' => $despliegue->id, // Mantener el ID original
                         'sub_caja_nombre' => $subCaja->nombre,
                         'tipos_comprobante' => $subCaja->tipos_comprobante,
                         'banco' => $banco,
                         'metodo' => $metodo,
                         'titular' => $titular,
+                        'tipo' => $tipo, // Agregar tipo para filtrado
                     ];
                 }
             }

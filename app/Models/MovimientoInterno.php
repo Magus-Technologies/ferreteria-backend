@@ -14,9 +14,11 @@ class MovimientoInterno extends Model
         'sub_caja_origen_id',
         'sub_caja_destino_id',
         'monto',
-        'despliegue_de_pago_id',
+        'despliegue_de_pago_origen_id',
+        'despliegue_de_pago_destino_id',
         'justificacion',
         'comprobante',
+        'numero_operacion',
         'user_id',
         'fecha',
     ];
@@ -25,6 +27,12 @@ class MovimientoInterno extends Model
         'monto' => 'decimal:2',
         'fecha' => 'datetime',
     ];
+
+    // Accessor para mantener compatibilidad con código que usa fecha_movimiento
+    public function getFechaMovimientoAttribute()
+    {
+        return $this->fecha;
+    }
 
     public $incrementing = false;
     protected $keyType = 'string';
@@ -46,8 +54,13 @@ class MovimientoInterno extends Model
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    public function desplieguePago(): BelongsTo
+    public function desplieguePagoOrigen(): BelongsTo
     {
-        return $this->belongsTo(DespliegueDePago::class, 'despliegue_de_pago_id');
+        return $this->belongsTo(DespliegueDePago::class, 'despliegue_de_pago_origen_id');
+    }
+
+    public function desplieguePagoDestino(): BelongsTo
+    {
+        return $this->belongsTo(DespliegueDePago::class, 'despliegue_de_pago_destino_id');
     }
 }

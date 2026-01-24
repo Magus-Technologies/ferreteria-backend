@@ -170,6 +170,7 @@ use App\Http\Controllers\Cajas\CierreCajaController;
 use App\Http\Controllers\Cajas\DesplieguePagoController;
 use App\Http\Controllers\Cajas\MovimientoInternoController;
 use App\Http\Controllers\Cajas\PrestamoEntreCajasController;
+use App\Http\Controllers\Cajas\PrestamoVendedorController;
 use App\Http\Controllers\Cajas\SubCajaController;
 use App\Http\Controllers\Cajas\TransaccionController;
 
@@ -223,5 +224,15 @@ Route::middleware('auth:sanctum')->prefix('cajas')->group(function () {
     
     // Movimientos Internos
     Route::get('/movimientos-internos', [MovimientoInternoController::class, 'index']);
+    Route::get('/movimientos-internos/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
     Route::post('/movimientos-internos', [MovimientoInternoController::class, 'store']);
+    
+    // Préstamos entre Vendedores
+    Route::get('/prestamos-vendedores', [PrestamoVendedorController::class, 'listarSolicitudes']);
+    Route::post('/prestamos-vendedores', [PrestamoVendedorController::class, 'crearSolicitud']);
+    Route::get('/prestamos-vendedores/pendientes', [PrestamoVendedorController::class, 'solicitudesPendientes']);
+    Route::get('/prestamos-vendedores/transferencias', [PrestamoVendedorController::class, 'listarTransferencias']);
+    Route::post('/prestamos-vendedores/{id}/aprobar', [PrestamoVendedorController::class, 'aprobarSolicitud']);
+    Route::post('/prestamos-vendedores/{id}/rechazar', [PrestamoVendedorController::class, 'rechazarSolicitud']);
+    Route::get('/vendedores/con-efectivo', [PrestamoVendedorController::class, 'vendedoresConEfectivo']);
 });
