@@ -16,21 +16,21 @@ class CategoriaController extends Controller
         $query = Categoria::query();
 
         // Filtrar por estado si se especifica
-        if ($request->has('estado')) {
-            $query->where('estado', $request->boolean('estado'));
+        if ($request->has("estado")) {
+            $query->where("estado", $request->boolean("estado"));
         }
 
         // Buscar por nombre
-        if ($request->has('search')) {
-            $query->where('name', 'like', '%'.$request->search.'%');
+        if ($request->has("search")) {
+            $query->where("name", "like", "%" . $request->search . "%");
         }
 
         // Ordenar por nombre
-        $query->orderBy('name', 'asc');
+        $query->orderBy("name", "asc");
 
-        $categorias = $query->get(['id', 'name', 'estado']);
+        $categorias = $query->get(["id", "name", "estado"]);
 
-        return response()->json(['data' => $categorias]);
+        return response()->json($categorias);
     }
 
     /**
@@ -40,7 +40,7 @@ class CategoriaController extends Controller
     {
         $categoria = Categoria::findOrFail($id);
 
-        return response()->json(['data' => $categoria]);
+        return response()->json(["data" => $categoria]);
     }
 
     /**
@@ -49,18 +49,15 @@ class CategoriaController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:191|unique:categoria,name',
-            'estado' => 'nullable|boolean',
+            "name" => "required|string|max:191|unique:categoria,name",
+            "estado" => "nullable|boolean",
         ]);
 
-        $validated['estado'] = $validated['estado'] ?? true;
+        $validated["estado"] = $validated["estado"] ?? true;
 
         $categoria = Categoria::create($validated);
 
-        return response()->json([
-            'data' => $categoria,
-            'message' => 'Categoría creada exitosamente',
-        ], 201);
+        return response()->json($categoria, 201);
     }
 
     /**
@@ -71,16 +68,13 @@ class CategoriaController extends Controller
         $categoria = Categoria::findOrFail($id);
 
         $validated = $request->validate([
-            'name' => 'required|string|max:191|unique:categoria,name,'.$id,
-            'estado' => 'nullable|boolean',
+            "name" => "required|string|max:191|unique:categoria,name," . $id,
+            "estado" => "nullable|boolean",
         ]);
 
         $categoria->update($validated);
 
-        return response()->json([
-            'data' => $categoria,
-            'message' => 'Categoría actualizada exitosamente',
-        ]);
+        return response()->json($categoria);
     }
 
     /**
@@ -89,10 +83,10 @@ class CategoriaController extends Controller
     public function destroy($id): JsonResponse
     {
         $categoria = Categoria::findOrFail($id);
-        $categoria->update(['estado' => false]);
+        $categoria->update(["estado" => false]);
 
         return response()->json([
-            'message' => 'Categoría desactivada exitosamente',
+            "message" => "Categoría desactivada exitosamente",
         ]);
     }
 }

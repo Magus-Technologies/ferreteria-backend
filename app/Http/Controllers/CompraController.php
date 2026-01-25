@@ -52,7 +52,12 @@ class CompraController extends Controller
                 'pagosDeCompras as pagos_de_compras_count' => function ($query) {
                     $query->where('estado', true);
                 },
-            ]);
+            ])
+            ->withSum([
+                'pagosDeCompras as total_pagado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto');
 
         // Filter by almacen_id
         if ($request->has('almacen_id')) {
@@ -289,6 +294,11 @@ class CompraController extends Controller
                     $query->where('estado', true);
                 },
             ])
+            ->withSum([
+                'pagosDeCompras as total_pagado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto')
             ->findOrFail($id);
 
         return response()->json(['data' => $compra]);

@@ -133,11 +133,13 @@ class CotizacionController extends Controller
                 'almacen_id' => $validated['almacen_id'],
             ]);
 
-            // Procesar productos
-            foreach ($validated['productos'] as $productoData) {
+            // Procesar productos - Agrupar por producto_id para evitar duplicados
+            $productosAgrupados = collect($validated['productos'])->groupBy('producto_id');
+            
+            foreach ($productosAgrupados as $productoId => $unidadesDelProducto) {
                 $this->agregarProductoACotizacion(
                     $cotizacion,
-                    $productoData,
+                    $unidadesDelProducto->toArray(),
                     $validated['almacen_id'],
                     $validated['reservar_stock'] ?? false
                 );
@@ -168,18 +170,21 @@ class CotizacionController extends Controller
     }
 
     /**
-     * Agregar un producto a la cotización
+     * Agregar un producto a la cotización con múltiples unidades derivadas
      */
     private function agregarProductoACotizacion(
         Cotizacion $cotizacion,
-        array $productoData,
+        array $unidadesDelProducto,
         int $almacenId,
         bool $reservarStock
     ): void {
+        // Tomar el primer elemento para obtener el producto_id
+        $primerUnidad = $unidadesDelProducto[0];
+        
         // Buscar o crear ProductoAlmacen
         $productoAlmacen = ProductoAlmacen::firstOrCreate(
             [
-                'producto_id' => $productoData['producto_id'],
+                'producto_id' => $primerUnidad['producto_id'],
                 'almacen_id' => $almacenId,
             ],
             [
@@ -189,38 +194,40 @@ class CotizacionController extends Controller
             ]
         );
 
-        // Crear ProductoAlmacenCotizacion
+        // Crear UN SOLO ProductoAlmacenCotizacion para este producto
         $productoAlmacenCotizacion = ProductoAlmacenCotizacion::create([
             'cotizacion_id' => $cotizacion->id,
             'producto_almacen_id' => $productoAlmacen->id,
             'costo' => $productoAlmacen->costo,
         ]);
 
-        // Buscar o crear UnidadDerivadaInmutable
-        // Primero obtener el nombre de la unidad derivada
-        $unidadDerivada = \App\Models\UnidadDerivada::find($productoData['unidad_derivada_id']);
-        $nombreUnidad = $unidadDerivada ? $unidadDerivada->name : 'UNIDAD';
+        // Crear una UnidadDerivadaInmutableCotizacion por cada unidad derivada
+        foreach ($unidadesDelProducto as $productoData) {
+            // Buscar o crear UnidadDerivadaInmutable
+            $unidadDerivada = \App\Models\UnidadDerivada::find($productoData['unidad_derivada_id']);
+            $nombreUnidad = $unidadDerivada ? $unidadDerivada->name : 'UNIDAD';
 
-        $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
-            ['name' => $nombreUnidad]
-        );
+            $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                ['name' => $nombreUnidad]
+            );
 
-        // Crear UnidadDerivadaInmutableCotizacion
-        UnidadDerivadaInmutableCotizacion::create([
-            'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
-            'producto_almacen_cotizacion_id' => $productoAlmacenCotizacion->id,
-            'factor' => $productoData['unidad_derivada_factor'],
-            'cantidad' => $productoData['cantidad'],
-            'precio' => $productoData['precio_venta'],
-            'recargo' => $productoData['recargo'] ?? 0,
-            'descuento_tipo' => $productoData['descuento_tipo'] ?? 'm',
-            'descuento' => $productoData['descuento'] ?? 0,
-        ]);
+            // Crear UnidadDerivadaInmutableCotizacion
+            UnidadDerivadaInmutableCotizacion::create([
+                'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
+                'producto_almacen_cotizacion_id' => $productoAlmacenCotizacion->id,
+                'factor' => $productoData['unidad_derivada_factor'],
+                'cantidad' => $productoData['cantidad'],
+                'precio' => $productoData['precio_venta'],
+                'recargo' => $productoData['recargo'] ?? 0,
+                'descuento_tipo' => $productoData['descuento_tipo'] ?? 'm',
+                'descuento' => $productoData['descuento'] ?? 0,
+            ]);
 
-        // Si se debe reservar stock, descontarlo
-        if ($reservarStock) {
-            $cantidadEnFraccion = $productoData['cantidad'] * $productoData['unidad_derivada_factor'];
-            $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+            // Si se debe reservar stock, descontarlo
+            if ($reservarStock) {
+                $cantidadEnFraccion = $productoData['cantidad'] * $productoData['unidad_derivada_factor'];
+                $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+            }
         }
     }
 

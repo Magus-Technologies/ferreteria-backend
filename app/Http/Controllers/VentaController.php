@@ -57,7 +57,8 @@ class VentaController extends Controller
                 'user:id,name',
                 'almacen:id,name',
             ])
-            ->withCount('entregasProductos as entregas_productos_count');
+            ->withCount('entregasProductos as entregas_productos_count')
+            ->withSum('despliegueDePagoVentas as total_pagado', 'monto');
 
         // Filter by almacen_id
         if ($request->has('almacen_id')) {
@@ -411,6 +412,7 @@ class VentaController extends Controller
             'entregasProductos',
         ])
             ->withCount('entregasProductos as entregas_productos_count')
+            ->withSum('despliegueDePagoVentas as total_pagado', 'monto')
             ->findOrFail($id);
 
         return response()->json(['data' => $venta]);
