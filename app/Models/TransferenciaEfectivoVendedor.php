@@ -17,7 +17,9 @@ class TransferenciaEfectivoVendedor extends Model
         'solicitud_id',
         'apertura_cierre_caja_id',
         'vendedor_origen_id',
+        'sub_caja_origen_id',
         'vendedor_destino_id',
+        'sub_caja_destino_id',
         'monto',
         'fecha_transferencia',
     ];
@@ -60,5 +62,15 @@ class TransferenciaEfectivoVendedor extends Model
     public function vendedorDestino()
     {
         return $this->belongsTo(User::class, 'vendedor_destino_id');
+    }
+
+    public function subCajaOrigen()
+    {
+        return $this->belongsTo(SubCaja::class, 'sub_caja_origen_id');
+    }
+
+    public function subCajaDestino()
+    {
+        return $this->belongsTo(SubCaja::class, 'sub_caja_destino_id');
     }
 }

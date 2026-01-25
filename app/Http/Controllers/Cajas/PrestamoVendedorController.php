@@ -53,10 +53,20 @@ class PrestamoVendedorController extends Controller
     /**
      * Aprobar solicitud de efectivo
      */
-    public function aprobarSolicitud(string $id): JsonResponse
+    public function aprobarSolicitud(string $id, Request $request): JsonResponse
     {
+        $request->validate([
+            'sub_caja_origen_id' => ['required', 'integer', 'exists:sub_cajas,id'],
+            'monto_aprobado' => ['nullable', 'numeric', 'min:0.01'],
+        ]);
+
         try {
-            $transferencia = $this->prestamoVendedorService->aprobarSolicitud($id, auth()->id());
+            $transferencia = $this->prestamoVendedorService->aprobarSolicitud(
+                $id,
+                auth()->id(),
+                $request->sub_caja_origen_id,
+                $request->monto_aprobado
+            );
 
             return response()->json([
                 'success' => true,

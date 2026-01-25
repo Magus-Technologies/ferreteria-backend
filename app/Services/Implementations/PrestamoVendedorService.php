@@ -15,11 +15,12 @@ use App\Models\MovimientoCaja;
 use App\Models\DespliegueDePago;
 use App\Services\Interfaces\PrestamoVendedorServiceInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 {
-    public function crearSolicitud(CrearSolicitudEfectivoDTO $dto, int $vendedorSolicitanteId): array
+    public function crearSolicitud(CrearSolicitudEfectivoDTO $dto, int|string $vendedorSolicitanteId): array
     {
         // Verificar efectivo disponible del prestamista
         $efectivoDisponible = $this->calcularEfectivoDisponible($dto->aperturaId, $dto->vendedorPrestamistaId);
@@ -50,13 +51,13 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         ];
     }
 
-    public function aprobarSolicitud(string $solicitudId, int $vendedorPrestamistaId): array
+    public function aprobarSolicitud(string $solicitudId, int|string $vendedorPrestamistaId, int $subCajaOrigenId, ?float $montoAprobado = null): array
     {
-        return DB::transaction(function () use ($solicitudId, $vendedorPrestamistaId) {
+        return DB::transaction(function () use ($solicitudId, $vendedorPrestamistaId, $subCajaOrigenId, $montoAprobado) {
             $solicitud = SolicitudEfectivoVendedor::with([
                 'vendedorSolicitante',
                 'vendedorPrestamista',
-                'aperturaCierreCaja.subCaja'
+                'aperturaCierreCaja'
             ])->lockForUpdate()->findOrFail($solicitudId);
 
             // Validaciones
@@ -68,20 +69,39 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                 throw new PermisoPrestamoException('No tienes permiso para aprobar esta solicitud');
             }
 
-            // Verificar efectivo disponible
-            $efectivoDisponible = $this->calcularEfectivoDisponible(
-                $solicitud->apertura_cierre_caja_id,
-                $solicitud->vendedor_prestamista_id
-            );
-
-            if ($efectivoDisponible < $solicitud->monto_solicitado) {
-                throw new EfectivoInsuficienteException($efectivoDisponible, $solicitud->monto_solicitado);
+            // Validar que la sub-caja pertenezca al prestamista
+            $subCajaOrigen = \App\Models\SubCaja::findOrFail($subCajaOrigenId);
+            $apertura = $solicitud->aperturaCierreCaja;
+            
+            if ($subCajaOrigen->caja_principal_id !== $apertura->caja_principal_id) {
+                throw new \Exception('La sub-caja seleccionada no pertenece a tu caja principal');
             }
+
+            // Determinar monto a transferir
+            $montoATransferir = $montoAprobado ?? $solicitud->monto_solicitado;
+            
+            if ($montoATransferir > $solicitud->monto_solicitado) {
+                throw new \Exception('El monto aprobado no puede ser mayor al solicitado');
+            }
+
+            // Calcular efectivo disponible en la sub-caja origen
+            $efectivoDisponible = $this->calcularEfectivoEnSubCaja($subCajaOrigenId, $vendedorPrestamistaId);
+
+            if ($efectivoDisponible < $montoATransferir) {
+                throw new EfectivoInsuficienteException($efectivoDisponible, $montoATransferir);
+            }
+
+            // Obtener Caja Chica del solicitante (destino)
+            $cajaChica = \App\Models\SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
+                ->where('tipo_caja', 'CC')
+                ->firstOrFail();
 
             // Actualizar solicitud
             $solicitud->update([
                 'estado' => 'aprobada',
                 'fecha_respuesta' => now(),
+                'sub_caja_origen_id' => $subCajaOrigenId,
+                'sub_caja_destino_id' => $cajaChica->id,
             ]);
 
             // Crear transferencia
@@ -89,23 +109,28 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                 'solicitud_id' => $solicitud->id,
                 'apertura_cierre_caja_id' => $solicitud->apertura_cierre_caja_id,
                 'vendedor_origen_id' => $solicitud->vendedor_prestamista_id,
+                'sub_caja_origen_id' => $subCajaOrigenId,
                 'vendedor_destino_id' => $solicitud->vendedor_solicitante_id,
-                'monto' => $solicitud->monto_solicitado,
+                'sub_caja_destino_id' => $cajaChica->id,
+                'monto' => $montoATransferir,
+                'fecha_transferencia' => now(),
             ]);
 
             // Registrar transacciones y movimientos
-            $this->registrarTransaccionesYMovimientos($solicitud, $transferencia);
+            $this->registrarTransaccionesYMovimientos($solicitud, $transferencia, $subCajaOrigen, $cajaChica);
 
             return [
                 'transferencia_id' => $transferencia->id,
                 'monto' => number_format($transferencia->monto, 2, '.', ''),
                 'origen' => $solicitud->vendedorPrestamista->name,
                 'destino' => $solicitud->vendedorSolicitante->name,
+                'sub_caja_origen' => $subCajaOrigen->nombre,
+                'sub_caja_destino' => $cajaChica->nombre,
             ];
         });
     }
 
-    public function rechazarSolicitud(string $solicitudId, RechazarSolicitudDTO $dto, int $vendedorPrestamistaId): void
+    public function rechazarSolicitud(string $solicitudId, RechazarSolicitudDTO $dto, int|string $vendedorPrestamistaId): void
     {
         $solicitud = SolicitudEfectivoVendedor::findOrFail($solicitudId);
 
@@ -124,7 +149,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         ]);
     }
 
-    public function listarSolicitudesPendientes(int $vendedorId): array
+    public function listarSolicitudesPendientes(int|string $vendedorId): array
     {
         $solicitudes = SolicitudEfectivoVendedor::with(['vendedorSolicitante', 'aperturaCierreCaja'])
             ->where('vendedor_prestamista_id', $vendedorId)
@@ -144,7 +169,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         })->toArray();
     }
 
-    public function listarTodasLasSolicitudes(int $vendedorId): array
+    public function listarTodasLasSolicitudes(int|string $vendedorId): array
     {
         $solicitudes = SolicitudEfectivoVendedor::with(['vendedorSolicitante', 'vendedorPrestamista'])
             ->where(function ($query) use ($vendedorId) {
@@ -173,28 +198,215 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         })->toArray();
     }
 
-    public function obtenerVendedoresConEfectivo(string $aperturaId, int $vendedorActualId): array
+    public function obtenerVendedoresConEfectivo(string $aperturaId, int|string $vendedorActualId): array
     {
-        $distribuciones = DistribucionEfectivoVendedor::with('vendedor')
-            ->where('apertura_cierre_caja_id', $aperturaId)
-            ->where('user_id', '!=', $vendedorActualId)
-            ->get();
+        Log::info('🔍 Obteniendo vendedores con efectivo', [
+            'apertura_id' => $aperturaId,
+            'vendedor_actual_id' => $vendedorActualId,
+        ]);
 
-        return $distribuciones->map(function ($dist) use ($aperturaId) {
-            $efectivoDisponible = $this->calcularEfectivoDisponible($aperturaId, $dist->user_id);
+        try {
+            // Obtener la apertura para saber la caja principal
+            $apertura = \App\Models\AperturaCierreCaja::findOrFail($aperturaId);
+            
+            Log::info('✅ Apertura encontrada', [
+                'caja_principal_id' => $apertura->caja_principal_id,
+            ]);
+            
+            // Obtener todos los vendedores con distribución de efectivo (excepto el actual)
+            $distribuciones = DistribucionEfectivoVendedor::with('vendedor')
+                ->where('apertura_cierre_caja_id', $aperturaId)
+                ->where('user_id', '!=', $vendedorActualId)
+                ->get();
 
-            return [
-                'vendedor_id' => $dist->user_id,
-                'vendedor_nombre' => $dist->vendedor->name,
-                'efectivo_inicial' => number_format($dist->monto, 2, '.', ''),
-                'efectivo_disponible' => number_format($efectivoDisponible, 2, '.', ''),
-            ];
-        })->filter(function ($vendedor) {
-            return floatval($vendedor['efectivo_disponible']) > 0;
-        })->values()->toArray();
+            Log::info('📊 Distribuciones encontradas', [
+                'count' => $distribuciones->count(),
+            ]);
+
+            $vendedoresConEfectivo = [];
+
+            foreach ($distribuciones as $dist) {
+                Log::info('🔍 Calculando efectivo para vendedor', [
+                    'vendedor_id' => $dist->user_id,
+                    'vendedor_nombre' => $dist->vendedor->name,
+                ]);
+
+                // Calcular efectivo disponible en Caja Chica del vendedor
+                $efectivoDisponible = $this->calcularEfectivoEnCajaChica($apertura->caja_principal_id, $dist->user_id);
+
+                Log::info('💰 Efectivo calculado', [
+                    'vendedor_id' => $dist->user_id,
+                    'efectivo_disponible' => $efectivoDisponible,
+                ]);
+
+                if ($efectivoDisponible > 0) {
+                    $vendedoresConEfectivo[] = [
+                        'vendedor_id' => $dist->user_id,
+                        'vendedor_nombre' => $dist->vendedor->name,
+                        'efectivo_inicial' => number_format($dist->monto, 2, '.', ''),
+                        'efectivo_disponible' => number_format($efectivoDisponible, 2, '.', ''),
+                    ];
+                }
+            }
+
+            Log::info('✅ Vendedores con efectivo', [
+                'count' => count($vendedoresConEfectivo),
+                'vendedores' => $vendedoresConEfectivo,
+            ]);
+
+            return $vendedoresConEfectivo;
+        } catch (\Exception $e) {
+            Log::error('❌ Error al obtener vendedores con efectivo', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
     }
 
-    public function calcularEfectivoDisponible(string $aperturaId, int $vendedorId): float
+    /**
+     * Calcular efectivo disponible en una sub-caja específica del vendedor
+     */
+    private function calcularEfectivoEnSubCaja(int $subCajaId, int|string $vendedorId): float
+    {
+        $subCaja = \App\Models\SubCaja::findOrFail($subCajaId);
+
+        // Si es Caja Chica, calcular efectivo del vendedor
+        if ($subCaja->tipo_caja === 'CC') {
+            // Obtener la apertura activa
+            $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+                ->whereNull('fecha_cierre')
+                ->first();
+
+            if (!$aperturaActiva) {
+                return 0;
+            }
+
+            // Monto inicial de distribución
+            $montoInicial = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                ->where('user_id', $vendedorId)
+                ->sum('monto');
+
+            // Obtener IDs de despliegues de pago tipo EFECTIVO de la Caja Chica
+            $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
+            
+            $desplieguePagoEfectivoIds = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
+                ->whereHas('metodoDePago', function ($query) {
+                    $query->whereNull('cuenta_bancaria')
+                          ->where(function ($q) {
+                              $q->where('name', 'like', '%efectivo%')
+                                ->orWhere('name', 'like', '%Efectivo%');
+                          });
+                })
+                ->pluck('id')
+                ->toArray();
+
+            if (empty($desplieguePagoEfectivoIds)) {
+                return $montoInicial;
+            }
+
+            // Calcular transacciones de efectivo (excluyendo aperturas)
+            $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCaja->id)
+                ->where('user_id', $vendedorId)
+                ->where(function ($query) use ($desplieguePagoEfectivoIds) {
+                    $query->whereIn('despliegue_pago_id', $desplieguePagoEfectivoIds)
+                          ->orWhere(function ($q) {
+                              $q->whereNull('despliegue_pago_id')
+                                ->where('referencia_tipo', 'venta');
+                          });
+                })
+                ->where(function ($query) {
+                    $query->whereNull('referencia_tipo')
+                          ->orWhere('referencia_tipo', '!=', 'apertura');
+                })
+                ->get();
+
+            $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+            $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+
+            return $montoInicial + $ingresos - $egresos;
+        }
+
+        // Para otras sub-cajas, calcular el saldo total
+        $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
+            ->where('user_id', $vendedorId)
+            ->get();
+
+        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+
+        return $ingresos - $egresos;
+    }
+
+    /**
+     * Calcular efectivo disponible en Caja Chica del vendedor
+     */
+    private function calcularEfectivoEnCajaChica(int $cajaPrincipalId, int|string $vendedorId): float
+    {
+        // Buscar la Caja Chica
+        $cajaChica = \App\Models\SubCaja::where('caja_principal_id', $cajaPrincipalId)
+            ->where('tipo_caja', 'CC')
+            ->first();
+
+        if (!$cajaChica) {
+            return 0;
+        }
+
+        // Obtener la apertura activa
+        $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
+            ->whereNull('fecha_cierre')
+            ->first();
+
+        if (!$aperturaActiva) {
+            return 0;
+        }
+
+        // Monto inicial de distribución
+        $montoInicial = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+            ->where('user_id', $vendedorId)
+            ->sum('monto');
+
+        // Obtener IDs de despliegues de pago tipo EFECTIVO de la Caja Chica
+        $desplieguePagoIds = $cajaChica->despliegues_pago_ids ?? [];
+        
+        $desplieguePagoEfectivoIds = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
+            ->whereHas('metodoDePago', function ($query) {
+                $query->whereNull('cuenta_bancaria')
+                      ->where(function ($q) {
+                          $q->where('name', 'like', '%efectivo%')
+                            ->orWhere('name', 'like', '%Efectivo%');
+                      });
+            })
+            ->pluck('id')
+            ->toArray();
+
+        if (empty($desplieguePagoEfectivoIds)) {
+            return $montoInicial;
+        }
+
+        // Calcular transacciones de efectivo (excluyendo aperturas)
+        $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $cajaChica->id)
+            ->where('user_id', $vendedorId)
+            ->where(function ($query) use ($desplieguePagoEfectivoIds) {
+                $query->whereIn('despliegue_pago_id', $desplieguePagoEfectivoIds)
+                      ->orWhere(function ($q) {
+                          $q->whereNull('despliegue_pago_id')
+                            ->where('referencia_tipo', 'venta');
+                      });
+            })
+            ->where(function ($query) {
+                $query->whereNull('referencia_tipo')
+                      ->orWhere('referencia_tipo', '!=', 'apertura');
+            })
+            ->get();
+
+        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+
+        return $montoInicial + $ingresos - $egresos;
+    }
+
+    public function calcularEfectivoDisponible(string $aperturaId, int|string $vendedorId): float
     {
         $distribucion = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaId)
             ->where('user_id', $vendedorId)
@@ -217,7 +429,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         return $efectivoInicial - $prestamosDados + $prestamosRecibidos;
     }
 
-    public function listarTransferencias(int $vendedorId): array
+    public function listarTransferencias(int|string $vendedorId): array
     {
         $transferencias = TransferenciaEfectivoVendedor::with([
             'vendedorOrigen',
@@ -251,24 +463,26 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 
     private function registrarTransaccionesYMovimientos(
         SolicitudEfectivoVendedor $solicitud,
-        TransferenciaEfectivoVendedor $transferencia
+        TransferenciaEfectivoVendedor $transferencia,
+        \App\Models\SubCaja $subCajaOrigen,
+        \App\Models\SubCaja $subCajaDestino
     ): void {
         $desplieguePagoEfectivo = DespliegueDePago::where('name', 'Efectivo')
             ->where('activo', true)
             ->first();
 
-        $subCaja = $solicitud->aperturaCierreCaja->subCaja;
-        $saldoAnterior = $subCaja->saldo_actual;
+        $saldoAnteriorOrigen = $subCajaOrigen->saldo_actual;
+        $saldoAnteriorDestino = $subCajaDestino->saldo_actual;
 
-        // Transacción de salida (prestamista)
+        // Transacción de salida en sub-caja origen (prestamista)
         TransaccionCaja::create([
             'id' => (string) Str::ulid(),
-            'sub_caja_id' => $subCaja->id,
+            'sub_caja_id' => $subCajaOrigen->id,
             'despliegue_pago_id' => $desplieguePagoEfectivo?->id,
             'tipo_transaccion' => 'egreso',
-            'monto' => $solicitud->monto_solicitado,
-            'saldo_anterior' => $saldoAnterior,
-            'saldo_nuevo' => $saldoAnterior,
+            'monto' => $transferencia->monto,
+            'saldo_anterior' => $saldoAnteriorOrigen,
+            'saldo_nuevo' => $saldoAnteriorOrigen - $transferencia->monto,
             'descripcion' => "Préstamo de efectivo a {$solicitud->vendedorSolicitante->name}",
             'referencia_id' => $transferencia->id,
             'referencia_tipo' => 'transferencia_vendedor',
@@ -276,15 +490,15 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             'fecha' => now(),
         ]);
 
-        // Transacción de entrada (solicitante)
+        // Transacción de entrada en Caja Chica (solicitante)
         TransaccionCaja::create([
             'id' => (string) Str::ulid(),
-            'sub_caja_id' => $subCaja->id,
+            'sub_caja_id' => $subCajaDestino->id,
             'despliegue_pago_id' => $desplieguePagoEfectivo?->id,
             'tipo_transaccion' => 'ingreso',
-            'monto' => $solicitud->monto_solicitado,
-            'saldo_anterior' => $saldoAnterior,
-            'saldo_nuevo' => $saldoAnterior,
+            'monto' => $transferencia->monto,
+            'saldo_anterior' => $saldoAnteriorDestino,
+            'saldo_nuevo' => $saldoAnteriorDestino + $transferencia->monto,
             'descripcion' => "Préstamo de efectivo recibido de {$solicitud->vendedorPrestamista->name}",
             'referencia_id' => $transferencia->id,
             'referencia_tipo' => 'transferencia_vendedor',
@@ -292,36 +506,41 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             'fecha' => now(),
         ]);
 
-        // Movimientos
+        // Actualizar saldos de las sub-cajas
+        $subCajaOrigen->update(['saldo_actual' => $saldoAnteriorOrigen - $transferencia->monto]);
+        $subCajaDestino->update(['saldo_actual' => $saldoAnteriorDestino + $transferencia->monto]);
+
+        // Movimiento de salida (prestamista)
         MovimientoCaja::create([
             'id' => (string) Str::ulid(),
             'apertura_cierre_id' => $solicitud->apertura_cierre_caja_id,
-            'caja_principal_id' => $subCaja->caja_principal_id,
-            'sub_caja_id' => $subCaja->id,
+            'caja_principal_id' => $subCajaOrigen->caja_principal_id,
+            'sub_caja_id' => $subCajaOrigen->id,
             'cajero_id' => $solicitud->vendedor_prestamista_id,
             'fecha_hora' => now(),
             'tipo_movimiento' => 'salida',
-            'concepto' => "Préstamo de S/. {$solicitud->monto_solicitado} a {$solicitud->vendedorSolicitante->name}",
-            'saldo_inicial' => $saldoAnterior,
+            'concepto' => "Préstamo de S/. {$transferencia->monto} a {$solicitud->vendedorSolicitante->name}",
+            'saldo_inicial' => $saldoAnteriorOrigen,
             'ingreso' => 0,
-            'salida' => $solicitud->monto_solicitado,
-            'saldo_final' => $saldoAnterior,
+            'salida' => $transferencia->monto,
+            'saldo_final' => $saldoAnteriorOrigen - $transferencia->monto,
             'estado_caja' => 'abierta',
         ]);
 
+        // Movimiento de entrada (solicitante)
         MovimientoCaja::create([
             'id' => (string) Str::ulid(),
             'apertura_cierre_id' => $solicitud->apertura_cierre_caja_id,
-            'caja_principal_id' => $subCaja->caja_principal_id,
-            'sub_caja_id' => $subCaja->id,
+            'caja_principal_id' => $subCajaDestino->caja_principal_id,
+            'sub_caja_id' => $subCajaDestino->id,
             'cajero_id' => $solicitud->vendedor_solicitante_id,
             'fecha_hora' => now(),
             'tipo_movimiento' => 'ingreso',
-            'concepto' => "Préstamo de S/. {$solicitud->monto_solicitado} recibido de {$solicitud->vendedorPrestamista->name}",
-            'saldo_inicial' => $saldoAnterior,
-            'ingreso' => $solicitud->monto_solicitado,
+            'concepto' => "Préstamo de S/. {$transferencia->monto} recibido de {$solicitud->vendedorPrestamista->name}",
+            'saldo_inicial' => $saldoAnteriorDestino,
+            'ingreso' => $transferencia->monto,
             'salida' => 0,
-            'saldo_final' => $saldoAnterior,
+            'saldo_final' => $saldoAnteriorDestino + $transferencia->monto,
             'estado_caja' => 'abierta',
         ]);
     }

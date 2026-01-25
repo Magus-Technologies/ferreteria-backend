@@ -7,19 +7,19 @@ use App\DTOs\PrestamoVendedor\RechazarSolicitudDTO;
 
 interface PrestamoVendedorServiceInterface
 {
-    public function crearSolicitud(CrearSolicitudEfectivoDTO $dto, int $vendedorSolicitanteId): array;
+    public function crearSolicitud(CrearSolicitudEfectivoDTO $dto, int|string $vendedorSolicitanteId): array;
     
-    public function aprobarSolicitud(string $solicitudId, int $vendedorPrestamistaId): array;
+    public function aprobarSolicitud(string $solicitudId, int|string $vendedorPrestamistaId, int $subCajaOrigenId, ?float $montoAprobado = null): array;
     
-    public function rechazarSolicitud(string $solicitudId, RechazarSolicitudDTO $dto, int $vendedorPrestamistaId): void;
+    public function rechazarSolicitud(string $solicitudId, RechazarSolicitudDTO $dto, int|string $vendedorPrestamistaId): void;
     
-    public function listarSolicitudesPendientes(int $vendedorId): array;
+    public function listarSolicitudesPendientes(int|string $vendedorId): array;
     
-    public function listarTodasLasSolicitudes(int $vendedorId): array;
+    public function listarTodasLasSolicitudes(int|string $vendedorId): array;
     
-    public function obtenerVendedoresConEfectivo(string $aperturaId, int $vendedorActualId): array;
+    public function obtenerVendedoresConEfectivo(string $aperturaId, int|string $vendedorActualId): array;
     
-    public function calcularEfectivoDisponible(string $aperturaId, int $vendedorId): float;
+    public function calcularEfectivoDisponible(string $aperturaId, int|string $vendedorId): float;
     
-    public function listarTransferencias(int $vendedorId): array;
+    public function listarTransferencias(int|string $vendedorId): array;
 }

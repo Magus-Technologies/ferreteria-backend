@@ -15,8 +15,11 @@ class AperturaCierreCajaRepository implements AperturaCierreCajaRepositoryInterf
 
     public function findCajaActiva(string $userId): ?AperturaCierreCaja
     {
-        return AperturaCierreCaja::where('user_id', $userId)
-            ->where('estado', 'abierta')
+        // Buscar apertura activa donde el usuario tenga distribución de efectivo
+        return AperturaCierreCaja::where('estado', 'abierta')
+            ->whereHas('distribucionesVendedores', function ($query) use ($userId) {
+                $query->where('user_id', $userId);
+            })
             ->with(['cajaPrincipal', 'subCaja', 'user'])
             ->first();
     }

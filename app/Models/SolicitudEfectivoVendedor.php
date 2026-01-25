@@ -18,6 +18,8 @@ class SolicitudEfectivoVendedor extends Model
         'vendedor_solicitante_id',
         'vendedor_prestamista_id',
         'monto_solicitado',
+        'sub_caja_destino_id',
+        'sub_caja_origen_id',
         'motivo',
         'estado',
         'fecha_solicitud',
@@ -64,6 +66,16 @@ class SolicitudEfectivoVendedor extends Model
     public function transferencia()
     {
         return $this->hasOne(TransferenciaEfectivoVendedor::class, 'solicitud_id');
+    }
+
+    public function subCajaDestino()
+    {
+        return $this->belongsTo(SubCaja::class, 'sub_caja_destino_id');
+    }
+
+    public function subCajaOrigen()
+    {
+        return $this->belongsTo(SubCaja::class, 'sub_caja_origen_id');
     }
 
     // Métodos helper

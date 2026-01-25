@@ -252,4 +252,143 @@ class SubCajaController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Obtener sub-cajas con saldo del vendedor actual
+     */
+    public function getConSaldoVendedor(int $cajaPrincipalId): JsonResponse
+    {
+        try {
+            $userId = auth()->id();
+            $subCajas = $this->subCajaRepository->findByCajaPrincipalId($cajaPrincipalId);
+            
+            $subCajasConSaldo = $subCajas->map(function ($subCaja) use ($userId) {
+                // Calcular saldo del vendedor en esta sub-caja
+                $saldoVendedor = $this->calcularSaldoVendedorEnSubCaja($subCaja->id, $userId);
+                
+                return [
+                    'id' => $subCaja->id,
+                    'codigo' => $subCaja->codigo,
+                    'nombre' => $subCaja->nombre,
+                    'tipo_caja' => $subCaja->tipo_caja,
+                    'saldo_actual' => $subCaja->saldo_actual, // Saldo total
+                    'saldo_vendedor' => $saldoVendedor, // Saldo del vendedor actual
+                    'despliegues_pago' => $subCaja->getDesplieguePagos(),
+                    'es_caja_chica' => $subCaja->esCajaChica(),
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $subCajasConSaldo,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener sub-cajas: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Calcular saldo de EFECTIVO del vendedor en una sub-caja
+     * Solo considera transacciones de efectivo del vendedor
+     */
+    private function calcularSaldoVendedorEnSubCaja(int $subCajaId, string|int $userId): string
+    {
+        // Obtener la sub-caja
+        $subCaja = \App\Models\SubCaja::find($subCajaId);
+        if (!$subCaja) {
+            return '0.00';
+        }
+        
+        $montoInicial = 0;
+        
+        // Solo si es Caja Chica, considerar la distribución inicial de efectivo
+        if ($subCaja->esCajaChica()) {
+            // Obtener la apertura activa de la caja principal
+            $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+                ->whereNull('fecha_cierre')
+                ->first();
+            
+            if ($aperturaActiva) {
+                // Sumar solo las distribuciones de efectivo del vendedor
+                $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                    ->where('user_id', $userId)
+                    ->get();
+                
+                $montoInicial = $distribuciones->sum('monto');
+                
+                // Log para debug
+                \Log::info("🔍 Distribuciones para user_id={$userId} en apertura={$aperturaActiva->id}", [
+                    'count' => $distribuciones->count(),
+                    'montos' => $distribuciones->pluck('monto')->toArray(),
+                    'total' => $montoInicial,
+                ]);
+            }
+        }
+        
+        // Obtener IDs de despliegues de pago tipo EFECTIVO de esta sub-caja
+        $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
+        
+        // Filtrar solo los que son efectivo
+        $desplieguePagoEfectivoIds = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
+            ->whereHas('metodoDePago', function ($query) {
+                $query->whereNull('cuenta_bancaria') // Sin cuenta bancaria = efectivo
+                      ->where(function ($q) {
+                          $q->where('name', 'like', '%efectivo%')
+                            ->orWhere('name', 'like', '%Efectivo%');
+                      });
+            })
+            ->pluck('id')
+            ->toArray();
+        
+        // Si no hay métodos de efectivo en esta sub-caja, retornar 0
+        if (empty($desplieguePagoEfectivoIds)) {
+            return '0.00';
+        }
+        
+        // Calcular solo las transacciones de EFECTIVO del vendedor en esta sub-caja
+        // EXCLUIR transacciones de tipo "apertura" para evitar duplicar las distribuciones
+        $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
+            ->where('user_id', $userId)
+            ->where(function ($query) use ($desplieguePagoEfectivoIds) {
+                // Incluir transacciones con despliegue de efectivo O transacciones de venta sin despliegue
+                $query->whereIn('despliegue_pago_id', $desplieguePagoEfectivoIds)
+                      ->orWhere(function ($q) {
+                          $q->whereNull('despliegue_pago_id')
+                            ->where('referencia_tipo', 'venta');
+                      });
+            })
+            ->where(function ($query) {
+                $query->whereNull('referencia_tipo')
+                      ->orWhere('referencia_tipo', '!=', 'apertura');
+            })
+            ->get();
+        
+        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+        
+        // Log para debug
+        \Log::info("🔍 Transacciones efectivo para user_id={$userId} en sub_caja={$subCajaId}", [
+            'count' => $transacciones->count(),
+            'ingresos' => $ingresos,
+            'egresos' => $egresos,
+            'despliegue_ids' => $desplieguePagoEfectivoIds,
+        ]);
+        
+        // Saldo = Monto inicial (solo en Caja Chica) + Ingresos - Egresos
+        $saldo = $montoInicial + $ingresos - $egresos;
+        
+        \Log::info("💰 Saldo final calculado", [
+            'user_id' => $userId,
+            'sub_caja_id' => $subCajaId,
+            'monto_inicial' => $montoInicial,
+            'ingresos' => $ingresos,
+            'egresos' => $egresos,
+            'saldo_final' => $saldo,
+        ]);
+        
+        return number_format($saldo, 2, '.', '');
+    }
 }

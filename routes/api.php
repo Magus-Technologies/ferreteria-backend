@@ -189,6 +189,7 @@ Route::middleware('auth:sanctum')->prefix('cajas')->group(function () {
 
     // Sub-Cajas
     Route::get('/cajas-principales/{cajaPrincipalId}/sub-cajas', [SubCajaController::class, 'index']);
+    Route::get('/cajas-principales/{cajaPrincipalId}/sub-cajas/con-saldo-vendedor', [SubCajaController::class, 'getConSaldoVendedor']);
     Route::get('/sub-cajas/metodos-para-ventas', [SubCajaController::class, 'metodosParaVentas']); // ANTES de las rutas con {id}
     Route::post('/sub-cajas', [SubCajaController::class, 'store']);
     Route::get('/sub-cajas/{id}', [SubCajaController::class, 'show']);

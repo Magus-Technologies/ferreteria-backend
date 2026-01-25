@@ -53,12 +53,18 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 }
             }
 
-            // Validar saldo suficiente en la sub-caja origen
-            if ($subCajaOrigen->saldo_actual < $dto->monto) {
+            // Validar saldo suficiente del vendedor en la sub-caja origen
+            $saldoDisponibleVendedor = $this->calcularSaldoVendedorEnSubCaja(
+                $subCajaOrigen->id,
+                $userId,
+                $dto->despliegueDePagoOrigenId
+            );
+            
+            if ($saldoDisponibleVendedor < $dto->monto) {
                 throw new SaldoInsuficienteException(
-                    $subCajaOrigen->saldo_actual, 
+                    $saldoDisponibleVendedor, 
                     $dto->monto,
-                    "Saldo insuficiente en la caja {$subCajaOrigen->nombre}: S/ {$subCajaOrigen->saldo_actual}"
+                    "Saldo insuficiente. Tu saldo disponible en {$subCajaOrigen->nombre} - {$desplieguePagoOrigen->name}: S/ {$saldoDisponibleVendedor}"
                 );
             }
 
@@ -171,6 +177,22 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
     private function obtenerSaldoDespliegue(string $desplieguePagoId): float
     {
         $transacciones = TransaccionCaja::where('despliegue_pago_id', $desplieguePagoId)->get();
+        
+        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+        
+        return $ingresos - $egresos;
+    }
+
+    /**
+     * Calcular el saldo disponible de un vendedor específico en una sub-caja y despliegue de pago
+     */
+    private function calcularSaldoVendedorEnSubCaja(int $subCajaId, string|int $userId, string $desplieguePagoId): float
+    {
+        $transacciones = TransaccionCaja::where('sub_caja_id', $subCajaId)
+            ->where('despliegue_pago_id', $desplieguePagoId)
+            ->where('user_id', $userId)
+            ->get();
         
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
         $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');

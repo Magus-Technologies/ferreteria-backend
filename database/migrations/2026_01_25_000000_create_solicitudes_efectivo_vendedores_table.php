@@ -14,6 +14,8 @@ return new class extends Migration
             $table->unsignedBigInteger('vendedor_solicitante_id');
             $table->unsignedBigInteger('vendedor_prestamista_id');
             $table->decimal('monto_solicitado', 10, 2);
+            $table->unsignedInteger('sub_caja_destino_id')->nullable()->comment('Caja Chica del solicitante donde se depositará el préstamo');
+            $table->unsignedInteger('sub_caja_origen_id')->nullable()->comment('Sub-caja del prestamista de donde saldrá el dinero');
             $table->text('motivo')->nullable();
             $table->enum('estado', ['pendiente', 'aprobada', 'rechazada'])->default('pendiente');
             $table->dateTime('fecha_solicitud');
@@ -24,6 +26,8 @@ return new class extends Migration
             $table->foreign('apertura_cierre_caja_id', 'fk_solicitud_apertura')->references('id')->on('apertura_cierre_caja')->onDelete('cascade');
             $table->foreign('vendedor_solicitante_id', 'fk_solicitud_solicitante')->references('id')->on('users')->onDelete('cascade');
             $table->foreign('vendedor_prestamista_id', 'fk_solicitud_prestamista')->references('id')->on('users')->onDelete('cascade');
+            $table->foreign('sub_caja_destino_id')->references('id')->on('sub_cajas')->onDelete('cascade');
+            $table->foreign('sub_caja_origen_id')->references('id')->on('sub_cajas')->onDelete('cascade');
             
             $table->index(['apertura_cierre_caja_id', 'estado'], 'idx_solicitud_apertura_estado');
             $table->index('vendedor_solicitante_id', 'idx_solicitud_solicitante');
