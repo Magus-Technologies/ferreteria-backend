@@ -14,11 +14,32 @@ class CrearSolicitudEfectivoRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'apertura_cierre_caja_id' => ['required', 'string', 'exists:apertura_cierre_caja,id'],
-            'vendedor_prestamista_id' => ['required', 'integer', 'exists:users,id'],
+            'apertura_cierre_caja_id' => ['required', 'string'],
+            'vendedor_prestamista_id' => ['required', 'string'],
             'monto_solicitado' => ['required', 'numeric', 'min:0.01'],
             'motivo' => ['nullable', 'string', 'max:500'],
         ];
+    }
+
+    public function withValidator($validator)
+    {
+        $validator->after(function ($validator) {
+            // Validar que la apertura existe
+            if ($this->apertura_cierre_caja_id) {
+                $aperturaExists = \App\Models\AperturaCierreCaja::where('id', $this->apertura_cierre_caja_id)->exists();
+                if (!$aperturaExists) {
+                    $validator->errors()->add('apertura_cierre_caja_id', 'La apertura de caja no existe');
+                }
+            }
+            
+            // Validar que el vendedor existe
+            if ($this->vendedor_prestamista_id) {
+                $vendedorExists = \App\Models\User::where('id', $this->vendedor_prestamista_id)->exists();
+                if (!$vendedorExists) {
+                    $validator->errors()->add('vendedor_prestamista_id', 'El vendedor no existe');
+                }
+            }
+        });
     }
 
     public function messages(): array

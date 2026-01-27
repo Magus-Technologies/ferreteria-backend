@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Collection;
 
 class SubCajaRepository implements SubCajaRepositoryInterface
 {
-    public function findById(int $id): ?SubCaja
+    public function findById(string $id): ?SubCaja
     {
         return SubCaja::with(['cajaPrincipal.user'])->find($id);
     }
@@ -38,20 +38,20 @@ class SubCajaRepository implements SubCajaRepositoryInterface
         return SubCaja::create($data);
     }
 
-    public function update(int $id, array $data): SubCaja
+    public function update(string $id, array $data): SubCaja
     {
         $subCaja = SubCaja::findOrFail($id);
         $subCaja->update($data);
         return $subCaja->fresh(['cajaPrincipal.user']);
     }
 
-    public function delete(int $id): bool
+    public function delete(string $id): bool
     {
         $subCaja = SubCaja::findOrFail($id);
         return $subCaja->delete();
     }
 
-    public function actualizarSaldo(int $id, float $nuevoSaldo): bool
+    public function actualizarSaldo(string $id, float $nuevoSaldo): bool
     {
         return SubCaja::where('id', $id)->update(['saldo_actual' => $nuevoSaldo]);
     }
@@ -76,7 +76,7 @@ class SubCajaRepository implements SubCajaRepositoryInterface
         int $cajaPrincipalId,
         array $desplieguePagoIds,
         array $tiposComprobante,
-        ?int $excludeId = null
+        ?string $excludeId = null
     ): bool {
         // Obtener información de los métodos de pago seleccionados
         $metodosInfo = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)

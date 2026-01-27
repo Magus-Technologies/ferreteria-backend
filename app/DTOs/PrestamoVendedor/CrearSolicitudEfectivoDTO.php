@@ -6,7 +6,7 @@ class CrearSolicitudEfectivoDTO
 {
     public function __construct(
         public readonly string $aperturaId,
-        public readonly int $vendedorPrestamistaId,
+        public readonly string $vendedorPrestamistaId,
         public readonly float $montoSolicitado,
         public readonly ?string $motivo = null,
     ) {}

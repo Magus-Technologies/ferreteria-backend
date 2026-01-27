@@ -118,10 +118,12 @@ class CajaPrincipalController extends Controller
             $caja = $this->cajaPrincipalRepository->findByUserId($userId);
 
             if (!$caja) {
+                // En lugar de error, retornar null para que el frontend maneje
                 return response()->json([
-                    'success' => false,
+                    'success' => true,
+                    'data' => null,
                     'message' => 'El usuario no tiene una caja asignada',
-                ], 404);
+                ], 200);
             }
 
             return response()->json([

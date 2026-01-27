@@ -160,11 +160,14 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         return $solicitudes->map(function ($solicitud) {
             return [
                 'id' => $solicitud->id,
-                'monto' => number_format($solicitud->monto_solicitado, 2, '.', ''),
+                'vendedor_solicitante' => [
+                    'id' => $solicitud->vendedor_solicitante_id,
+                    'name' => $solicitud->vendedorSolicitante->name,
+                ],
+                'monto_solicitado' => (float) $solicitud->monto_solicitado,
                 'motivo' => $solicitud->motivo,
-                'solicitante' => $solicitud->vendedorSolicitante->name,
-                'solicitante_id' => $solicitud->vendedor_solicitante_id,
-                'fecha' => $solicitud->fecha_solicitud->toIso8601String(),
+                'estado' => $solicitud->estado,
+                'created_at' => $solicitud->fecha_solicitud->toIso8601String(),
             ];
         })->toArray();
     }
@@ -206,11 +209,29 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         ]);
 
         try {
-            // Obtener la apertura para saber la caja principal
-            $apertura = \App\Models\AperturaCierreCaja::findOrFail($aperturaId);
+            // Intentar obtener la apertura de la tabla nueva primero
+            $apertura = \App\Models\AperturaCierreCaja::find($aperturaId);
+            
+            // Si no existe, buscar en la tabla legacy
+            if (!$apertura) {
+                $aperturaLegacy = \App\Models\AperturaYCierreCaja::find($aperturaId);
+                if (!$aperturaLegacy) {
+                    throw new \Exception('Apertura de caja no encontrada');
+                }
+                
+                // Para la tabla legacy, necesitamos obtener la caja principal del usuario
+                $cajaPrincipal = \App\Models\CajaPrincipal::where('user_id', $aperturaLegacy->user_id)->first();
+                if (!$cajaPrincipal) {
+                    throw new \Exception('No se encontró caja principal para el usuario');
+                }
+                
+                $cajaPrincipalId = $cajaPrincipal->id;
+            } else {
+                $cajaPrincipalId = $apertura->caja_principal_id;
+            }
             
             Log::info('✅ Apertura encontrada', [
-                'caja_principal_id' => $apertura->caja_principal_id,
+                'caja_principal_id' => $cajaPrincipalId,
             ]);
             
             // Obtener todos los vendedores con distribución de efectivo (excepto el actual)
@@ -232,7 +253,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                 ]);
 
                 // Calcular efectivo disponible en Caja Chica del vendedor
-                $efectivoDisponible = $this->calcularEfectivoEnCajaChica($apertura->caja_principal_id, $dist->user_id);
+                $efectivoDisponible = $this->calcularEfectivoEnCajaChica($cajaPrincipalId, $dist->user_id);
 
                 Log::info('💰 Efectivo calculado', [
                     'vendedor_id' => $dist->user_id,
@@ -467,9 +488,23 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         \App\Models\SubCaja $subCajaOrigen,
         \App\Models\SubCaja $subCajaDestino
     ): void {
-        $desplieguePagoEfectivo = DespliegueDePago::where('name', 'Efectivo')
-            ->where('activo', true)
+        // Buscar método de pago de efectivo (intentar varios nombres comunes)
+        $desplieguePagoEfectivo = DespliegueDePago::where('activo', true)
+            ->where(function ($query) {
+                $query->where('name', 'like', '%Efectivo%')
+                      ->orWhere('name', 'like', '%efectivo%')
+                      ->orWhere('name', 'like', '%EFECTIVO%');
+            })
             ->first();
+
+        // Si no se encuentra, buscar el primer método de pago activo de efectivo
+        if (!$desplieguePagoEfectivo) {
+            $desplieguePagoEfectivo = DespliegueDePago::where('activo', true)
+                ->whereHas('metodoDePago', function ($query) {
+                    $query->whereNull('cuenta_bancaria');
+                })
+                ->first();
+        }
 
         $saldoAnteriorOrigen = $subCajaOrigen->saldo_actual;
         $saldoAnteriorDestino = $subCajaDestino->saldo_actual;
@@ -518,7 +553,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             'sub_caja_id' => $subCajaOrigen->id,
             'cajero_id' => $solicitud->vendedor_prestamista_id,
             'fecha_hora' => now(),
-            'tipo_movimiento' => 'salida',
+            'tipo_movimiento' => 'transferencia',
             'concepto' => "Préstamo de S/. {$transferencia->monto} a {$solicitud->vendedorSolicitante->name}",
             'saldo_inicial' => $saldoAnteriorOrigen,
             'ingreso' => 0,
@@ -535,7 +570,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             'sub_caja_id' => $subCajaDestino->id,
             'cajero_id' => $solicitud->vendedor_solicitante_id,
             'fecha_hora' => now(),
-            'tipo_movimiento' => 'ingreso',
+            'tipo_movimiento' => 'transferencia',
             'concepto' => "Préstamo de S/. {$transferencia->monto} recibido de {$solicitud->vendedorPrestamista->name}",
             'saldo_inicial' => $saldoAnteriorDestino,
             'ingreso' => $transferencia->monto,

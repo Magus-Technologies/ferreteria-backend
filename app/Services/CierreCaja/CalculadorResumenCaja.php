@@ -68,7 +68,10 @@ class CalculadorResumenCaja
             detalleIngresos: $detalleIngresos,
             detalleEgresos: $detalleEgresos,
             detalleVentas: $clasificacion['ventas'],
-            detalleMetodosPago: $clasificacion['cobros_por_metodo']
+            detalleMetodosPago: $clasificacion['cobros_por_metodo'],
+            movimientosInternos: $clasificacion['movimientos_internos'],
+            prestamos: $clasificacion['prestamos'],
+            prestamosVendedores: $clasificacion['prestamos_vendedores']
         );
     }
 }

@@ -181,10 +181,21 @@ class PrestamoVendedorController extends Controller
     public function vendedoresConEfectivo(Request $request): JsonResponse
     {
         $request->validate([
-            'apertura_id' => ['required', 'string', 'exists:apertura_cierre_caja,id'],
+            'apertura_id' => ['required', 'string'],
         ]);
 
         try {
+            // Verificar si existe en la tabla nueva o legacy
+            $aperturaExiste = \App\Models\AperturaCierreCaja::where('id', $request->apertura_id)->exists() ||
+                             \App\Models\AperturaYCierreCaja::where('id', $request->apertura_id)->exists();
+            
+            if (!$aperturaExiste) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La apertura de caja no existe',
+                ], 404);
+            }
+
             $vendedores = $this->prestamoVendedorService->obtenerVendedoresConEfectivo(
                 $request->apertura_id,
                 auth()->id()
@@ -195,6 +206,11 @@ class PrestamoVendedorController extends Controller
                 'data' => $vendedores,
             ]);
         } catch (\Exception $e) {
+            \Log::error('Error al obtener vendedores con efectivo', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener vendedores: ' . $e->getMessage(),

@@ -11,11 +11,11 @@ return new class extends Migration
         Schema::create('solicitudes_efectivo_vendedores', function (Blueprint $table) {
             $table->char('id', 26)->primary();
             $table->char('apertura_cierre_caja_id', 26);
-            $table->unsignedBigInteger('vendedor_solicitante_id');
-            $table->unsignedBigInteger('vendedor_prestamista_id');
+            $table->char('vendedor_solicitante_id', 26);
+            $table->char('vendedor_prestamista_id', 26);
             $table->decimal('monto_solicitado', 10, 2);
-            $table->unsignedInteger('sub_caja_destino_id')->nullable()->comment('Caja Chica del solicitante donde se depositará el préstamo');
-            $table->unsignedInteger('sub_caja_origen_id')->nullable()->comment('Sub-caja del prestamista de donde saldrá el dinero');
+            $table->integer('sub_caja_destino_id')->nullable()->comment('Caja Chica del solicitante donde se depositará el préstamo');
+            $table->integer('sub_caja_origen_id')->nullable()->comment('Sub-caja del prestamista de donde saldrá el dinero');
             $table->text('motivo')->nullable();
             $table->enum('estado', ['pendiente', 'aprobada', 'rechazada'])->default('pendiente');
             $table->dateTime('fecha_solicitud');
@@ -24,8 +24,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->foreign('apertura_cierre_caja_id', 'fk_solicitud_apertura')->references('id')->on('apertura_cierre_caja')->onDelete('cascade');
-            $table->foreign('vendedor_solicitante_id', 'fk_solicitud_solicitante')->references('id')->on('users')->onDelete('cascade');
-            $table->foreign('vendedor_prestamista_id', 'fk_solicitud_prestamista')->references('id')->on('users')->onDelete('cascade');
+            $table->foreign('vendedor_solicitante_id', 'fk_solicitud_solicitante')->references('id')->on('user')->onDelete('cascade');
+            $table->foreign('vendedor_prestamista_id', 'fk_solicitud_prestamista')->references('id')->on('user')->onDelete('cascade');
             $table->foreign('sub_caja_destino_id')->references('id')->on('sub_cajas')->onDelete('cascade');
             $table->foreign('sub_caja_origen_id')->references('id')->on('sub_cajas')->onDelete('cascade');
             

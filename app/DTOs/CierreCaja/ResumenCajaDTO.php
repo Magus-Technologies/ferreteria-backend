@@ -17,7 +17,10 @@ class ResumenCajaDTO
         public Collection $detalleIngresos,
         public Collection $detalleEgresos,
         public Collection $detalleVentas,
-        public Collection $detalleMetodosPago
+        public Collection $detalleMetodosPago,
+        public Collection $movimientosInternos = new Collection(),
+        public Collection $prestamos = new Collection(),
+        public Collection $prestamosVendedores = new Collection()
     ) {}
 
     public function toArray(): array
@@ -34,6 +37,9 @@ class ResumenCajaDTO
             'detalle_egresos' => $this->detalleEgresos,
             'detalle_ventas' => $this->detalleVentas,
             'detalle_metodos_pago' => $this->detalleMetodosPago,
+            'movimientos_internos' => $this->movimientosInternos,
+            'prestamos' => $this->prestamos,
+            'prestamos_vendedores' => $this->prestamosVendedores,
         ];
     }
 }

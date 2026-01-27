@@ -191,6 +191,7 @@ class VentaController extends Controller
             'productos_por_almacen.*.unidades_derivadas.*.comision' => 'nullable|numeric',
             'despliegue_de_pago_ventas' => 'sometimes|array',
             'despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required|string',
+            'despliegue_de_pago_ventas.*.sub_caja_id' => 'nullable|integer',
             'despliegue_de_pago_ventas.*.monto' => 'required|numeric',
             'despliegue_de_pago_ventas.*.numero_operacion' => 'nullable|string|max:100',
             'despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
@@ -798,20 +799,17 @@ class VentaController extends Controller
             \Log::info("Venta ID: {$venta->id}");
             \Log::info("User ID: {$venta->user_id}");
 
-            // 1. Buscar la caja abierta del vendedor
+            // 1. Buscar la caja abierta del vendedor (opcional)
             $apertura = AperturaCierreCaja::where('user_id', $venta->user_id)
                 ->where('estado', 'abierta')
                 ->first();
 
-            if (! $apertura) {
-                // Si no hay caja abierta, no registrar (no es error crítico)
-                \Log::warning("❌ Venta {$venta->id} creada sin caja abierta para usuario {$venta->user_id}");
-
-                return;
+            if ($apertura) {
+                \Log::info("✅ Apertura encontrada: {$apertura->id}");
+                \Log::info("Caja Principal ID: {$apertura->caja_principal_id}");
+            } else {
+                \Log::info("ℹ️ No hay apertura de caja para el usuario, usando sub-cajas directamente");
             }
-
-            \Log::info("✅ Apertura encontrada: {$apertura->id}");
-            \Log::info("Caja Principal ID: {$apertura->caja_principal_id}");
 
             $totalVenta = $this->getTotalVenta($venta);
             \Log::info("Total venta: {$totalVenta}");
@@ -825,39 +823,61 @@ class VentaController extends Controller
 
                 \Log::info("Despliegue: {$despliegue->name}, Monto: {$monto}");
 
-                // 4. Buscar la sub-caja correcta según tipo de comprobante y método de pago
-                $subCaja = $this->buscarSubCajaParaMetodoPago(
-                    $apertura->caja_principal_id,
-                    $desplieguePago['despliegue_de_pago_id'],
-                    $venta->tipo_documento->value
-                );
+                // 3. Determinar la sub-caja a usar
+                $subCaja = null;
+                
+                // PRIORIDAD 1: Si viene sub_caja_id en los datos, usarlo directamente
+                if (isset($desplieguePago['sub_caja_id']) && $desplieguePago['sub_caja_id']) {
+                    $subCaja = SubCaja::find($desplieguePago['sub_caja_id']);
+                    if ($subCaja) {
+                        \Log::info("✅ Usando sub-caja especificada: {$subCaja->id} - {$subCaja->nombre}");
+                    }
+                }
+                
+                // PRIORIDAD 2: Si hay apertura, buscar en la caja principal del vendedor
+                if (!$subCaja && $apertura) {
+                    $subCaja = $this->buscarSubCajaParaMetodoPago(
+                        $apertura->caja_principal_id,
+                        $desplieguePago['despliegue_de_pago_id'],
+                        $venta->tipo_documento->value
+                    );
 
-                // Si no se encontró sub-caja específica, intentar con Caja Chica (solo si acepta el tipo de comprobante)
-                if (! $subCaja) {
-                    $subCaja = SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
-                        ->where('tipo_caja', 'CC')
-                        ->whereJsonContains('tipos_comprobante', $venta->tipo_documento->value)
-                        ->first();
-                    
-                    \Log::info('Intentando con Caja Chica...');
+                    // Si no se encontró sub-caja específica, intentar con Caja Chica
+                    if (! $subCaja) {
+                        $subCaja = SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
+                            ->where('tipo_caja', 'CC')
+                            ->whereJsonContains('tipos_comprobante', $venta->tipo_documento->value)
+                            ->first();
+                        
+                        if ($subCaja) {
+                            \Log::info('Usando Caja Chica de la apertura');
+                        }
+                    }
+                }
+                
+                // PRIORIDAD 3: Buscar globalmente en todas las sub-cajas
+                if (!$subCaja) {
+                    $subCaja = $this->buscarSubCajaGlobalParaMetodoPago(
+                        $desplieguePago['despliegue_de_pago_id'],
+                        $venta->tipo_documento->value
+                    );
                 }
 
                 if (! $subCaja) {
                     \Log::error("❌ No se encontró sub-caja para registrar venta {$venta->id}");
-
                     continue;
                 }
 
                 \Log::info("✅ Sub-caja encontrada: {$subCaja->id} - {$subCaja->nombre}");
 
-                // 5. Actualizar saldo de la sub-caja
+                // 4. Actualizar saldo de la sub-caja
                 $saldoAnterior = $subCaja->saldo_actual;
                 $subCaja->saldo_actual += $monto;
                 $subCaja->save();
 
                 \Log::info("Saldo actualizado: {$saldoAnterior} -> {$subCaja->saldo_actual}");
 
-                // 6. Registrar transacción en transacciones_caja
+                // 5. Registrar transacción en transacciones_caja
                 TransaccionCaja::create([
                     'id' => (string) Str::ulid(),
                     'sub_caja_id' => $subCaja->id,
@@ -869,35 +889,38 @@ class VentaController extends Controller
                     'referencia_id' => $venta->id,
                     'referencia_tipo' => 'venta',
                     'user_id' => $venta->user_id,
+                    'despliegue_pago_id' => $desplieguePago['despliegue_de_pago_id'],
                     'fecha' => now(),
                 ]);
 
-                // 7. Registrar movimiento en movimiento_caja
-                $clienteNombre = $venta->cliente->razon_social ?? $venta->cliente->nombres ?? 'Cliente';
+                // 6. Registrar movimiento en movimiento_caja (solo si hay apertura)
+                if ($apertura) {
+                    $clienteNombre = $venta->cliente->razon_social ?? $venta->cliente->nombres ?? 'Cliente';
 
-                MovimientoCaja::create([
-                    'id' => (string) Str::ulid(),
-                    'apertura_cierre_id' => $apertura->id,
-                    'caja_principal_id' => $apertura->caja_principal_id,
-                    'sub_caja_id' => $subCaja->id,
-                    'cajero_id' => $venta->user_id,
-                    'fecha_hora' => now(),
-                    'tipo_movimiento' => 'venta',
-                    'concepto' => "Venta {$venta->serie}-{$venta->numero} - Cliente: {$clienteNombre}",
-                    'saldo_inicial' => $saldoAnterior,
-                    'ingreso' => $monto,
-                    'salida' => 0,
-                    'saldo_final' => $subCaja->saldo_actual,
-                    'estado_caja' => 'abierta',
-                    'tipo_comprobante' => $venta->tipo_documento->value,
-                    'numero_comprobante' => "{$venta->serie}-{$venta->numero}",
-                    'metodo_pago_id' => $despliegue->metodo_de_pago_id,
-                    'referencia_id' => $venta->id,
-                    'referencia_tipo' => 'venta',
-                ]);
+                    MovimientoCaja::create([
+                        'id' => (string) Str::ulid(),
+                        'apertura_cierre_id' => $apertura->id,
+                        'caja_principal_id' => $apertura->caja_principal_id,
+                        'sub_caja_id' => $subCaja->id,
+                        'cajero_id' => $venta->user_id,
+                        'fecha_hora' => now(),
+                        'tipo_movimiento' => 'venta',
+                        'concepto' => "Venta {$venta->serie}-{$venta->numero} - Cliente: {$clienteNombre}",
+                        'saldo_inicial' => $saldoAnterior,
+                        'ingreso' => $monto,
+                        'salida' => 0,
+                        'saldo_final' => $subCaja->saldo_actual,
+                        'estado_caja' => 'abierta',
+                        'tipo_comprobante' => $venta->tipo_documento->value,
+                        'numero_comprobante' => "{$venta->serie}-{$venta->numero}",
+                        'metodo_pago_id' => $despliegue->metodo_de_pago_id,
+                        'referencia_id' => $venta->id,
+                        'referencia_tipo' => 'venta',
+                    ]);
+                }
             }
 
-            \Log::info("Venta {$venta->id} registrada en caja {$apertura->id}");
+            \Log::info("✅ Venta {$venta->id} registrada en sub-cajas");
 
         } catch (\Exception $e) {
             // Log el error pero no fallar la venta
@@ -984,6 +1007,72 @@ class VentaController extends Controller
 
         \Log::info("Sub-cajas compatibles encontradas: " . count($subCajasCompatibles));
         \Log::info("Sub-caja seleccionada: {$subCajasCompatibles[0]['subCaja']->nombre} (Prioridad: {$subCajasCompatibles[0]['prioridad']})");
+
+        return $subCajasCompatibles[0]['subCaja'];
+    }
+
+    /**
+     * Buscar sub-caja globalmente (en todas las cajas principales) que acepte un método de pago específico
+     * Se usa cuando no hay apertura de caja del vendedor
+     */
+    private function buscarSubCajaGlobalParaMetodoPago($desplieguePagoId, $tipoComprobante)
+    {
+        \Log::info("🔍 Buscando sub-caja global para método de pago: {$desplieguePagoId}, tipo comprobante: {$tipoComprobante}");
+
+        // Buscar todas las sub-cajas activas (incluyendo Caja Chica)
+        $subCajas = SubCaja::where('estado', true)->get();
+
+        \Log::info("📊 Total sub-cajas activas: " . $subCajas->count());
+
+        $subCajasCompatibles = [];
+
+        foreach ($subCajas as $subCaja) {
+            $desplieguesIds = $subCaja->despliegues_pago_ids;
+            $tiposComprobante = $subCaja->tipos_comprobante;
+
+            // Verificar si acepta este tipo de comprobante
+            $aceptaComprobante = in_array($tipoComprobante, $tiposComprobante);
+            
+            if (!$aceptaComprobante) {
+                continue;
+            }
+
+            // Verificar si acepta este método de pago
+            $aceptaTodos = in_array('*', $desplieguesIds);
+            $aceptaEspecifico = in_array($desplieguePagoId, $desplieguesIds);
+
+            if ($aceptaEspecifico) {
+                // Prioridad 1: Sub-caja específica para este método
+                $subCajasCompatibles[] = [
+                    'subCaja' => $subCaja,
+                    'prioridad' => 1,
+                    'especificidad' => count($desplieguesIds)
+                ];
+            } elseif ($aceptaTodos) {
+                // Prioridad 2: Sub-caja que acepta todos los métodos
+                $subCajasCompatibles[] = [
+                    'subCaja' => $subCaja,
+                    'prioridad' => 2,
+                    'especificidad' => 999
+                ];
+            }
+        }
+
+        if (empty($subCajasCompatibles)) {
+            \Log::warning("❌ No se encontró ninguna sub-caja compatible globalmente");
+            return null;
+        }
+
+        // Ordenar por prioridad (menor es mejor) y luego por especificidad (menor es más específico)
+        usort($subCajasCompatibles, function ($a, $b) {
+            if ($a['prioridad'] !== $b['prioridad']) {
+                return $a['prioridad'] - $b['prioridad'];
+            }
+            return $a['especificidad'] - $b['especificidad'];
+        });
+
+        \Log::info("✅ Sub-cajas compatibles encontradas globalmente: " . count($subCajasCompatibles));
+        \Log::info("Sub-caja seleccionada: {$subCajasCompatibles[0]['subCaja']->nombre} (Caja Principal: {$subCajasCompatibles[0]['subCaja']->caja_principal_id}, Prioridad: {$subCajasCompatibles[0]['prioridad']})");
 
         return $subCajasCompatibles[0]['subCaja'];
     }

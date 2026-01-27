@@ -52,10 +52,13 @@ class ClasificadorMovimientos
         // 4. MOVIMIENTOS INTERNOS (solo informativo, NO afecta total)
         $movimientosInternos = $this->obtenerMovimientosInternos($apertura);
 
-        // 5. PRÉSTAMOS (solo informativo, NO afecta total)
+        // 5. PRÉSTAMOS ENTRE CAJAS (solo informativo, NO afecta total)
         $prestamos = $this->obtenerPrestamos($apertura);
 
-        // 6. CALCULAR TOTALES
+        // 6. PRÉSTAMOS ENTRE VENDEDORES (solo informativo, NO afecta total)
+        $prestamosVendedores = $this->obtenerPrestamosVendedores($apertura);
+
+        // 7. CALCULAR TOTALES
         $totalCobros = $cobrosPorMetodo->sum('total');
         $totalOtrosIngresos = $otrosIngresos->sum('monto');
         $totalGastos = $gastosYPagos->where('tipo', 'gasto')->sum('monto');
@@ -81,6 +84,7 @@ class ClasificadorMovimientos
             // Movimientos internos (informativo)
             'movimientos_internos' => $movimientosInternos,
             'prestamos' => $prestamos,
+            'prestamos_vendedores' => $prestamosVendedores,
             
             // Resúmenes
             'resumen_ventas' => $totalCobros,
@@ -209,7 +213,7 @@ class ClasificadorMovimientos
     }
 
     /**
-     * Obtener préstamos (solo informativo)
+     * Obtener préstamos entre cajas (solo informativo)
      */
     private function obtenerPrestamos($apertura): Collection
     {
@@ -237,6 +241,39 @@ class ClasificadorMovimientos
             ->get();
     }
 
+    /**
+     * Obtener préstamos entre vendedores (solo informativo)
+     */
+    private function obtenerPrestamosVendedores($apertura): Collection
+    {
+        return DB::table('transferencias_efectivo_vendedores as tev')
+            ->join('users as u_origen', 'tev.vendedor_origen_id', '=', 'u_origen.id')
+            ->join('users as u_destino', 'tev.vendedor_destino_id', '=', 'u_destino.id')
+            ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
+            ->leftJoin('sub_cajas as sc_destino', 'tev.sub_caja_destino_id', '=', 'sc_destino.id')
+            ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
+            ->where('tev.apertura_cierre_caja_id', $apertura->id)
+            ->where(function ($query) use ($apertura) {
+                $query->where('tev.vendedor_origen_id', $apertura->user_id)
+                      ->orWhere('tev.vendedor_destino_id', $apertura->user_id);
+            })
+            ->select([
+                'tev.id',
+                'tev.monto',
+                'tev.fecha_transferencia',
+                'u_origen.name as vendedor_origen',
+                'u_destino.name as vendedor_destino',
+                'sc_origen.nombre as sub_caja_origen',
+                'sc_destino.nombre as sub_caja_destino',
+                'sev.motivo',
+                DB::raw("CASE 
+                    WHEN tev.vendedor_origen_id = '{$apertura->user_id}' THEN 'dado'
+                    ELSE 'recibido'
+                END as tipo_prestamo")
+            ])
+            ->get();
+    }
+
     private function respuestaVacia(): array
     {
         return [
@@ -250,6 +287,7 @@ class ClasificadorMovimientos
             'total_pagos' => 0,
             'movimientos_internos' => collect([]),
             'prestamos' => collect([]),
+            'prestamos_vendedores' => collect([]),
             'resumen_ventas' => 0,
             'resumen_ingresos' => 0,
             'resumen_egresos' => 0,

@@ -41,6 +41,18 @@ Route::middleware('auth:sanctum')->group(function () {
         ->only(['index', 'show', 'store', 'update', 'destroy']);
 
     // ============================================
+    // MÉTODOS DE PAGO (Alias para compatibilidad)
+    // ============================================
+    Route::prefix('metodos-de-pago')->group(function () {
+        Route::get('/', [\App\Http\Controllers\MetodoDePagoController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\MetodoDePagoController::class, 'store']);
+        Route::get('/agrupados-por-banco', [\App\Http\Controllers\MetodoDePagoController::class, 'agrupadosPorBanco']);
+        Route::get('/{id}', [\App\Http\Controllers\MetodoDePagoController::class, 'show']);
+        Route::put('/{id}', [\App\Http\Controllers\MetodoDePagoController::class, 'update']);
+        Route::delete('/{id}', [\App\Http\Controllers\MetodoDePagoController::class, 'destroy']);
+    });
+
+    // ============================================
     // MÓDULO DE CAJAS REFACTORIZADO
     // ============================================
     Route::prefix('cajas')->group(function () {
@@ -57,12 +69,17 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{id}', [CajaPrincipalController::class, 'show']);
             Route::delete('/{id}', [CajaPrincipalController::class, 'destroy']);
             Route::get('/{cajaPrincipalId}/sub-cajas', [SubCajaController::class, 'index']);
+            Route::get('/{cajaPrincipalId}/sub-cajas/con-saldo-vendedor', [SubCajaController::class, 'getConSaldoVendedor']);
             Route::get('/{cajaPrincipalId}/transacciones', [TransaccionController::class, 'indexByCajaPrincipal']);
         });
 
         // Sub-Cajas
         Route::prefix('sub-cajas')->group(function () {
             Route::post('/', [SubCajaController::class, 'store']);
+            Route::get('/metodos-para-ventas', [SubCajaController::class, 'metodosParaVentas']);
+            Route::get('/todas-con-saldo-vendedor', [SubCajaController::class, 'getTodasConSaldoVendedor']);
+            Route::get('/vendedores-con-efectivo', [SubCajaController::class, 'getVendedoresConEfectivo']);
+            Route::get('/buscar-por-despliegue/{desplieguePagoId}', [SubCajaController::class, 'buscarPorDesplieguePago']);
             Route::get('/{id}', [SubCajaController::class, 'show']);
             Route::put('/{id}', [SubCajaController::class, 'update']);
             Route::delete('/{id}', [SubCajaController::class, 'destroy']);
@@ -103,5 +120,18 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/', [MovimientoInternoController::class, 'index']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
         });
+
+        // Préstamos entre Vendedores
+        Route::prefix('prestamos-vendedores')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'listarSolicitudes']);
+            Route::get('/pendientes', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'solicitudesPendientes']);
+            Route::post('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'crearSolicitud']);
+            Route::post('/{id}/aprobar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'aprobarSolicitud']);
+            Route::post('/{id}/rechazar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'rechazarSolicitud']);
+            Route::get('/transferencias', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'listarTransferencias']);
+        });
+
+        // Vendedores con efectivo
+        Route::get('/vendedores/con-efectivo', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'vendedoresConEfectivo']);
     });
 });

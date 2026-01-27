@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Collection;
 
 interface SubCajaRepositoryInterface
 {
-    public function findById(int $id): ?SubCaja;
+    public function findById(string $id): ?SubCaja;
     
     public function findByCodigo(string $codigo): ?SubCaja;
     
@@ -17,15 +17,15 @@ interface SubCajaRepositoryInterface
     
     public function create(array $data): SubCaja;
     
-    public function update(int $id, array $data): SubCaja;
+    public function update(string $id, array $data): SubCaja;
     
-    public function delete(int $id): bool;
+    public function delete(string $id): bool;
     
-    public function actualizarSaldo(int $id, float $nuevoSaldo): bool;
+    public function actualizarSaldo(string $id, float $nuevoSaldo): bool;
     
     public function generarSiguienteCodigo(string $codigoCajaPrincipal): string;
     
-    public function existeConfiguracionDuplicada(int $cajaPrincipalId, array $desplieguePagoIds, array $tiposComprobante, ?int $excludeId = null): bool;
+    public function existeConfiguracionDuplicada(int $cajaPrincipalId, array $desplieguePagoIds, array $tiposComprobante, ?string $excludeId = null): bool;
     
     public function buscarSubCajaParaVenta(int $cajaPrincipalId, string $tipoComprobante, string $desplieguePagoId): ?SubCaja;
 }
