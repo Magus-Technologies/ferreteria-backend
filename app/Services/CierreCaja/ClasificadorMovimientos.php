@@ -18,8 +18,8 @@ class ClasificadorMovimientos
     }
 
     /**
-     * Consolidar cierre de caja de TODAS las subcajas del vendedor
-     * SIN modificar la lógica de cajas, SOLO consolidando información
+     * Consolidar cierre de caja SOLO del vendedor actual
+     * Filtra transacciones por user_id para mostrar solo lo que hizo el vendedor
      */
     public function clasificarPorTodasLasSubCajas(string $aperturaId, Collection $ventas): array
     {
@@ -34,41 +34,54 @@ class ClasificadorMovimientos
             return $this->respuestaVacia();
         }
 
-        // Obtener todas las sub-cajas del vendedor
-        $subCajasIds = DB::table('sub_cajas as sc')
-            ->join('cajas_principales as cp', 'sc.caja_principal_id', '=', 'cp.id')
-            ->where('cp.user_id', $apertura->user_id)
-            ->pluck('sc.id');
+        $userId = $apertura->user_id;
 
-        // 1. COBROS POR MÉTODO DE PAGO (solo ventas reales)
-        $cobrosPorMetodo = $this->obtenerCobrosPorMetodo($ventas);
+        // Obtener todas las sub-cajas (no solo del vendedor, porque puede interactuar con cualquiera)
+        $subCajasIds = DB::table('sub_cajas')->where('estado', 1)->pluck('id');
 
-        // 2. OTROS INGRESOS (ingresos manuales, NO ventas)
-        $otrosIngresos = $this->obtenerOtrosIngresos($subCajasIds, $apertura);
+        // 1. EFECTIVO INICIAL (distribución en apertura)
+        $efectivoInicial = $this->obtenerEfectivoInicial($aperturaId, $userId);
 
-        // 3. GASTOS Y PAGOS (egresos reales)
-        $gastosYPagos = $this->obtenerGastosYPagos($subCajasIds, $apertura);
+        // 2. COBROS POR MÉTODO DE PAGO (solo ventas del vendedor)
+        $cobrosPorMetodo = $this->obtenerCobrosPorMetodoVendedor($ventas, $userId);
 
-        // 4. MOVIMIENTOS INTERNOS (solo informativo, NO afecta total)
-        $movimientosInternos = $this->obtenerMovimientosInternos($apertura);
+        // 3. OTROS INGRESOS (ingresos manuales del vendedor, NO ventas)
+        $otrosIngresos = $this->obtenerOtrosIngresosVendedor($subCajasIds, $apertura, $userId);
 
-        // 5. PRÉSTAMOS ENTRE CAJAS (solo informativo, NO afecta total)
-        $prestamos = $this->obtenerPrestamos($apertura);
+        // 4. GASTOS (egresos del vendedor)
+        $gastosYPagos = $this->obtenerGastosVendedor($subCajasIds, $apertura, $userId);
 
-        // 6. PRÉSTAMOS ENTRE VENDEDORES (solo informativo, NO afecta total)
-        $prestamosVendedores = $this->obtenerPrestamosVendedores($apertura);
+        // 5. PRÉSTAMOS RECIBIDOS (de otros vendedores)
+        $prestamosRecibidos = $this->obtenerPrestamosRecibidosVendedor($aperturaId, $userId);
 
-        // 7. CALCULAR TOTALES
+        // 6. PRÉSTAMOS DADOS (a otros vendedores)
+        $prestamosDados = $this->obtenerPrestamosDadosVendedor($aperturaId, $userId);
+
+        // 7. MOVIMIENTOS INTERNOS (solo informativo, NO afecta total)
+        $movimientosInternos = $this->obtenerMovimientosInternosVendedor($apertura, $userId);
+
+        // 8. CALCULAR TOTALES
         $totalCobros = $cobrosPorMetodo->sum('total');
         $totalOtrosIngresos = $otrosIngresos->sum('monto');
-        $totalGastos = $gastosYPagos->where('tipo', 'gasto')->sum('monto');
-        $totalPagos = $gastosYPagos->where('tipo', 'pago')->sum('monto');
+        $totalGastos = $gastosYPagos->sum('monto');
+        $totalPrestamosRecibidos = $prestamosRecibidos->sum('monto');
+        $totalPrestamosDados = $prestamosDados->sum('monto');
+        
+        \Log::info('Préstamos calculados', [
+            'prestamos_recibidos_count' => $prestamosRecibidos->count(),
+            'total_prestamos_recibidos' => $totalPrestamosRecibidos,
+            'prestamos_dados_count' => $prestamosDados->count(),
+            'total_prestamos_dados' => $totalPrestamosDados,
+        ]);
 
         return [
+            // Efectivo inicial
+            'efectivo_inicial' => $efectivoInicial,
+            
             // Ventas
             'ventas' => $ventas,
             
-            // Cobros por método de pago (SOLO ventas)
+            // Cobros por método de pago (SOLO ventas del vendedor)
             'cobros_por_metodo' => $cobrosPorMetodo,
             'total_cobros' => $totalCobros,
             
@@ -79,18 +92,243 @@ class ClasificadorMovimientos
             // Egresos
             'gastos_y_pagos' => $gastosYPagos,
             'total_gastos' => $totalGastos,
-            'total_pagos' => $totalPagos,
+            
+            // Préstamos entre vendedores
+            'prestamos_recibidos' => $prestamosRecibidos,
+            'total_prestamos_recibidos' => $totalPrestamosRecibidos,
+            'prestamos_dados' => $prestamosDados,
+            'total_prestamos_dados' => $totalPrestamosDados,
             
             // Movimientos internos (informativo)
             'movimientos_internos' => $movimientosInternos,
-            'prestamos' => $prestamos,
-            'prestamos_vendedores' => $prestamosVendedores,
+            'prestamos' => collect([]), // Deprecated
+            'prestamos_vendedores' => $prestamosRecibidos->merge($prestamosDados),
             
             // Resúmenes
             'resumen_ventas' => $totalCobros,
-            'resumen_ingresos' => $totalCobros + $totalOtrosIngresos,
-            'resumen_egresos' => $totalGastos + $totalPagos,
+            'resumen_ingresos' => $totalCobros + $totalOtrosIngresos + $totalPrestamosRecibidos,
+            'resumen_egresos' => $totalGastos + $totalPrestamosDados,
         ];
+    }
+
+    /**
+     * Obtener efectivo inicial del vendedor (distribución en apertura)
+     */
+    private function obtenerEfectivoInicial(string $aperturaId, string $userId): float
+    {
+        return DB::table('distribucion_efectivo_vendedores')
+            ->where('apertura_cierre_caja_id', $aperturaId)
+            ->where('user_id', $userId)
+            ->sum('monto');
+    }
+
+    /**
+     * Obtener cobros agrupados por método de pago (SOLO ventas del vendedor)
+     * Agrupa por despliegue de pago para mostrar cada método por separado
+     */
+    private function obtenerCobrosPorMetodoVendedor(Collection $ventas, string $userId): Collection
+    {
+        // Filtrar ventas del vendedor
+        $ventasVendedor = $ventas->where('user_id', $userId);
+        
+        if ($ventasVendedor->isEmpty()) {
+            return collect([]);
+        }
+
+        // Obtener los pagos de las ventas desde la tabla correcta
+        $ventaIds = $ventasVendedor->pluck('id');
+        
+        $pagos = DB::table('numeros_operacion_pago as nop')
+            ->join('desplieguedepago as dp', 'nop.despliegue_pago_id', '=', 'dp.id')
+            ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+            ->whereIn('nop.venta_id', $ventaIds)
+            ->whereNotNull('nop.venta_id')
+            ->select([
+                'mp.id as metodo_pago_id',
+                'mp.name as banco',
+                'dp.name as metodo_pago',
+                'nop.monto',
+                'nop.venta_id'
+            ])
+            ->get();
+
+        // Agrupar por banco + método de pago (suma de todas las sub-cajas)
+        return $pagos->groupBy(function ($pago) {
+            return $pago->metodo_pago_id . '_' . $pago->banco . '_' . $pago->metodo_pago;
+        })->map(function ($grupo) {
+            $primer = $grupo->first();
+            // Construir label con formato: Banco/Método
+            $label = "{$primer->banco}/{$primer->metodo_pago}";
+                
+            return [
+                'metodo_pago_id' => $primer->metodo_pago_id,
+                'banco' => $primer->banco,
+                'metodo_pago' => $primer->metodo_pago,
+                'label' => $label,
+                'total' => $grupo->sum('monto'),
+                'cantidad_transacciones' => $grupo->count(),
+                'tipo' => 'cobro_venta'
+            ];
+        })->values();
+    }
+
+    /**
+     * Obtener otros ingresos del vendedor (ingresos manuales, NO ventas)
+     */
+    private function obtenerOtrosIngresosVendedor($subCajasIds, $apertura, string $userId): Collection
+    {
+        \Log::info('Obteniendo otros ingresos del vendedor', [
+            'user_id' => $userId,
+            'sub_cajas_count' => count($subCajasIds)
+        ]);
+        
+        $ingresos = DB::table('transacciones_caja as tc')
+            ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
+            ->whereIn('tc.sub_caja_id', $subCajasIds)
+            ->where('tc.user_id', $userId) // ✅ FILTRAR POR VENDEDOR
+            ->where('tc.tipo_transaccion', 'ingreso')
+            // EXCLUIR ingresos que son de ventas, aperturas, transferencias entre vendedores o movimientos internos
+            ->where(function($query) {
+                $query->whereNull('tc.referencia_tipo')
+                      ->orWhereNotIn('tc.referencia_tipo', ['venta', 'apertura', 'transferencia_vendedor', 'movimiento_interno']);
+            })
+            ->where('tc.fecha', '>=', $apertura->fecha_apertura)
+            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
+                return $query->where('tc.fecha', '<=', $fechaCierre);
+            })
+            ->select([
+                'tc.id',
+                'tc.monto',
+                'tc.descripcion',
+                'tc.referencia_tipo',
+                'tc.created_at',
+                'sc.nombre as sub_caja'
+            ])
+            ->get();
+            
+        \Log::info('Otros ingresos obtenidos', [
+            'count' => $ingresos->count(),
+            'total' => $ingresos->sum('monto')
+        ]);
+        
+        return $ingresos;
+    }
+
+    /**
+     * Obtener gastos del vendedor (egresos reales)
+     */
+    private function obtenerGastosVendedor($subCajasIds, $apertura, string $userId): Collection
+    {
+        \Log::info('Obteniendo gastos del vendedor', [
+            'user_id' => $userId,
+            'sub_cajas_count' => count($subCajasIds)
+        ]);
+        
+        $gastos = DB::table('transacciones_caja as tc')
+            ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
+            ->whereIn('tc.sub_caja_id', $subCajasIds)
+            ->where('tc.user_id', $userId) // ✅ FILTRAR POR VENDEDOR
+            ->where('tc.tipo_transaccion', 'egreso')
+            // EXCLUIR egresos que son préstamos a vendedores o movimientos internos
+            ->where(function($query) {
+                $query->whereNull('tc.referencia_tipo')
+                      ->orWhereNotIn('tc.referencia_tipo', ['transferencia_vendedor', 'movimiento_interno']);
+            })
+            ->where('tc.fecha', '>=', $apertura->fecha_apertura)
+            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
+                return $query->where('tc.fecha', '<=', $fechaCierre);
+            })
+            ->select([
+                'tc.id',
+                'tc.monto',
+                'tc.descripcion',
+                'tc.created_at',
+                'sc.nombre as sub_caja',
+                DB::raw("'gasto' as tipo")
+            ])
+            ->get();
+            
+        \Log::info('Gastos obtenidos', [
+            'count' => $gastos->count(),
+            'total' => $gastos->sum('monto')
+        ]);
+        
+        return $gastos;
+    }
+
+    /**
+     * Obtener préstamos recibidos por el vendedor
+     */
+    private function obtenerPrestamosRecibidosVendedor(string $aperturaId, string $userId): Collection
+    {
+        return DB::table('transferencias_efectivo_vendedores as tev')
+            ->join('users as u_origen', 'tev.vendedor_origen_id', '=', 'u_origen.id')
+            ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
+            ->leftJoin('sub_cajas as sc_destino', 'tev.sub_caja_destino_id', '=', 'sc_destino.id')
+            ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
+            ->where('tev.apertura_cierre_caja_id', $aperturaId)
+            ->where('tev.vendedor_destino_id', $userId) // Recibidos por este vendedor
+            ->select([
+                'tev.id',
+                'tev.monto',
+                'tev.fecha_transferencia',
+                'u_origen.name as vendedor_origen',
+                'sc_origen.nombre as sub_caja_origen',
+                'sc_destino.nombre as sub_caja_destino',
+                'sev.motivo',
+                DB::raw("'recibido' as tipo_prestamo")
+            ])
+            ->get();
+    }
+
+    /**
+     * Obtener préstamos dados por el vendedor
+     */
+    private function obtenerPrestamosDadosVendedor(string $aperturaId, string $userId): Collection
+    {
+        return DB::table('transferencias_efectivo_vendedores as tev')
+            ->join('users as u_destino', 'tev.vendedor_destino_id', '=', 'u_destino.id')
+            ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
+            ->leftJoin('sub_cajas as sc_destino', 'tev.sub_caja_destino_id', '=', 'sc_destino.id')
+            ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
+            ->where('tev.apertura_cierre_caja_id', $aperturaId)
+            ->where('tev.vendedor_origen_id', $userId) // Dados por este vendedor
+            ->select([
+                'tev.id',
+                'tev.monto',
+                'tev.fecha_transferencia',
+                'u_destino.name as vendedor_destino',
+                'sc_origen.nombre as sub_caja_origen',
+                'sc_destino.nombre as sub_caja_destino',
+                'sev.motivo',
+                DB::raw("'dado' as tipo_prestamo")
+            ])
+            ->get();
+    }
+
+    /**
+     * Obtener movimientos internos del vendedor (solo informativo)
+     */
+    private function obtenerMovimientosInternosVendedor($apertura, string $userId): Collection
+    {
+        return DB::table('movimientos_internos as mi')
+            ->join('sub_cajas as sc_origen', 'mi.sub_caja_origen_id', '=', 'sc_origen.id')
+            ->join('sub_cajas as sc_destino', 'mi.sub_caja_destino_id', '=', 'sc_destino.id')
+            ->join('cajas_principales as cp_origen', 'sc_origen.caja_principal_id', '=', 'cp_origen.id')
+            ->where('cp_origen.user_id', $userId)
+            ->where('mi.fecha', '>=', $apertura->fecha_apertura)
+            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
+                return $query->where('mi.fecha', '<=', $fechaCierre);
+            })
+            ->select([
+                'mi.id',
+                'mi.monto',
+                'mi.justificacion',
+                'mi.fecha',
+                'sc_origen.nombre as sub_caja_origen',
+                'sc_destino.nombre as sub_caja_destino'
+            ])
+            ->get();
     }
 
     /**
@@ -277,6 +515,7 @@ class ClasificadorMovimientos
     private function respuestaVacia(): array
     {
         return [
+            'efectivo_inicial' => 0,
             'ventas' => collect([]),
             'cobros_por_metodo' => collect([]),
             'total_cobros' => 0,
@@ -284,7 +523,10 @@ class ClasificadorMovimientos
             'total_otros_ingresos' => 0,
             'gastos_y_pagos' => collect([]),
             'total_gastos' => 0,
-            'total_pagos' => 0,
+            'prestamos_recibidos' => collect([]),
+            'total_prestamos_recibidos' => 0,
+            'prestamos_dados' => collect([]),
+            'total_prestamos_dados' => 0,
             'movimientos_internos' => collect([]),
             'prestamos' => collect([]),
             'prestamos_vendedores' => collect([]),

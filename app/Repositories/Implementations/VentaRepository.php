@@ -11,10 +11,11 @@ class VentaRepository implements VentaRepositoryInterface
 {
     public function obtenerPorApertura(string $aperturaId): Collection
     {
-        // Obtener la apertura para saber el usuario y las fechas
-        $apertura = DB::table('apertura_cierre_caja')
-            ->where('id', $aperturaId)
-            ->first(['user_id', 'fecha_apertura', 'fecha_cierre']);
+        // Obtener la apertura con el user_id de la caja principal
+        $apertura = DB::table('apertura_cierre_caja as acc')
+            ->join('cajas_principales as cp', 'acc.caja_principal_id', '=', 'cp.id')
+            ->where('acc.id', $aperturaId)
+            ->first(['cp.user_id', 'acc.fecha_apertura', 'acc.fecha_cierre']);
 
         if (!$apertura) {
             return collect([]);

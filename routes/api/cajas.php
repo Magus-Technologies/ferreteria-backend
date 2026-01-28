@@ -99,11 +99,18 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/historial-aperturas/todas', [AperturaCajaController::class, 'historialTodas']);
 
         // Cierre de Caja
+        Route::prefix('cierre')->group(function () {
+            Route::get('/activa', [CierreCajaController::class, 'obtenerCajaActiva']);
+            Route::post('/{id}', [CierreCajaController::class, 'cerrarCaja']);
+            Route::get('/{id}/movimientos', [CierreCajaController::class, 'obtenerDetalleMovimientos']);
+            Route::post('/validar-supervisor', [CierreCajaController::class, 'validarSupervisor']);
+        });
+        
+        // Rutas legacy de cierre (mantener compatibilidad)
         Route::get('/activa', [CierreCajaController::class, 'obtenerCajaActiva']);
         Route::post('/{id}/cerrar', [CierreCajaController::class, 'cerrarCaja']);
         Route::get('/{id}/resumen-movimientos', [CierreCajaController::class, 'obtenerResumenMovimientos']);
         Route::get('/{id}/detalle-movimientos', [CierreCajaController::class, 'obtenerDetalleMovimientos']);
-        Route::post('/validar-supervisor', [CierreCajaController::class, 'validarSupervisor']);
 
         // Préstamos entre Cajas
         Route::prefix('prestamos')->group(function () {

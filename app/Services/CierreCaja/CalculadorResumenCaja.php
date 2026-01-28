@@ -20,14 +20,28 @@ class CalculadorResumenCaja
         // Obtener ventas usando el repositorio existente
         $ventas = $this->ventaRepository->obtenerPorApertura($apertura->id);
         
+        \Log::info('Ventas obtenidas', [
+            'total_ventas' => $ventas->count(),
+            'ventas_ids' => $ventas->pluck('id')->toArray()
+        ]);
+        
         // Consolidar información de todas las subcajas
         $clasificacion = $this->clasificador->clasificarPorTodasLasSubCajas($apertura->id, $ventas);
 
+        \Log::info('Clasificación obtenida', [
+            'efectivo_inicial' => $clasificacion['efectivo_inicial'],
+            'cobros_por_metodo_count' => $clasificacion['cobros_por_metodo']->count(),
+            'cobros_por_metodo' => $clasificacion['cobros_por_metodo']->toArray(),
+            'total_cobros' => $clasificacion['total_cobros'],
+            'total_otros_ingresos' => $clasificacion['total_otros_ingresos'],
+            'total_gastos' => $clasificacion['total_gastos'],
+        ]);
+
         // FÓRMULA DEL CIERRE:
-        // Total en Caja = Apertura + Total Cobros + Otros Ingresos - Gastos - Pagos
-        // (Movimientos internos y préstamos NO afectan el total)
+        // Total en Caja = Efectivo Inicial + Total Cobros + Otros Ingresos + Préstamos Recibidos - Gastos - Préstamos Dados
+        // (Movimientos internos NO afectan el total)
         
-        $montoEsperado = $apertura->monto_apertura 
+        $montoEsperado = $clasificacion['efectivo_inicial']
                        + $clasificacion['resumen_ingresos'] 
                        - $clasificacion['resumen_egresos'];
         
@@ -58,6 +72,7 @@ class CalculadorResumenCaja
         });
 
         return new ResumenCajaDTO(
+            efectivoInicial: $clasificacion['efectivo_inicial'],
             montoApertura: $apertura->monto_apertura,
             totalIngresos: $clasificacion['resumen_ingresos'],
             totalEgresos: $clasificacion['resumen_egresos'],
@@ -69,6 +84,10 @@ class CalculadorResumenCaja
             detalleEgresos: $detalleEgresos,
             detalleVentas: $clasificacion['ventas'],
             detalleMetodosPago: $clasificacion['cobros_por_metodo'],
+            prestamosRecibidos: $clasificacion['prestamos_recibidos'],
+            totalPrestamosRecibidos: $clasificacion['total_prestamos_recibidos'],
+            prestamosDados: $clasificacion['prestamos_dados'],
+            totalPrestamosDados: $clasificacion['total_prestamos_dados'],
             movimientosInternos: $clasificacion['movimientos_internos'],
             prestamos: $clasificacion['prestamos'],
             prestamosVendedores: $clasificacion['prestamos_vendedores']
