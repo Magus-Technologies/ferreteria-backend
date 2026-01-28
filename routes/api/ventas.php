@@ -79,6 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PAQUETES
     // ============================================
+    Route::get('paquetes/by-producto/{productoId}', [PaqueteController::class, 'byProducto']);
     Route::apiResource('paquetes', PaqueteController::class);
 
     // ============================================

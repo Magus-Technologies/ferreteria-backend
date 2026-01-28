@@ -7,21 +7,26 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Role extends Model
 {
-    protected $table = 'role';
+    protected $table = "role";
     public $timestamps = false;
 
-    protected $fillable = [
-        'name',
-        'descripcion',
-    ];
+    protected $fillable = ["name", "descripcion"];
 
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(User::class, '_roletouser', 'a', 'b');
+        return $this->belongsToMany(User::class, "_roletouser", "a", "b");
     }
 
-    public function permissions(): BelongsToMany
+    /**
+     * Restricciones del rol (lista negra)
+     */
+    public function restrictions(): BelongsToMany
     {
-        return $this->belongsToMany(Permission::class, '_permissiontorole', 'b', 'a');
+        return $this->belongsToMany(
+            Restriction::class,
+            "_restrictiontorole",
+            "b",
+            "a",
+        );
     }
 }

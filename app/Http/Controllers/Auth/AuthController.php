@@ -17,50 +17,59 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $request->validate([
-            'email' => 'required|email',
-            'password' => 'required|string',
+            "email" => "required|email",
+            "password" => "required|string",
         ]);
 
-        $user = User::where('email', $request->email)
+        $user = User::where("email", $request->email)
             ->with([
-                'empresa' => function ($query) {
+                "empresa" => function ($query) {
                     $query->select([
-                        'id', 'ruc', 'razon_social', 'direccion', 'telefono', 'email',
-                        'serie_ingreso', 'serie_salida', 'serie_recepcion_almacen',
-                        'almacen_id', 'marca_id', 'logo'
+                        "id",
+                        "ruc",
+                        "razon_social",
+                        "direccion",
+                        "telefono",
+                        "email",
+                        "serie_ingreso",
+                        "serie_salida",
+                        "serie_recepcion_almacen",
+                        "almacen_id",
+                        "marca_id",
+                        "logo",
                     ]);
                 },
-                'permissions:id,name',
-                'roles.permissions:id,name',
+                "restrictions:id,name",
+                "roles.restrictions:id,name",
             ])
             ->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Las credenciales proporcionadas son incorrectas.'],
+                "email" => ["Las credenciales proporcionadas son incorrectas."],
             ]);
         }
 
-        // Obtener todos los permisos (directos + de roles)
-        $allPermissions = array_unique([
-            ...$user->permissions->pluck('name')->toArray(),
-            ...$user->roles->flatMap->permissions->pluck('name')->toArray(),
+        // Obtener todas las restricciones (directas + de roles)
+        $allRestrictions = array_unique([
+            ...$user->restrictions->pluck("name")->toArray(),
+            ...$user->roles->flatMap->restrictions->pluck("name")->toArray(),
         ]);
 
         // Crear token
-        $token = $user->createToken('auth-token')->plainTextToken;
+        $token = $user->createToken("auth-token")->plainTextToken;
 
         return response()->json([
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'image' => $user->image,
-                'efectivo' => (float) $user->efectivo,
-                'empresa' => $user->empresa,
-                'all_permissions' => $allPermissions,
+            "user" => [
+                "id" => $user->id,
+                "name" => $user->name,
+                "email" => $user->email,
+                "image" => $user->image,
+                "efectivo" => (float) $user->efectivo,
+                "empresa" => $user->empresa,
+                "all_restrictions" => $allRestrictions,
             ],
-            'token' => $token,
+            "token" => $token,
         ]);
     }
 
@@ -70,31 +79,40 @@ class AuthController extends Controller
     public function user(Request $request): JsonResponse
     {
         $user = $request->user()->load([
-            'empresa' => function ($query) {
+            "empresa" => function ($query) {
                 $query->select([
-                    'id', 'ruc', 'razon_social', 'direccion', 'telefono', 'email',
-                    'serie_ingreso', 'serie_salida', 'serie_recepcion_almacen',
-                    'almacen_id', 'marca_id', 'logo'
+                    "id",
+                    "ruc",
+                    "razon_social",
+                    "direccion",
+                    "telefono",
+                    "email",
+                    "serie_ingreso",
+                    "serie_salida",
+                    "serie_recepcion_almacen",
+                    "almacen_id",
+                    "marca_id",
+                    "logo",
                 ]);
             },
-            'permissions:id,name',
-            'roles.permissions:id,name',
+            "restrictions:id,name",
+            "roles.restrictions:id,name",
         ]);
 
-        // Obtener todos los permisos (directos + de roles)
-        $allPermissions = array_unique([
-            ...$user->permissions->pluck('name')->toArray(),
-            ...$user->roles->flatMap->permissions->pluck('name')->toArray(),
+        // Obtener todas las restricciones (directas + de roles)
+        $allRestrictions = array_unique([
+            ...$user->restrictions->pluck("name")->toArray(),
+            ...$user->roles->flatMap->restrictions->pluck("name")->toArray(),
         ]);
 
         return response()->json([
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'image' => $user->image,
-            'efectivo' => (float) $user->efectivo,
-            'empresa' => $user->empresa,
-            'all_permissions' => $allPermissions,
+            "id" => $user->id,
+            "name" => $user->name,
+            "email" => $user->email,
+            "image" => $user->image,
+            "efectivo" => (float) $user->efectivo,
+            "empresa" => $user->empresa,
+            "all_restrictions" => $allRestrictions,
         ]);
     }
 
@@ -106,7 +124,7 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
-            'message' => 'Sesión cerrada exitosamente',
+            "message" => "Sesión cerrada exitosamente",
         ]);
     }
 
@@ -118,7 +136,7 @@ class AuthController extends Controller
         $request->user()->tokens()->delete();
 
         return response()->json([
-            'message' => 'Sesión cerrada en todos los dispositivos',
+            "message" => "Sesión cerrada en todos los dispositivos",
         ]);
     }
 }

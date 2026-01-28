@@ -37,8 +37,9 @@ class PaqueteController extends Controller
 
         $query = Paquete::query()
             ->with([
-                'productos.producto:id,name,cod_producto',
+                'productos.producto:id,name,cod_producto,marca_id',
                 'productos.producto.marca:id,name',
+                'productos.producto.unidadesDerivadasConPrecios.unidadDerivada:id,name',
                 'productos.unidadDerivada:id,name',
             ])
             ->withCount('productos as productos_count');
@@ -74,8 +75,9 @@ class PaqueteController extends Controller
     public function show($id)
     {
         $paquete = Paquete::with([
-            'productos.producto:id,name,cod_producto',
+            'productos.producto:id,name,cod_producto,marca_id',
             'productos.producto.marca:id,name',
+            'productos.producto.unidadesDerivadasConPrecios.unidadDerivada:id,name',
             'productos.unidadDerivada:id,name',
         ])->find($id);
 
@@ -160,6 +162,36 @@ class PaqueteController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'error' => ['message' => 'Error al eliminar paquete: ' . $e->getMessage()],
+            ], 500);
+        }
+    }
+
+    /**
+     * Buscar paquetes que contengan un producto específico
+     */
+    public function byProducto($productoId)
+    {
+        try {
+            $paquetes = Paquete::whereHas('productos', function ($query) use ($productoId) {
+                $query->where('producto_id', $productoId);
+            })
+            ->with([
+                'productos.producto:id,name,cod_producto,marca_id',
+                'productos.producto.marca:id,name',
+                'productos.producto.unidadesDerivadasConPrecios.unidadDerivada:id,name',
+                'productos.unidadDerivada:id,name',
+            ])
+            ->where('activo', true)
+            ->withCount('productos as productos_count')
+            ->get();
+
+            return response()->json([
+                'data' => $paquetes,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => ['message' => 'Error al buscar paquetes: ' . $e->getMessage()],
             ], 500);
         }
     }

@@ -64,4 +64,20 @@ class Producto extends Model
     {
         return $this->hasMany(ProductoAlmacen::class);
     }
+
+    /**
+     * Relación: Unidades derivadas del producto a través de ProductoAlmacen
+     * Retorna las unidades derivadas con sus precios
+     */
+    public function unidadesDerivadasConPrecios()
+    {
+        return $this->hasManyThrough(
+            ProductoAlmacenUnidadDerivada::class,
+            ProductoAlmacen::class,
+            'producto_id', // Foreign key en ProductoAlmacen
+            'producto_almacen_id', // Foreign key en ProductoAlmacenUnidadDerivada
+            'id', // Local key en Producto
+            'id' // Local key en ProductoAlmacen
+        );
+    }
 }

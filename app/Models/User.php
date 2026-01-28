@@ -9,75 +9,71 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Spatie\Permission\Traits\HasRoles;
-
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable, HasApiTokens, HasRoles;
+    use HasFactory, Notifiable, HasApiTokens;
 
-    protected $table = 'user'; // Tabla en singular
-    protected $keyType = 'string'; // ID es string (CUID de Prisma)
+    protected $table = "user"; // Tabla en singular
+    protected $keyType = "string"; // ID es string (CUID de Prisma)
     public $incrementing = false; // ID no es autoincremental
 
     // Prisma usa camelCase para timestamps
-    const CREATED_AT = 'createdAt';
-    const UPDATED_AT = 'updatedAt';
+    const CREATED_AT = "createdAt";
+    const UPDATED_AT = "updatedAt";
 
     protected $fillable = [
-        'id', // ← IMPORTANTE: Permitir asignar ID manualmente
-        'name',
-        'email',
-        'password',
-        'email_verified',
-        'image',
-        'empresa_id',
-        'efectivo',
+        "id", // ← IMPORTANTE: Permitir asignar ID manualmente
+        "name",
+        "email",
+        "password",
+        "email_verified",
+        "image",
+        "empresa_id",
+        "efectivo",
 
         // nuevos campos , info personal
-        'tipo_documento',
-        'numero_documento',
-        'telefono',
-        'celular',
-        'genero',
-        'estado_civil',
-        'email_corporativo',
+        "tipo_documento",
+        "numero_documento",
+        "telefono",
+        "celular",
+        "genero",
+        "estado_civil",
+        "email_corporativo",
 
         // direcciones
-        'direccion_linea1',
-        'direccion_linea2',
-        'ciudad',
-        'nacionalidad',
-        'fecha_nacimiento',
+        "direccion_linea1",
+        "direccion_linea2",
+        "ciudad",
+        "nacionalidad",
+        "fecha_nacimiento",
 
         // Información de Contrato
-        'cargo',
-        'fecha_inicio',
-        'fecha_baja',
-        'vacaciones_dias',
-        'sueldo_boleta',
-        'rol_sistema',
+        "cargo",
+        "fecha_inicio",
+        "fecha_baja",
+        "vacaciones_dias",
+        "sueldo_boleta",
+        "rol_sistema",
 
-        'estado',
+        "estado",
     ];
 
-    protected $hidden = [
-        'password',
-    ];
+    protected $hidden = ["password"];
 
     protected function casts(): array
     {
         return [
-            'email_verified' => 'datetime',
-            'password' => 'hashed',
-            'efectivo' => 'decimal:2',
-            'fecha_nacimiento' => 'date',
-            'fecha_inicio' => 'date',
-            'fecha_baja' => 'date',
-            'vacaciones_dias' => 'integer',
-            'sueldo_boleta' => 'decimal:2',
-            'estado' => 'boolean',
-            'created_at' => 'datetime',
-            'updated_at' => 'datetime',
+            "email_verified" => "datetime",
+            "password" => "hashed",
+            "efectivo" => "decimal:2",
+            "fecha_nacimiento" => "date",
+            "fecha_inicio" => "date",
+            "fecha_baja" => "date",
+            "vacaciones_dias" => "integer",
+            "sueldo_boleta" => "decimal:2",
+            "estado" => "boolean",
+            "created_at" => "datetime",
+            "updated_at" => "datetime",
         ];
     }
 
@@ -129,66 +125,105 @@ class User extends Authenticatable
 
     public function entregasProducto(): HasMany
     {
-        return $this->hasMany(EntregaProducto::class, 'user_id');
+        return $this->hasMany(EntregaProducto::class, "user_id");
     }
 
     public function entregasChofer(): HasMany
     {
-        return $this->hasMany(EntregaProducto::class, 'chofer_id');
+        return $this->hasMany(EntregaProducto::class, "chofer_id");
     }
 
     public function cajaPrincipal()
     {
-        return $this->hasOne(CajaPrincipal::class, 'user_id');
+        return $this->hasOne(CajaPrincipal::class, "user_id");
     }
 
-    // Permisos directos (tabla intermedia de Prisma)
-    public function permissions(): BelongsToMany
-    {
-        return $this->belongsToMany(Permission::class, '_permissiontouser', 'B', 'A');
-    }
+    // ==================== SISTEMA DE RESTRICCIONES (lista negra) ====================
 
-    // Roles (tabla intermedia de Prisma)
+    /**
+     * Roles del usuario
+     */
     public function roles(): BelongsToMany
     {
-        return $this->belongsToMany(Role::class, '_roletouser', 'B', 'A');
+        return $this->belongsToMany(Role::class, "_roletouser", "B", "A");
     }
 
-    // Método helper para obtener todos los permisos (directos + de roles)
-    public function getAllPermissionsAttribute(): array
+    /**
+     * Restricciones directas del usuario
+     */
+    public function restrictions(): BelongsToMany
     {
-        $directPermissions = $this->permissions->pluck('name')->toArray();
-        $rolePermissions = $this->roles->flatMap->permissions->pluck('name')->toArray();
-
-        return array_unique(array_merge($directPermissions, $rolePermissions));
+        return $this->belongsToMany(
+            Restriction::class,
+            "_restrictiontouser",
+            "b",
+            "a",
+        );
     }
 
-     public function getTipoDocumentoNombreAttribute(): string
+    /**
+     * Obtener todas las restricciones (directas + de roles)
+     */
+    public function getAllRestrictionsAttribute(): array
+    {
+        $directRestrictions = $this->restrictions->pluck("name")->toArray();
+        $roleRestrictions = $this->roles->flatMap->restrictions
+            ->pluck("name")
+            ->toArray();
+
+        return array_unique(
+            array_merge($directRestrictions, $roleRestrictions),
+        );
+    }
+
+    /**
+     * Verificar si el usuario tiene una restricción específica
+     *
+     * @param string $restriction Nombre de la restricción (ej: "venta.create")
+     * @return bool true si está BLOQUEADO, false si tiene ACCESO
+     */
+    public function isRestricted(string $restriction): bool
+    {
+        return in_array($restriction, $this->all_restrictions);
+    }
+
+    /**
+     * Verificar si el usuario tiene acceso (inverso de isRestricted)
+     *
+     * @param string $feature Nombre de la funcionalidad
+     * @return bool true si tiene ACCESO, false si está BLOQUEADO
+     */
+    public function hasAccess(string $feature): bool
+    {
+        return !$this->isRestricted($feature);
+    }
+
+    public function getTipoDocumentoNombreAttribute(): string
     {
         $tipos = [
-            'DNI' => 'Documento Nacional de Identidad',
-            'RUC' => 'Registro Único de Contribuyentes',
-            'CE' => 'Carnet de Extranjería',
-            'PASAPORTE' => 'Pasaporte',
+            "DNI" => "Documento Nacional de Identidad",
+            "RUC" => "Registro Único de Contribuyentes",
+            "CE" => "Carnet de Extranjería",
+            "PASAPORTE" => "Pasaporte",
         ];
-        
+
         return $tipos[$this->tipo_documento] ?? $this->tipo_documento;
     }
-    
+
     /**
      * Obtener nombre completo del género
      */
     public function getGeneroNombreAttribute(): ?string
     {
         $generos = [
-            'M' => 'Masculino',
-            'F' => 'Femenino',
-            'O' => 'Otro',
+            "M" => "Masculino",
+            "F" => "Femenino",
+            "O" => "Otro",
         ];
-        
+
         return $generos[$this->genero] ?? null;
     }
-    
+
     /**
      * Obtener edad del usuario
      */
@@ -197,23 +232,23 @@ class User extends Authenticatable
         if (!$this->fecha_nacimiento) {
             return null;
         }
-        
+
         return \Carbon\Carbon::parse($this->fecha_nacimiento)->age;
     }
-    
+
     /**
      * Scope para usuarios activos
      */
     public function scopeActivos($query)
     {
-        return $query->where('estado', true);
+        return $query->where("estado", true);
     }
-    
+
     /**
      * Scope para usuarios inactivos
      */
     public function scopeInactivos($query)
     {
-        return $query->where('estado', false);
+        return $query->where("estado", false);
     }
 }
