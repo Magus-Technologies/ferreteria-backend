@@ -21,7 +21,8 @@ class VentaRepository implements VentaRepositoryInterface
             return collect([]);
         }
 
-        $query = Venta::where('user_id', $apertura->user_id)
+        $query = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
+            ->where('user_id', $apertura->user_id)
             ->where('fecha', '>=', $apertura->fecha_apertura);
 
         // Si hay fecha de cierre, filtrar hasta esa fecha

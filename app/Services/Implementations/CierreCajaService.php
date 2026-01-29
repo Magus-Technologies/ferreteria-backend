@@ -66,10 +66,10 @@ class CierreCajaService implements CierreCajaServiceInterface
         $dto = new CierreCajaDTO(
             cajaId: $apertura->caja_id,
             subCajaId: $apertura->sub_caja_id,
-            montoCierre: $data['monto_cierre'],
+            montoCierre: $data['monto_cierre_efectivo'] + ($data['total_cuentas'] ?? 0),
             usuarioId: auth()->id(),
             supervisorId: $data['supervisor_id'] ?? null,
-            observaciones: $data['observaciones'] ?? null
+            observaciones: $data['comentarios'] ?? null
         );
 
         return $this->cerrarCajaUseCase->ejecutar($dto);
