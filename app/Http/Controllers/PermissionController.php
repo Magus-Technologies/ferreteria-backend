@@ -24,11 +24,11 @@ class PermissionController extends Controller
     }
 
     /**
-     * Listar todos los roles con sus permisos
+     * Listar todos los roles con sus restricciones
      */
     public function roles(): JsonResponse
     {
-        $roles = Role::with(['permissions' => function ($query) {
+        $roles = Role::with(['restrictions' => function ($query) {
             $query->orderBy('name');
         }])->orderBy('name')->get();
         
@@ -38,11 +38,11 @@ class PermissionController extends Controller
     }
 
     /**
-     * Obtener un rol específico con sus permisos
+     * Obtener un rol específico con sus restricciones
      */
     public function getRole($roleId): JsonResponse
     {
-        $role = Role::with(['permissions' => function ($query) {
+        $role = Role::with(['restrictions' => function ($query) {
             $query->orderBy('name');
         }])->findOrFail($roleId);
         

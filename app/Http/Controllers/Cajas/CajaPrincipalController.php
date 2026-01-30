@@ -46,10 +46,11 @@ class CajaPrincipalController extends Controller
                 ], 401);
             }
 
-            // Verificar permisos usando el array all_permissions
-            $hasPermission = in_array('caja.create', $user->all_permissions ?? []);
+            // Sistema de restricciones (blacklist): verificar si NO está restringido
+            // Por defecto todos tienen acceso, solo se bloquea si está en all_restrictions
+            $isRestricted = in_array('caja.create', $user->all_restrictions ?? []);
             
-            if (!$hasPermission) {
+            if ($isRestricted) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No tienes permiso para crear cajas principales',

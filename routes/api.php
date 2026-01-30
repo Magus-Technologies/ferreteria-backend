@@ -3,7 +3,9 @@
 use App\Http\Controllers\ConfiguracionImpresionController;
 use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\RestrictionController;
 use App\Http\Controllers\UsuarioController;
+use App\Http\Controllers\MotivoTrasladoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -83,7 +85,39 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ============================================
-    // PERMISOS Y ROLES
+    // MOTIVOS DE TRASLADO (Catálogo N° 20 SUNAT)
+    // ============================================
+    Route::apiResource('motivos-traslado', MotivoTrasladoController::class);
+
+    // ============================================
+    // ROLES (sin permisos/restricciones por ahora)
+    // ============================================
+    Route::prefix('roles')->group(function () {
+        Route::get('/', [RestrictionController::class, 'roles']);
+        Route::get('/{roleId}', [RestrictionController::class, 'getRole']);
+    });
+
+    // ==================== SISTEMA NUEVO: Restricciones (lista negra) ====================
+    Route::prefix('restrictions')->group(function () {
+        // Listar restricciones
+        Route::get('/', [RestrictionController::class, 'index']);
+
+        // Gestión de roles con restricciones
+        Route::prefix('roles')->group(function () {
+            Route::get('/', [RestrictionController::class, 'roles']);
+            Route::get('/{roleId}', [RestrictionController::class, 'getRole']);
+            Route::post('/{roleId}/restrictions', [RestrictionController::class, 'assignRestrictionsToRole']);
+            Route::post('/{roleId}/toggle', [RestrictionController::class, 'toggleRestrictionForRole']);
+        });
+
+        // Verificar acceso de usuarios
+        Route::prefix('users')->group(function () {
+            Route::post('/{userId}/check-access', [RestrictionController::class, 'checkAccess']);
+        });
+    });
+
+    // ============================================
+    // PERMISOS Y ROLES (Sistema antiguo - mantener por compatibilidad)
     // ============================================
     Route::prefix('permissions')->group(function () {
         // Listar permisos
