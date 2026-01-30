@@ -4,6 +4,7 @@ use App\Http\Controllers\ConfiguracionImpresionController;
 use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\RestrictionController;
 use App\Http\Controllers\UsuarioController;
+use App\Http\Controllers\MotivoTrasladoController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -101,6 +102,11 @@ Route::middleware("auth:sanctum")->group(function () {
             "resetAll",
         ]);
     });
+
+    // ============================================
+    // MOTIVOS DE TRASLADO (Catálogo N° 20 SUNAT)
+    // ============================================
+    Route::apiResource("motivos-traslado", MotivoTrasladoController::class);
 
     // ============================================
     // ROLES (sin permisos/restricciones por ahora)

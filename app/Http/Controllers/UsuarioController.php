@@ -39,6 +39,11 @@ class UsuarioController extends Controller
             $query->where('estado', $request->estado === 'true' || $request->estado === '1');
         }
 
+        // Filtro por rol_sistema
+        if ($request->has('rol_sistema')) {
+            $query->where('rol_sistema', $request->rol_sistema);
+        }
+
         $usuarios = $query->orderBy('name', 'asc')->get();
 
         return response()->json([
@@ -81,7 +86,7 @@ class UsuarioController extends Controller
             'fecha_baja' => 'nullable|date',
             'vacaciones_dias' => 'nullable|integer|min:0',
             'sueldo_boleta' => 'nullable|numeric|min:0',
-            'rol_sistema' => 'nullable|in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,CONDUCTOR',
+            'rol_sistema' => 'nullable|in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,DESPACHADOR,CONDUCTOR',
             
             // Otros
             'efectivo' => 'nullable|numeric|min:0',
@@ -144,6 +149,11 @@ class UsuarioController extends Controller
             'efectivo' => $request->efectivo ?? 0,
             'estado' => $request->estado ?? true,
         ]);
+
+        // Asignar rol automáticamente basándose en rol_sistema
+        if ($request->rol_sistema) {
+            $this->asignarRolPorSistema($usuario, $request->rol_sistema);
+        }
 
         $usuario->load('empresa');
 
@@ -214,7 +224,7 @@ class UsuarioController extends Controller
             'fecha_baja' => 'nullable|date',
             'vacaciones_dias' => 'nullable|integer|min:0',
             'sueldo_boleta' => 'nullable|numeric|min:0',
-            'rol_sistema' => 'nullable|in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,CONDUCTOR',
+            'rol_sistema' => 'nullable|in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,DESPACHADOR,CONDUCTOR',
             
             // Otros
             'efectivo' => 'nullable|numeric|min:0',
@@ -312,6 +322,8 @@ class UsuarioController extends Controller
         }
         if ($request->has('rol_sistema')) {
             $usuario->rol_sistema = $request->rol_sistema;
+            // Actualizar el rol en la tabla _roletouser
+            $this->asignarRolPorSistema($usuario, $request->rol_sistema);
         }
 
         // Actualizar otros
@@ -403,5 +415,33 @@ class UsuarioController extends Controller
         $timestamp = base_convert(time(), 10, 36);
         $random = substr(str_shuffle('0123456789abcdefghijklmnopqrstuvwxyz'), 0, 16);
         return 'c' . $timestamp . $random;
+    }
+
+    /**
+     * Asignar rol automáticamente basándose en el rol_sistema
+     */
+    private function asignarRolPorSistema(User $usuario, string $rolSistema): void
+    {
+        // Mapeo de rol_sistema a role.name
+        $mapeoRoles = [
+            'ADMINISTRADOR' => 'admin_global',
+            'VENDEDOR' => 'vendedor',
+            'ALMACENERO' => 'almacenero',
+            'CONTADOR' => 'contador',
+            'DESPACHADOR' => 'despachador',
+            'CONDUCTOR' => 'vendedor', // Los conductores usan el rol vendedor por ahora
+        ];
+
+        $roleName = $mapeoRoles[$rolSistema] ?? null;
+
+        if ($roleName) {
+            // Buscar el rol en la base de datos
+            $role = \App\Models\Role::where('name', $roleName)->first();
+
+            if ($role) {
+                // Sincronizar el rol (reemplaza roles existentes)
+                $usuario->roles()->sync([$role->id]);
+            }
+        }
     }
 }
