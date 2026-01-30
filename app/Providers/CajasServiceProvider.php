@@ -11,10 +11,13 @@ use App\Repositories\Interfaces\DesplieguePagoRepositoryInterface;
 use App\Repositories\Interfaces\TransaccionCajaRepositoryInterface;
 use App\Repositories\Interfaces\AperturaCierreCajaRepositoryInterface;
 use App\Repositories\Interfaces\PrestamoEntreCajasRepositoryInterface;
+use App\Repositories\Interfaces\SolicitudEfectivoVendedorRepositoryInterface;
 use App\Services\Interfaces\CajaServiceInterface;
 use App\Services\Interfaces\TransaccionServiceInterface;
 use App\Services\Interfaces\CierreCajaServiceInterface;
 use App\Services\Interfaces\PrestamoEntreCajasServiceInterface;
+use App\Services\Interfaces\PrestamoVendedorServiceInterface;
+use App\Services\Interfaces\MovimientoInternoServiceInterface;
 
 // Implementations
 use App\Repositories\Implementations\CajaPrincipalRepository;
@@ -23,10 +26,13 @@ use App\Repositories\Implementations\DesplieguePagoRepository;
 use App\Repositories\Implementations\TransaccionCajaRepository;
 use App\Repositories\Implementations\AperturaCierreCajaRepository;
 use App\Repositories\Implementations\PrestamoEntreCajasRepository;
+use App\Repositories\Implementations\SolicitudEfectivoVendedorRepository;
 use App\Services\Implementations\CajaService;
 use App\Services\Implementations\TransaccionService;
 use App\Services\Implementations\CierreCajaService;
 use App\Services\Implementations\PrestamoEntreCajasService;
+use App\Services\Implementations\PrestamoVendedorService;
+use App\Services\Implementations\MovimientoInternoService;
 
 class CajasServiceProvider extends ServiceProvider
 {
@@ -42,12 +48,15 @@ class CajasServiceProvider extends ServiceProvider
         $this->app->bind(TransaccionCajaRepositoryInterface::class, TransaccionCajaRepository::class);
         $this->app->bind(AperturaCierreCajaRepositoryInterface::class, AperturaCierreCajaRepository::class);
         $this->app->bind(PrestamoEntreCajasRepositoryInterface::class, PrestamoEntreCajasRepository::class);
+        $this->app->bind(SolicitudEfectivoVendedorRepositoryInterface::class, SolicitudEfectivoVendedorRepository::class);
 
         // Services
         $this->app->bind(CajaServiceInterface::class, CajaService::class);
         $this->app->bind(TransaccionServiceInterface::class, TransaccionService::class);
         $this->app->bind(CierreCajaServiceInterface::class, CierreCajaService::class);
         $this->app->bind(PrestamoEntreCajasServiceInterface::class, PrestamoEntreCajasService::class);
+        $this->app->bind(PrestamoVendedorServiceInterface::class, PrestamoVendedorService::class);
+        $this->app->bind(MovimientoInternoServiceInterface::class, MovimientoInternoService::class);
     }
 
     /**

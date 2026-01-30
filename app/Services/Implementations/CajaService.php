@@ -60,14 +60,36 @@ class CajaService implements CajaServiceInterface
 
     private function crearCajaChicaAutomatica(int $cajaPrincipalId, string $codigoCajaPrincipal): SubCaja
     {
-        // Buscar todos los desplieguedepago que contengan "EFECTIVO" en el nombre
-        $desplieguePagosEfectivo = DespliegueDePago::where('name', 'LIKE', '%EFECTIVO%')
-            ->where('mostrar', 1)
-            ->pluck('id')
-            ->toArray();
+        // Buscar el despliegue de pago "Efectivo"
+        $desplieguePagoEfectivo = DespliegueDePago::where('name', 'Efectivo')
+            ->where('activo', true)
+            ->where('mostrar', true)
+            ->first();
 
-        if (empty($desplieguePagosEfectivo)) {
-            throw new \Exception('No se encontraron métodos de pago de efectivo en desplieguedepago');
+        if (!$desplieguePagoEfectivo) {
+            // Si no existe, intentar crear el método de pago y despliegue automáticamente
+            \Log::warning('No se encontró despliegue de pago Efectivo, creando automáticamente...');
+            
+            // Crear método de pago Efectivo
+            $metodoPagoEfectivo = \App\Models\MetodoDePago::firstOrCreate(
+                ['name' => 'Efectivo'],
+                [
+                    'id' => (string) \Illuminate\Support\Str::ulid(),
+                    'cuenta_bancaria' => null,
+                    'monto' => 0.00,
+                    'activo' => true,
+                ]
+            );
+
+            // Crear despliegue de pago Efectivo
+            $desplieguePagoEfectivo = DespliegueDePago::create([
+                'id' => (string) \Illuminate\Support\Str::ulid(),
+                'name' => 'Efectivo',
+                'metodo_de_pago_id' => $metodoPagoEfectivo->id,
+                'adicional' => 0.00,
+                'activo' => true,
+                'mostrar' => true,
+            ]);
         }
 
         $codigo = $codigoCajaPrincipal . '-001';
@@ -77,8 +99,8 @@ class CajaService implements CajaServiceInterface
             'nombre' => 'Caja Chica',
             'caja_principal_id' => $cajaPrincipalId,
             'tipo_caja' => 'CC',
-            'despliegues_pago_ids' => $desplieguePagosEfectivo,
-            'tipos_comprobante' => ['01', '03'], // Facturas y Boletas
+            'despliegues_pago_ids' => [$desplieguePagoEfectivo->id],
+            'tipos_comprobante' => ['01', '03'], // Facturas (01) y Boletas (03)
             'saldo_actual' => 0.00,
             'proposito' => 'Efectivo de ventas con comprobantes oficiales (Facturas y Boletas)',
             'estado' => 1,

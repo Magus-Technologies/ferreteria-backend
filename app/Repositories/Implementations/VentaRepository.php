@@ -11,7 +11,7 @@ class VentaRepository implements VentaRepositoryInterface
 {
     public function obtenerPorApertura(string $aperturaId): Collection
     {
-        // Obtener la apertura para saber el usuario y las fechas
+        // Obtener la apertura con el user_id que aperturó la caja
         $apertura = DB::table('apertura_cierre_caja')
             ->where('id', $aperturaId)
             ->first(['user_id', 'fecha_apertura', 'fecha_cierre']);
@@ -20,14 +20,18 @@ class VentaRepository implements VentaRepositoryInterface
             return collect([]);
         }
 
-        $query = Venta::where('user_id', $apertura->user_id)
-            ->where('fecha', '>=', $apertura->fecha_apertura);
+        // Obtener el día de la apertura (sin hora)
+        $fechaApertura = \Carbon\Carbon::parse($apertura->fecha_apertura);
+        $inicioDia = $fechaApertura->copy()->startOfDay();
+        $finDia = $apertura->fecha_cierre 
+            ? \Carbon\Carbon::parse($apertura->fecha_cierre)
+            : $fechaApertura->copy()->endOfDay();
 
-        // Si hay fecha de cierre, filtrar hasta esa fecha
-        if ($apertura->fecha_cierre) {
-            $query->where('fecha', '<=', $apertura->fecha_cierre);
-        }
+        $ventas = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
+            ->where('user_id', $apertura->user_id)
+            ->whereBetween('fecha', [$inicioDia, $finDia])
+            ->get();
 
-        return $query->get();
+        return $ventas;
     }
 }

@@ -18,6 +18,7 @@ class CajaPrincipalResource extends JsonResource
                 'id' => $this->user->id,
                 'name' => $this->user->name,
                 'email' => $this->user->email,
+                'numero_documento' => $this->user->numero_documento,
             ],
             'sub_cajas' => SubCajaResource::collection($this->whenLoaded('subCajas')),
             'total_sub_cajas' => $this->subCajas->count(),

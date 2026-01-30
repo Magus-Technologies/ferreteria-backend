@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Cajas;
 
+use App\Models\DespliegueDePago;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class CrearPrestamoRequest extends FormRequest
 {
@@ -35,5 +37,46 @@ class CrearPrestamoRequest extends FormRequest
             'monto.min' => 'El monto debe ser mayor a 0',
             'despliegue_de_pago_id.exists' => 'El método de pago no existe',
         ];
+    }
+
+    /**
+     * Configurar el validador con reglas adicionales
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $this->validarSoloEfectivo($validator);
+        });
+    }
+
+    /**
+     * Validar que los préstamos solo sean de efectivo
+     */
+    private function validarSoloEfectivo(Validator $validator): void
+    {
+        $desplieguePagoId = $this->input('despliegue_de_pago_id');
+
+        // Si no hay método de pago especificado, no validar
+        if (!$desplieguePagoId) {
+            return;
+        }
+
+        // Obtener el método de pago
+        $desplieguePago = DespliegueDePago::with('metodoDePago')->find($desplieguePagoId);
+        if (!$desplieguePago || !$desplieguePago->metodoDePago) {
+            return;
+        }
+
+        // Verificar que sea efectivo
+        $esEfectivo = strtolower($desplieguePago->metodoDePago->nombre) === 'efectivo';
+        
+        if (!$esEfectivo) {
+            $validator->errors()->add(
+                'despliegue_de_pago_id',
+                'Los préstamos entre cajas solo pueden ser de efectivo. ' .
+                'No se permiten préstamos de ' . $desplieguePago->metodoDePago->nombre . '. ' .
+                'Para mover dinero de otros métodos de pago, usa movimientos internos.'
+            );
+        }
     }
 }

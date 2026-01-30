@@ -23,6 +23,8 @@ class DespliegueDePago extends Model
         'requiere_numero_serie',
         'sobrecargo_porcentaje',
         'tipo_sobrecargo',
+        'numero_celular',
+        'activo',
     ];
 
     protected $casts = [
@@ -30,6 +32,7 @@ class DespliegueDePago extends Model
         'mostrar' => 'boolean',
         'requiere_numero_serie' => 'boolean',
         'sobrecargo_porcentaje' => 'decimal:2',
+        'activo' => 'boolean',
     ];
 
     public function metodoDePago(): BelongsTo

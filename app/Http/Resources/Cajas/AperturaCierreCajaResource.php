@@ -50,6 +50,16 @@ class AperturaCierreCajaResource extends JsonResource
             'diferencia_efectivo' => $this->diferencia_efectivo ? number_format($this->diferencia_efectivo, 2, '.', '') : null,
             'diferencia_total' => $this->diferencia_total ? number_format($this->diferencia_total, 2, '.', '') : null,
             'comentarios' => $this->comentarios,
+            'distribuciones_vendedores' => $this->whenLoaded('distribucionesVendedores', function () {
+                return $this->distribucionesVendedores->map(function ($distribucion) {
+                    return [
+                        'id' => $distribucion->id,
+                        'vendedor_id' => $distribucion->vendedor_id,
+                        'vendedor_nombre' => $distribucion->vendedor->name ?? 'N/A',
+                        'monto_asignado' => number_format($distribucion->monto_asignado, 2, '.', ''),
+                    ];
+                });
+            }),
         ];
     }
 }

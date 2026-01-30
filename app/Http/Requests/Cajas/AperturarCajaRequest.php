@@ -15,7 +15,13 @@ class AperturarCajaRequest extends FormRequest
     {
         return [
             'caja_principal_id' => 'required|integer|exists:cajas_principales,id',
-            'monto_apertura' => 'required|numeric|min:0',
+            'monto_apertura' => 'nullable|numeric|min:0', // Ahora es opcional si hay vendedores
+            
+            // Distribución a vendedores (opcional)
+            'vendedores' => 'nullable|array',
+            'vendedores.*.user_id' => 'required|string|exists:user,id',
+            'vendedores.*.monto' => 'required|numeric|min:0',
+            'vendedores.*.conteo_billetes_monedas' => 'nullable|array',
             
             // Conteo de billetes y monedas (opcional)
             'conteo_billetes_monedas' => 'nullable|array',

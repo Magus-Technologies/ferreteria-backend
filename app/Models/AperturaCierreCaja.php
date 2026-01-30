@@ -83,6 +83,14 @@ class AperturaCierreCaja extends Model
         return $this->belongsTo(User::class, 'supervisor_id');
     }
 
+<<<<<<< HEAD
+=======
+    public function distribucionesVendedores()
+    {
+        return $this->hasMany(DistribucionEfectivoVendedor::class, 'apertura_cierre_caja_id');
+    }
+
+>>>>>>> e952a7ec840df1a48f482add8cb992efc1f2ca3e
     // Métodos helper
     public function estaAbierta(): bool
     {

@@ -12,4 +12,10 @@ interface DesplieguePagoRepositoryInterface
     public function getAll(): Collection;
     
     public function getAllMostrar(): Collection;
+    
+    public function create(array $data): DespliegueDePago;
+    
+    public function update(string $id, array $data): ?DespliegueDePago;
+    
+    public function delete(string $id): bool;
 }

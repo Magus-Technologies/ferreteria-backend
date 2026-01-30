@@ -16,7 +16,8 @@ class TransaccionController extends Controller
     public function __construct(
         private RegistrarTransaccionUseCase $registrarTransaccionUseCase,
         private TransaccionCajaRepositoryInterface $transaccionRepository
-    ) {}
+    ) {
+    }
 
     /**
      * Listar transacciones de una sub-caja
