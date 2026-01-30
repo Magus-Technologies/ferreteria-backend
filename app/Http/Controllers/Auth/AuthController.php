@@ -30,8 +30,8 @@ class AuthController extends Controller
                         'almacen_id', 'marca_id', 'logo'
                     ]);
                 },
-                'permissions:id,name',
-                'roles.permissions:id,name',
+                'restrictions:id,name',
+                'roles.restrictions:id,name',
             ])
             ->first();
 
@@ -41,10 +41,10 @@ class AuthController extends Controller
             ]);
         }
 
-        // Obtener todos los permisos (directos + de roles)
-        $allPermissions = array_unique([
-            ...$user->permissions->pluck('name')->toArray(),
-            ...$user->roles->flatMap->permissions->pluck('name')->toArray(),
+        // Obtener todas las restricciones (directas + de roles)
+        $allRestrictions = array_unique([
+            ...$user->restrictions->pluck('name')->toArray(),
+            ...$user->roles->flatMap->restrictions->pluck('name')->toArray(),
         ]);
 
         // Calcular efectivo disponible del vendedor desde las distribuciones
@@ -61,7 +61,7 @@ class AuthController extends Controller
                 'image' => $user->image,
                 'efectivo' => $efectivoDisponible,
                 'empresa' => $user->empresa,
-                'all_permissions' => $allPermissions,
+                'all_restrictions' => $allRestrictions,
             ],
             'token' => $token,
         ]);
@@ -80,14 +80,14 @@ class AuthController extends Controller
                     'almacen_id', 'marca_id', 'logo'
                 ]);
             },
-            'permissions:id,name',
-            'roles.permissions:id,name',
+            'restrictions:id,name',
+            'roles.restrictions:id,name',
         ]);
 
-        // Obtener todos los permisos (directos + de roles)
-        $allPermissions = array_unique([
-            ...$user->permissions->pluck('name')->toArray(),
-            ...$user->roles->flatMap->permissions->pluck('name')->toArray(),
+        // Obtener todas las restricciones (directas + de roles)
+        $allRestrictions = array_unique([
+            ...$user->restrictions->pluck('name')->toArray(),
+            ...$user->roles->flatMap->restrictions->pluck('name')->toArray(),
         ]);
 
         // Calcular efectivo disponible del vendedor desde las distribuciones
@@ -100,7 +100,7 @@ class AuthController extends Controller
             'image' => $user->image,
             'efectivo' => $efectivoDisponible,
             'empresa' => $user->empresa,
-            'all_permissions' => $allPermissions,
+            'all_restrictions' => $allRestrictions,
         ]);
     }
 
