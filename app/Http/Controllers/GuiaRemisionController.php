@@ -1,0 +1,197 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\StoreGuiaRemisionRequest;
+use App\Http\Requests\UpdateGuiaRemisionRequest;
+use App\Http\Requests\AnularGuiaRemisionRequest;
+use App\Models\GuiaRemision;
+use App\QueryBuilders\GuiaRemisionQueryBuilder;
+use App\Services\GuiaRemisionService;
+use Illuminate\Http\Request;
+
+class GuiaRemisionController extends Controller
+{
+    protected $guiaRemisionService;
+
+    public function __construct(GuiaRemisionService $guiaRemisionService)
+    {
+        $this->guiaRemisionService = $guiaRemisionService;
+    }
+
+    /**
+     * Display a listing of the resource (todas las guías con filtros).
+     */
+    public function index(Request $request)
+    {
+        $request->validate([
+            'venta_id' => 'sometimes|string',
+            'cliente_id' => 'sometimes|integer',
+            'almacen_origen_id' => 'sometimes|integer',
+            'almacen_destino_id' => 'sometimes|integer',
+            'tipo_guia' => 'sometimes|string',
+            'estado' => 'sometimes|string',
+            'motivo_traslado_id' => 'sometimes|integer',
+            'modalidad_transporte' => 'sometimes|string',
+            'fecha_emision_desde' => 'sometimes|date',
+            'fecha_emision_hasta' => 'sometimes|date',
+            'fecha_traslado_desde' => 'sometimes|date',
+            'fecha_traslado_hasta' => 'sometimes|date',
+            'search' => 'sometimes|string',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $queryBuilder = (new GuiaRemisionQueryBuilder())
+            ->withRelations()
+            ->applyFilters($request)
+            ->orderByCreatedDesc();
+
+        $perPage = $request->input('per_page', 50);
+
+        // Si per_page es -1, retornar todos (limitado a 100)
+        if ($perPage === -1) {
+            return response()->json([
+                'data' => $queryBuilder->limit(100),
+                'total' => $queryBuilder->getQuery()->count(),
+            ]);
+        }
+
+        // Paginación normal
+        $guias = $queryBuilder->paginate($perPage);
+
+        return response()->json([
+            'data' => $guias->items(),
+            'total' => $guias->total(),
+            'current_page' => $guias->currentPage(),
+            'per_page' => $guias->perPage(),
+            'last_page' => $guias->lastPage(),
+        ]);
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     */
+    public function store(StoreGuiaRemisionRequest $request)
+    {
+        try {
+            $guia = $this->guiaRemisionService->crear($request->validated());
+
+            return response()->json([
+                'data' => $guia,
+                'message' => 'Guía de remisión creada exitosamente',
+            ], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error al crear guía de remisión',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Display the specified resource.
+     */
+    public function show(string $id)
+    {
+        $guia = GuiaRemision::with([
+            'venta:id,serie,numero,cliente_id,almacen_id',
+            'venta.cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,telefono',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,telefono,email',
+            'motivoTraslado:id,codigo,descripcion',
+            'chofer:id,dni,nombres,apellidos,telefono',
+            'almacenOrigen:id,name,direccion',
+            'almacenDestino:id,name,direccion',
+            'user:id,name,email',
+            'detalles.producto.marca',
+            'detalles.producto.unidadMedida',
+            'detalles.unidadDerivadaInmutable',
+            'detalles.productoAlmacen',
+        ])->findOrFail($id);
+
+        return response()->json(['data' => $guia]);
+    }
+
+    /**
+     * Update the specified resource in storage.
+     */
+    public function update(UpdateGuiaRemisionRequest $request, string $id)
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+            $guiaActualizada = $this->guiaRemisionService->actualizar($guia, $request->validated());
+
+            return response()->json([
+                'data' => $guiaActualizada,
+                'message' => 'Guía de remisión actualizada exitosamente',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Emitir una guía (cambiar estado de BORRADOR a EMITIDA).
+     */
+    public function emitir(string $id)
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+            $guiaEmitida = $this->guiaRemisionService->emitir($guia);
+
+            return response()->json([
+                'data' => $guiaEmitida,
+                'message' => 'Guía de remisión emitida exitosamente',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Anular una guía (cambiar estado de EMITIDA a ANULADA).
+     */
+    public function anular(AnularGuiaRemisionRequest $request, string $id)
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+            $guiaAnulada = $this->guiaRemisionService->anular(
+                $guia,
+                $request->validated()['motivo_anulacion']
+            );
+
+            return response()->json([
+                'data' => $guiaAnulada,
+                'message' => 'Guía de remisión anulada exitosamente',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Remove the specified resource from storage (eliminar borrador).
+     */
+    public function destroy(string $id)
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+            $this->guiaRemisionService->eliminar($guia);
+
+            return response()->json([
+                'data' => 'ok',
+                'message' => 'Guía de remisión eliminada exitosamente',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+}

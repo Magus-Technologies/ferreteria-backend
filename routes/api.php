@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ConfiguracionImpresionController;
 use App\Http\Controllers\EmpresaController;
+use App\Http\Controllers\GuiaRemisionController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\RestrictionController;
 use App\Http\Controllers\UsuarioController;
@@ -88,6 +89,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // MOTIVOS DE TRASLADO (Catálogo N° 20 SUNAT)
     // ============================================
     Route::apiResource('motivos-traslado', MotivoTrasladoController::class);
+
+    // ============================================
+    // GUÍAS DE REMISIÓN
+    // ============================================
+    Route::prefix('guias-remision')->group(function () {
+        Route::post('/{id}/emitir', [GuiaRemisionController::class, 'emitir']);
+        Route::post('/{id}/anular', [GuiaRemisionController::class, 'anular']);
+    });
+    Route::apiResource('guias-remision', GuiaRemisionController::class);
 
     // ============================================
     // ROLES (sin permisos/restricciones por ahora)
