@@ -62,6 +62,7 @@ class AuthController extends Controller
                 'efectivo' => $efectivoDisponible,
                 'empresa' => $user->empresa,
                 'all_restrictions' => $allRestrictions,
+                'rol_sistema' => $user->rol_sistema,
             ],
             'token' => $token,
         ]);
@@ -101,6 +102,7 @@ class AuthController extends Controller
             'efectivo' => $efectivoDisponible,
             'empresa' => $user->empresa,
             'all_restrictions' => $allRestrictions,
+            'rol_sistema' => $user->rol_sistema,
         ]);
     }
 
