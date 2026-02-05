@@ -100,10 +100,12 @@ class EntregaProductoController extends Controller
             'hora_inicio' => 'nullable|date_format:H:i',
             'hora_fin' => 'nullable|date_format:H:i',
             'direccion_entrega' => 'nullable|string',
+            'latitud' => 'nullable|numeric|between:-90,90',
+            'longitud' => 'nullable|numeric|between:-180,180',
             'observaciones' => 'nullable|string',
             'almacen_salida_id' => 'required|integer',
             'chofer_id' => 'nullable|string',
-            'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer', // Nuevo campo
+            'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
             'user_id' => 'required|string',
             'productos_entregados' => 'required|array',
             'productos_entregados.*.unidad_derivada_venta_id' => 'required|integer',
@@ -126,10 +128,12 @@ class EntregaProductoController extends Controller
                 'hora_inicio' => $validated['hora_inicio'] ?? null,
                 'hora_fin' => $validated['hora_fin'] ?? null,
                 'direccion_entrega' => $validated['direccion_entrega'] ?? null,
+                'latitud' => $validated['latitud'] ?? null,
+                'longitud' => $validated['longitud'] ?? null,
                 'observaciones' => $validated['observaciones'] ?? null,
                 'almacen_salida_id' => $validated['almacen_salida_id'],
                 'chofer_id' => $validated['chofer_id'] ?? null,
-                'quien_entrega' => $validated['quien_entrega'] ?? null, // Nuevo campo
+                'quien_entrega' => $validated['quien_entrega'] ?? null,
                 'user_id' => $validated['user_id'],
             ]);
 
@@ -207,10 +211,12 @@ class EntregaProductoController extends Controller
             'hora_inicio' => 'nullable|date_format:H:i',
             'hora_fin' => 'nullable|date_format:H:i',
             'direccion_entrega' => 'nullable|string',
+            'latitud' => 'nullable|numeric|between:-90,90',
+            'longitud' => 'nullable|numeric|between:-180,180',
             'observaciones' => 'nullable|string',
             'almacen_salida_id' => 'sometimes|integer',
             'chofer_id' => 'nullable|string',
-            'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer', // Nuevo campo
+            'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {

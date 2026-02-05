@@ -56,6 +56,7 @@ class User extends Authenticatable
         "rol_sistema",
 
         "estado",
+        "fcm_token",
     ];
 
     protected $hidden = ["password"];

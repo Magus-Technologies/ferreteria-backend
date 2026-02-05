@@ -32,10 +32,12 @@ class EntregaProducto extends Model
         'hora_inicio',
         'hora_fin',
         'direccion_entrega',
+        'latitud',
+        'longitud',
         'observaciones',
         'almacen_salida_id',
         'chofer_id',
-        'quien_entrega', // Nuevo: quién realiza la entrega física
+        'quien_entrega',
         'user_id',
     ];
 

@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'firebase' => [
+        'project_id' => env('FIREBASE_PROJECT_ID', 'ferreteria-38320'),
+        'credentials_path' => env('FIREBASE_CREDENTIALS_PATH', storage_path('firebase-credentials.json')),
+    ],
+
 ];

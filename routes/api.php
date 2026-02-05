@@ -7,6 +7,7 @@ use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\RestrictionController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\MotivoTrasladoController;
+use App\Http\Controllers\NotificacionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -65,8 +66,17 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::prefix('usuarios')->group(function () {
         Route::get('/vendedores-disponibles', [UsuarioController::class, 'vendedoresDisponibles']);
+        Route::post('/fcm-token', [NotificacionController::class, 'updateFcmToken']);
     });
     Route::apiResource('usuarios', UsuarioController::class);
+
+    // ============================================
+    // NOTIFICACIONES PUSH (Firebase)
+    // ============================================
+    Route::prefix('notificaciones')->group(function () {
+        Route::post('/send', [NotificacionController::class, 'sendNotification']);
+        Route::post('/entrega-programada', [NotificacionController::class, 'notifyEntregaProgramada']);
+    });
 
     // ============================================
     // EMPRESA
