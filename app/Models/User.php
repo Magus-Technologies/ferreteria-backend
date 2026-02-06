@@ -13,19 +13,17 @@ class User extends Authenticatable
 {
     use HasFactory, Notifiable, HasApiTokens;
 
-    protected $table = "user"; // Tabla en singular
-    protected $keyType = "string"; // ID es string (CUID de Prisma)
-    public $incrementing = false; // ID no es autoincremental
-
-    // Prisma usa camelCase para timestamps
-    const CREATED_AT = "createdAt";
-    const UPDATED_AT = "updatedAt";
+    protected $table = "user"; // Tabla en singular (Prisma)
+    // ID es autoincremental (estructura estándar de Laravel)
+    // Timestamps estándar de Laravel (created_at, updated_at)
 
     protected $fillable = [
         "id", // ← IMPORTANTE: Permitir asignar ID manualmente
         "name",
         "email",
         "password",
+        "supervisor_password",
+        "es_supervisor",
         "email_verified",
         "image",
         "empresa_id",
@@ -59,13 +57,15 @@ class User extends Authenticatable
         "fcm_token",
     ];
 
-    protected $hidden = ["password"];
+    protected $hidden = ["password", "supervisor_password"];
 
     protected function casts(): array
     {
         return [
             "email_verified" => "datetime",
             "password" => "hashed",
+            "supervisor_password" => "hashed",
+            "es_supervisor" => "boolean",
             "efectivo" => "decimal:2",
             "fecha_nacimiento" => "date",
             "fecha_inicio" => "date",
@@ -199,6 +199,17 @@ class User extends Authenticatable
         return !$this->isRestricted($feature);
     }
 
+    /**
+     * Verificar si el usuario tiene un rol específico
+     *
+     * @param string $roleName Nombre del rol (ej: "admin", "vendedor")
+     * @return bool true si tiene el rol, false si no
+     */
+    public function hasRole(string $roleName): bool
+    {
+        return $this->roles()->where('name', $roleName)->exists();
+    }
+
     public function getTipoDocumentoNombreAttribute(): string
     {
         $tipos = [
@@ -251,5 +262,14 @@ class User extends Authenticatable
     public function scopeInactivos($query)
     {
         return $query->where("estado", false);
+    }
+
+    /**
+     * Scope para usuarios supervisores
+     */
+    public function scopeSupervisores($query)
+    {
+        return $query->where("es_supervisor", true)
+                     ->whereNotNull("supervisor_password");
     }
 }

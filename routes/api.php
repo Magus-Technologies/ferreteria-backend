@@ -60,11 +60,13 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/api/productos.php';    // Productos (CRUD, importación, archivos, precios)
     require __DIR__ . '/api/ventas.php';       // Ventas, compras, cotizaciones, préstamos, clientes, proveedores
     require __DIR__ . '/api/cajas.php';        // Cajas (apertura, cierre, transacciones, préstamos)
+    require __DIR__ . '/api/facturacion-electronica.php';  // Facturación electrónica (notas de débito, crédito, facturas)
 
     // ============================================
     // USUARIOS
     // ============================================
     Route::prefix('usuarios')->group(function () {
+        Route::get('/supervisores', [UsuarioController::class, 'getSupervisores']);
         Route::get('/vendedores-disponibles', [UsuarioController::class, 'vendedoresDisponibles']);
         Route::post('/fcm-token', [NotificacionController::class, 'updateFcmToken']);
     });

@@ -13,6 +13,7 @@ use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenCompra;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableCompra;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -178,6 +179,12 @@ class CompraController extends Controller
         ]);
 
         return DB::transaction(function () use ($validated) {
+            // Extraer el despliegue_id del formato "sub_caja_id-despliegue_id" si es necesario
+            if (isset($validated['despliegue_de_pago_id']) && str_contains($validated['despliegue_de_pago_id'], '-')) {
+                $parts = explode('-', $validated['despliegue_de_pago_id']);
+                $validated['despliegue_de_pago_id'] = $parts[1] ?? $validated['despliegue_de_pago_id'];
+            }
+            
             // Validar nueva compra
             $this->validarNuevaCompra($validated);
 
@@ -345,6 +352,12 @@ class CompraController extends Controller
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
+            // Extraer el despliegue_id del formato "sub_caja_id-despliegue_id" si es necesario
+            if (isset($validated['despliegue_de_pago_id']) && str_contains($validated['despliegue_de_pago_id'], '-')) {
+                $parts = explode('-', $validated['despliegue_de_pago_id']);
+                $validated['despliegue_de_pago_id'] = $parts[1] ?? $validated['despliegue_de_pago_id'];
+            }
+            
             $compra = Compra::with([
                 'productosPorAlmacen.unidadesDerivadas',
             ])->findOrFail($id);
@@ -647,7 +660,20 @@ class CompraController extends Controller
             }
 
             if (isset($compra['despliegue_de_pago_id'])) {
-                $despliegue = DespliegueDePago::findOrFail($compra['despliegue_de_pago_id']);
+                // Extraer el despliegue_id del formato "sub_caja_id-despliegue_id" si es necesario
+                $desplieguePagoId = $compra['despliegue_de_pago_id'];
+                if (str_contains($desplieguePagoId, '-')) {
+                    $parts = explode('-', $desplieguePagoId);
+                    $desplieguePagoId = $parts[1] ?? $desplieguePagoId;
+                }
+                
+                $despliegue = DespliegueDePago::where('id', $desplieguePagoId)
+                    ->where('activo', true)
+                    ->first();
+                
+                if (!$despliegue) {
+                    throw new \Exception('El despliegue de pago seleccionado no existe o no está activo. Por favor, selecciona otro método de pago.');
+                }
 
                 MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
                     ->decrement('monto', $totalSoles);
@@ -664,23 +690,175 @@ class CompraController extends Controller
             $totalSoles = $this->getTotalCompra($compra);
 
             if ($compra->despliegue_de_pago_id) {
-                $despliegue = DespliegueDePago::findOrFail($compra->despliegue_de_pago_id);
-
-                MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
-                    ->increment('monto', $totalSoles);
+                $despliegue = DespliegueDePago::where('id', $compra->despliegue_de_pago_id)
+                    ->first();
+                
+                if ($despliegue) {
+                    MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
+                        ->increment('monto', $totalSoles);
+                }
             }
 
             if ($compra->egreso_dinero_id) {
-                $egreso = EgresoDinero::findOrFail($compra->egreso_dinero_id);
-                $despliegue = DespliegueDePago::findOrFail($egreso->despliegue_de_pago_id);
+                $egreso = EgresoDinero::find($compra->egreso_dinero_id);
+                
+                if ($egreso && $egreso->despliegue_de_pago_id) {
+                    $despliegue = DespliegueDePago::where('id', $egreso->despliegue_de_pago_id)
+                        ->first();
 
-                $reintegro = (float) $egreso->monto - (float) $egreso->vuelto;
+                    if ($despliegue) {
+                        $reintegro = (float) $egreso->monto - (float) $egreso->vuelto;
 
-                if ($reintegro > 0) {
-                    MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
-                        ->increment('monto', $reintegro);
+                        if ($reintegro > 0) {
+                            MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
+                                ->increment('monto', $reintegro);
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * Get pagos de compra
+     */
+    public function getPagos(string $id)
+    {
+        $compra = Compra::findOrFail($id);
+
+        $pagos = $compra->pagosDeCompras()
+            ->with('despliegueDePago.metodoDePago')
+            ->orderBy('fecha', 'desc')
+            ->get();
+
+        return response()->json(['data' => $pagos]);
+    }
+
+    /**
+     * Store pago de compra
+     */
+    public function storePago(Request $request, string $id)
+    {
+        $validated = $request->validate([
+            'despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
+            'monto' => 'required|numeric|min:0.01',
+            'fecha' => 'required|date',
+            'observacion' => 'nullable|string',
+            'afecta_caja' => 'required|boolean',
+        ]);
+
+        return DB::transaction(function () use ($id, $validated) {
+            $compra = Compra::with([
+                'productosPorAlmacen.unidadesDerivadas',
+                'pagosDeCompras' => function ($query) {
+                    $query->where('estado', true);
+                },
+            ])->findOrFail($id);
+
+            // Calcular total de la compra
+            $totalCompra = $this->getTotalCompra($compra);
+
+            // Calcular total pagado hasta ahora
+            $totalPagado = $compra->pagosDeCompras->sum('monto');
+
+            // Calcular saldo pendiente
+            $saldoPendiente = $totalCompra - $totalPagado;
+
+            // Validar que el monto no exceda el saldo
+            if ($validated['monto'] > $saldoPendiente) {
+                throw new \Exception('El monto del pago no puede exceder el saldo pendiente de S/ ' . number_format($saldoPendiente, 2));
+            }
+
+            // Crear el pago
+            $pago = $compra->pagosDeCompras()->create([
+                'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
+                'monto' => $validated['monto'],
+                'fecha' => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
+                'observacion' => $validated['observacion'] ?? null,
+                'estado' => true,
+            ]);
+
+            // Si afecta caja, registrar el egreso
+            if ($validated['afecta_caja']) {
+                // TODO: Implementar lógica de afectación a caja
+                // Esto dependerá de cómo manejes los movimientos de caja
+            }
+
+            // Cargar relaciones para la respuesta
+            $pago->load('despliegueDePago.metodoDePago');
+
+            return response()->json([
+                'data' => $pago,
+                'message' => 'Pago registrado correctamente',
+            ]);
+        });
+    }
+
+    /**
+     * Update lotes y vencimientos de unidades derivadas de una compra
+     */
+    public function updateLotesVencimientos(Request $request, string $id)
+    {
+        $validated = $request->validate([
+            'unidades_derivadas' => 'required|array|min:1',
+            'unidades_derivadas.*.id' => 'required|integer|exists:unidadderivadainmutablecompra,id',
+            'unidades_derivadas.*.lote' => 'nullable|string|max:255',
+            'unidades_derivadas.*.vencimiento' => 'nullable|date',
+        ]);
+
+        return DB::transaction(function () use ($id, $validated) {
+            // Verificar que la compra existe
+            $compra = Compra::findOrFail($id);
+
+            // Verificar que todas las unidades derivadas pertenecen a esta compra
+            $unidadIds = collect($validated['unidades_derivadas'])->pluck('id');
+            
+            $unidadesValidas = UnidadDerivadaInmutableCompra::whereIn('id', $unidadIds)
+                ->whereHas('productoAlmacenCompra', function ($query) use ($id) {
+                    $query->where('compra_id', $id);
+                })
+                ->count();
+
+            if ($unidadesValidas !== count($validated['unidades_derivadas'])) {
+                return response()->json([
+                    'error' => ['message' => 'Algunas unidades derivadas no pertenecen a esta compra'],
+                ], 400);
+            }
+
+            // Actualizar cada unidad derivada
+            foreach ($validated['unidades_derivadas'] as $unidadData) {
+                $updateData = [
+                    'lote' => $unidadData['lote'] ?? null,
+                ];
+
+                // Convertir fecha ISO a formato MySQL si existe
+                if (isset($unidadData['vencimiento']) && $unidadData['vencimiento']) {
+                    try {
+                        $updateData['vencimiento'] = Carbon::parse($unidadData['vencimiento'])->format('Y-m-d H:i:s');
+                    } catch (\Exception $e) {
+                        $updateData['vencimiento'] = null;
+                    }
+                } else {
+                    $updateData['vencimiento'] = null;
+                }
+
+                UnidadDerivadaInmutableCompra::where('id', $unidadData['id'])
+                    ->update($updateData);
+            }
+
+            // Retornar la compra actualizada
+            $compraActualizada = Compra::with([
+                'proveedor:id,ruc,razon_social',
+                'productosPorAlmacen.productoAlmacen.producto.marca',
+                'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                'user:id,name',
+            ])->findOrFail($id);
+
+            return response()->json([
+                'data' => $compraActualizada,
+                'message' => 'Lotes y vencimientos actualizados correctamente',
+            ]);
+        });
     }
 }

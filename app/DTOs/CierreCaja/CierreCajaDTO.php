@@ -8,8 +8,11 @@ class CierreCajaDTO
         public int $cajaId,
         public ?int $subCajaId,
         public float $montoCierre,
-        public int $usuarioId,
-        public ?int $supervisorId = null,
+        public string $usuarioId,
+        public ?string $supervisorId = null,
+        public ?string $supervisorPassword = null,
+        public ?string $emailReporte = null,
+        public ?string $whatsappReporte = null,
         public ?string $observaciones = null
     ) {}
 }

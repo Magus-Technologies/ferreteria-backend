@@ -29,4 +29,14 @@ interface CierreCajaServiceInterface
      * Validar si un usuario puede autorizar como supervisor
      */
     public function validarSupervisor(string $email, string $password): ?array;
+
+    /**
+     * Obtener una apertura por ID
+     */
+    public function obtenerApertura(string $aperturaId);
+
+    /**
+     * Recalcular el cierre de una caja cerrada
+     */
+    public function recalcularCierre(string $aperturaId): array;
 }

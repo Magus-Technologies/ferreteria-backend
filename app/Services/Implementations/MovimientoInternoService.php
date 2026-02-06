@@ -209,13 +209,20 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         float $monto,
         string|int $userId
     ): void {
-        // Obtener apertura activa del usuario
+        // Obtener apertura activa - primero intentar del usuario, sino de la caja principal
         $apertura = AperturaCierreCaja::where('user_id', $userId)
             ->where('estado', 'abierta')
             ->first();
 
+        // Si el usuario no tiene apertura propia (ej: vendedor), buscar apertura de la caja principal
         if (!$apertura) {
-            throw new \Exception('No tienes una caja abierta para realizar movimientos');
+            $apertura = AperturaCierreCaja::where('caja_principal_id', $subCajaOrigen->caja_principal_id)
+                ->where('estado', 'abierta')
+                ->first();
+        }
+
+        if (!$apertura) {
+            throw new \Exception('No hay una caja abierta para realizar movimientos');
         }
 
         // Transacción de EGRESO (origen)

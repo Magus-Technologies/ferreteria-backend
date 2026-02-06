@@ -32,6 +32,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // COMPRAS
     // ============================================
+    Route::prefix('compras')->group(function () {
+        Route::get('/{id}/pagos', [CompraController::class, 'getPagos']);
+        Route::post('/{id}/pagos', [CompraController::class, 'storePago']);
+        Route::put('/{id}/lotes-vencimientos', [CompraController::class, 'updateLotesVencimientos']);
+    });
     Route::apiResource('compras', CompraController::class);
 
     // ============================================
@@ -93,4 +98,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('choferes/buscar-dni/{dni}', [ChoferController::class, 'buscarPorDni']);
     Route::apiResource('choferes', ChoferController::class);
+
+    // ============================================
+    // NOTAS DE DÉBITO (Facturación Electrónica)
+    // ============================================
+    Route::prefix('notas-debito')->group(function () {
+        Route::post('/', [\App\Http\Controllers\NotaDebitoController::class, 'store']);
+        Route::post('/consultar-estado', [\App\Http\Controllers\NotaDebitoController::class, 'consultarEstado']);
+        Route::get('/{serie}/{numero}/xml', [\App\Http\Controllers\NotaDebitoController::class, 'verXml']);
+    });
 });
