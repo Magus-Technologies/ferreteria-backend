@@ -40,18 +40,26 @@ class DesplieguePagoRepository implements DesplieguePagoRepositoryInterface
         $data['activo'] = $data['activo'] ?? true;
         $data['requiere_numero_serie'] = $data['requiere_numero_serie'] ?? false;
         
-        // Si no se proporciona metodo_de_pago_id, crear primero el MetodoDePago
+        // Si no se proporciona metodo_de_pago_id, buscar o crear el MetodoDePago
         if (!isset($data['metodo_de_pago_id'])) {
-            $metodoDePago = \App\Models\MetodoDePago::create([
-                'id' => $data['id'],
-                'name' => $data['name'],
-                'cuenta_bancaria' => $data['cuenta_bancaria'] ?? null,
-                'nombre_titular' => $data['nombre_titular'] ?? null,
-                'monto' => $data['monto_inicial'] ?? 0,
-                'monto_inicial' => $data['monto_inicial'] ?? 0,
-                'subcaja_id' => $data['subcaja_id'] ?? null,
-                'activo' => $data['activo'],
-            ]);
+            // Buscar si ya existe un MetodoDePago con el mismo banco y cuenta
+            $metodoDePago = \App\Models\MetodoDePago::where('name', $data['name'])
+                ->where('cuenta_bancaria', $data['cuenta_bancaria'] ?? null)
+                ->first();
+            
+            // Si no existe, crear uno nuevo
+            if (!$metodoDePago) {
+                $metodoDePago = \App\Models\MetodoDePago::create([
+                    'id' => (string) \Illuminate\Support\Str::ulid(),
+                    'name' => $data['name'],
+                    'cuenta_bancaria' => $data['cuenta_bancaria'] ?? null,
+                    'nombre_titular' => $data['nombre_titular'] ?? null,
+                    'monto' => $data['monto_inicial'] ?? 0,
+                    'monto_inicial' => $data['monto_inicial'] ?? 0,
+                    'subcaja_id' => $data['subcaja_id'] ?? null,
+                    'activo' => $data['activo'],
+                ]);
+            }
             
             $data['metodo_de_pago_id'] = $metodoDePago->id;
         }

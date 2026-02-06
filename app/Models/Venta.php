@@ -78,6 +78,11 @@ class Venta extends Model
         return $this->hasMany(ProductoAlmacenVenta::class);
     }
 
+    public function productosAlmacenVenta(): HasMany
+    {
+        return $this->hasMany(ProductoAlmacenVenta::class);
+    }
+
     public function despliegueDePagoVentas(): HasMany
     {
         return $this->hasMany(DespliegueDePagoVenta::class);

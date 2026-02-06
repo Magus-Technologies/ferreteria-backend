@@ -78,6 +78,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/', [SubCajaController::class, 'store']);
             Route::get('/metodos-para-ventas', [SubCajaController::class, 'metodosParaVentas']);
             Route::get('/todas-con-saldo-vendedor', [SubCajaController::class, 'getTodasConSaldoVendedor']);
+            Route::get('/todas-con-saldo-efectivo', [SubCajaController::class, 'getTodasConSaldoEfectivo']);
             Route::get('/vendedores-con-efectivo', [SubCajaController::class, 'getVendedoresConEfectivo']);
             Route::get('/buscar-por-despliegue/{desplieguePagoId}', [SubCajaController::class, 'buscarPorDesplieguePago']);
             Route::get('/{id}', [SubCajaController::class, 'show']);
@@ -101,16 +102,21 @@ Route::middleware('auth:sanctum')->group(function () {
         // Cierre de Caja
         Route::prefix('cierre')->group(function () {
             Route::get('/activa', [CierreCajaController::class, 'obtenerCajaActiva']);
+            Route::get('/diagnostico-distribuciones', [CierreCajaController::class, 'diagnosticoDistribuciones']); // Diagnóstico temporal
             Route::post('/{id}', [CierreCajaController::class, 'cerrarCaja']);
             Route::get('/{id}/movimientos', [CierreCajaController::class, 'obtenerDetalleMovimientos']);
             Route::post('/validar-supervisor', [CierreCajaController::class, 'validarSupervisor']);
+            Route::get('/{id}', [CierreCajaController::class, 'obtenerCierre']); // Nuevo endpoint
         });
         
         // Rutas legacy de cierre (mantener compatibilidad)
         Route::get('/activa', [CierreCajaController::class, 'obtenerCajaActiva']);
         Route::post('/{id}/cerrar', [CierreCajaController::class, 'cerrarCaja']);
-        Route::get('/{id}/resumen-movimientos', [CierreCajaController::class, 'obtenerResumenMovimientos']);
+        Route::post('/{id}/recalcular-cierre', [CierreCajaController::class, 'recalcularCierre']);
+        Route::put('/{id}/actualizar-cierre', [CierreCajaController::class, 'actualizarCierre']);
+        // Route::get('/{id}/resumen-movimientos', [CierreCajaController::class, 'obtenerResumenMovimientos']); // TODO: Implementar
         Route::get('/{id}/detalle-movimientos', [CierreCajaController::class, 'obtenerDetalleMovimientos']);
+        Route::get('/{id}/cierre', [CierreCajaController::class, 'obtenerCierre']); // Alias legacy
 
         // Préstamos entre Cajas
         Route::prefix('prestamos')->group(function () {

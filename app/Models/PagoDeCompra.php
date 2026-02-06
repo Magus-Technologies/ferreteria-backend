@@ -31,6 +31,8 @@ class PagoDeCompra extends Model
         'compra_id',
         'despliegue_de_pago_id',
         'monto',
+        'fecha',
+        'observacion',
     ];
 
     /**
@@ -42,6 +44,20 @@ class PagoDeCompra extends Model
             'estado' => 'boolean',
             'monto' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Boot method para generar ULID automáticamente
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (empty($model->id)) {
+                $model->id = (string) \Illuminate\Support\Str::ulid();
+            }
+        });
     }
 
     /**

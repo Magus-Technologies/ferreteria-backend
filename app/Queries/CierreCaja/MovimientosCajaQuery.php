@@ -51,7 +51,7 @@ class MovimientosCajaQuery
         }
 
         $query = DB::table('transacciones_caja as tc')
-            ->leftJoin('despliegues_pago as dp', 'tc.despliegue_pago_id', '=', 'dp.id')
+            ->leftJoin('desplieguedepago as dp', 'tc.despliegue_pago_id', '=', 'dp.id')
             ->leftJoin('metodos_pago as mp', 'dp.metodo_pago_id', '=', 'mp.id')
             ->where('tc.sub_caja_id', $apertura->sub_caja_id)
             ->where('tc.fecha', '>=', $apertura->fecha_apertura);

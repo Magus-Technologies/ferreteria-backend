@@ -32,6 +32,13 @@ class AperturaCierreCaja extends Model
         'diferencia_efectivo',
         'diferencia_total',
         'forzar_cierre',
+        'email_reporte',
+        'whatsapp_reporte',
+        'reporte_enviado',
+        'supervisor_id_validador',
+        'supervisor_validado',
+        'cerrado_por',
+        'observaciones_cierre',
     ];
 
     protected $casts = [
@@ -47,6 +54,8 @@ class AperturaCierreCaja extends Model
         'conteo_billetes_monedas' => 'array',
         'conceptos_adicionales' => 'array',
         'forzar_cierre' => 'boolean',
+        'reporte_enviado' => 'boolean',
+        'supervisor_validado' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -81,6 +90,11 @@ class AperturaCierreCaja extends Model
     public function supervisor()
     {
         return $this->belongsTo(User::class, 'supervisor_id');
+    }
+
+    public function supervisorValidador()
+    {
+        return $this->belongsTo(User::class, 'supervisor_id_validador');
     }
 
     public function distribucionesVendedores()
