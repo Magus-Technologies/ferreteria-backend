@@ -799,16 +799,30 @@ class VentaController extends Controller
             \Log::info("Venta ID: {$venta->id}");
             \Log::info("User ID: {$venta->user_id}");
 
-            // 1. Buscar la caja abierta del vendedor (opcional)
+            // 1. Buscar la caja abierta del vendedor
             $apertura = AperturaCierreCaja::where('user_id', $venta->user_id)
                 ->where('estado', 'abierta')
                 ->first();
+
+            // Si el vendedor no tiene apertura propia, buscar cualquier apertura activa de una caja principal
+            if (!$apertura) {
+                \Log::info("ℹ️ Vendedor sin apertura propia, buscando apertura activa de caja principal");
+                
+                // Buscar cualquier apertura activa (para vendedores que no tienen caja asignada)
+                $apertura = AperturaCierreCaja::where('estado', 'abierta')
+                    ->orderBy('fecha_apertura', 'desc')
+                    ->first();
+                
+                if ($apertura) {
+                    \Log::info("✅ Usando apertura de caja principal: {$apertura->id} (Caja: {$apertura->caja_principal_id})");
+                }
+            }
 
             if ($apertura) {
                 \Log::info("✅ Apertura encontrada: {$apertura->id}");
                 \Log::info("Caja Principal ID: {$apertura->caja_principal_id}");
             } else {
-                \Log::info("ℹ️ No hay apertura de caja para el usuario, usando sub-cajas directamente");
+                \Log::info("ℹ️ No hay apertura de caja disponible, usando sub-cajas directamente");
             }
 
             $totalVenta = $this->getTotalVenta($venta);
