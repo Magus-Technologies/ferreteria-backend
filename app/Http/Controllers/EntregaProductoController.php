@@ -23,15 +23,18 @@ class EntregaProductoController extends Controller
             'estado_entrega' => 'sometimes|string',
             'fecha_desde' => 'sometimes|date',
             'fecha_hasta' => 'sometimes|date',
-            'per_page' => 'sometimes|integer|min:1|max:100',
+            'per_page' => 'sometimes|integer|min:-1|max:100', // Permitir -1 para traer todos
         ]);
+
+        // 🔍 DEBUG: Log de parámetros recibidos
+        \Log::info('📥 EntregaProductoController@index - Parámetros recibidos:', $request->all());
 
         $query = EntregaProducto::query()
             ->with([
                 'venta:id,serie,numero,cliente_id',
                 'venta.cliente:id,nombres,apellidos,razon_social',
                 'almacenSalida:id,name',
-                'chofer:id,dni,nombres,apellidos',
+                'despachador:id,name', // Usar 'despachador' en lugar de 'chofer'
                 'user:id,name',
                 'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
             ]);
@@ -56,21 +59,45 @@ class EntregaProductoController extends Controller
             $query->where('estado_entrega', $request->estado_entrega);
         }
 
-        // Filter by fecha range
+        // Filter by fecha range (buscar en fecha_programada O fecha_entrega)
         if ($request->has('fecha_desde')) {
-            $query->whereDate('fecha_entrega', '>=', $request->fecha_desde);
+            $query->where(function ($q) use ($request) {
+                $q->whereDate('fecha_programada', '>=', $request->fecha_desde)
+                  ->orWhereDate('fecha_entrega', '>=', $request->fecha_desde);
+            });
         }
 
         if ($request->has('fecha_hasta')) {
-            $query->whereDate('fecha_entrega', '<=', $request->fecha_hasta);
+            $query->where(function ($q) use ($request) {
+                $q->whereDate('fecha_programada', '<=', $request->fecha_hasta)
+                  ->orWhereDate('fecha_entrega', '<=', $request->fecha_hasta);
+            });
         }
 
         $perPage = $request->input('per_page', 50);
 
-        if ($perPage === -1) {
+        // Si per_page es -1, traer todos los registros (sin paginación)
+        if ($perPage === -1 || $perPage === '-1') {
+            $entregas = $query->orderBy('created_at', 'desc')->limit(1000)->get();
+            
+            // 🔍 DEBUG: Log de resultados
+            \Log::info('📤 EntregaProductoController@index - Total entregas encontradas:', ['count' => $entregas->count()]);
+            \Log::info('📤 EntregaProductoController@index - Primera entrega (si existe):', [
+                'entrega' => $entregas->first() ? [
+                    'id' => $entregas->first()->id,
+                    'fecha_programada' => $entregas->first()->fecha_programada,
+                    'hora_inicio' => $entregas->first()->hora_inicio,
+                    'hora_fin' => $entregas->first()->hora_fin,
+                    'despachador' => $entregas->first()->despachador ? [
+                        'id' => $entregas->first()->despachador->id,
+                        'name' => $entregas->first()->despachador->name,
+                    ] : null,
+                ] : null
+            ]);
+            
             return response()->json([
-                'data' => $query->orderBy('created_at', 'desc')->limit(100)->get(),
-                'total' => $query->count(),
+                'data' => $entregas,
+                'total' => $entregas->count(),
             ]);
         }
 
@@ -188,7 +215,7 @@ class EntregaProductoController extends Controller
             'venta.cliente:id,nombres,apellidos,razon_social,direccion,telefono',
             'venta.almacen:id,name',
             'almacenSalida:id,name',
-            'chofer:id,dni,nombres,apellidos',
+            'despachador:id,name', // Usar 'despachador' en lugar de 'chofer'
             'user:id,name',
             'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
             'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
@@ -230,7 +257,7 @@ class EntregaProductoController extends Controller
                     'venta:id,serie,numero,cliente_id',
                     'venta.cliente:id,nombres,apellidos,razon_social',
                     'almacenSalida:id,name',
-                    'chofer:id,dni,nombres,apellidos',
+                    'despachador:id,name', // Usar 'despachador'
                     'user:id,name',
                     'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
                 ]),

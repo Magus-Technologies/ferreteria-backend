@@ -26,6 +26,7 @@ return [
         'http://ferreteria2.test',
         'http://ferreteria-backend.test',
         'http://62.171.147.202',
+        'https://foundations-four-charter-mariah.trycloudflare.com',
     ],
 
     'allowed_origins_patterns' => [],

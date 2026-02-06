@@ -82,11 +82,14 @@ class NotificacionController extends Controller
         $validated = $request->validate([
             'despachador_id' => 'required|string',
             'venta_serie' => 'required|string',
-            'venta_numero' => 'required|string',
+            'venta_numero' => 'required', // Puede ser string o número
             'direccion' => 'required|string',
             'fecha_programada' => 'required|string',
             'cliente_nombre' => 'nullable|string',
         ]);
+        
+        // Convertir venta_numero a string si es necesario
+        $validated['venta_numero'] = (string) $validated['venta_numero'];
 
         $despachador = User::find($validated['despachador_id']);
 
@@ -134,6 +137,77 @@ class NotificacionController extends Controller
 
         return response()->json([
             'message' => 'Error al enviar notificación',
+        ], 500);
+    }
+    
+    /**
+     * ENDPOINT DE PRUEBA: Envía notificación de prueba a un despachador
+     * POST /api/notificaciones/test
+     * Body: { "despachador_id": "xxx" }
+     */
+    public function testNotification(Request $request)
+    {
+        $validated = $request->validate([
+            'despachador_id' => 'required|string',
+        ]);
+
+        $despachador = User::find($validated['despachador_id']);
+
+        if (!$despachador) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Despachador no encontrado',
+                'despachador_id' => $validated['despachador_id'],
+            ], 404);
+        }
+
+        // Información detallada del despachador
+        $info = [
+            'despachador_id' => $despachador->id,
+            'despachador_nombre' => $despachador->name,
+            'despachador_rol' => $despachador->rol_sistema,
+            'fcm_token_existe' => !empty($despachador->fcm_token),
+            'fcm_token_preview' => $despachador->fcm_token ? substr($despachador->fcm_token, 0, 30) . '...' : null,
+        ];
+
+        if (!$despachador->fcm_token) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El despachador no tiene notificaciones habilitadas (fcm_token es NULL)',
+                'info' => $info,
+                'solucion' => 'El usuario debe iniciar sesión con HTTPS y aceptar los permisos de notificaciones',
+            ], 200);
+        }
+
+        $title = '🧪 Notificación de Prueba';
+        $body = "Hola {$despachador->name}! Esta es una notificación de prueba.\n"
+              . "📱 Si ves esto, las notificaciones funcionan correctamente.\n"
+              . "🎉 ¡Todo está configurado!";
+
+        $data = [
+            'type' => 'test',
+            'timestamp' => now()->toDateTimeString(),
+        ];
+
+        $result = $this->firebaseService->sendNotification(
+            $despachador->fcm_token,
+            $title,
+            $body,
+            $data
+        );
+
+        if ($result) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Notificación de prueba enviada exitosamente',
+                'info' => $info,
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Error al enviar notificación de prueba',
+            'info' => $info,
         ], 500);
     }
 }
