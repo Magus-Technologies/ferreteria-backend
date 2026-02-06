@@ -25,6 +25,8 @@ class ProductoAlmacenVenta extends Model
         'venta_id',
         'costo',
         'producto_almacen_id',
+        'cantidad',
+        'precio_unitario',
     ];
 
     /**
@@ -34,6 +36,8 @@ class ProductoAlmacenVenta extends Model
     {
         return [
             'costo' => 'decimal:4',
+            'cantidad' => 'decimal:4',
+            'precio_unitario' => 'decimal:4',
         ];
     }
 

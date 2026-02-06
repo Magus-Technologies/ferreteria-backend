@@ -62,6 +62,7 @@ class UsuarioController extends Controller
             'name' => 'required|string|max:191',
             'email' => 'required|email|unique:user,email|max:191',
             'password' => 'required|string|min:6|confirmed',
+            'supervisor_password' => 'nullable|string|min:6|confirmed',
             'empresa_id' => 'required|integer|exists:empresa,id',
             
             // Información personal
@@ -99,6 +100,8 @@ class UsuarioController extends Controller
             'password.required' => 'La contraseña es obligatoria',
             'password.min' => 'La contraseña debe tener al menos 6 caracteres',
             'password.confirmed' => 'Las contraseñas no coinciden',
+            'supervisor_password.min' => 'La contraseña de supervisor debe tener al menos 6 caracteres',
+            'supervisor_password.confirmed' => 'Las contraseñas de supervisor no coinciden',
             'empresa_id.required' => 'La empresa es obligatoria',
             'empresa_id.exists' => 'La empresa no existe',
             'numero_documento.unique' => 'Este número de documento ya está registrado',
@@ -119,6 +122,8 @@ class UsuarioController extends Controller
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'supervisor_password' => $request->supervisor_password ? Hash::make($request->supervisor_password) : null,
+            'es_supervisor' => $request->supervisor_password ? true : false,
             'empresa_id' => $request->empresa_id,
             
             // Información personal
@@ -200,6 +205,7 @@ class UsuarioController extends Controller
             'name' => 'sometimes|required|string|max:191',
             'email' => 'sometimes|required|email|max:191|unique:user,email,' . $id,
             'password' => 'sometimes|nullable|string|min:6|confirmed',
+            'supervisor_password' => 'nullable|string|min:6|confirmed',
             'empresa_id' => 'sometimes|required|integer|exists:empresa,id',
             
             // Información personal
@@ -238,6 +244,8 @@ class UsuarioController extends Controller
             'email.unique' => 'Este email ya está registrado',
             'password.min' => 'La contraseña debe tener al menos 6 caracteres',
             'password.confirmed' => 'Las contraseñas no coinciden',
+            'supervisor_password.min' => 'La contraseña de supervisor debe tener al menos 6 caracteres',
+            'supervisor_password.confirmed' => 'Las contraseñas de supervisor no coinciden',
             'empresa_id.required' => 'La empresa es obligatoria',
             'empresa_id.exists' => 'La empresa no existe',
             'numero_documento.unique' => 'Este número de documento ya está registrado',
@@ -259,6 +267,10 @@ class UsuarioController extends Controller
         }
         if ($request->filled('password')) {
             $usuario->password = Hash::make($request->password);
+        }
+        if ($request->filled('supervisor_password')) {
+            $usuario->supervisor_password = Hash::make($request->supervisor_password);
+            $usuario->es_supervisor = true;
         }
         if ($request->has('empresa_id')) {
             $usuario->empresa_id = $request->empresa_id;
@@ -415,6 +427,23 @@ class UsuarioController extends Controller
         $timestamp = base_convert(time(), 10, 36);
         $random = substr(str_shuffle('0123456789abcdefghijklmnopqrstuvwxyz'), 0, 16);
         return 'c' . $timestamp . $random;
+    }
+
+    /**
+     * Obtener lista de supervisores (usuarios con contraseña de supervisor)
+     * GET /api/usuarios/supervisores
+     */
+    public function getSupervisores(): JsonResponse
+    {
+        $supervisores = User::supervisores()
+            ->activos()
+            ->select('id', 'name', 'email', 'numero_documento')
+            ->orderBy('name', 'asc')
+            ->get();
+
+        return response()->json([
+            'data' => $supervisores,
+        ]);
     }
 
     /**

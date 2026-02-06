@@ -10,6 +10,8 @@ interface AperturaCierreCajaRepositoryInterface
     
     public function findCajaActiva(string $userId): ?AperturaCierreCaja;
     
+    public function obtenerAperturaActiva(int $cajaId, ?int $subCajaId): ?AperturaCierreCaja;
+    
     public function create(array $data): AperturaCierreCaja;
     
     public function update(string $id, array $data): bool;

@@ -69,6 +69,9 @@ class CierreCajaService implements CierreCajaServiceInterface
             montoCierre: $data['monto_cierre_efectivo'] + ($data['total_cuentas'] ?? 0),
             usuarioId: auth()->id(),
             supervisorId: $data['supervisor_id'] ?? null,
+            supervisorPassword: $data['supervisor_password'] ?? null,
+            emailReporte: $data['email_reporte'] ?? null,
+            whatsappReporte: $data['whatsapp_reporte'] ?? null,
             observaciones: $data['comentarios'] ?? null
         );
 
@@ -114,5 +117,28 @@ class CierreCajaService implements CierreCajaServiceInterface
     public function obtenerApertura(string $aperturaId)
     {
         return $this->aperturaRepository->findById($aperturaId);
+    }
+
+    public function recalcularCierre(string $aperturaId): array
+    {
+        $apertura = $this->aperturaRepository->findById($aperturaId);
+
+        if (!$apertura) {
+            throw new AperturaNoEncontradaException();
+        }
+
+        // Recalcular el resumen usando el calculador
+        $resumen = $this->calculadorResumen->calcular($apertura);
+
+        // Actualizar el monto_cierre con el monto esperado recalculado
+        $apertura->monto_cierre = $resumen->montoEsperado;
+        $apertura->save();
+
+        return [
+            'id' => $apertura->id,
+            'monto_cierre_anterior' => $apertura->getOriginal('monto_cierre'),
+            'monto_cierre_nuevo' => $apertura->monto_cierre,
+            'resumen' => $resumen->toArray(),
+        ];
     }
 }

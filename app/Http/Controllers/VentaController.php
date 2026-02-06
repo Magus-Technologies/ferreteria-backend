@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\DTOs\FacturacionElectronica\FacturaDTO;
 use App\Enums\EstadoDeVenta;
 use App\Enums\FormaDePago;
 use App\Enums\TipoDocumento;
@@ -19,12 +20,18 @@ use App\Models\TransaccionCaja;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\Venta;
+use App\Services\Interfaces\FacturaServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class VentaController extends Controller
 {
+    public function __construct(
+        private FacturaServiceInterface $facturaService
+    ) {}
+
     /**
      * Display a listing of the resource.
      */
@@ -378,6 +385,35 @@ class VentaController extends Controller
             // Proceso post venta
             $validated['id'] = $venta->id;
             $this->procesoPostVenta($validated);
+
+            // GENERAR COMPROBANTE ELECTRÓNICO AUTOMÁTICAMENTE
+            // Solo para facturas (01) y boletas (03)
+            $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
+                ? $venta->tipo_documento->value 
+                : $venta->tipo_documento;
+
+            if (in_array($tipoDocumento, ['01', '03'])) {
+                try {
+                    $dto = new FacturaDTO(
+                        ventaId: $venta->id,
+                        usuarioId: $validated['user_id']
+                    );
+
+                    $resultado = $this->facturaService->generarComprobanteDesdeVenta($dto);
+                    
+                    Log::info('Comprobante electrónico generado automáticamente', [
+                        'venta_id' => $venta->id,
+                        'tipo_documento' => $tipoDocumento,
+                        'success' => $resultado['success'],
+                    ]);
+                } catch (\Exception $e) {
+                    // No fallar la venta si hay error al generar comprobante
+                    Log::error('Error al generar comprobante automáticamente', [
+                        'venta_id' => $venta->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             return response()->json([
                 'data' => $venta->load([
@@ -799,16 +835,30 @@ class VentaController extends Controller
             \Log::info("Venta ID: {$venta->id}");
             \Log::info("User ID: {$venta->user_id}");
 
-            // 1. Buscar la caja abierta del vendedor (opcional)
+            // 1. Buscar la caja abierta del vendedor
             $apertura = AperturaCierreCaja::where('user_id', $venta->user_id)
                 ->where('estado', 'abierta')
                 ->first();
+
+            // Si el vendedor no tiene apertura propia, buscar cualquier apertura activa de una caja principal
+            if (!$apertura) {
+                \Log::info("ℹ️ Vendedor sin apertura propia, buscando apertura activa de caja principal");
+                
+                // Buscar cualquier apertura activa (para vendedores que no tienen caja asignada)
+                $apertura = AperturaCierreCaja::where('estado', 'abierta')
+                    ->orderBy('fecha_apertura', 'desc')
+                    ->first();
+                
+                if ($apertura) {
+                    \Log::info("✅ Usando apertura de caja principal: {$apertura->id} (Caja: {$apertura->caja_principal_id})");
+                }
+            }
 
             if ($apertura) {
                 \Log::info("✅ Apertura encontrada: {$apertura->id}");
                 \Log::info("Caja Principal ID: {$apertura->caja_principal_id}");
             } else {
-                \Log::info("ℹ️ No hay apertura de caja para el usuario, usando sub-cajas directamente");
+                \Log::info("ℹ️ No hay apertura de caja disponible, usando sub-cajas directamente");
             }
 
             $totalVenta = $this->getTotalVenta($venta);

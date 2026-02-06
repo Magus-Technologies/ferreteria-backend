@@ -7,6 +7,11 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "greenter/core": "*",
+        "greenter/greenter": "^5.1",
+        "greenter/report": "*",
+        "greenter/ws": "*",
+        "greenter/xml": "*",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.2",
         "laravel/tinker": "^2.10.1",

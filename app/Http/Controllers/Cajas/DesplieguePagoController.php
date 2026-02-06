@@ -89,7 +89,40 @@ class DesplieguePagoController extends Controller
     public function store(\Illuminate\Http\Request $request): JsonResponse
     {
         try {
-            $metodoPago = $this->desplieguePagoRepository->create($request->all());
+            // Validar datos de entrada
+            $validated = $request->validate([
+                'name' => 'required|string|max:191',
+                'metodo_de_pago_id' => 'nullable|string|exists:metododepago,id',
+                'adicional' => 'nullable|numeric|min:0',
+                'mostrar' => 'nullable|boolean',
+                'activo' => 'nullable|boolean',
+                'requiere_numero_serie' => 'nullable|boolean',
+                'sobrecargo_porcentaje' => 'nullable|numeric|min:0',
+                'tipo_sobrecargo' => 'nullable|string|in:porcentaje,fijo',
+                'numero_celular' => 'nullable|string|max:20',
+                'cuenta_bancaria' => 'nullable|string|max:191',
+                'nombre_titular' => 'nullable|string|max:191',
+                'monto_inicial' => 'nullable|numeric|min:0',
+                'subcaja_id' => 'nullable|string|exists:subcaja,id',
+            ]);
+
+            // Validar que el número de celular sea único si se proporciona
+            if (!empty($validated['numero_celular'])) {
+                $existeCelular = \App\Models\DespliegueDePago::where('numero_celular', $validated['numero_celular'])
+                    ->exists();
+                
+                if ($existeCelular) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Este número de celular ya está registrado en otro método de pago',
+                        'errors' => [
+                            'numero_celular' => ['Este número de celular ya está registrado']
+                        ]
+                    ], 422);
+                }
+            }
+
+            $metodoPago = $this->desplieguePagoRepository->create($validated);
 
             return response()->json([
                 'success' => true,
@@ -97,6 +130,12 @@ class DesplieguePagoController extends Controller
                 'message' => 'Método de pago creado exitosamente',
             ], 201);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -111,7 +150,37 @@ class DesplieguePagoController extends Controller
     public function update(\Illuminate\Http\Request $request, string $id): JsonResponse
     {
         try {
-            $metodoPago = $this->desplieguePagoRepository->update($id, $request->all());
+            // Validar datos de entrada
+            $validated = $request->validate([
+                'name' => 'nullable|string|max:191',
+                'metodo_de_pago_id' => 'nullable|string|exists:metododepago,id',
+                'adicional' => 'nullable|numeric|min:0',
+                'mostrar' => 'nullable|boolean',
+                'activo' => 'nullable|boolean',
+                'requiere_numero_serie' => 'nullable|boolean',
+                'sobrecargo_porcentaje' => 'nullable|numeric|min:0',
+                'tipo_sobrecargo' => 'nullable|string|in:porcentaje,fijo',
+                'numero_celular' => 'nullable|string|max:20',
+            ]);
+
+            // Validar que el número de celular sea único si se proporciona (excluyendo el actual)
+            if (!empty($validated['numero_celular'])) {
+                $existeCelular = \App\Models\DespliegueDePago::where('numero_celular', $validated['numero_celular'])
+                    ->where('id', '!=', $id)
+                    ->exists();
+                
+                if ($existeCelular) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Este número de celular ya está registrado en otro método de pago',
+                        'errors' => [
+                            'numero_celular' => ['Este número de celular ya está registrado']
+                        ]
+                    ], 422);
+                }
+            }
+
+            $metodoPago = $this->desplieguePagoRepository->update($id, $validated);
 
             if (!$metodoPago) {
                 return response()->json([
@@ -126,6 +195,12 @@ class DesplieguePagoController extends Controller
                 'message' => 'Método de pago actualizado exitosamente',
             ]);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

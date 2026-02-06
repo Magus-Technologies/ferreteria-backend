@@ -88,22 +88,34 @@ class MetodoDePagoController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:191|unique:metododepago,name',
-            'cuenta_bancaria' => [
-                'nullable',
-                'string',
-                'max:191',
-                \Illuminate\Validation\Rule::unique('metododepago', 'cuenta_bancaria')
-                    ->whereNotNull('cuenta_bancaria'),
-            ],
+            'name' => 'required|string|max:191',
+            'cuenta_bancaria' => 'nullable|string|max:191',
             'nombre_titular' => 'nullable|string|max:191',
             'monto_inicial' => 'nullable|numeric|min:0',
             'subcaja_id' => 'nullable|string|exists:subcaja,id',
         ], [
-            'cuenta_bancaria.unique' => 'Este número de cuenta ya está registrado en otro banco',
             'monto_inicial.numeric' => 'El monto inicial debe ser un número válido',
             'monto_inicial.min' => 'El monto inicial no puede ser negativo',
         ]);
+
+        // Si no se proporciona cuenta bancaria, usar un valor por defecto
+        if (empty($validated['cuenta_bancaria'])) {
+            $validated['cuenta_bancaria'] = 'SIN-CUENTA';
+        }
+
+        // Validar que la combinación banco + cuenta sea única
+        $existe = MetodoDePago::where('name', $validated['name'])
+            ->where('cuenta_bancaria', $validated['cuenta_bancaria'])
+            ->exists();
+
+        if ($existe) {
+            return response()->json([
+                'message' => 'Ya existe un método de pago con este banco y número de cuenta',
+                'errors' => [
+                    'cuenta_bancaria' => ['Ya existe un método de pago con este banco y número de cuenta']
+                ]
+            ], 422);
+        }
 
         // Generar ID único
         $validated['id'] = (string) \Illuminate\Support\Str::ulid();
@@ -128,19 +140,30 @@ class MetodoDePagoController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $validated = $request->validate([
-            'name' => 'required|string|max:191|unique:metododepago,name,' . $id,
-            'cuenta_bancaria' => [
-                'nullable',
-                'string',
-                'max:191',
-                \Illuminate\Validation\Rule::unique('metododepago', 'cuenta_bancaria')
-                    ->ignore($id)
-                    ->whereNotNull('cuenta_bancaria'),
-            ],
+            'name' => 'required|string|max:191',
+            'cuenta_bancaria' => 'nullable|string|max:191',
             'nombre_titular' => 'nullable|string|max:191',
-        ], [
-            'cuenta_bancaria.unique' => 'Este número de cuenta ya está registrado en otro banco',
         ]);
+
+        // Si no se proporciona cuenta bancaria, usar un valor por defecto
+        if (empty($validated['cuenta_bancaria'])) {
+            $validated['cuenta_bancaria'] = 'SIN-CUENTA';
+        }
+
+        // Validar que la combinación banco + cuenta sea única (excluyendo el registro actual)
+        $existe = MetodoDePago::where('name', $validated['name'])
+            ->where('cuenta_bancaria', $validated['cuenta_bancaria'])
+            ->where('id', '!=', $id)
+            ->exists();
+
+        if ($existe) {
+            return response()->json([
+                'message' => 'Ya existe un método de pago con este banco y número de cuenta',
+                'errors' => [
+                    'cuenta_bancaria' => ['Ya existe un método de pago con este banco y número de cuenta']
+                ]
+            ], 422);
+        }
 
         $item = MetodoDePago::findOrFail($id);
         $item->update($validated);

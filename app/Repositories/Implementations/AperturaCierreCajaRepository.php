@@ -22,6 +22,21 @@ class AperturaCierreCajaRepository implements AperturaCierreCajaRepositoryInterf
             ->first();
     }
 
+    public function obtenerAperturaActiva(int $cajaId, ?int $subCajaId): ?AperturaCierreCaja
+    {
+        $query = AperturaCierreCaja::where('estado', 'abierta')
+            ->where('caja_principal_id', $cajaId);
+
+        if ($subCajaId) {
+            $query->where('sub_caja_id', $subCajaId);
+        } else {
+            $query->whereNull('sub_caja_id');
+        }
+
+        return $query->with(['cajaPrincipal', 'subCaja', 'user'])
+            ->first();
+    }
+
     public function create(array $data): AperturaCierreCaja
     {
         return AperturaCierreCaja::create($data);
