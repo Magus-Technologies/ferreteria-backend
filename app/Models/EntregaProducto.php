@@ -71,11 +71,20 @@ class EntregaProducto extends Model
     }
 
     /**
-     * Relación: Pertenece a un chofer (nullable)
+     * Relación: Pertenece a un chofer (nullable) - LEGACY: Tabla choferes (proveedores)
      */
     public function chofer(): BelongsTo
     {
         return $this->belongsTo(Choferes::class, 'chofer_id');
+    }
+
+    /**
+     * Relación: Pertenece a un despachador (usuario con rol DESPACHADOR)
+     * Usa la tabla 'user' en lugar de 'choferes'
+     */
+    public function despachador(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'chofer_id');
     }
 
     /**
