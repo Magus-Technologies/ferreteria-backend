@@ -21,23 +21,11 @@ class ImportProductoRequest extends FormRequest
      */
     public function rules(): array
     {
+        // OPTIMIZACIÓN CRÍTICA: Validar solo estructura básica
+        // NO validar cada elemento (data.*) porque causa TIMEOUT con muchos productos
+        // La validación detallada se hace en el Service durante el procesamiento
         return [
-            'data' => 'required|array|min:1',
-            'data.*.cod_producto' => 'nullable|string',
-            'data.*.cod_barra' => 'nullable|string',
-            'data.*.name' => 'required|string',
-            'data.*.name_ticket' => 'nullable|string',
-            'data.*.categoria' => 'nullable|string',
-            'data.*.marca' => 'nullable|string',
-            'data.*.unidad_medida' => 'nullable|string',
-            'data.*.accion_tecnica' => 'nullable|string',
-            'data.*.stock_min' => 'nullable|numeric|min:0',
-            'data.*.stock_max' => 'nullable|numeric|min:0',
-            'data.*.unidades_contenidas' => 'nullable|numeric|min:1',
-            'data.*.almacen_id' => 'nullable|exists:almacen,id',
-            'data.*.ubicacion' => 'nullable|string',
-            'data.*.costo' => 'nullable|numeric|min:0',
-            'data.*.precio_publico' => 'nullable|numeric|min:0',
+            'data' => 'required|array|min:1|max:10000', // Máximo 10k productos
         ];
     }
 
