@@ -13,9 +13,13 @@ class User extends Authenticatable
 {
     use HasFactory, Notifiable, HasApiTokens;
 
-    protected $table = "user"; // Tabla en singular (Prisma)
-    // ID es autoincremental (estructura estándar de Laravel)
-    // Timestamps estándar de Laravel (created_at, updated_at)
+    protected $table = "user"; // Tabla en singular
+    protected $keyType = "string"; // ID es string (CUID de Prisma)
+    public $incrementing = false; // ID no es autoincremental
+
+    // Prisma usa camelCase para timestamps
+    const CREATED_AT = "createdAt";
+    const UPDATED_AT = "updatedAt";
 
     protected $fillable = [
         "id", // ← IMPORTANTE: Permitir asignar ID manualmente

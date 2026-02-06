@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\DTOs\FacturacionElectronica\FacturaDTO;
 use App\Enums\EstadoDeVenta;
 use App\Enums\FormaDePago;
 use App\Enums\TipoDocumento;
@@ -19,12 +20,18 @@ use App\Models\TransaccionCaja;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\Venta;
+use App\Services\Interfaces\FacturaServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class VentaController extends Controller
 {
+    public function __construct(
+        private FacturaServiceInterface $facturaService
+    ) {}
+
     /**
      * Display a listing of the resource.
      */
@@ -378,6 +385,35 @@ class VentaController extends Controller
             // Proceso post venta
             $validated['id'] = $venta->id;
             $this->procesoPostVenta($validated);
+
+            // GENERAR COMPROBANTE ELECTRÓNICO AUTOMÁTICAMENTE
+            // Solo para facturas (01) y boletas (03)
+            $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
+                ? $venta->tipo_documento->value 
+                : $venta->tipo_documento;
+
+            if (in_array($tipoDocumento, ['01', '03'])) {
+                try {
+                    $dto = new FacturaDTO(
+                        ventaId: $venta->id,
+                        usuarioId: $validated['user_id']
+                    );
+
+                    $resultado = $this->facturaService->generarComprobanteDesdeVenta($dto);
+                    
+                    Log::info('Comprobante electrónico generado automáticamente', [
+                        'venta_id' => $venta->id,
+                        'tipo_documento' => $tipoDocumento,
+                        'success' => $resultado['success'],
+                    ]);
+                } catch (\Exception $e) {
+                    // No fallar la venta si hay error al generar comprobante
+                    Log::error('Error al generar comprobante automáticamente', [
+                        'venta_id' => $venta->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             return response()->json([
                 'data' => $venta->load([

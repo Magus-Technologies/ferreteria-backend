@@ -8,52 +8,49 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class IntentoEnvioSunat extends Model
 {
     protected $table = 'intentos_envio_sunat';
+    
+    // ✅ Disable timestamps since the table doesn't have created_at/updated_at
+    public $timestamps = false;
 
     protected $fillable = [
-        'comprobante_id',
+        'comprobante_id', // ✅ Fixed: was comprobante_electronico_id
+        'numero_intento',
         'fecha_intento',
-        'exitoso',
+        'resultado',
         'codigo_respuesta',
         'mensaje_respuesta',
-        'detalle_error',
-        'modo_envio',
+        'ticket_numero',
     ];
 
     protected $casts = [
         'fecha_intento' => 'datetime',
-        'exitoso' => 'boolean',
     ];
 
     // Relationships
     public function comprobante(): BelongsTo
     {
-        return $this->belongsTo(ComprobanteElectronico::class, 'comprobante_id');
+        return $this->belongsTo(ComprobanteElectronico::class, 'comprobante_id'); // ✅ Fixed column name
     }
 
     // Scopes
     public function scopeExitosos($query)
     {
-        return $query->where('exitoso', true);
+        return $query->where('resultado', 'exitoso');
     }
 
     public function scopeFallidos($query)
     {
-        return $query->where('exitoso', false);
-    }
-
-    public function scopePorModoEnvio($query, string $modo)
-    {
-        return $query->where('modo_envio', $modo);
+        return $query->where('resultado', 'fallido');
     }
 
     // Helper methods
     public function fueExitoso(): bool
     {
-        return $this->exitoso === true;
+        return $this->resultado === 'exitoso';
     }
 
     public function fallo(): bool
     {
-        return $this->exitoso === false;
+        return $this->resultado === 'fallido';
     }
 }

@@ -55,6 +55,7 @@ class FacturacionElectronicaServiceProvider extends ServiceProvider
         // ========== SERVICES ==========
         $this->app->bind(NotaDebitoServiceInterface::class, NotaDebitoService::class);
         $this->app->bind(NotaCreditoServiceInterface::class, NotaCreditoService::class);
+        $this->app->bind(FacturaServiceInterface::class, FacturaService::class);
         $this->app->bind(GreenterServiceInterface::class, GreenterService::class);
         $this->app->bind(XmlStorageServiceInterface::class, XmlStorageService::class);
     }

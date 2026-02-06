@@ -14,25 +14,30 @@ class ComprobanteElectronicoRepository implements ComprobanteElectronicoReposito
         return ComprobanteElectronico::with(['detalles', 'intentosEnvio'])->find($id);
     }
 
-    public function findByDocumento(string $tipoDocumento, string $documentoId): ?ComprobanteElectronico
+    public function findBySerieCorrelativo(string $serie, int $correlativo): ?ComprobanteElectronico
     {
-        return ComprobanteElectronico::where('tipo_documento', $tipoDocumento)
-            ->where('documento_id', $documentoId)
+        return ComprobanteElectronico::where('serie', $serie)
+            ->where('correlativo', $correlativo)
             ->with(['detalles', 'intentosEnvio'])
             ->first();
+    }
+
+    public function findByDocumento(string $tipoDocumento, string $documentoId): ?ComprobanteElectronico
+    {
+        // NOTA: En producción NO hay venta_id, esta función busca por cliente
+        // Se mantiene por compatibilidad pero no es funcional con la estructura real
+        return null;
     }
 
     public function findBySerieNumero(string $serie, int $numero): ?ComprobanteElectronico
     {
-        return ComprobanteElectronico::where('serie', $serie)
-            ->where('numero', $numero)
-            ->with(['detalles', 'intentosEnvio'])
-            ->first();
+        // Alias para findBySerieCorrelativo
+        return $this->findBySerieCorrelativo($serie, $numero);
     }
 
     public function getByTipoDocumento(string $tipoDocumento): Collection
     {
-        return ComprobanteElectronico::where('tipo_documento', $tipoDocumento)
+        return ComprobanteElectronico::where('tipo_comprobante', $tipoDocumento)
             ->with(['detalles'])
             ->orderBy('fecha_emision', 'desc')
             ->get();
@@ -48,7 +53,7 @@ class ComprobanteElectronicoRepository implements ComprobanteElectronicoReposito
 
     public function getPendientesEnvio(): Collection
     {
-        return ComprobanteElectronico::where('estado_sunat', 'pendiente')
+        return ComprobanteElectronico::where('estado_sunat', 'PENDIENTE')
             ->whereNull('fecha_envio_sunat')
             ->with(['detalles'])
             ->orderBy('fecha_emision', 'asc')
@@ -76,14 +81,18 @@ class ComprobanteElectronicoRepository implements ComprobanteElectronicoReposito
         $data = ['estado_sunat' => $estado];
 
         if ($codigo !== null) {
-            $data['codigo_sunat'] = $codigo;
+            $data['codigo_respuesta_sunat'] = $codigo;
         }
 
         if ($mensaje !== null) {
-            $data['mensaje_sunat'] = $mensaje;
+            $data['mensaje_respuesta_sunat'] = $mensaje;
         }
 
-        if ($estado === 'enviado' || $estado === 'aceptado') {
+        if (in_array($estado, ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'RECHAZADO'])) {
+            $data['fecha_respuesta_sunat'] = now();
+        }
+
+        if ($estado === 'PROCESANDO') {
             $data['fecha_envio_sunat'] = now();
         }
 
@@ -126,14 +135,27 @@ class ComprobanteElectronicoRepository implements ComprobanteElectronicoReposito
         ?string $detalleError = null,
         string $modoEnvio = 'manual'
     ): void {
+        // Obtener el último número de intento para este comprobante
+        $ultimoIntento = IntentoEnvioSunat::where('comprobante_id', $comprobanteId)
+            ->max('numero_intento') ?? 0;
+        
         IntentoEnvioSunat::create([
-            'comprobante_id' => $comprobanteId,
+            'comprobante_id' => $comprobanteId, // ✅ Fixed: was comprobante_electronico_id
+            'numero_intento' => $ultimoIntento + 1,
             'fecha_intento' => now(),
-            'exitoso' => $exitoso,
+            'resultado' => $exitoso ? 'exitoso' : 'fallido', // ✅ Fixed: was 'exitoso' boolean
             'codigo_respuesta' => $codigoRespuesta,
-            'mensaje_respuesta' => $mensajeRespuesta,
-            'detalle_error' => $detalleError,
-            'modo_envio' => $modoEnvio,
+            'mensaje_respuesta' => $mensajeRespuesta ?? $detalleError,
+            'ticket_numero' => null,
         ]);
+    }
+
+    public function obtenerSiguienteCorrelativo(string $serie): int
+    {
+        $ultimo = ComprobanteElectronico::where('serie', $serie)
+            ->orderBy('correlativo', 'desc')
+            ->first();
+
+        return $ultimo ? $ultimo->correlativo + 1 : 1;
     }
 }

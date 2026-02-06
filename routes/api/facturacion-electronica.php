@@ -4,6 +4,7 @@ use App\Http\Controllers\FacturacionElectronica\NotaDebitoController;
 use App\Http\Controllers\FacturacionElectronica\NotaCreditoController;
 use App\Http\Controllers\FacturacionElectronica\FacturaController;
 use App\Http\Controllers\FacturacionElectronica\MotivoNotaController;
+use App\Models\ComprobanteElectronico;
 use Illuminate\Support\Facades\Route;
 
 /*

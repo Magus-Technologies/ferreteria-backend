@@ -4,6 +4,7 @@ namespace App\Http\Controllers\FacturacionElectronica;
 
 use App\DTOs\FacturacionElectronica\FacturaDTO;
 use App\Http\Controllers\Controller;
+use App\Models\ComprobanteElectronico;
 use App\Services\Interfaces\FacturaServiceInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -97,6 +98,37 @@ class FacturaController extends Controller
         try {
             $xml = $this->facturaService->obtenerXml($ventaId);
             return response($xml, 200)->header('Content-Type', 'application/xml')->header('Content-Disposition', 'inline');
+        } catch (\Exception $e) {
+            return response('Error: ' . $e->getMessage(), 404)->header('Content-Type', 'text/plain');
+        }
+    }
+
+    public function verXmlPorComprobante(string $comprobanteId): Response
+    {
+        try {
+            $comprobante = ComprobanteElectronico::findOrFail($comprobanteId);
+            
+            if (!$comprobante->xml_firmado && !$comprobante->xml_path) {
+                return response('XML no disponible', 404)->header('Content-Type', 'text/plain');
+            }
+
+            // Si tiene xml_firmado en la BD, devolverlo directamente
+            if ($comprobante->xml_firmado) {
+                return response($comprobante->xml_firmado, 200)
+                    ->header('Content-Type', 'application/xml')
+                    ->header('Content-Disposition', 'inline');
+            }
+
+            // Si no, leer del archivo
+            $xmlPath = storage_path('app/' . $comprobante->xml_path);
+            if (!file_exists($xmlPath)) {
+                return response('Archivo XML no encontrado', 404)->header('Content-Type', 'text/plain');
+            }
+
+            $xml = file_get_contents($xmlPath);
+            return response($xml, 200)
+                ->header('Content-Type', 'application/xml')
+                ->header('Content-Disposition', 'inline');
         } catch (\Exception $e) {
             return response('Error: ' . $e->getMessage(), 404)->header('Content-Type', 'text/plain');
         }

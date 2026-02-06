@@ -47,6 +47,12 @@ Route::get('prestamos/{id}', [
     'show',
 ]);
 
+// Ruta pública para ver XML de comprobantes electrónicos (sin autenticación)
+Route::get('facturas/comprobante/{comprobanteId}/xml', [
+    App\Http\Controllers\FacturacionElectronica\FacturaController::class,
+    'verXmlPorComprobante',
+]);
+
 // ============================================
 // RUTAS PROTEGIDAS (Sanctum)
 // ============================================
