@@ -392,6 +392,12 @@ class VentaController extends Controller
                 ? $venta->tipo_documento->value 
                 : $venta->tipo_documento;
 
+            Log::info('🔍 Intentando generar comprobante automático', [
+                'venta_id' => $venta->id,
+                'tipo_documento' => $tipoDocumento,
+                'user_id' => $validated['user_id'],
+            ]);
+
             if (in_array($tipoDocumento, ['01', '03'])) {
                 try {
                     $dto = new FacturaDTO(
@@ -399,20 +405,33 @@ class VentaController extends Controller
                         usuarioId: $validated['user_id']
                     );
 
+                    Log::info('🔍 DTO creado, llamando a facturaService', [
+                        'dto_venta_id' => $dto->ventaId,
+                        'dto_usuario_id' => $dto->usuarioId,
+                    ]);
+
                     $resultado = $this->facturaService->generarComprobanteDesdeVenta($dto);
                     
-                    Log::info('Comprobante electrónico generado automáticamente', [
+                    Log::info('✅ Comprobante electrónico generado automáticamente', [
                         'venta_id' => $venta->id,
                         'tipo_documento' => $tipoDocumento,
-                        'success' => $resultado['success'],
+                        'success' => $resultado['success'] ?? false,
+                        'comprobante_id' => $resultado['comprobante']->id ?? 'NO_ID',
                     ]);
                 } catch (\Exception $e) {
                     // No fallar la venta si hay error al generar comprobante
-                    Log::error('Error al generar comprobante automáticamente', [
+                    Log::error('❌ Error al generar comprobante automáticamente', [
                         'venta_id' => $venta->id,
                         'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
                     ]);
                 }
+            } else {
+                Log::info('⏭️ Tipo de documento no requiere comprobante electrónico', [
+                    'tipo_documento' => $tipoDocumento,
+                ]);
             }
 
             return response()->json([

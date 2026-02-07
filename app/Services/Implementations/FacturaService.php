@@ -34,10 +34,24 @@ class FacturaService implements FacturaServiceInterface
     public function generarComprobanteDesdeVenta(FacturaDTO $dto): array
     {
         try {
+            Log::info('🔍 [FacturaService] Iniciando generación de comprobante', [
+                'venta_id' => $dto->ventaId,
+                'usuario_id' => $dto->usuarioId,
+            ]);
+
             DB::beginTransaction();
 
+            Log::info('🔍 [FacturaService] Validando y obteniendo venta...');
             $venta = $this->validarYObtenerVenta($dto->ventaId);
             $cliente = $venta->cliente;
+
+            Log::info('🔍 [FacturaService] Venta obtenida', [
+                'venta_id' => $venta->id,
+                'serie' => $venta->serie,
+                'numero' => $venta->numero,
+                'cliente_id' => $cliente->id,
+                'cliente_doc' => $cliente->numero_documento,
+            ]);
 
             // Convertir enum a string
             $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
@@ -45,12 +59,18 @@ class FacturaService implements FacturaServiceInterface
                 : $venta->tipo_documento;
 
             // Verificar si ya existe comprobante con la misma serie y correlativo
+            Log::info('🔍 [FacturaService] Verificando si ya existe comprobante...');
             $comprobanteExistente = $this->comprobanteRepository->findBySerieCorrelativo(
                 $venta->serie,
                 $venta->numero
             );
 
             if ($comprobanteExistente) {
+                Log::warning('⚠️ [FacturaService] Ya existe comprobante con esta serie/número', [
+                    'serie' => $venta->serie,
+                    'numero' => $venta->numero,
+                    'comprobante_id' => $comprobanteExistente->id,
+                ]);
                 DB::rollBack();
                 return [
                     'success' => false,
@@ -60,16 +80,34 @@ class FacturaService implements FacturaServiceInterface
             }
 
             // Preparar datos para generar XML
+            Log::info('🔍 [FacturaService] Preparando datos para Greenter...');
             $dataGreenter = $this->prepararDatosParaGreenter($venta, false); // false = NO validar aún (solo generar XML)
 
+            Log::info('🔍 [FacturaService] Datos preparados', [
+                'tipo_doc' => $dataGreenter['tipo_doc'],
+                'serie' => $dataGreenter['serie'],
+                'numero' => $dataGreenter['numero'],
+                'total' => $dataGreenter['total'],
+                'items_count' => count($dataGreenter['items']),
+            ]);
+
             // SOLO GENERAR XML (NO ENVIAR A SUNAT)
+            Log::info('🔍 [FacturaService] Generando XML...');
             $xml = $this->greenterService->generarXmlFactura($dataGreenter);
+            Log::info('✅ [FacturaService] XML generado exitosamente', [
+                'xml_length' => strlen($xml),
+            ]);
+
             $hashCpe = hash('sha256', $xml);
 
             // Guardar XML
+            Log::info('🔍 [FacturaService] Guardando XML en storage...');
             $ruc = config('greenter.ruc');
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, $tipoDocumento, $venta->serie, $venta->numero);
             $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
+            Log::info('✅ [FacturaService] XML guardado', [
+                'path' => $xmlPath,
+            ]);
 
             // Calcular totales desde dataGreenter
             $operacionGravada = $dataGreenter['mto_oper_gravadas'];
@@ -89,6 +127,14 @@ class FacturaService implements FacturaServiceInterface
             // Crear registro de comprobante en estado pendiente (NO ENVIADO)
             // Usar el user_id directamente (ahora soporta ULIDs)
             $userId = auth()->id() ?? $venta->user_id;
+
+            Log::info('🔍 [FacturaService] Creando registro en comprobantes_electronicos...', [
+                'user_id' => $userId,
+                'user_id_type' => gettype($userId),
+                'cliente_id' => $cliente->id,
+                'serie' => $venta->serie,
+                'correlativo' => $venta->numero,
+            ]);
 
             $comprobante = $this->comprobanteRepository->create([
                 'tipo_comprobante' => $tipoDocumento,
@@ -125,9 +171,15 @@ class FacturaService implements FacturaServiceInterface
                 'user_id' => $userId,
             ]);
 
+            Log::info('✅ [FacturaService] Comprobante creado exitosamente', [
+                'comprobante_id' => $comprobante->id,
+                'serie' => $comprobante->serie,
+                'correlativo' => $comprobante->correlativo,
+            ]);
+
             DB::commit();
 
-            Log::info('Comprobante electrónico creado con XML generado (NO ENVIADO)', [
+            Log::info('✅ [FacturaService] Transacción completada exitosamente', [
                 'comprobante_id' => $comprobante->id,
                 'venta_id' => $venta->id,
                 'tipo' => $tipoDocumento,
@@ -149,11 +201,20 @@ class FacturaService implements FacturaServiceInterface
 
         } catch (FacturaException $e) {
             DB::rollBack();
+            Log::error('❌ [FacturaService] FacturaException capturada', [
+                'error' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
             throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error al generar comprobante', [
+            Log::error('❌ [FacturaService] Exception general capturada', [
                 'error' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString(),
             ]);
             throw FacturaException::errorAlGuardar($e->getMessage());
