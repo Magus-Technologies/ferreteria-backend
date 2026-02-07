@@ -223,7 +223,7 @@ class FacturaService implements FacturaServiceInterface
 
     public function obtenerPorVentaId(string $ventaId): ?array
     {
-        $venta = Venta::with(['cliente', 'almacen', 'usuario'])->find($ventaId);
+        $venta = Venta::with(['cliente', 'almacen', 'user'])->find($ventaId);
 
         if (!$venta) {
             return null;
@@ -248,7 +248,17 @@ class FacturaService implements FacturaServiceInterface
 
         $this->applyFilters($query, $filtros);
 
-        return $query->orderBy('fecha_emision', 'desc')->get();
+        $comprobantes = $query->orderBy('fecha_emision', 'desc')->get();
+        
+        // Agregar venta_id a cada comprobante buscando por serie y número
+        $comprobantes->each(function ($comprobante) {
+            $venta = \App\Models\Venta::where('serie', $comprobante->serie)
+                ->where('numero', $comprobante->correlativo)
+                ->first();
+            $comprobante->venta_id = $venta ? $venta->id : null;
+        });
+        
+        return $comprobantes;
     }
 
     public function listarPaginado(array $filtros = [], int $porPagina = 15): LengthAwarePaginator
@@ -299,14 +309,14 @@ class FacturaService implements FacturaServiceInterface
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, $tipoDoc, $venta->serie, $venta->numero);
 
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
-            $cdrPath = $this->xmlStorageService->guardarCdr(base64_decode($resultado['cdr']), $nombreCdr);
+            $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
 
-            // Actualizar comprobante
+            // Actualizar comprobante - NO guardar CDR binario en la BD, solo la ruta del archivo
             $this->comprobanteRepository->update($comprobante->id, [
                 'estado_sunat' => 'ACEPTADO',
                 'xml_path' => $xmlPath,
                 'cdr_path' => $cdrPath,
-                'cdr_xml' => $resultado['cdr'],
+                // NO guardar cdr_xml (es binario y causa problemas)
                 'hash_cpe' => $resultado['hash_cpe'],
                 'codigo_respuesta_sunat' => $resultado['codigo_sunat'] ?? null,
                 'mensaje_respuesta_sunat' => $resultado['mensaje_sunat'] ?? null,
@@ -335,12 +345,15 @@ class FacturaService implements FacturaServiceInterface
                 'modo_envio' => $modoEnvio,
             ]);
 
+            // NO devolver XML ni CDR en la respuesta para evitar problemas de encoding
             return [
                 'success' => true,
                 'mensaje' => 'Factura enviada correctamente a SUNAT',
                 'modo' => $resultado['modo'] ?? 'DESCONOCIDO',
                 'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
                 'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
+                'hash_cpe' => $resultado['hash_cpe'] ?? null,
+                'hash_cdr' => $resultado['hash_cdr'] ?? null,
             ];
 
         } catch (FacturaException $e) {
@@ -401,17 +414,34 @@ class FacturaService implements FacturaServiceInterface
 
     public function obtenerCdr(string $ventaId): string
     {
+        Log::info('🔍 [FacturaService] Obteniendo CDR', ['venta_id' => $ventaId]);
+        
         $venta = $this->validarYObtenerVenta($ventaId);
         $comprobante = $this->comprobanteRepository->findBySerieCorrelativo(
             $venta->serie,
             $venta->numero
         );
 
+        Log::info('🔍 [FacturaService] Comprobante encontrado', [
+            'comprobante_id' => $comprobante ? $comprobante->id : null,
+            'cdr_path' => $comprobante ? $comprobante->cdr_path : null,
+        ]);
+
         if (!$comprobante || !$comprobante->cdr_path) {
             throw FacturaException::datosIncompletos('CDR no disponible');
         }
 
-        return $this->xmlStorageService->obtenerCdr($comprobante->cdr_path);
+        Log::info('🔍 [FacturaService] Intentando leer CDR desde storage', [
+            'cdr_path' => $comprobante->cdr_path,
+        ]);
+
+        $cdr = $this->xmlStorageService->obtenerCdr($comprobante->cdr_path);
+        
+        Log::info('✅ [FacturaService] CDR obtenido exitosamente', [
+            'size' => strlen($cdr),
+        ]);
+        
+        return $cdr;
     }
 
     public function validarVentaParaFacturacion(string $ventaId): array

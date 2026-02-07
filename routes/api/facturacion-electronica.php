@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->group(function () {
     
     // ========== MOTIVOS DE NOTA ==========
     Route::prefix('motivos-nota')->group(function () {

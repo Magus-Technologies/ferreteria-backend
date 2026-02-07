@@ -9,6 +9,7 @@ use App\Services\Interfaces\FacturaServiceInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 
 class FacturaController extends Controller
 {
@@ -77,9 +78,29 @@ class FacturaController extends Controller
     {
         try {
             $resultado = $this->facturaService->enviarASunat($ventaId, 'manual');
-            return response()->json(['success' => true, 'message' => $resultado['mensaje'] ?? 'Enviado', 'data' => $resultado]);
+            
+            // Limpiar cualquier dato binario o no UTF-8 del resultado
+            // Asegurar que todos los strings sean UTF-8 válidos
+            $resultadoLimpio = [
+                'success' => $resultado['success'] ?? true,
+                'mensaje' => mb_convert_encoding($resultado['mensaje'] ?? 'Enviado', 'UTF-8', 'UTF-8'),
+                'modo' => mb_convert_encoding($resultado['modo'] ?? 'DESCONOCIDO', 'UTF-8', 'UTF-8'),
+                'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
+                'mensaje_sunat' => $resultado['mensaje_sunat'] ? mb_convert_encoding($resultado['mensaje_sunat'], 'UTF-8', 'UTF-8') : null,
+                'hash_cpe' => $resultado['hash_cpe'] ?? null,
+                'hash_cdr' => $resultado['hash_cdr'] ?? null,
+            ];
+            
+            return response()->json([
+                'success' => true, 
+                'message' => $resultadoLimpio['mensaje'], 
+                'data' => $resultadoLimpio
+            ], 200, [], JSON_UNESCAPED_UNICODE);
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            return response()->json([
+                'success' => false, 
+                'message' => mb_convert_encoding($e->getMessage(), 'UTF-8', 'UTF-8')
+            ], 500, [], JSON_UNESCAPED_UNICODE);
         }
     }
 
@@ -137,14 +158,34 @@ class FacturaController extends Controller
     public function descargarCdr(string $ventaId): Response
     {
         try {
+            Log::info('🔍 [FacturaController] Descargando CDR', ['venta_id' => $ventaId]);
+            
             $cdr = $this->facturaService->obtenerCdr($ventaId);
             $factura = $this->facturaService->obtenerPorVentaId($ventaId);
             $venta = $factura['venta'];
             $tipoDoc = $venta->tipo_documento === '01' ? '01' : '03';
-            $nombreArchivo = "R-" . config('greenter.ruc') . "-{$tipoDoc}-{$venta->serie}-{$venta->numero}.xml";
-            return response($cdr, 200)->header('Content-Type', 'application/xml')->header('Content-Disposition', "attachment; filename=\"{$nombreArchivo}\"");
+            $nombreArchivo = "R-" . config('greenter.ruc') . "-{$tipoDoc}-{$venta->serie}-{$venta->numero}.zip";
+            
+            Log::info('✅ [FacturaController] CDR descargado exitosamente', [
+                'venta_id' => $ventaId,
+                'nombre_archivo' => $nombreArchivo,
+                'size' => strlen($cdr),
+            ]);
+            
+            return response($cdr, 200)
+                ->header('Content-Type', 'application/octet-stream')
+                ->header('Content-Disposition', "attachment; filename=\"{$nombreArchivo}\"")
+                ->header('Content-Transfer-Encoding', 'binary')
+                ->header('Cache-Control', 'must-revalidate, post-check=0, pre-check=0')
+                ->header('Pragma', 'public');
         } catch (\Exception $e) {
-            return response('Error: ' . $e->getMessage(), 404)->header('Content-Type', 'text/plain');
+            Log::error('❌ [FacturaController] Error al descargar CDR', [
+                'venta_id' => $ventaId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response('Error: ' . $e->getMessage(), 404)
+                ->header('Content-Type', 'text/plain');
         }
     }
 

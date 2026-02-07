@@ -239,6 +239,22 @@ class VentaController extends Controller
                 $validated['numero'] = $nuevoCorrelativo;
             }
 
+            // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente
+            $cliente = \App\Models\Cliente::find($validated['cliente_id']);
+            if (!$cliente) {
+                throw new \Exception("Cliente no encontrado");
+            }
+
+            // Validar que Facturas (01) solo se emitan a clientes con RUC
+            if ($validated['tipo_documento'] === '01' && $cliente->tipo_documento !== 'ruc') {
+                return response()->json([
+                    'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
+                    'error' => 'TIPO_DOCUMENTO_INVALIDO',
+                    'cliente_tipo_documento' => $cliente->tipo_documento,
+                    'tipo_comprobante_solicitado' => '01',
+                ], 422);
+            }
+
             // Validar nueva venta
             $this->validarNuevaVenta($validated);
 
@@ -522,6 +538,27 @@ class VentaController extends Controller
 
             // Add id to validated data for validation
             $validated['id'] = $id;
+
+            // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente (si se está cambiando)
+            if (isset($validated['cliente_id']) || isset($validated['tipo_documento'])) {
+                $clienteId = $validated['cliente_id'] ?? $venta->cliente_id;
+                $tipoDocumento = $validated['tipo_documento'] ?? ($venta->tipo_documento instanceof \BackedEnum ? $venta->tipo_documento->value : $venta->tipo_documento);
+                
+                $cliente = \App\Models\Cliente::find($clienteId);
+                if (!$cliente) {
+                    throw new \Exception("Cliente no encontrado");
+                }
+
+                // Validar que Facturas (01) solo se emitan a clientes con RUC
+                if ($tipoDocumento === '01' && $cliente->tipo_documento !== 'ruc') {
+                    return response()->json([
+                        'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
+                        'error' => 'TIPO_DOCUMENTO_INVALIDO',
+                        'cliente_tipo_documento' => $cliente->tipo_documento,
+                        'tipo_comprobante_solicitado' => '01',
+                    ], 422);
+                }
+            }
 
             // Validar nueva venta
             $this->validarNuevaVenta($validated);

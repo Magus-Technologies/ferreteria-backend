@@ -227,7 +227,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, '07', $notaCredito->serie, $notaCredito->numero);
 
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
-            $cdrPath = $this->xmlStorageService->guardarCdr(base64_decode($resultado['cdr']), $nombreCdr);
+            $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
 
             $comprobante = $this->comprobanteRepository->findByDocumento('nc', $notaCredito->id);
 

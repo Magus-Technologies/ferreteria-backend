@@ -251,7 +251,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, '08', $notaDebito->serie, $notaDebito->numero);
 
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
-            $cdrPath = $this->xmlStorageService->guardarCdr(base64_decode($resultado['cdr']), $nombreCdr);
+            $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
 
             // Crear o actualizar comprobante electrónico
             $comprobante = $this->comprobanteRepository->findByDocumento('nd', $notaDebito->id);
