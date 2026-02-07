@@ -84,6 +84,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('notificaciones')->group(function () {
         Route::post('/send', [NotificacionController::class, 'sendNotification']);
         Route::post('/entrega-programada', [NotificacionController::class, 'notifyEntregaProgramada']);
+        Route::post('/test', [NotificacionController::class, 'testNotification']); // Endpoint de prueba
     });
 
     // ============================================

@@ -163,32 +163,31 @@ class PaqueteController extends Controller
             ], 500);
         }
     }
+/**
+ * Obtener paquetes que contienen un producto específico
+ */
+public function byProducto($productoId)
+{
+    $paquetes = Paquete::query()
+        ->whereHas('productos', function ($query) use ($productoId) {
+            $query->where('producto_id', $productoId);
+        })
+        ->with([
+            'productos.producto:id,name,cod_producto',
+            'productos.producto.marca:id,name',
+            'productos.unidadDerivada:id,name',
+        ])
+        ->withCount('productos as productos_count')
+        ->where('activo', true) // Solo paquetes activos
+        ->orderBy('nombre', 'asc')
+        ->get();
 
-    /**
-     * Obtener paquetes que contienen un producto específico
-     */
-    public function byProducto($productoId)
-    {
-        try {
-            $paquetes = Paquete::whereHas('productos', function ($query) use ($productoId) {
-                $query->where('producto_id', $productoId);
-            })
-            ->with([
-                'productos.producto:id,name,cod_producto',
-                'productos.producto.marca:id,name',
-                'productos.unidadDerivada:id,name',
-            ])
-            ->where('activo', true)
-            ->get();
-
-            return response()->json([
-                'data' => $paquetes,
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => ['message' => 'Error al buscar paquetes: ' . $e->getMessage()],
-            ], 500);
-        }
-    }
+    return response()->json([
+        'data' => $paquetes,
+        'total' => $paquetes->count(),
+        'current_page' => 1,
+        'per_page' => $paquetes->count(),
+        'last_page' => 1,
+    ]);
+}
 }

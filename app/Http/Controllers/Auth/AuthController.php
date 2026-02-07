@@ -165,6 +165,14 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
+        // Limpiar el token FCM antes de cerrar sesión
+        $user = $request->user();
+        if ($user) {
+            User::where('id', $user->id)->update([
+                'fcm_token' => null,
+            ]);
+        }
+        
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([

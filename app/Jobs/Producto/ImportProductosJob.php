@@ -52,7 +52,9 @@ class ImportProductosJob implements ShouldQueue
         public int $userId,
         public string $fileName = 'import.xlsx'
     ) {
-        $this->onQueue('imports');
+        // NOTA: Usar 'default' en lugar de 'imports' para evitar problemas si no hay worker corriendo
+        // Si quieres usar colas dedicadas, asegúrate de correr: php artisan queue:work --queue=imports
+        $this->onQueue('default');
     }
 
     /**
@@ -85,7 +87,9 @@ class ImportProductosJob implements ShouldQueue
 
             // Step 3: Process in batches with progress tracking
             $totalProducts = count($this->data);
-            $batchSize = 25; // Smaller batches for better progress tracking
+            // OPTIMIZACIÓN: Aumentar tamaño de batch para reducir overhead de transacciones
+            // 25 productos por batch es muy pequeño y causa mucha sobrecarga
+            $batchSize = 100; // Batch más grande para mejor rendimiento
             $batches = array_chunk($this->data, $batchSize);
             $processed = 0;
             $imported = 0;
@@ -130,8 +134,9 @@ class ImportProductosJob implements ShouldQueue
                     'total_batches' => count($batches)
                 ]);
 
-                // Small delay to prevent overwhelming the database
-                usleep(100000); // 0.1 seconds
+                // OPTIMIZACIÓN: Reducir delay a 10ms (antes era 100ms)
+                // Esto mejora significativamente el tiempo de importación
+                usleep(10000); // 0.01 seconds (10 milliseconds)
             }
 
             // Step 4: Finalize import
