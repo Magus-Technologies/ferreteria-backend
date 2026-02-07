@@ -14,7 +14,7 @@ return new class extends Migration
         
         Schema::create('detalles_comprobante_electronico', function (Blueprint $table) {
             $table->id();
-            $table->string('comprobante_id', 191);
+            $table->unsignedBigInteger('comprobante_id');
             $table->unsignedInteger('unidad_derivada_venta_id')->comment('Referencia a la línea de la venta');
             $table->unsignedInteger('item_numero');
             $table->string('codigo_producto', 191)->nullable();

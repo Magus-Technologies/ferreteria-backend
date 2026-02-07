@@ -358,7 +358,7 @@ class GreenterService implements GreenterServiceInterface
             ->setMtoOperGravadas($data['mto_oper_gravadas'])
             ->setMtoIGV($data['mto_igv'])
             ->setTotalImpuestos($data['mto_igv'])
-            ->setMtoImpVenta($data['total'])
+            ->setMtoImpVenta($data['total']) // ✅ Total a pagar (con IGV) - genera TaxInclusiveAmount
             ->setValorVenta($data['mto_oper_gravadas']) // ✅ Sets LineExtensionAmount
             ->setSumOtrosDescuentos(0) // ✅ Required for proper calculation
             ->setMtoOperExoneradas(0) // ✅ Exonerated operations
@@ -627,10 +627,10 @@ class GreenterService implements GreenterServiceInterface
         $xml .= "    </cac:TaxSubtotal>\n";
         $xml .= "  </cac:TaxTotal>\n";
         
-        // Totales monetarios
+        // Totales monetarios (✅ CORREGIDO: Incluye TaxInclusiveAmount)
         $xml .= "  <cac:LegalMonetaryTotal>\n";
         $xml .= "    <cbc:LineExtensionAmount currencyID=\"{$moneda}\">{$mtoOperGravadas}</cbc:LineExtensionAmount>\n";
-        $xml .= "    <cbc:TaxInclusiveAmount currencyID=\"{$moneda}\">{$total}</cbc:TaxInclusiveAmount>\n";
+        $xml .= "    <cbc:TaxInclusiveAmount currencyID=\"{$moneda}\">{$total}</cbc:TaxInclusiveAmount>\n"; // ✅ Total con impuestos
         $xml .= "    <cbc:PayableAmount currencyID=\"{$moneda}\">{$total}</cbc:PayableAmount>\n";
         $xml .= "  </cac:LegalMonetaryTotal>\n";
         

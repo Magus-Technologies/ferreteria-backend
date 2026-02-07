@@ -60,7 +60,7 @@ class FacturaService implements FacturaServiceInterface
             }
 
             // Preparar datos para generar XML
-            $dataGreenter = $this->prepararDatosParaGreenter($venta);
+            $dataGreenter = $this->prepararDatosParaGreenter($venta, false); // false = NO validar aún (solo generar XML)
 
             // SOLO GENERAR XML (NO ENVIAR A SUNAT)
             $xml = $this->greenterService->generarXmlFactura($dataGreenter);
@@ -222,7 +222,7 @@ class FacturaService implements FacturaServiceInterface
             }
 
             // Preparar datos para Greenter
-            $dataGreenter = $this->prepararDatosParaGreenter($venta);
+            $dataGreenter = $this->prepararDatosParaGreenter($venta, true); // true = validar para SUNAT
 
             // Generar y enviar a SUNAT
             $resultado = $this->greenterService->generarYEnviarFactura($dataGreenter);
@@ -425,7 +425,7 @@ class FacturaService implements FacturaServiceInterface
         return $venta;
     }
 
-    private function prepararDatosParaGreenter(Venta $venta): array
+    private function prepararDatosParaGreenter(Venta $venta, bool $validarParaSunat = false): array
     {
         $cliente = $venta->cliente;
         
@@ -433,6 +433,33 @@ class FacturaService implements FacturaServiceInterface
         $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
             ? $venta->tipo_documento->value 
             : $venta->tipo_documento;
+        
+        // ✅ VALIDACIÓN CRÍTICA: DNI vs RUC según tipo de comprobante
+        // Solo validar cuando se va a enviar a SUNAT, no al crear la venta
+        $clienteTipoDoc = $cliente->tipo_documento === 'ruc' ? '6' : '1';
+        
+        if ($validarParaSunat) {
+            // Si es Factura (01) y el cliente tiene DNI, lanzar error
+            if ($tipoDocumento === '01' && $clienteTipoDoc === '1') {
+                throw FacturaException::datosIncompletos(
+                    'Las Facturas solo pueden emitirse a clientes con RUC. ' .
+                    'Para clientes con DNI debe emitir una Boleta (03).'
+                );
+            }
+            
+            // ✅ VALIDACIÓN: Serie debe coincidir con tipo de documento
+            $primeraLetraSerie = substr($venta->serie, 0, 1);
+            if ($tipoDocumento === '01' && $primeraLetraSerie !== 'F') {
+                throw FacturaException::datosIncompletos(
+                    "Las Facturas deben tener serie que inicie con 'F' (ej: F001). Serie actual: {$venta->serie}"
+                );
+            }
+            if ($tipoDocumento === '03' && $primeraLetraSerie !== 'B') {
+                throw FacturaException::datosIncompletos(
+                    "Las Boletas deben tener serie que inicie con 'B' (ej: B001). Serie actual: {$venta->serie}"
+                );
+            }
+        }
         
         // Calcular totales
         $subtotal = 0;
@@ -567,6 +594,7 @@ class FacturaService implements FacturaServiceInterface
             if ($unidad === 0) {
                 return $decenas[$decena];
             }
+            // ✅ CORREGIDO: 20-29 se escriben juntos (VEINTIUNO, VEINTIDOS, etc.)
             if ($decena === 2) {
                 return "VEINTI" . $unidades[$unidad];
             }

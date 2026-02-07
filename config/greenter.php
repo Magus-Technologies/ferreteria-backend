@@ -20,6 +20,7 @@ return [
     'provincia' => env('GREENTER_PROVINCIA', 'LIMA'),
     'distrito' => env('GREENTER_DISTRITO', 'LIMA'),
     'direccion' => env('GREENTER_DIRECCION', 'AV. EJEMPLO 123'),
+    'codigo_establecimiento' => env('GREENTER_CODIGO_ESTABLECIMIENTO', '0000'), // Código de casa matriz SUNAT
     
     /*
     |--------------------------------------------------------------------------
