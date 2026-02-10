@@ -11,6 +11,7 @@ use App\Http\Controllers\EntregaProductoController;
 use App\Http\Controllers\PaqueteController;
 use App\Http\Controllers\SerieDocumentoController;
 use App\Http\Controllers\ChoferController;
+use App\Http\Controllers\RecepcionAlmacenController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -75,6 +76,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // INGRESOS Y SALIDAS (Inventario)
     // ============================================
     Route::apiResource('ingresos-salidas', IngresoSalidaController::class);
+
+    // ============================================
+    // RECEPCIONES DE ALMACÉN
+    // ============================================
+    Route::apiResource('recepciones-almacen', RecepcionAlmacenController::class)->only(['index', 'show', 'store', 'destroy']);
 
     // ============================================
     // ENTREGAS DE PRODUCTOS
