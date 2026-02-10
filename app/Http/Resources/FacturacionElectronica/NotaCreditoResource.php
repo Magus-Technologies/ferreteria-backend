@@ -106,6 +106,12 @@ class NotaCreditoResource extends JsonResource
                 if (!$this->comprobanteReferencia) return null;
                 
                 $comprobante = $this->comprobanteReferencia;
+                
+                // ✅ Cargar detalles explícitamente si no están cargados
+                if (!$comprobante->relationLoaded('detalles')) {
+                    $comprobante->load('detalles');
+                }
+                
                 return [
                     'id' => $comprobante->id,
                     'tipo_comprobante' => $comprobante->tipo_comprobante,
@@ -124,7 +130,7 @@ class NotaCreditoResource extends JsonResource
                         'email' => $comprobante->cliente_email,
                         'telefono' => $comprobante->cliente_telefono,
                     ],
-                    'detalles' => $comprobante->detalles ? $comprobante->detalles->map(function ($detalle) {
+                    'detalles' => $comprobante->detalles->map(function ($detalle) {
                         return [
                             'id' => $detalle->id,
                             'codigo_producto' => $detalle->codigo_producto,
@@ -137,7 +143,7 @@ class NotaCreditoResource extends JsonResource
                             'igv' => $detalle->igv,
                             'total' => $detalle->total,
                         ];
-                    }) : [],
+                    })->toArray(),
                 ];
             }),
             
