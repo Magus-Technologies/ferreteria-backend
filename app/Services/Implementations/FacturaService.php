@@ -137,6 +137,7 @@ class FacturaService implements FacturaServiceInterface
             ]);
 
             $comprobante = $this->comprobanteRepository->create([
+                'venta_id' => $venta->id,
                 'tipo_comprobante' => $tipoDocumento,
                 'serie' => $venta->serie,
                 'correlativo' => $venta->numero,
@@ -149,7 +150,7 @@ class FacturaService implements FacturaServiceInterface
                 'cliente_direccion' => $cliente->direccion,
                 'cliente_email' => $cliente->email,
                 'cliente_telefono' => $cliente->telefono,
-                'moneda' => $venta->tipo_moneda === 's' ? 'PEN' : 'USD',
+                'moneda' => $venta->tipo_moneda->value === 's' ? 'PEN' : 'USD',
                 'tipo_cambio' => $venta->tipo_de_cambio ?? 1.0000,
                 'operacion_gravada' => $operacionGravada,
                 'operacion_exonerada' => 0.00,
@@ -176,6 +177,11 @@ class FacturaService implements FacturaServiceInterface
                 'serie' => $comprobante->serie,
                 'correlativo' => $comprobante->correlativo,
             ]);
+
+            // Guardar detalles del comprobante
+            Log::info('🔍 [FacturaService] Guardando detalles del comprobante...');
+            $this->guardarDetallesComprobante($comprobante, $venta, $dataGreenter['items']);
+            Log::info('✅ [FacturaService] Detalles guardados exitosamente');
 
             DB::commit();
 
@@ -248,17 +254,7 @@ class FacturaService implements FacturaServiceInterface
 
         $this->applyFilters($query, $filtros);
 
-        $comprobantes = $query->orderBy('fecha_emision', 'desc')->get();
-        
-        // Agregar venta_id a cada comprobante buscando por serie y número
-        $comprobantes->each(function ($comprobante) {
-            $venta = \App\Models\Venta::where('serie', $comprobante->serie)
-                ->where('numero', $comprobante->correlativo)
-                ->first();
-            $comprobante->venta_id = $venta ? $venta->id : null;
-        });
-        
-        return $comprobantes;
+        return $query->orderBy('fecha_emision', 'desc')->get();
     }
 
     public function listarPaginado(array $filtros = [], int $porPagina = 15): LengthAwarePaginator
@@ -311,12 +307,19 @@ class FacturaService implements FacturaServiceInterface
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
             $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
 
-            // Actualizar comprobante - NO guardar CDR binario en la BD, solo la ruta del archivo
+            // ✅ Decodificar CDR si viene en base64 (modo simulación)
+            $cdrContent = $resultado['cdr'];
+            if (base64_decode($cdrContent, true) !== false) {
+                $cdrContent = base64_decode($cdrContent);
+            }
+
+            // Actualizar comprobante
             $this->comprobanteRepository->update($comprobante->id, [
                 'estado_sunat' => 'ACEPTADO',
+                'xml_firmado' => $resultado['xml'], // ✅ Guardar XML en BD
                 'xml_path' => $xmlPath,
+                'cdr_xml' => $cdrContent, // ✅ Guardar CDR en BD
                 'cdr_path' => $cdrPath,
-                // NO guardar cdr_xml (es binario y causa problemas)
                 'hash_cpe' => $resultado['hash_cpe'],
                 'codigo_respuesta_sunat' => $resultado['codigo_sunat'] ?? null,
                 'mensaje_respuesta_sunat' => $resultado['mensaje_sunat'] ?? null,
@@ -482,7 +485,7 @@ class FacturaService implements FacturaServiceInterface
             'cliente',
             'almacen',
             'user',
-            'productosAlmacenVenta.productoAlmacen.producto',
+            'productosAlmacenVenta.productoAlmacen.producto.unidadMedida', // ✅ Cargar unidad de medida
             'productosAlmacenVenta.unidadesDerivadas'
         ])->find($ventaId);
 
@@ -592,9 +595,26 @@ class FacturaService implements FacturaServiceInterface
             $subtotal += $valorVenta;
             $igv += $igvItem;
 
+            // Obtener código SUNAT de la unidad de medida del producto
+            $codigoUnidadSunat = 'NIU'; // Default
+            if ($producto->unidadMedida && $producto->unidadMedida->codigo_sunat) {
+                $codigoUnidadSunat = $producto->unidadMedida->codigo_sunat;
+                Log::info('✅ Código SUNAT obtenido', [
+                    'producto' => $producto->name,
+                    'unidad' => $producto->unidadMedida->name,
+                    'codigo_sunat' => $codigoUnidadSunat,
+                ]);
+            } else {
+                Log::warning('⚠️ No se pudo obtener código SUNAT', [
+                    'producto' => $producto->name,
+                    'tiene_unidadMedida' => $producto->unidadMedida !== null,
+                    'codigo_sunat' => $producto->unidadMedida?->codigo_sunat ?? 'NULL',
+                ]);
+            }
+
             $items[] = [
                 'codigo' => $producto->cod_producto ?? 'PROD' . ($index + 1),
-                'unidad' => 'NIU',
+                'unidad' => $codigoUnidadSunat, // ✅ Usar código SUNAT de la unidad de medida
                 'cantidad' => $cantidadTotal,
                 'descripcion' => $producto->name ?? 'PRODUCTO',
                 'mto_base_igv' => round($valorVenta, 2),
@@ -723,5 +743,56 @@ class FacturaService implements FacturaServiceInterface
             return $textoMillones;
         }
         return $textoMillones . " " . $this->numeroALetras($resto);
+    }
+
+    /**
+     * Guardar detalles del comprobante electrónico
+     */
+    private function guardarDetallesComprobante(ComprobanteElectronico $comprobante, Venta $venta, array $items): void
+    {
+        foreach ($items as $index => $item) {
+            // Buscar el producto correspondiente en la venta
+            $productoVenta = $venta->productosAlmacenVenta[$index] ?? null;
+            
+            if (!$productoVenta) {
+                Log::warning('No se encontró producto en venta para item', [
+                    'index' => $index,
+                    'item' => $item,
+                ]);
+                continue;
+            }
+
+            $producto = $productoVenta->productoAlmacen->producto;
+            $unidadDerivada = $productoVenta->unidadesDerivadas->first();
+
+            // Calcular precio_venta (valor_venta + igv)
+            $precioVenta = $item['valor_venta'] + $item['igv'];
+
+            \App\Models\DetalleComprobanteElectronico::create([
+                'comprobante_electronico_id' => $comprobante->id, // ✅ Tabla correcta
+                'producto_id' => $producto->id, // ✅ Guardar ID del producto
+                'unidad_derivada_id' => $unidadDerivada?->id, // ✅ Guardar ID de unidad derivada
+                'item' => $index + 1,
+                'codigo_producto' => $item['codigo'],
+                'codigo_producto_sunat' => $item['codigo'], // Mismo código para SUNAT
+                'descripcion' => $item['descripcion'],
+                'unidad_medida' => $item['unidad'],
+                'cantidad' => $item['cantidad'],
+                'valor_unitario' => $item['valor_unitario'], // Precio sin IGV
+                'precio_unitario' => $item['precio_unitario'], // Precio con IGV
+                'valor_venta' => $item['valor_venta'], // Subtotal sin IGV
+                'precio_venta' => $precioVenta, // Subtotal con IGV
+                'descuento' => 0.00,
+                'cargo' => 0.00,
+                'tipo_afectacion_igv' => '10', // Gravado - Operación Onerosa
+                'porcentaje_igv' => 18.00,
+                'igv' => $item['igv'],
+                'isc' => 0.00,
+                'otros_tributos' => 0.00,
+                'total_impuestos' => $item['igv'],
+                'informacion_adicional' => null,
+                'es_bonificacion' => false,
+            ]);
+        }
     }
 }

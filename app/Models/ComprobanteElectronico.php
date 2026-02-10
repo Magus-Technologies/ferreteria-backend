@@ -14,14 +14,15 @@ class ComprobanteElectronico extends Model
 
     protected $table = 'comprobantes_electronicos';
     
-    // Usar autoincrement según estructura de producción
+    // ✅ Usar autoincrement bigint según estructura real de producción
     public $incrementing = true;
     protected $keyType = 'int';
 
     protected $fillable = [
+        'venta_id',
         'tipo_comprobante',
         'serie',
-        'correlativo',
+        'correlativo', // ⚠️ En la tabla se llama 'correlativo', no 'numero'
         'fecha_emision',
         'fecha_vencimiento',
         'hora_emision',
@@ -128,7 +129,12 @@ class ComprobanteElectronico extends Model
 
     public function detalles(): HasMany
     {
-        return $this->hasMany(DetalleComprobanteElectronico::class, 'comprobante_id');
+        return $this->hasMany(DetalleComprobanteElectronico::class, 'comprobante_electronico_id');
+    }
+
+    public function venta(): BelongsTo
+    {
+        return $this->belongsTo(Venta::class, 'venta_id');
     }
 
     public function intentosEnvio(): HasMany

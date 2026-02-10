@@ -4,6 +4,7 @@ namespace App\Http\Controllers\FacturacionElectronica;
 
 use App\DTOs\FacturacionElectronica\FacturaDTO;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\FacturacionElectronica\ComprobanteElectronicoResource;
 use App\Models\ComprobanteElectronico;
 use App\Services\Interfaces\FacturaServiceInterface;
 use Illuminate\Http\JsonResponse;
@@ -27,7 +28,7 @@ class FacturaController extends Controller
                 $facturas = $this->facturaService->listarPaginado($filtros, $porPagina);
                 return response()->json([
                     'success' => true,
-                    'data' => $facturas->items(),
+                    'data' => ComprobanteElectronicoResource::collection($facturas->items()),
                     'pagination' => [
                         'total' => $facturas->total(),
                         'per_page' => $facturas->perPage(),
@@ -38,7 +39,7 @@ class FacturaController extends Controller
             }
 
             $facturas = $this->facturaService->listar($filtros);
-            return response()->json(['success' => true, 'data' => $facturas]);
+            return response()->json(['success' => true, 'data' => ComprobanteElectronicoResource::collection($facturas)]);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
@@ -79,28 +80,24 @@ class FacturaController extends Controller
         try {
             $resultado = $this->facturaService->enviarASunat($ventaId, 'manual');
             
-            // Limpiar cualquier dato binario o no UTF-8 del resultado
-            // Asegurar que todos los strings sean UTF-8 válidos
-            $resultadoLimpio = [
-                'success' => $resultado['success'] ?? true,
-                'mensaje' => mb_convert_encoding($resultado['mensaje'] ?? 'Enviado', 'UTF-8', 'UTF-8'),
-                'modo' => mb_convert_encoding($resultado['modo'] ?? 'DESCONOCIDO', 'UTF-8', 'UTF-8'),
-                'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
-                'mensaje_sunat' => $resultado['mensaje_sunat'] ? mb_convert_encoding($resultado['mensaje_sunat'], 'UTF-8', 'UTF-8') : null,
-                'hash_cpe' => $resultado['hash_cpe'] ?? null,
-                'hash_cdr' => $resultado['hash_cdr'] ?? null,
-            ];
-            
             return response()->json([
                 'success' => true, 
-                'message' => $resultadoLimpio['mensaje'], 
-                'data' => $resultadoLimpio
-            ], 200, [], JSON_UNESCAPED_UNICODE);
+                'message' => $resultado['mensaje'] ?? 'Factura enviada a SUNAT', 
+                'data' => [
+                    'modo' => $resultado['modo'] ?? null,
+                    'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
+                    'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
+                ]
+            ]);
         } catch (\Exception $e) {
+            $statusCode = method_exists($e, 'getCode') && $e->getCode() >= 400 && $e->getCode() < 600
+                ? $e->getCode()
+                : 500;
+
             return response()->json([
                 'success' => false, 
-                'message' => mb_convert_encoding($e->getMessage(), 'UTF-8', 'UTF-8')
-            ], 500, [], JSON_UNESCAPED_UNICODE);
+                'message' => $e->getMessage()
+            ], $statusCode);
         }
     }
 

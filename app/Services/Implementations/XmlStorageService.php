@@ -44,19 +44,19 @@ class XmlStorageService implements XmlStorageServiceInterface
 
     public function obtenerCdr(string $ruta): string
     {
-        \Log::info('🔍 [XmlStorageService] Obteniendo CDR', [
+        \Log::info(' [XmlStorageService] Obteniendo CDR', [
             'ruta' => $ruta,
             'existe' => $this->existeArchivo($ruta),
         ]);
         
         if (!$this->existeArchivo($ruta)) {
-            \Log::error('❌ [XmlStorageService] CDR no encontrado', ['ruta' => $ruta]);
+            \Log::error(' [XmlStorageService] CDR no encontrado', ['ruta' => $ruta]);
             throw GreenterException::archivoNoEncontrado('CDR');
         }
 
         $contenido = Storage::get($ruta);
         
-        \Log::info('✅ [XmlStorageService] CDR leído exitosamente', [
+        \Log::info('[XmlStorageService] CDR leído exitosamente', [
             'ruta' => $ruta,
             'size' => strlen($contenido),
         ]);

@@ -221,7 +221,11 @@ class NotaDebitoController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => $resultado['mensaje'] ?? 'Nota de débito enviada a SUNAT',
-                'data' => $resultado,
+                'data' => [
+                    'modo' => $resultado['modo'] ?? null,
+                    'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
+                    'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
+                ],
             ]);
 
         } catch (\Exception $e) {

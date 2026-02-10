@@ -12,12 +12,11 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
     public function findById(string $id): ?NotaCredito
     {
         return NotaCredito::with([
-            'venta',
+            'venta.cliente',
             'motivo',
             'usuario',
             'almacen',
-            'comprobanteElectronico',
-            'comprobanteReferencia'
+            'comprobanteReferencia.detalles' //  Cargar comprobante con detalles
         ])->find($id);
     }
 
@@ -25,20 +24,32 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
     {
         return NotaCredito::where('serie', $serie)
             ->where('numero', $numero)
-            ->with(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico'])
+            ->with(['venta', 'motivo', 'usuario', 'almacen']) // Removido comprobanteElectronico
             ->first();
     }
 
     public function getAll(array $filters = []): Collection
     {
-        $query = NotaCredito::with(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico']);
+        $query = NotaCredito::with([
+            'venta.cliente',
+            'motivo',
+            'usuario',
+            'almacen',
+            'comprobanteReferencia.detalles' //  Cargar comprobante con detalles
+        ]);
         $this->applyFilters($query, $filters);
         return $query->orderBy('fecha', 'desc')->get();
     }
 
     public function getPaginated(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        $query = NotaCredito::with(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico']);
+        $query = NotaCredito::with([
+            'venta.cliente',
+            'motivo',
+            'usuario',
+            'almacen',
+            'comprobanteReferencia.detalles' //  Cargar comprobante con detalles
+        ]);
         $this->applyFilters($query, $filters);
         return $query->orderBy('fecha', 'desc')->paginate($perPage);
     }
@@ -46,7 +57,7 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
     public function getByVenta(string $ventaId): Collection
     {
         return NotaCredito::where('venta_id', $ventaId)
-            ->with(['motivo', 'usuario', 'comprobanteElectronico'])
+            ->with(['motivo', 'usuario']) // Removido comprobanteElectronico
             ->orderBy('fecha', 'desc')
             ->get();
     }
@@ -54,7 +65,7 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
     public function getByAlmacen(int $almacenId, array $filters = []): Collection
     {
         $query = NotaCredito::where('almacen_id', $almacenId)
-            ->with(['venta', 'motivo', 'usuario', 'comprobanteElectronico']);
+            ->with(['venta', 'motivo', 'usuario']); // Removido comprobanteElectronico
         $this->applyFilters($query, $filters);
         return $query->orderBy('fecha', 'desc')->get();
     }
@@ -62,7 +73,7 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
     public function getByUsuario(string $usuarioId, array $filters = []): Collection
     {
         $query = NotaCredito::where('usuario_id', $usuarioId)
-            ->with(['venta', 'motivo', 'almacen', 'comprobanteElectronico']);
+            ->with(['venta', 'motivo', 'almacen']); // Removido comprobanteElectronico
         $this->applyFilters($query, $filters);
         return $query->orderBy('fecha', 'desc')->get();
     }
@@ -70,7 +81,7 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
     public function getByEstado(string $estado): Collection
     {
         return NotaCredito::where('estado', $estado)
-            ->with(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico'])
+            ->with(['venta', 'motivo', 'usuario', 'almacen']) // Removido comprobanteElectronico
             ->orderBy('fecha', 'desc')
             ->get();
     }
@@ -92,7 +103,7 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
     {
         $notaCredito = NotaCredito::findOrFail($id);
         $notaCredito->update($data);
-        return $notaCredito->fresh(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico']);
+        return $notaCredito->fresh(['venta', 'motivo', 'usuario', 'almacen']); // Removido comprobanteElectronico
     }
 
     public function delete(string $id): bool

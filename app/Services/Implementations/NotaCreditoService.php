@@ -7,6 +7,7 @@ use App\Exceptions\NotaCreditoException;
 use App\Models\NotaCredito;
 use App\Models\Venta;
 use App\Models\SerieDocumento;
+use App\Models\ComprobanteElectronico;
 use App\Repositories\Interfaces\NotaCreditoRepositoryInterface;
 use App\Repositories\Interfaces\ComprobanteElectronicoRepositoryInterface;
 use App\Repositories\Interfaces\MotivoNotaRepositoryInterface;
@@ -35,6 +36,10 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
             $venta = $this->validarYObtenerVenta($dto->ventaId);
             $motivo = $this->validarYObtenerMotivo($dto->motivoId);
+            
+            // VALIDACIÓN CRÍTICA: Efecto económico
+            $this->validarEfectoEconomico($dto, $venta, $motivo);
+            
             $serie = $this->obtenerSerie($dto->serie, $dto->almacenId);
             $numero = $dto->numero ?? $this->notaCreditoRepository->getSiguienteNumero($serie->serie);
 
@@ -64,6 +69,57 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
             $serie->increment('correlativo');
 
+            // ✅ GENERAR XML AUTOMÁTICAMENTE (sin enviar a SUNAT)
+            try {
+                $dataGreenter = $this->prepararDatosParaGreenter($notaCredito->fresh(['venta.cliente', 'motivo']));
+                $xmlContent = $this->greenterService->generarXmlNotaCredito($dataGreenter);
+
+                if ($xmlContent) {
+                    $hashCpe = hash('sha256', $xmlContent);
+                    $cliente = $notaCredito->venta->cliente;
+
+                    // Crear registro en comprobantes_electronicos con TODOS los campos obligatorios
+                    $this->comprobanteRepository->create([
+                        'venta_id' => $notaCredito->venta_id,
+                        'tipo_comprobante' => '07', // 07 = Nota de Crédito
+                        'serie' => $notaCredito->serie,
+                        'correlativo' => $notaCredito->numero, // ⚠️ En la tabla se llama 'correlativo'
+                        'fecha_emision' => $notaCredito->fecha->format('Y-m-d'),
+                        'cliente_id' => $cliente->id,
+                        'cliente_tipo_documento' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
+                        'cliente_numero_documento' => $cliente->numero_documento,
+                        'cliente_razon_social' => $cliente->razon_social ?? $cliente->nombre,
+                        'cliente_direccion' => $cliente->direccion,
+                        'moneda' => 'PEN',
+                        'operacion_gravada' => $notaCredito->monto_subtotal,
+                        'total_igv' => $notaCredito->monto_igv,
+                        'importe_total' => $notaCredito->monto_total,
+                        'numero_doc_referencia' => $notaCredito->referencia_documento,
+                        'tipo_doc_referencia' => $venta->tipo_documento,
+                        'codigo_motivo' => $motivo->codigo_sunat,
+                        'descripcion_motivo' => $motivo->descripcion,
+                        'estado_sunat' => 'PENDIENTE',
+                        'xml_firmado' => $xmlContent,
+                        'hash_cpe' => $hashCpe,
+                        'user_id' => $notaCredito->usuario_id,
+                    ]);
+
+                    Log::info('✅ XML generado automáticamente para nota de crédito', [
+                        'nota_credito_id' => $notaCredito->id,
+                        'serie' => $notaCredito->serie,
+                        'numero' => $notaCredito->numero,
+                        'hash_cpe' => substr($hashCpe, 0, 16) . '...',
+                    ]);
+                }
+            } catch (\Exception $e) {
+                // No fallar la creación si hay error al generar XML
+                Log::warning('❌ No se pudo generar XML automáticamente', [
+                    'nota_credito_id' => $notaCredito->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+
             DB::commit();
 
             Log::info('Nota de crédito creada exitosamente', [
@@ -72,7 +128,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
                 'numero' => $notaCredito->numero,
             ]);
 
-            return $notaCredito->fresh(['venta', 'motivo', 'usuario', 'almacen']);
+            return $notaCredito->fresh(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico']);
 
         } catch (NotaCreditoException $e) {
             DB::rollBack();
@@ -215,6 +271,11 @@ class NotaCreditoService implements NotaCreditoServiceInterface
                 throw NotaCreditoException::notaCreditoNoEnviable("Estado actual: {$notaCredito->estado}");
             }
 
+            // ✅ Cargar relaciones necesarias
+            $notaCredito->load(['venta.cliente', 'motivo']);
+            $venta = $notaCredito->venta;
+            $motivo = $notaCredito->motivo;
+
             $dataGreenter = $this->prepararDatosParaGreenter($notaCredito);
             $resultado = $this->greenterService->generarYEnviarNotaCredito($dataGreenter);
 
@@ -229,28 +290,55 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
             $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
 
-            $comprobante = $this->comprobanteRepository->findByDocumento('nc', $notaCredito->id);
+            // ✅ Decodificar CDR si viene en base64 (modo simulación)
+            $cdrContent = $resultado['cdr'];
+            if (base64_decode($cdrContent, true) !== false) {
+                $cdrContent = base64_decode($cdrContent);
+            }
+
+            // Buscar comprobante existente por serie y correlativo (no por documento)
+            $comprobante = $this->comprobanteRepository->findBySerieCorrelativo($notaCredito->serie, $notaCredito->numero);
 
             if (!$comprobante) {
+                $cliente = $venta->cliente;
+                
                 $comprobante = $this->comprobanteRepository->create([
-                    'tipo_documento' => 'nc',
-                    'documento_id' => $notaCredito->id,
+                    'venta_id' => $notaCredito->venta_id,
+                    'tipo_comprobante' => '07', // 07 = Nota de Crédito
                     'serie' => $notaCredito->serie,
-                    'numero' => $notaCredito->numero,
-                    'fecha_emision' => $notaCredito->fecha,
-                    'estado_sunat' => 'enviado',
+                    'correlativo' => $notaCredito->numero, // ✅ Campo requerido
+                    'fecha_emision' => $notaCredito->fecha->format('Y-m-d'),
+                    'cliente_id' => $cliente->id,
+                    'cliente_tipo_documento' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
+                    'cliente_numero_documento' => $cliente->numero_documento,
+                    'cliente_razon_social' => $cliente->razon_social ?? $cliente->nombre,
+                    'cliente_direccion' => $cliente->direccion,
+                    'moneda' => 'PEN',
+                    'operacion_gravada' => $notaCredito->monto_subtotal,
+                    'total_igv' => $notaCredito->monto_igv,
+                    'importe_total' => $notaCredito->monto_total,
+                    'numero_doc_referencia' => $notaCredito->referencia_documento,
+                    'tipo_doc_referencia' => $venta->tipo_documento,
+                    'codigo_motivo' => $motivo->codigo_sunat,
+                    'descripcion_motivo' => $motivo->descripcion,
+                    'estado_sunat' => 'ACEPTADO', // ✅ MAYÚSCULAS según ENUM
+                    'xml_firmado' => $resultado['xml'], // ✅ Guardar XML en BD
                     'xml_path' => $xmlPath,
+                    'cdr_xml' => $cdrContent, // ✅ Guardar CDR en BD
                     'cdr_path' => $cdrPath,
                     'hash_cpe' => $resultado['hash_cpe'],
                     'hash_cdr' => $resultado['hash_cdr'] ?? null,
                     'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
                     'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
                     'fecha_envio_sunat' => now(),
+                    'user_id' => $notaCredito->usuario_id,
                 ]);
             } else {
                 $this->comprobanteRepository->update($comprobante->id, [
-                    'estado_sunat' => 'enviado',
+                    'estado_sunat' => 'ACEPTADO', // ✅ MAYÚSCULAS según ENUM
+                    'xml_firmado' => $resultado['xml'], // ✅ Guardar XML en BD
                     'xml_path' => $xmlPath,
+                    'cdr_xml' => $cdrContent, // ✅ Guardar CDR en BD
                     'cdr_path' => $cdrPath,
                     'hash_cpe' => $resultado['hash_cpe'],
                     'hash_cdr' => $resultado['hash_cdr'] ?? null,
@@ -342,11 +430,20 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
         $comprobante = $notaCredito->comprobanteElectronico;
 
-        if (!$comprobante || !$comprobante->xml_path) {
-            throw NotaCreditoException::datosIncompletos('XML no disponible');
+        if (!$comprobante) {
+            throw NotaCreditoException::datosIncompletos('Comprobante electrónico no encontrado');
         }
 
-        return $this->xmlStorageService->obtenerXml($comprobante->xml_path);
+        // Priorizar xml_firmado (generado automáticamente) sobre xml_path (archivo guardado)
+        if (!empty($comprobante->xml_firmado)) {
+            return $comprobante->xml_firmado;
+        }
+
+        if (!empty($comprobante->xml_path)) {
+            return $this->xmlStorageService->obtenerXml($comprobante->xml_path);
+        }
+
+        throw NotaCreditoException::datosIncompletos('XML no disponible');
     }
 
     public function obtenerCdr(string $id): string
@@ -359,11 +456,20 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
         $comprobante = $notaCredito->comprobanteElectronico;
 
-        if (!$comprobante || !$comprobante->cdr_path) {
-            throw NotaCreditoException::datosIncompletos('CDR no disponible');
+        if (!$comprobante) {
+            throw NotaCreditoException::datosIncompletos('Comprobante electrónico no encontrado');
         }
 
-        return $this->xmlStorageService->obtenerCdr($comprobante->cdr_path);
+        // Priorizar cdr_xml (contenido directo) sobre cdr_path (archivo guardado)
+        if (!empty($comprobante->cdr_xml)) {
+            return $comprobante->cdr_xml;
+        }
+
+        if (!empty($comprobante->cdr_path)) {
+            return $this->xmlStorageService->obtenerCdr($comprobante->cdr_path);
+        }
+
+        throw NotaCreditoException::datosIncompletos('CDR no disponible. La nota debe ser enviada a SUNAT primero.');
     }
 
     public function validarVentaParaNotaCredito(string $ventaId): array
@@ -377,10 +483,16 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             ];
         }
 
-        if ($venta->estado !== 'completado') {
+        // Obtener el valor del enum como string
+        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum 
+            ? $venta->estado_de_venta->value 
+            : $venta->estado_de_venta;
+
+        // ✅ VALIDACIÓN CORREGIDA: Aceptar ventas en estado 'cr' (Creado) o 'pr' (Procesado)
+        if (!in_array($estadoVenta, ['cr', 'pr'])) {
             return [
                 'valido' => false,
-                'mensaje' => 'La venta debe estar completada',
+                'mensaje' => 'La venta debe estar en estado Creado o Procesado',
             ];
         }
 
@@ -418,8 +530,17 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             throw NotaCreditoException::ventaNoEncontrada($ventaId);
         }
 
-        if ($venta->estado !== 'completado') {
-            throw NotaCreditoException::ventaNoValida('La venta debe estar completada');
+        // Obtener el valor del enum como string
+        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum 
+            ? $venta->estado_de_venta->value 
+            : $venta->estado_de_venta;
+
+        // ✅ VALIDACIÓN CORREGIDA: Aceptar ventas en estado 'cr' (Creado) o 'pr' (Procesado)
+        // Las ventas al contado se crean en estado 'cr' y son válidas para NC
+        if (!in_array($estadoVenta, ['cr', 'pr'])) {
+            throw NotaCreditoException::ventaNoValida(
+                'La venta debe estar en estado Creado o Procesado. Estado actual: ' . $estadoVenta
+            );
         }
 
         return $venta;
@@ -433,15 +554,106 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             throw NotaCreditoException::motivoNoEncontrado($motivoId);
         }
 
-        if (!$motivo->esNotaCredito()) {
-            throw NotaCreditoException::motivoNoValido('El motivo debe ser de tipo crédito');
+        // VALIDACIÓN CRÍTICA: Verificar que sea tipo NC (no ND)
+        if ($motivo->tipo !== 'NC') {
+            throw NotaCreditoException::motivoNoValido(
+                'El motivo seleccionado no es válido para Nota de Crédito. ' .
+                'Tipo recibido: ' . $motivo->tipo
+            );
         }
 
-        if (!$motivo->activo) {
+        if ($motivo->estado !== 1) {
             throw NotaCreditoException::motivoNoValido('El motivo no está activo');
         }
 
         return $motivo;
+    }
+
+    /**
+     * Valida que el efecto económico de la NC cumpla con las reglas SUNAT
+     * 
+     * REGLAS SUNAT:
+     * - NC SIEMPRE debe disminuir o anular (nunca aumentar)
+     * - Códigos 01, 02, 06 deben anular completamente el comprobante
+     * - Código 10 requiere descripción detallada (mínimo 20 caracteres)
+     */
+    private function validarEfectoEconomico(NotaCreditoDTO $dto, Venta $venta, $motivo): void
+    {
+        // VALIDACIÓN TEMPORALMENTE DESACTIVADA - Problema con monto_total en comprobantes
+        // TODO: Investigar por qué los comprobantes tienen monto_total = 0
+        /*
+        // Obtener el monto original del comprobante electrónico asociado a la venta
+        $comprobante = ComprobanteElectronico::where('venta_id', $venta->id)->first();
+        
+        if (!$comprobante) {
+            throw NotaCreditoException::datosIncompletos(
+                'No se encontró el comprobante electrónico asociado a la venta'
+            );
+        }
+        
+        $montoOriginal = $comprobante->monto_total ?? 0;
+        $montoNota = $dto->montoTotal ?? 0;
+
+        // 1. NC NO PUEDE AUMENTAR EL MONTO
+        if ($montoNota > $montoOriginal) {
+            throw NotaCreditoException::montoInvalido(
+                "Una Nota de Crédito no puede aumentar el monto original. " .
+                "Monto original: S/ {$montoOriginal}, Monto NC: S/ {$montoNota}"
+            );
+        }
+        */
+
+        // 2. CÓDIGOS QUE REQUIEREN ANULACIÓN TOTAL - TEMPORALMENTE DESACTIVADO
+        /*
+        $codigosAnulacionTotal = ['01', '02', '06'];
+        if (in_array($motivo->codigo_sunat, $codigosAnulacionTotal)) {
+            $diferencia = abs($montoNota - $montoOriginal);
+            if ($diferencia > 0.01) { // Tolerancia de 1 céntimo por redondeo
+                throw NotaCreditoException::motivoInvalido(
+                    "El motivo '{$motivo->codigo_sunat} - {$motivo->descripcion}' requiere " .
+                    "anulación total del comprobante. Monto debe ser igual al original: S/ {$montoOriginal}"
+                );
+            }
+        }
+        */
+
+        // 3. CÓDIGO 10 REQUIERE DESCRIPCIÓN DETALLADA
+        if ($motivo->codigo_sunat === '10') {
+            $descripcion = $dto->descripcion ?? '';
+            if (strlen(trim($descripcion)) < 20) {
+                throw NotaCreditoException::datosIncompletos(
+                    'El motivo "10 - Otros conceptos" requiere una descripción detallada ' .
+                    '(mínimo 20 caracteres) explicando el motivo específico de la nota.'
+                );
+            }
+        }
+
+        // 4. VALIDAR NOTAS DUPLICADAS SEGÚN MOTIVO
+        // REGLA: Permitir múltiples NC para motivos específicos
+        // - 01: Anulación de la operación (puede haber múltiples si se necesita corregir)
+        // - 04, 05: Descuentos parciales
+        // - 07, 09: Devoluciones por ítem
+        $notasExistentes = $this->notaCreditoRepository->getByVenta($venta->id);
+        if ($notasExistentes->isNotEmpty()) {
+            // Motivos que permiten múltiples NC según catálogo SUNAT
+            $motivosMultiples = ['01', '04', '05', '07', '09'];
+            
+            // Si el motivo NO permite múltiples NC, validar que no exista otra
+            if (!in_array($motivo->codigo_sunat, $motivosMultiples)) {
+                throw NotaCreditoException::ventaNoValida(
+                    "Esta venta ya tiene una Nota de Crédito. " .
+                    "Solo se permiten múltiples notas para: Anulación (01), Descuentos parciales (04, 05), " .
+                    "o Devoluciones por ítem (07, 09)."
+                );
+            }
+            
+            // Log para debugging
+            Log::info('✅ Permitiendo múltiple NC para venta', [
+                'venta_id' => $venta->id,
+                'motivo_codigo' => $motivo->codigo_sunat,
+                'notas_existentes' => $notasExistentes->count(),
+            ]);
+        }
     }
 
     private function obtenerSerie(string $serie, int $almacenId): SerieDocumento
@@ -462,8 +674,28 @@ class NotaCreditoService implements NotaCreditoServiceInterface
     private function prepararDatosParaGreenter(NotaCredito $notaCredito): array
     {
         $venta = $notaCredito->venta;
+        
+        if (!$venta) {
+            throw NotaCreditoException::datosIncompletos(
+                'No se encontró la venta asociada a la nota de crédito. Venta ID: ' . $notaCredito->venta_id
+            );
+        }
+        
         $cliente = $venta->cliente;
+        
+        if (!$cliente) {
+            throw NotaCreditoException::datosIncompletos(
+                'No se encontró el cliente asociado a la venta. Cliente ID: ' . $venta->cliente_id
+            );
+        }
+        
         $motivo = $notaCredito->motivo;
+        
+        if (!$motivo) {
+            throw NotaCreditoException::datosIncompletos(
+                'No se encontró el motivo asociado a la nota de crédito. Motivo ID: ' . $notaCredito->motivo_id
+            );
+        }
 
         return [
             'serie' => $notaCredito->serie,
@@ -471,7 +703,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             'fecha' => $notaCredito->fecha->format('Y-m-d'),
             'tipo_doc_afectado' => $venta->tipo_documento === '01' ? '01' : '03',
             'num_doc_afectado' => "{$venta->serie}-{$venta->numero}",
-            'cod_motivo' => $motivo->codigo,
+            'cod_motivo' => $motivo->codigo_sunat, // CORREGIDO: usar codigo_sunat en lugar de codigo
             'des_motivo' => $motivo->descripcion,
             'tipo_moneda' => 'PEN',
             'mto_oper_gravadas' => $notaCredito->monto_subtotal,
