@@ -506,4 +506,74 @@ class CierreCajaController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Enviar ticket de cierre por correo electrónico
+     */
+    public function enviarTicketEmail(string $id, Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'email' => 'required|email',
+                'pdf' => 'required|file|mimes:pdf|max:10240', // Max 10MB
+            ]);
+
+            // Obtener la apertura
+            $apertura = \App\Models\AperturaCierreCaja::with('user')->findOrFail($id);
+            
+            // Verificar permisos
+            if ($apertura->user_id !== auth()->id() && !auth()->user()->hasRole(['admin', 'administrador'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tienes permiso para enviar este ticket',
+                ], 403);
+            }
+
+            // Determinar el asunto según el estado
+            $subject = $apertura->estado === 'cerrada' 
+                ? 'Ticket de Cierre de Caja - ' . \Carbon\Carbon::parse($apertura->fecha_cierre)->format('d/m/Y')
+                : 'Ticket de Caja Abierta - ' . \Carbon\Carbon::parse($apertura->fecha_apertura)->format('d/m/Y');
+
+            // Obtener el archivo PDF
+            $pdfFile = $request->file('pdf');
+            $pdfPath = $pdfFile->getRealPath();
+            $pdfName = 'ticket-cierre-' . $id . '.pdf';
+
+            // Renderizar la vista HTML
+            $htmlContent = view('emails.ticket-cierre-simple', [
+                'apertura' => $apertura,
+                'subject' => $subject
+            ])->render();
+
+            // Enviar el correo con el PDF adjunto
+            \Mail::html($htmlContent, function ($message) use ($request, $subject, $pdfPath, $pdfName) {
+                $message->to($request->email)
+                    ->subject($subject)
+                    ->attach($pdfPath, [
+                        'as' => $pdfName,
+                        'mime' => 'application/pdf',
+                    ]);
+            });
+
+            // Registrar el envío
+            \Log::info("Ticket de cierre enviado por correo", [
+                'cierre_id' => $id,
+                'email' => $request->email,
+                'user_id' => auth()->id(),
+                'estado' => $apertura->estado
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Ticket enviado exitosamente por correo electrónico',
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error al enviar ticket por correo: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al enviar el ticket: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
 }

@@ -116,6 +116,20 @@ class NotaCreditoController extends Controller
                 ], 404);
             }
 
+            // Cargar relaciones necesarias
+            $notaCredito->load([
+                'venta.cliente',
+                'motivo',
+                'usuario',
+                'almacen',
+                'comprobanteReferencia',
+            ]);
+
+            // Cargar detalles del comprobante de referencia si existe
+            if ($notaCredito->comprobanteReferencia) {
+                $notaCredito->comprobanteReferencia->load('detalles');
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => new NotaCreditoResource($notaCredito),
@@ -203,7 +217,11 @@ class NotaCreditoController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => $resultado['mensaje'] ?? 'Nota de crédito enviada a SUNAT',
-                'data' => $resultado,
+                'data' => [
+                    'modo' => $resultado['modo'] ?? null,
+                    'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
+                    'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
+                ],
             ]);
 
         } catch (\Exception $e) {
@@ -211,9 +229,13 @@ class NotaCreditoController extends Controller
                 ? $e->getCode()
                 : 500;
 
+            // Sanitizar el mensaje para evitar datos binarios
+            $message = mb_convert_encoding($e->getMessage(), 'UTF-8', 'UTF-8');
+            $message = preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $message);
+
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage(),
+                'message' => $message ?: 'Error al enviar nota de crédito a SUNAT',
             ], $statusCode);
         }
     }
@@ -303,6 +325,46 @@ class NotaCreditoController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al validar venta',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function generarPdf(string $id): JsonResponse
+    {
+        try {
+            $notaCredito = $this->notaCreditoService->obtenerPorId($id);
+
+            if (!$notaCredito) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Nota de crédito no encontrada',
+                ], 404);
+            }
+
+            // Cargar todas las relaciones necesarias para el PDF
+            $notaCredito->load([
+                'venta.cliente',
+                'motivo',
+                'usuario.empresa',
+                'almacen',
+                'comprobanteReferencia',  // Comprobante que se está afectando
+            ]);
+
+            // Cargar detalles del comprobante de referencia si existe
+            if ($notaCredito->comprobanteReferencia) {
+                $notaCredito->comprobanteReferencia->load('detalles');
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => new NotaCreditoResource($notaCredito),
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar PDF',
                 'error' => $e->getMessage(),
             ], 500);
         }

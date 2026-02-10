@@ -33,7 +33,10 @@ class CerrarCajaRequest extends FormRequest
             'conceptos_adicionales.*.numero' => ['nullable', 'string', 'max:50'],
             'conceptos_adicionales.*.cantidad' => ['required', 'numeric', 'min:0'],
             'comentarios' => ['nullable', 'string', 'max:1000'],
-            'supervisor_id' => ['nullable', 'string', 'exists:users,id'],
+            'supervisor_id' => ['nullable', 'string', 'exists:user,id'], // Cambiar a 'user' (tabla correcta) y 'string'
+            'supervisor_password' => ['nullable', 'string', 'required_with:supervisor_id'], // Requerido si se envía supervisor_id
+            'email_reporte' => ['nullable', 'email'],
+            'whatsapp_reporte' => ['nullable', 'string'],
             'forzar_cierre' => ['nullable', 'boolean'],
         ];
     }

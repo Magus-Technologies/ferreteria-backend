@@ -11,28 +11,102 @@ class ComprobanteElectronicoResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'tipo_documento' => $this->tipo_documento,
-            'documento_id' => $this->documento_id,
+            'venta_id' => $this->venta_id,
+            'tipo_comprobante' => $this->tipo_comprobante,
+            'tipo_comprobante_nombre' => $this->getTipoComprobanteName(),
             'serie' => $this->serie,
-            'numero' => $this->numero,
-            'numero_completo' => $this->numero_completo,
-            'fecha_emision' => $this->fecha_emision?->format('Y-m-d H:i:s'),
-            'fecha_envio_sunat' => $this->fecha_envio_sunat?->format('Y-m-d H:i:s'),
+            'numero' => $this->correlativo,
+            'correlativo' => $this->correlativo,
+            'serie_numero' => "{$this->serie}-{$this->correlativo}",
+            'fecha_emision' => $this->fecha_emision,
+            'cliente_id' => $this->cliente_id,
+            'cliente_razon_social' => $this->cliente_razon_social,
+            'cliente_numero_documento' => $this->cliente_numero_documento,
+            'moneda' => $this->moneda,
+            'tipo_moneda' => $this->moneda,
+            'subtotal' => $this->operacion_gravada,
+            'operacion_gravada' => $this->operacion_gravada,
+            'igv' => $this->total_igv,
+            'total_igv' => $this->total_igv,
+            'total' => $this->importe_total,
+            'importe_total' => $this->importe_total,
             'estado_sunat' => $this->estado_sunat,
-            'codigo_sunat' => $this->codigo_sunat,
-            'mensaje_sunat' => $this->mensaje_sunat,
-            'tiene_xml' => $this->tieneXml(),
-            'tiene_cdr' => $this->tieneCdr(),
+            'xml_path' => $this->xml_path,
+            'xml_firmado' => $this->xml_firmado,
+            'cdr_path' => $this->cdr_path,
+            'pdf_path' => $this->pdf_path,
+            'hash' => $this->hash_cpe,
             'hash_cpe' => $this->hash_cpe,
-            'hash_cdr' => $this->hash_cdr,
-            'numero_ticket_sunat' => $this->numero_ticket_sunat,
-            'observaciones' => $this->observaciones,
-            'fue_enviado' => $this->fueEnviado(),
-            'esta_aceptado' => $this->estaAceptado(),
-            'esta_rechazado' => $this->estaRechazado(),
-            'esta_pendiente' => $this->estaPendiente(),
-            'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
-            'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
+            
+            // Cliente
+            'cliente' => $this->when($this->relationLoaded('cliente'), function () {
+                $cliente = $this->cliente;
+                
+                // Construir el nombre completo
+                $nombre = '';
+                if ($cliente->razon_social) {
+                    $nombre = $cliente->razon_social;
+                } else {
+                    $nombres = $cliente->nombres ?? '';
+                    $apellidos = $cliente->apellidos ?? '';
+                    $nombre = trim("{$nombres} {$apellidos}");
+                }
+                
+                return [
+                    'id' => $cliente->id,
+                    'tipo_cliente' => $cliente->tipo_cliente,
+                    'tipo_documento' => $cliente->tipo_cliente === 'JURIDICO' ? '6' : '1',
+                    'numero_documento' => $cliente->numero_documento,
+                    'nombres' => $cliente->nombres,
+                    'apellidos' => $cliente->apellidos,
+                    'razon_social' => $cliente->razon_social,
+                    'nombre' => $nombre ?: 'Sin nombre',
+                    'direccion' => $cliente->direccion,
+                    'telefono' => $cliente->telefono,
+                    'email' => $cliente->email,
+                ];
+            }),
+            
+            // Detalles
+            'detalles' => $this->when($this->relationLoaded('detalles'), function () {
+                return $this->detalles->map(function ($detalle) {
+                    return [
+                        'id' => $detalle->id,
+                        'codigo_producto' => $detalle->codigo_producto, // ✅ Usar campo directo de la tabla
+                        'descripcion' => $detalle->descripcion,
+                        'unidad_medida' => $detalle->unidad_medida, // ✅ Usar campo directo de la tabla
+                        'cantidad' => (float) $detalle->cantidad,
+                        'precio_unitario' => (float) $detalle->precio_unitario,
+                        'subtotal' => (float) $detalle->valor_venta,
+                        'igv' => (float) $detalle->igv,
+                        'total' => (float) ($detalle->valor_venta + $detalle->igv),
+                        'tipo_moneda' => $this->moneda,
+                    ];
+                });
+            }),
+            
+            // Venta relationship (only if loaded)
+            'venta' => $this->when($this->relationLoaded('venta'), function () {
+                return $this->venta ? [
+                    'id' => $this->venta->id,
+                    'serie' => $this->venta->serie,
+                    'numero' => $this->venta->numero,
+                ] : null;
+            }),
+            
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
         ];
+    }
+    
+    private function getTipoComprobanteName(): string
+    {
+        return match($this->tipo_comprobante) {
+            '01' => 'Factura',
+            '03' => 'Boleta',
+            '07' => 'Nota de Crédito',
+            '08' => 'Nota de Débito',
+            default => 'Desconocido',
+        };
     }
 }

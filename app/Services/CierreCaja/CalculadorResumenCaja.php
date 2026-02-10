@@ -115,11 +115,18 @@ class CalculadorResumenCaja
     {
         return $ventas->map(function ($venta) {
             // Obtener los pagos de esta venta con información de sub-caja
+            // La sub-caja se obtiene desde transacciones_caja, no desde metododepago
             $pagos = \Illuminate\Support\Facades\DB::table('desplieguedepagoventa as dpv')
                 ->join('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
                 ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
-                ->leftJoin('sub_cajas as sc', 'mp.subcaja_id', '=', 'sc.id')
                 ->leftJoin('numeros_operacion_pago as nop', 'dpv.numero_operacion_id', '=', 'nop.id')
+                // Obtener la sub-caja desde transacciones_caja
+                ->leftJoin('transacciones_caja as tc', function ($join) use ($venta) {
+                    $join->on('tc.despliegue_pago_id', '=', 'dpv.despliegue_de_pago_id')
+                         ->where('tc.referencia_id', '=', $venta->id)
+                         ->where('tc.referencia_tipo', '=', 'venta');
+                })
+                ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
                 ->where('dpv.venta_id', $venta->id)
                 ->select([
                     'sc.nombre as sub_caja',

@@ -4,6 +4,7 @@ use App\Http\Controllers\FacturacionElectronica\NotaDebitoController;
 use App\Http\Controllers\FacturacionElectronica\NotaCreditoController;
 use App\Http\Controllers\FacturacionElectronica\FacturaController;
 use App\Http\Controllers\FacturacionElectronica\MotivoNotaController;
+use App\Http\Controllers\FacturacionElectronica\ComprobanteElectronicoController;
 use App\Models\ComprobanteElectronico;
 use Illuminate\Support\Facades\Route;
 
@@ -20,7 +21,14 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->group(function () {
+    
+    // ========== COMPROBANTES ELECTRÓNICOS ==========
+    Route::prefix('comprobantes')->group(function () {
+        Route::get('/buscar', [ComprobanteElectronicoController::class, 'buscar']);
+        Route::get('/ayuda-motivos', [ComprobanteElectronicoController::class, 'getAyudaMotivos']);
+        Route::get('/{id}', [ComprobanteElectronicoController::class, 'show']);
+    });
     
     // ========== MOTIVOS DE NOTA ==========
     Route::prefix('motivos-nota')->group(function () {
@@ -68,6 +76,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Archivos XML y CDR
         Route::get('/{id}/xml', [NotaCreditoController::class, 'verXml']);
         Route::get('/{id}/cdr', [NotaCreditoController::class, 'descargarCdr']);
+        
+        // PDF
+        Route::get('/{id}/pdf', [NotaCreditoController::class, 'generarPdf']);
 
         // Consultas específicas
         Route::get('/venta/{ventaId}', [NotaCreditoController::class, 'porVenta']);

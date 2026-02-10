@@ -73,10 +73,35 @@ class NotaCredito extends Model
         return $this->belongsTo(Almacen::class, 'almacen_id');
     }
 
+    /**
+     * Obtener el comprobante electrónico asociado a esta nota de crédito
+     * Usa relación manual porque la tabla comprobantes_electronicos usa 'correlativo' no 'numero'
+     */
+    public function getComprobanteElectronicoAttribute()
+    {
+        // Verificar que existan los atributos necesarios
+        if (!isset($this->attributes['serie']) || !isset($this->attributes['numero'])) {
+            return null;
+        }
+
+        // Buscar por serie, correlativo (no numero) y tipo_comprobante
+        return ComprobanteElectronico::with('detalles')
+            ->where('serie', $this->attributes['serie'])
+            ->where('correlativo', $this->attributes['numero']) // ✅ Usar 'correlativo' que es el nombre real de la columna
+            ->where('tipo_comprobante', '07') // 07 = Nota de Crédito
+            ->first();
+    }
+
+    /**
+     * Relación Eloquent para comprobante electrónico
+     * NOTA: Esta relación es compleja porque necesita coincidir serie Y correlativo
+     */
     public function comprobanteElectronico(): HasOne
     {
-        return $this->hasOne(ComprobanteElectronico::class, 'documento_id')
-            ->where('tipo_documento', 'nc');
+        // Relación basada en serie y tipo_comprobante
+        // El correlativo se valida en el accessor
+        return $this->hasOne(ComprobanteElectronico::class, 'serie', 'serie')
+            ->where('tipo_comprobante', '07');
     }
 
     public function comprobanteReferencia(): BelongsTo

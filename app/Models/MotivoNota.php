@@ -10,14 +10,14 @@ class MotivoNota extends Model
     protected $table = 'motivo_nota';
 
     protected $fillable = [
-        'codigo',
+        'codigo_sunat',
         'descripcion',
         'tipo',
-        'activo',
+        'estado',
     ];
 
     protected $casts = [
-        'activo' => 'boolean',
+        'estado' => 'integer',
     ];
 
     // Relationships
@@ -29,7 +29,7 @@ class MotivoNota extends Model
     // Scopes
     public function scopeActivos($query)
     {
-        return $query->where('activo', true);
+        return $query->where('estado', 1);
     }
 
     public function scopePorTipo($query, string $tipo)
@@ -39,22 +39,22 @@ class MotivoNota extends Model
 
     public function scopeNotasDebito($query)
     {
-        return $query->where('tipo', 'debito');
+        return $query->where('tipo', 'ND');
     }
 
     public function scopeNotasCredito($query)
     {
-        return $query->where('tipo', 'credito');
+        return $query->where('tipo', 'NC');
     }
 
     // Helper methods
     public function esNotaDebito(): bool
     {
-        return $this->tipo === 'debito';
+        return $this->tipo === 'ND';
     }
 
     public function esNotaCredito(): bool
     {
-        return $this->tipo === 'credito';
+        return $this->tipo === 'NC';
     }
 }

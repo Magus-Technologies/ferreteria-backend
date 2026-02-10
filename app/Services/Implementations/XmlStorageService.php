@@ -44,11 +44,24 @@ class XmlStorageService implements XmlStorageServiceInterface
 
     public function obtenerCdr(string $ruta): string
     {
+        \Log::info(' [XmlStorageService] Obteniendo CDR', [
+            'ruta' => $ruta,
+            'existe' => $this->existeArchivo($ruta),
+        ]);
+        
         if (!$this->existeArchivo($ruta)) {
+            \Log::error(' [XmlStorageService] CDR no encontrado', ['ruta' => $ruta]);
             throw GreenterException::archivoNoEncontrado('CDR');
         }
 
-        return Storage::get($ruta);
+        $contenido = Storage::get($ruta);
+        
+        \Log::info('[XmlStorageService] CDR leído exitosamente', [
+            'ruta' => $ruta,
+            'size' => strlen($contenido),
+        ]);
+        
+        return $contenido;
     }
 
     public function existeArchivo(string $ruta): bool
@@ -72,6 +85,6 @@ class XmlStorageService implements XmlStorageServiceInterface
 
     public function generarNombreCdr(string $ruc, string $tipoDoc, string $serie, string $numero): string
     {
-        return "R-{$ruc}-{$tipoDoc}-{$serie}-{$numero}.xml";
+        return "R-{$ruc}-{$tipoDoc}-{$serie}-{$numero}.zip";
     }
 }

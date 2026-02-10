@@ -241,6 +241,22 @@ class VentaController extends Controller
                 $validated['numero'] = $nuevoCorrelativo;
             }
 
+            // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente
+            $cliente = \App\Models\Cliente::find($validated['cliente_id']);
+            if (!$cliente) {
+                throw new \Exception("Cliente no encontrado");
+            }
+
+            // Validar que Facturas (01) solo se emitan a clientes con RUC
+            if ($validated['tipo_documento'] === '01' && $cliente->tipo_documento !== 'ruc') {
+                return response()->json([
+                    'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
+                    'error' => 'TIPO_DOCUMENTO_INVALIDO',
+                    'cliente_tipo_documento' => $cliente->tipo_documento,
+                    'tipo_comprobante_solicitado' => '01',
+                ], 422);
+            }
+
             // Validar nueva venta
             $this->validarNuevaVenta($validated);
 
@@ -413,6 +429,12 @@ class VentaController extends Controller
                 ? $venta->tipo_documento->value 
                 : $venta->tipo_documento;
 
+            Log::info('🔍 Intentando generar comprobante automático', [
+                'venta_id' => $venta->id,
+                'tipo_documento' => $tipoDocumento,
+                'user_id' => $validated['user_id'],
+            ]);
+
             if (in_array($tipoDocumento, ['01', '03'])) {
                 try {
                     $dto = new FacturaDTO(
@@ -420,20 +442,33 @@ class VentaController extends Controller
                         usuarioId: $validated['user_id']
                     );
 
+                    Log::info('🔍 DTO creado, llamando a facturaService', [
+                        'dto_venta_id' => $dto->ventaId,
+                        'dto_usuario_id' => $dto->usuarioId,
+                    ]);
+
                     $resultado = $this->facturaService->generarComprobanteDesdeVenta($dto);
                     
-                    Log::info('Comprobante electrónico generado automáticamente', [
+                    Log::info('✅ Comprobante electrónico generado automáticamente', [
                         'venta_id' => $venta->id,
                         'tipo_documento' => $tipoDocumento,
-                        'success' => $resultado['success'],
+                        'success' => $resultado['success'] ?? false,
+                        'comprobante_id' => $resultado['comprobante']->id ?? 'NO_ID',
                     ]);
                 } catch (\Exception $e) {
                     // No fallar la venta si hay error al generar comprobante
-                    Log::error('Error al generar comprobante automáticamente', [
+                    Log::error('❌ Error al generar comprobante automáticamente', [
                         'venta_id' => $venta->id,
                         'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                        'file' => $e->getFile(),
+                        'line' => $e->getLine(),
                     ]);
                 }
+            } else {
+                Log::info('⏭️ Tipo de documento no requiere comprobante electrónico', [
+                    'tipo_documento' => $tipoDocumento,
+                ]);
             }
 
             return response()->json([
@@ -524,6 +559,27 @@ class VentaController extends Controller
 
             // Add id to validated data for validation
             $validated['id'] = $id;
+
+            // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente (si se está cambiando)
+            if (isset($validated['cliente_id']) || isset($validated['tipo_documento'])) {
+                $clienteId = $validated['cliente_id'] ?? $venta->cliente_id;
+                $tipoDocumento = $validated['tipo_documento'] ?? ($venta->tipo_documento instanceof \BackedEnum ? $venta->tipo_documento->value : $venta->tipo_documento);
+                
+                $cliente = \App\Models\Cliente::find($clienteId);
+                if (!$cliente) {
+                    throw new \Exception("Cliente no encontrado");
+                }
+
+                // Validar que Facturas (01) solo se emitan a clientes con RUC
+                if ($tipoDocumento === '01' && $cliente->tipo_documento !== 'ruc') {
+                    return response()->json([
+                        'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
+                        'error' => 'TIPO_DOCUMENTO_INVALIDO',
+                        'cliente_tipo_documento' => $cliente->tipo_documento,
+                        'tipo_comprobante_solicitado' => '01',
+                    ], 422);
+                }
+            }
 
             // Validar nueva venta
             $this->validarNuevaVenta($validated);
@@ -899,9 +955,18 @@ class VentaController extends Controller
                 
                 // PRIORIDAD 1: Si viene sub_caja_id en los datos, usarlo directamente
                 if (isset($desplieguePago['sub_caja_id']) && $desplieguePago['sub_caja_id']) {
-                    $subCaja = SubCaja::find($desplieguePago['sub_caja_id']);
-                    if ($subCaja) {
-                        \Log::info("✅ Usando sub-caja especificada: {$subCaja->id} - {$subCaja->nombre}");
+                    $subCajaTemp = SubCaja::find($desplieguePago['sub_caja_id']);
+                    
+                    if ($subCajaTemp) {
+                        // ✅ VALIDAR: Verificar que la sub-caja acepta el tipo de comprobante de la venta
+                        if ($subCajaTemp->aceptaComprobante($venta->tipo_documento->value)) {
+                            $subCaja = $subCajaTemp;
+                            \Log::info("✅ Usando sub-caja especificada: {$subCaja->id} - {$subCaja->nombre}");
+                        } else {
+                            \Log::warning("⚠️ Sub-caja {$subCajaTemp->id} - {$subCajaTemp->nombre} NO acepta tipo de comprobante {$venta->tipo_documento->value}");
+                            \Log::warning("Tipos aceptados: " . json_encode($subCajaTemp->tipos_comprobante));
+                            // No usar esta sub-caja, continuar con las siguientes prioridades
+                        }
                     }
                 }
                 
@@ -940,6 +1005,26 @@ class VentaController extends Controller
                 }
 
                 \Log::info("✅ Sub-caja encontrada: {$subCaja->id} - {$subCaja->nombre}");
+
+                // ✅ VALIDACIÓN CRÍTICA: Verificar que la sub-caja acepta el tipo de comprobante
+                if (!$subCaja->aceptaComprobante($venta->tipo_documento->value)) {
+                    \Log::error("❌ VALIDACIÓN FALLIDA: Sub-caja '{$subCaja->nombre}' NO acepta tipo de comprobante '{$venta->tipo_documento->value}'", [
+                        'sub_caja_id' => $subCaja->id,
+                        'sub_caja_nombre' => $subCaja->nombre,
+                        'tipos_aceptados' => $subCaja->tipos_comprobante,
+                        'tipo_documento_venta' => $venta->tipo_documento->value,
+                        'venta_id' => $venta->id,
+                        'despliegue_pago_id' => $desplieguePago['despliegue_de_pago_id'],
+                    ]);
+                    
+                    // NO registrar esta transacción, continuar con el siguiente método de pago
+                    continue;
+                }
+
+                \Log::info("✅ Validación exitosa: Sub-caja acepta el tipo de comprobante", [
+                    'sub_caja' => $subCaja->nombre,
+                    'tipo_documento' => $venta->tipo_documento->value,
+                ]);
 
                 // 4. Actualizar saldo de la sub-caja
                 $saldoAnterior = $subCaja->saldo_actual;

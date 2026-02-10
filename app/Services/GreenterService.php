@@ -78,7 +78,7 @@ class GreenterService implements GreenterServiceInterface
                 'xml' => $this->see->getFactory()->getLastXml(),
                 'cdr' => $result->getCdrZip(),
                 'hash_cpe' => hash('sha256', $this->see->getFactory()->getLastXml()),
-                'hash_cdr' => $result->getCdrResponse() ? $result->getCdrResponse()->getDigestValue() : null,
+                'hash_cdr' => $result->getCdrZip() ? hash('sha256', $result->getCdrZip()) : null,
                 'codigo_sunat' => $result->getCdrResponse() ? $result->getCdrResponse()->getCode() : null,
                 'mensaje_sunat' => $result->getCdrResponse() ? $result->getCdrResponse()->getDescription() : null,
                 'modo' => 'PRODUCCION',
@@ -134,7 +134,7 @@ class GreenterService implements GreenterServiceInterface
                 'xml' => $this->see->getFactory()->getLastXml(),
                 'cdr' => $result->getCdrZip(),
                 'hash_cpe' => hash('sha256', $this->see->getFactory()->getLastXml()),
-                'hash_cdr' => $result->getCdrResponse() ? $result->getCdrResponse()->getDigestValue() : null,
+                'hash_cdr' => $result->getCdrZip() ? hash('sha256', $result->getCdrZip()) : null,
                 'codigo_sunat' => $result->getCdrResponse() ? $result->getCdrResponse()->getCode() : null,
                 'mensaje_sunat' => $result->getCdrResponse() ? $result->getCdrResponse()->getDescription() : null,
                 'modo' => 'PRODUCCION',
@@ -190,7 +190,7 @@ class GreenterService implements GreenterServiceInterface
                 'xml' => $this->see->getFactory()->getLastXml(),
                 'cdr' => $result->getCdrZip(),
                 'hash_cpe' => hash('sha256', $this->see->getFactory()->getLastXml()),
-                'hash_cdr' => $result->getCdrResponse() ? $result->getCdrResponse()->getDigestValue() : null,
+                'hash_cdr' => $result->getCdrZip() ? hash('sha256', $result->getCdrZip()) : null,
                 'codigo_sunat' => $result->getCdrResponse() ? $result->getCdrResponse()->getCode() : null,
                 'mensaje_sunat' => $result->getCdrResponse() ? $result->getCdrResponse()->getDescription() : null,
                 'modo' => 'PRODUCCION',
@@ -348,6 +348,7 @@ class GreenterService implements GreenterServiceInterface
         $invoice = new \Greenter\Model\Sale\Invoice();
         $invoice
             ->setUblVersion('2.1')
+            ->setTipoOperacion('0101') // 0101 = Venta Interna
             ->setTipoDoc($data['tipo_doc']) // 01=Factura, 03=Boleta
             ->setSerie($data['serie'])
             ->setCorrelativo($data['numero'])

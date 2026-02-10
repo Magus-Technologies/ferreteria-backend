@@ -4,11 +4,13 @@ namespace App\Http\Controllers\FacturacionElectronica;
 
 use App\DTOs\FacturacionElectronica\FacturaDTO;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\FacturacionElectronica\ComprobanteElectronicoResource;
 use App\Models\ComprobanteElectronico;
 use App\Services\Interfaces\FacturaServiceInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 
 class FacturaController extends Controller
 {
@@ -26,7 +28,7 @@ class FacturaController extends Controller
                 $facturas = $this->facturaService->listarPaginado($filtros, $porPagina);
                 return response()->json([
                     'success' => true,
-                    'data' => $facturas->items(),
+                    'data' => ComprobanteElectronicoResource::collection($facturas->items()),
                     'pagination' => [
                         'total' => $facturas->total(),
                         'per_page' => $facturas->perPage(),
@@ -37,7 +39,7 @@ class FacturaController extends Controller
             }
 
             $facturas = $this->facturaService->listar($filtros);
-            return response()->json(['success' => true, 'data' => $facturas]);
+            return response()->json(['success' => true, 'data' => ComprobanteElectronicoResource::collection($facturas)]);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
@@ -77,9 +79,25 @@ class FacturaController extends Controller
     {
         try {
             $resultado = $this->facturaService->enviarASunat($ventaId, 'manual');
-            return response()->json(['success' => true, 'message' => $resultado['mensaje'] ?? 'Enviado', 'data' => $resultado]);
+            
+            return response()->json([
+                'success' => true, 
+                'message' => $resultado['mensaje'] ?? 'Factura enviada a SUNAT', 
+                'data' => [
+                    'modo' => $resultado['modo'] ?? null,
+                    'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
+                    'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
+                ]
+            ]);
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            $statusCode = method_exists($e, 'getCode') && $e->getCode() >= 400 && $e->getCode() < 600
+                ? $e->getCode()
+                : 500;
+
+            return response()->json([
+                'success' => false, 
+                'message' => $e->getMessage()
+            ], $statusCode);
         }
     }
 
@@ -137,14 +155,34 @@ class FacturaController extends Controller
     public function descargarCdr(string $ventaId): Response
     {
         try {
+            Log::info('🔍 [FacturaController] Descargando CDR', ['venta_id' => $ventaId]);
+            
             $cdr = $this->facturaService->obtenerCdr($ventaId);
             $factura = $this->facturaService->obtenerPorVentaId($ventaId);
             $venta = $factura['venta'];
             $tipoDoc = $venta->tipo_documento === '01' ? '01' : '03';
-            $nombreArchivo = "R-" . config('greenter.ruc') . "-{$tipoDoc}-{$venta->serie}-{$venta->numero}.xml";
-            return response($cdr, 200)->header('Content-Type', 'application/xml')->header('Content-Disposition', "attachment; filename=\"{$nombreArchivo}\"");
+            $nombreArchivo = "R-" . config('greenter.ruc') . "-{$tipoDoc}-{$venta->serie}-{$venta->numero}.zip";
+            
+            Log::info('✅ [FacturaController] CDR descargado exitosamente', [
+                'venta_id' => $ventaId,
+                'nombre_archivo' => $nombreArchivo,
+                'size' => strlen($cdr),
+            ]);
+            
+            return response($cdr, 200)
+                ->header('Content-Type', 'application/octet-stream')
+                ->header('Content-Disposition', "attachment; filename=\"{$nombreArchivo}\"")
+                ->header('Content-Transfer-Encoding', 'binary')
+                ->header('Cache-Control', 'must-revalidate, post-check=0, pre-check=0')
+                ->header('Pragma', 'public');
         } catch (\Exception $e) {
-            return response('Error: ' . $e->getMessage(), 404)->header('Content-Type', 'text/plain');
+            Log::error('❌ [FacturaController] Error al descargar CDR', [
+                'venta_id' => $ventaId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response('Error: ' . $e->getMessage(), 404)
+                ->header('Content-Type', 'text/plain');
         }
     }
 

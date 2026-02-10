@@ -99,11 +99,22 @@ class CierreCajaService implements CierreCajaServiceInterface
     {
         $supervisor = User::where('email', $email)->first();
 
-        if (!$supervisor || !Hash::check($password, $supervisor->password)) {
+        if (!$supervisor) {
             return null;
         }
 
-        if (!$supervisor->hasRole('supervisor')) {
+        // Verificar que sea supervisor
+        if (!$supervisor->es_supervisor) {
+            return null;
+        }
+
+        // Verificar que tenga contraseña de supervisor configurada
+        if (!$supervisor->supervisor_password) {
+            return null;
+        }
+
+        // Validar la contraseña de supervisor (NO la contraseña normal)
+        if (!Hash::check($password, $supervisor->supervisor_password)) {
             return null;
         }
 

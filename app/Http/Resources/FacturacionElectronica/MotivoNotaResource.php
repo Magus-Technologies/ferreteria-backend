@@ -11,10 +11,10 @@ class MotivoNotaResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'codigo' => $this->codigo,
+            'codigo_sunat' => $this->codigo_sunat,
             'descripcion' => $this->descripcion,
             'tipo' => $this->tipo,
-            'activo' => $this->activo,
+            'estado' => $this->estado,
             'es_nota_debito' => $this->esNotaDebito(),
             'es_nota_credito' => $this->esNotaCredito(),
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
