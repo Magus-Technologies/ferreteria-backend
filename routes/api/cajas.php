@@ -106,6 +106,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/{id}', [CierreCajaController::class, 'cerrarCaja']);
             Route::get('/{id}/movimientos', [CierreCajaController::class, 'obtenerDetalleMovimientos']);
             Route::post('/validar-supervisor', [CierreCajaController::class, 'validarSupervisor']);
+            Route::post('/{id}/enviar-email', [CierreCajaController::class, 'enviarTicketEmail']); // Enviar ticket por correo
             Route::get('/{id}', [CierreCajaController::class, 'obtenerCierre']); // Nuevo endpoint
         });
         

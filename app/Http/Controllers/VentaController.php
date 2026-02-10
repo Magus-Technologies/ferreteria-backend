@@ -934,9 +934,18 @@ class VentaController extends Controller
                 
                 // PRIORIDAD 1: Si viene sub_caja_id en los datos, usarlo directamente
                 if (isset($desplieguePago['sub_caja_id']) && $desplieguePago['sub_caja_id']) {
-                    $subCaja = SubCaja::find($desplieguePago['sub_caja_id']);
-                    if ($subCaja) {
-                        \Log::info("✅ Usando sub-caja especificada: {$subCaja->id} - {$subCaja->nombre}");
+                    $subCajaTemp = SubCaja::find($desplieguePago['sub_caja_id']);
+                    
+                    if ($subCajaTemp) {
+                        // ✅ VALIDAR: Verificar que la sub-caja acepta el tipo de comprobante de la venta
+                        if ($subCajaTemp->aceptaComprobante($venta->tipo_documento->value)) {
+                            $subCaja = $subCajaTemp;
+                            \Log::info("✅ Usando sub-caja especificada: {$subCaja->id} - {$subCaja->nombre}");
+                        } else {
+                            \Log::warning("⚠️ Sub-caja {$subCajaTemp->id} - {$subCajaTemp->nombre} NO acepta tipo de comprobante {$venta->tipo_documento->value}");
+                            \Log::warning("Tipos aceptados: " . json_encode($subCajaTemp->tipos_comprobante));
+                            // No usar esta sub-caja, continuar con las siguientes prioridades
+                        }
                     }
                 }
                 
@@ -975,6 +984,26 @@ class VentaController extends Controller
                 }
 
                 \Log::info("✅ Sub-caja encontrada: {$subCaja->id} - {$subCaja->nombre}");
+
+                // ✅ VALIDACIÓN CRÍTICA: Verificar que la sub-caja acepta el tipo de comprobante
+                if (!$subCaja->aceptaComprobante($venta->tipo_documento->value)) {
+                    \Log::error("❌ VALIDACIÓN FALLIDA: Sub-caja '{$subCaja->nombre}' NO acepta tipo de comprobante '{$venta->tipo_documento->value}'", [
+                        'sub_caja_id' => $subCaja->id,
+                        'sub_caja_nombre' => $subCaja->nombre,
+                        'tipos_aceptados' => $subCaja->tipos_comprobante,
+                        'tipo_documento_venta' => $venta->tipo_documento->value,
+                        'venta_id' => $venta->id,
+                        'despliegue_pago_id' => $desplieguePago['despliegue_de_pago_id'],
+                    ]);
+                    
+                    // NO registrar esta transacción, continuar con el siguiente método de pago
+                    continue;
+                }
+
+                \Log::info("✅ Validación exitosa: Sub-caja acepta el tipo de comprobante", [
+                    'sub_caja' => $subCaja->nombre,
+                    'tipo_documento' => $venta->tipo_documento->value,
+                ]);
 
                 // 4. Actualizar saldo de la sub-caja
                 $saldoAnterior = $subCaja->saldo_actual;

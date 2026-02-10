@@ -14,6 +14,8 @@ use App\Services\CierreCaja\CalculadorResumenCaja;
 use App\Services\CierreCaja\ValidadorSupervisorCaja;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class CerrarCajaUseCase
 {
@@ -46,12 +48,23 @@ class CerrarCajaUseCase
             $supervisorValidado = false;
             if ($dto->supervisorId && $dto->supervisorPassword) {
                 $supervisor = User::find($dto->supervisorId);
-                if ($supervisor && $supervisor->es_supervisor && 
-                    Hash::check($dto->supervisorPassword, $supervisor->supervisor_password)) {
-                    $supervisorValidado = true;
-                } else {
+                
+                // Verificar que el usuario existe y es supervisor
+                if (!$supervisor || !$supervisor->es_supervisor) {
+                    throw new \Exception('El usuario no es un supervisor válido');
+                }
+
+                // Verificar que tiene contraseña de supervisor configurada
+                if (!$supervisor->supervisor_password) {
+                    throw new \Exception('El supervisor no tiene contraseña configurada');
+                }
+
+                // Validar la contraseña de supervisor
+                if (!Hash::check($dto->supervisorPassword, $supervisor->supervisor_password)) {
                     throw new \Exception('Contraseña de supervisor incorrecta');
                 }
+
+                $supervisorValidado = true;
             }
 
             // 5. Validar diferencia
@@ -61,23 +74,16 @@ class CerrarCajaUseCase
             // Solo actualizamos los datos del cierre pero mantenemos estado='abierta'
             $apertura->update([
                 'monto_cierre' => $dto->montoCierre,
-                'observaciones_cierre' => $dto->observaciones,
-                'cerrado_por' => $dto->usuarioId,
+                'comentarios' => $dto->observaciones,
                 'email_reporte' => $dto->emailReporte ?? null,
                 'whatsapp_reporte' => $dto->whatsappReporte ?? null,
                 'supervisor_id_validador' => $dto->supervisorId ?? null,
                 'supervisor_validado' => $supervisorValidado,
+                'reporte_enviado' => false, // El frontend enviará el PDF
                 // NO actualizamos 'estado' ni 'fecha_cierre' - la caja sigue abierta
             ]);
 
-            // 7. Enviar reportes si se especificaron
-            if ($dto->emailReporte || $dto->whatsappReporte) {
-                // TODO: Implementar envío de reportes
-                // Por ahora solo marcamos como pendiente
-                $apertura->update(['reporte_enviado' => false]);
-            }
-
-            // 8. Crear DTO de resultado
+            // 7. Crear DTO de resultado
             $diferencia = $resumen->diferencia ?? 0;
             $sobrante = $diferencia > 0 ? $diferencia : 0;
             $faltante = $diferencia < 0 ? abs($diferencia) : 0;
@@ -104,12 +110,31 @@ class CerrarCajaUseCase
     private function validarDiferencia(ResumenCajaDTO $resumen, CierreCajaDTO $dto): void
     {
         $diferencia = abs($resumen->diferencia);
+        $limiteDiferencia = config('caja.limite_diferencia', 5);
+        $limiteMaximo = config('caja.limite_maximo_diferencia', 50);
 
-        if ($diferencia > config('caja.limite_diferencia', 5)) {
+        // Si la diferencia supera el límite básico, requiere supervisor
+        if ($diferencia > $limiteDiferencia) {
+            // Si no hay supervisor, lanzar excepción
+            if (!$dto->supervisorId) {
+                throw new \App\Exceptions\SupervisorRequeridoException(
+                    null,
+                    $diferencia,
+                    $limiteDiferencia
+                );
+            }
+            
+            // Validar que el supervisor es válido
             $this->validadorSupervisor->validar($dto->supervisorId);
+            
+            // Si hay supervisor validado, permitir cualquier diferencia
+            // El supervisor asume la responsabilidad de la diferencia
+            return;
         }
 
-        if ($diferencia > config('caja.limite_maximo_diferencia', 50)) {
+        // Si la diferencia es menor al límite básico, no requiere supervisor
+        // pero aún así validamos que no exceda el límite máximo sin supervisor
+        if ($diferencia > $limiteMaximo && !$dto->supervisorId) {
             throw new DiferenciaCajaExcedidaException($diferencia);
         }
     }
