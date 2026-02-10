@@ -505,11 +505,17 @@ class ProductoImportService implements ProductoImportServiceInterface
             return null;
         }
 
+        // Primero buscar por nombre en cache (incluso si es numérico,
+        // porque pueden existir nombres como "6" o "45846")
+        if (isset($cache[$name])) {
+            return $cache[$name];
+        }
+
         if (is_numeric($name)) {
             return (int) $name;
         }
 
-        return $cache[$name] ?? null;
+        return null;
     }
 
     /**

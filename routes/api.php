@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\ConfiguracionImpresionController;
 use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\GuiaRemisionController;
@@ -30,6 +31,19 @@ use Illuminate\Support\Facades\Route;
 
 // Autenticación y recuperación de contraseña (importado desde auth.php)
 require __DIR__ . '/api/auth.php';
+
+// ============================================
+// CATÁLOGOS PÚBLICOS
+// ============================================
+// Estos endpoints están disponibles sin autenticación para formularios
+Route::prefix('catalogos')->group(function () {
+    Route::get('/estados-civiles', [CatalogoController::class, 'estadosCiviles']);
+    Route::get('/tipos-documento', [CatalogoController::class, 'tiposDocumento']);
+    Route::get('/generos', [CatalogoController::class, 'generos']);
+    Route::get('/roles-sistema', [CatalogoController::class, 'rolesSistema']);
+    Route::get('/cargos', [CatalogoController::class, 'cargos']);
+});
+Route::get('/roles', [CatalogoController::class, 'roles']);
 
 // Datos públicos de la empresa (para PDFs)
 Route::get('/empresa/datos-publicos', [
@@ -117,6 +131,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/anular', [GuiaRemisionController::class, 'anular']);
     });
     Route::apiResource('guias-remision', GuiaRemisionController::class);
+
+    // ============================================
+    // VALES DE COMPRA (PROMOCIONES)
+    // ============================================
+    Route::prefix('vales-compra')->group(function () {
+        Route::post('/vales-aplicables', [\App\Http\Controllers\ValeCompraController::class, 'valesAplicables']);
+        Route::post('/{id}/cambiar-estado', [\App\Http\Controllers\ValeCompraController::class, 'cambiarEstado']);
+        Route::get('/{id}/historial-aplicaciones', [\App\Http\Controllers\ValeCompraController::class, 'historialAplicaciones']);
+        Route::get('/venta/{ventaId}/vales-aplicados', [\App\Http\Controllers\ValeCompraController::class, 'valesAplicadosVenta']);
+    });
+    Route::apiResource('vales-compra', \App\Http\Controllers\ValeCompraController::class);
 
     // ============================================
     // ROLES (sin permisos/restricciones por ahora)

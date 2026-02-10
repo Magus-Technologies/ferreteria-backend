@@ -21,6 +21,7 @@ use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\Venta;
 use App\Services\Interfaces\FacturaServiceInterface;
+use App\Services\ValeCompraService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -29,7 +30,8 @@ use Illuminate\Support\Str;
 class VentaController extends Controller
 {
     public function __construct(
-        private FacturaServiceInterface $facturaService
+        private FacturaServiceInterface $facturaService,
+        private ValeCompraService $valeCompraService
     ) {}
 
     /**
@@ -385,6 +387,25 @@ class VentaController extends Controller
             // Proceso post venta
             $validated['id'] = $venta->id;
             $this->procesoPostVenta($validated);
+
+            // APLICAR VALES DE COMPRA AUTOMÁTICAMENTE
+            try {
+                $detallesVenta = $this->prepararDetallesVentaParaVales($validated);
+                $valesAplicados = $this->valeCompraService->aplicarValesAutomaticos($venta, $detallesVenta);
+                
+                if ($valesAplicados->isNotEmpty()) {
+                    Log::info('Vales aplicados a la venta', [
+                        'venta_id' => $venta->id,
+                        'cantidad_vales' => $valesAplicados->count(),
+                    ]);
+                }
+            } catch (\Exception $e) {
+                // No fallar la venta si hay error al aplicar vales
+                Log::error('Error al aplicar vales a la venta', [
+                    'venta_id' => $venta->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
 
             // GENERAR COMPROBANTE ELECTRÓNICO AUTOMÁTICAMENTE
             // Solo para facturas (01) y boletas (03)
@@ -1152,5 +1173,41 @@ class VentaController extends Controller
                     ->decrement('monto', (float) $ingreso->monto);
             }
         }
+    }
+
+    /**
+     * Preparar detalles de venta para el servicio de vales
+     */
+    private function prepararDetallesVentaParaVales($venta): array
+    {
+        $detalles = [];
+
+        foreach ($venta['productos_por_almacen'] as $producto) {
+            // Obtener el producto_almacen para extraer el producto_id y categoria_id
+            $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
+            
+            if ($productoAlmacenId) {
+                $productoAlmacen = ProductoAlmacen::with('producto.categoria')
+                    ->find($productoAlmacenId);
+                
+                if ($productoAlmacen && $productoAlmacen->producto) {
+                    // Calcular cantidad total en unidad base
+                    $cantidadTotal = 0;
+                    foreach ($producto['unidades_derivadas'] as $unidad) {
+                        $cantidad = (float) ($unidad['cantidad'] ?? 0);
+                        $factor = (float) ($unidad['factor'] ?? 1);
+                        $cantidadTotal += $cantidad * $factor;
+                    }
+
+                    $detalles[] = [
+                        'producto_id' => $productoAlmacen->producto->id,
+                        'categoria_id' => $productoAlmacen->producto->categoria_id ?? null,
+                        'cantidad' => $cantidadTotal,
+                    ];
+                }
+            }
+        }
+
+        return $detalles;
     }
 }

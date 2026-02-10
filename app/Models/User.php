@@ -36,6 +36,7 @@ class User extends Authenticatable
         // nuevos campos , info personal
         "tipo_documento",
         "numero_documento",
+        "codigo",
         "telefono",
         "celular",
         "genero",
