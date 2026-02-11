@@ -9,7 +9,7 @@ class AperturaCierreCajaRepository implements AperturaCierreCajaRepositoryInterf
 {
     public function findById(string $id): ?AperturaCierreCaja
     {
-        return AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'supervisor'])
+        return AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'supervisor', 'distribucionesVendedores.vendedor'])
             ->find($id);
     }
 
@@ -18,7 +18,7 @@ class AperturaCierreCajaRepository implements AperturaCierreCajaRepositoryInterf
         // Buscar apertura activa de la caja principal del usuario
         return AperturaCierreCaja::where('estado', 'abierta')
             ->where('user_id', $userId)
-            ->with(['cajaPrincipal', 'subCaja', 'user'])
+            ->with(['cajaPrincipal', 'subCaja', 'user', 'supervisor', 'distribucionesVendedores.vendedor'])
             ->first();
     }
 
