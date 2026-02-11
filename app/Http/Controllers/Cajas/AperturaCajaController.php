@@ -9,8 +9,13 @@ use App\Models\CajaPrincipal;
 use App\Models\MovimientoCaja;
 use App\Models\SubCaja;
 use App\Models\TransaccionCaja;
+use App\Services\TicketAperturaService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Exception;
 
@@ -21,8 +26,8 @@ class AperturaCajaController extends Controller
      */
     public function aperturar(AperturarCajaRequest $request): JsonResponse
     {
-        try {
-            return DB::transaction(function () use ($request) {
+        return DB::transaction(function () use ($request) {
+            try {
                 // Obtener user_id del usuario autenticado
                 $userId = auth()->id();
                 
@@ -35,8 +40,10 @@ class AperturaCajaController extends Controller
 
                 $cajaPrincipalId = $request->validated('caja_principal_id');
                 $montoApertura = $request->validated('monto_apertura');
-                $conteoBilletes = $request->validated('conteo_billetes_monedas');
+                $conteoBilletes = $request->validated('conteo_billetes_monedas'); // Conteo a nivel de apertura
                 $vendedores = $request->validated('vendedores', []); // Array de vendedores
+                $enviarTicket = $request->validated('enviar_ticket', true); // Por defecto true
+                $emailDestino = $request->validated('email_destino'); // Email opcional
 
                 // 1. Verificar que la caja principal existe
                 $cajaPrincipal = CajaPrincipal::find($cajaPrincipalId);
@@ -136,18 +143,35 @@ class AperturaCajaController extends Controller
                         'success' => true,
                         'message' => "Efectivo distribuido exitosamente. Nuevo saldo: S/. {$cajaChica->saldo_actual}",
                         'data' => [
+                            'id' => $aperturaActiva->id,
                             'apertura_id' => $aperturaActiva->id,
                             'monto_agregado' => number_format($montoTotal, 2, '.', ''),
+                            'monto_apertura' => number_format($aperturaActiva->monto_apertura, 2, '.', ''),
                             'monto_apertura_total' => number_format($aperturaActiva->monto_apertura, 2, '.', ''),
+                            'conteo_apertura_billetes_monedas' => $aperturaActiva->conteo_apertura_billetes_monedas,
+                            'fecha_apertura' => $aperturaActiva->fecha_apertura->toIso8601String(),
+                            'estado' => $aperturaActiva->estado,
                             'saldo_anterior' => number_format($saldoAnterior, 2, '.', ''),
                             'saldo_nuevo' => number_format($cajaChica->saldo_actual, 2, '.', ''),
                             'vendedores_count' => count($vendedores),
                             'distribuciones' => $aperturaActiva->distribucionesVendedores->map(function ($dist) {
                                 return [
+                                    'vendedor_id' => $dist->user_id,
                                     'vendedor' => $dist->vendedor->name,
                                     'monto' => number_format($dist->monto, 2, '.', ''),
+                                    'conteo_billetes_monedas' => $dist->conteo_billetes_monedas,
                                 ];
                             }),
+                            'caja_principal' => [
+                                'id' => $aperturaActiva->cajaPrincipal->id,
+                                'codigo' => $aperturaActiva->cajaPrincipal->codigo,
+                                'nombre' => $aperturaActiva->cajaPrincipal->nombre,
+                            ],
+                            'user' => [
+                                'id' => $aperturaActiva->user->id,
+                                'name' => $aperturaActiva->user->name,
+                                'email' => $aperturaActiva->user->email,
+                            ],
                         ],
                     ], 200);
                 }
@@ -182,6 +206,43 @@ class AperturaCajaController extends Controller
                 // 8. Cargar relaciones para la respuesta
                 $apertura->load(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
 
+                // 9. Enviar email automáticamente si está habilitado
+                if ($enviarTicket && $emailDestino) {
+                    try {
+                        $ticketService = app(\App\Services\TicketAperturaService::class);
+                        $subject = 'Ticket de Apertura de Caja - ' . Carbon::parse($apertura->fecha_apertura)->format('d/m/Y H:i');
+                        
+                        // Generar HTML para el cuerpo del email
+                        $htmlContent = $ticketService->generarTicketHTML($apertura);
+                        
+                        // Generar PDF
+                        $pdf = $ticketService->generarTicketPDF($apertura);
+                        $pdfContent = $pdf->output();
+                        $pdfName = 'ticket-apertura-' . $apertura->id . '.pdf';
+                        
+                        // Enviar email con PDF adjunto
+                        Mail::html($htmlContent, function ($message) use ($emailDestino, $subject, $pdfContent, $pdfName) {
+                            $message->to($emailDestino)
+                                ->subject($subject)
+                                ->attachData($pdfContent, $pdfName, [
+                                    'mime' => 'application/pdf',
+                                ]);
+                        });
+                        
+                        Log::info("Email de apertura con PDF enviado automáticamente", [
+                            'apertura_id' => $apertura->id,
+                            'email' => $emailDestino,
+                        ]);
+                    } catch (\Exception $emailError) {
+                        // No fallar la apertura si el email falla
+                        Log::warning("Error al enviar email de apertura automático: " . $emailError->getMessage(), [
+                            'apertura_id' => $apertura->id,
+                            'email' => $emailDestino,
+                            'trace' => $emailError->getTraceAsString(),
+                        ]);
+                    }
+                }
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Caja aperturada y efectivo distribuido exitosamente',
@@ -191,6 +252,7 @@ class AperturaCajaController extends Controller
                         'sub_caja_id' => $apertura->sub_caja_id,
                         'user_id' => $apertura->user_id,
                         'monto_apertura' => number_format($apertura->monto_apertura, 2, '.', ''),
+                        'conteo_apertura_billetes_monedas' => $apertura->conteo_apertura_billetes_monedas,
                         'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
                         'estado' => $apertura->estado,
                         'vendedores_count' => count($vendedores),
@@ -199,6 +261,7 @@ class AperturaCajaController extends Controller
                                 'vendedor_id' => $dist->user_id,
                                 'vendedor' => $dist->vendedor->name,
                                 'monto' => number_format($dist->monto, 2, '.', ''),
+                                'conteo_billetes_monedas' => $dist->conteo_billetes_monedas,
                             ];
                         }),
                         'caja_principal' => [
@@ -212,15 +275,21 @@ class AperturaCajaController extends Controller
                             'nombre' => $apertura->subCaja->nombre,
                             'saldo_actual' => number_format($apertura->subCaja->saldo_actual, 2, '.', ''),
                         ],
+                        'user' => [
+                            'id' => $apertura->user->id,
+                            'name' => $apertura->user->name,
+                            'email' => $apertura->user->email,
+                        ],
                     ],
                 ], 200);
-            });
-        } catch (Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al aperturar la caja: ' . $e->getMessage(),
-            ], 500);
-        }
+            } catch (Exception $e) {
+                Log::error('Error al aperturar caja: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al aperturar la caja: ' . $e->getMessage(),
+                ], 500);
+            }
+        });
     }
 
     /**
@@ -383,6 +452,7 @@ class AperturaCajaController extends Controller
                                 'vendedor_id' => $dist->user_id,
                                 'vendedor' => $dist->vendedor->name,
                                 'monto' => number_format($dist->monto, 2, '.', ''),
+                                'conteo_billetes_monedas' => $dist->conteo_billetes_monedas,
                             ];
                         }),
                     ];
@@ -398,6 +468,130 @@ class AperturaCajaController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener historial: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Enviar ticket de apertura por correo con PDF adjunto
+     */
+    public function enviarTicketEmail(string $id, Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'email' => 'required|email',
+                'pdf' => 'required|file|mimes:pdf|max:10240', // Max 10MB
+            ]);
+
+            // Obtener la apertura
+            $apertura = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor'])
+                ->findOrFail($id);
+            
+            // Verificar permisos
+            if ($apertura->user_id !== auth()->id() && !auth()->user()->hasRole(['admin', 'administrador'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No tienes permiso para enviar este ticket',
+                ], 403);
+            }
+
+            // Determinar el asunto
+            $subject = 'Ticket de Apertura de Caja - ' . Carbon::parse($apertura->fecha_apertura)->format('d/m/Y');
+
+            // Obtener el archivo PDF
+            $pdfFile = $request->file('pdf');
+            $pdfPath = $pdfFile->getRealPath();
+            $pdfName = 'ticket-apertura-' . $id . '.pdf';
+
+            // Renderizar la vista HTML (igual que el cierre)
+            $htmlContent = view('emails.ticket-apertura-simple', [
+                'apertura' => $apertura,
+                'subject' => $subject
+            ])->render();
+
+            // Enviar el correo con el PDF adjunto (igual que el cierre)
+            Mail::html($htmlContent, function ($message) use ($request, $subject, $pdfPath, $pdfName) {
+                $message->to($request->email)
+                    ->subject($subject)
+                    ->attach($pdfPath, [
+                        'as' => $pdfName,
+                        'mime' => 'application/pdf',
+                    ]);
+            });
+
+            // Registrar el envío
+            Log::info("Ticket de apertura enviado por correo", [
+                'apertura_id' => $id,
+                'email' => $request->email,
+                'user_id' => auth()->id(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Ticket enviado exitosamente por correo electrónico',
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al enviar ticket de apertura por correo: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al enviar el ticket: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * TEST: Enviar email simple sin PDF para verificar configuración
+     */
+    public function testEnviarEmail(string $id): JsonResponse
+    {
+        try {
+            // Obtener la apertura más reciente
+            $apertura = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor'])
+                ->findOrFail($id);
+
+            $subject = 'TEST - Ticket de Apertura de Caja - ' . Carbon::parse($apertura->fecha_apertura)->format('d/m/Y H:i');
+
+            // Renderizar la vista HTML
+            $htmlContent = view('emails.ticket-apertura-simple', [
+                'apertura' => $apertura,
+                'subject' => $subject
+            ])->render();
+
+            // Enviar el correo SIN PDF adjunto (solo para test)
+            $emailDestino = 'victorcanchari61@gmail.com';
+            
+            Mail::html($htmlContent, function ($message) use ($emailDestino, $subject) {
+                $message->to($emailDestino)
+                    ->subject($subject);
+            });
+
+            Log::info("TEST: Email de apertura enviado", [
+                'apertura_id' => $id,
+                'email' => $emailDestino,
+                'fecha' => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Email de prueba enviado exitosamente a {$emailDestino}",
+                'data' => [
+                    'apertura_id' => $id,
+                    'email' => $emailDestino,
+                    'subject' => $subject,
+                    'fecha_envio' => now()->toIso8601String(),
+                ],
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('TEST: Error al enviar email: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al enviar el email de prueba: ' . $e->getMessage(),
+                'error_details' => $e->getTraceAsString(),
             ], 500);
         }
     }

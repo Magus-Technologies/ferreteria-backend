@@ -36,6 +36,10 @@ class AperturarCajaRequest extends FormRequest
             'conteo_billetes_monedas.moneda_050' => 'nullable|integer|min:0',
             'conteo_billetes_monedas.moneda_020' => 'nullable|integer|min:0',
             'conteo_billetes_monedas.moneda_010' => 'nullable|integer|min:0',
+            
+            // Opciones de envío de ticket
+            'enviar_ticket' => 'nullable|boolean',
+            'email_destino' => 'nullable|email',
         ];
     }
 

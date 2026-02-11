@@ -19,13 +19,14 @@ class UsuarioController extends Controller
     {
         $query = User::with(['empresa']);
 
-        // Filtro por búsqueda (nombre, email, documento)
+        // Filtro por búsqueda (nombre, email, documento, codigo)
         if ($request->has('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('numero_documento', 'like', "%{$search}%");
+                  ->orWhere('numero_documento', 'like', "%{$search}%")
+                  ->orWhere('codigo', 'like', "%{$search}%");
             });
         }
 
@@ -68,6 +69,7 @@ class UsuarioController extends Controller
             // Información personal
             'tipo_documento' => 'nullable|in:DNI,RUC,CE,PASAPORTE',
             'numero_documento' => 'nullable|string|max:20|unique:user,numero_documento',
+            'codigo' => 'nullable|string|size:4|unique:user,codigo',
             'telefono' => 'nullable|string|max:20',
             'celular' => 'nullable|string|max:20',
             'genero' => 'nullable|in:M,F,O',
@@ -105,6 +107,8 @@ class UsuarioController extends Controller
             'empresa_id.required' => 'La empresa es obligatoria',
             'empresa_id.exists' => 'La empresa no existe',
             'numero_documento.unique' => 'Este número de documento ya está registrado',
+            'codigo.size' => 'El código debe tener exactamente 4 dígitos',
+            'codigo.unique' => 'Este código ya está en uso',
             'tipo_documento.in' => 'El tipo de documento no es válido',
             'genero.in' => 'El género no es válido',
             'estado_civil.in' => 'El estado civil no es válido',
@@ -115,6 +119,12 @@ class UsuarioController extends Controller
                 'message' => $validator->errors()->first(),
                 'errors' => $validator->errors()
             ], 422);
+        }
+
+        // Si no se envía código, generar automáticamente
+        $codigo = $request->codigo;
+        if (!$codigo) {
+            $codigo = $this->generateUniqueCode();
         }
 
         $usuario = User::create([
@@ -129,6 +139,7 @@ class UsuarioController extends Controller
             // Información personal
             'tipo_documento' => $request->tipo_documento ?? 'DNI',
             'numero_documento' => $request->numero_documento,
+            'codigo' => $codigo,
             'telefono' => $request->telefono,
             'celular' => $request->celular,
             'genero' => $request->genero,
@@ -211,6 +222,7 @@ class UsuarioController extends Controller
             // Información personal
             'tipo_documento' => 'nullable|in:DNI,RUC,CE,PASAPORTE',
             'numero_documento' => 'nullable|string|max:20|unique:user,numero_documento,' . $id,
+            'codigo' => 'nullable|string|size:4|unique:user,codigo,' . $id,
             'telefono' => 'nullable|string|max:20',
             'celular' => 'nullable|string|max:20',
             'genero' => 'nullable|in:M,F,O',
@@ -249,6 +261,8 @@ class UsuarioController extends Controller
             'empresa_id.required' => 'La empresa es obligatoria',
             'empresa_id.exists' => 'La empresa no existe',
             'numero_documento.unique' => 'Este número de documento ya está registrado',
+            'codigo.size' => 'El código debe tener exactamente 4 dígitos',
+            'codigo.unique' => 'Este código ya está en uso',
         ]);
 
         if ($validator->fails()) {
@@ -282,6 +296,9 @@ class UsuarioController extends Controller
         }
         if ($request->has('numero_documento')) {
             $usuario->numero_documento = $request->numero_documento;
+        }
+        if ($request->has('codigo')) {
+            $usuario->codigo = $request->codigo;
         }
         if ($request->has('telefono')) {
             $usuario->telefono = $request->telefono;
@@ -472,5 +489,27 @@ class UsuarioController extends Controller
                 $usuario->roles()->sync([$role->id]);
             }
         }
+    }
+
+    /**
+     * Generar código único de 4 dígitos secuencial
+     */
+    private function generateUniqueCode(): string
+    {
+        // Obtener el último código usado
+        $lastUser = User::orderBy('codigo', 'desc')->first();
+        
+        if (!$lastUser || !$lastUser->codigo) {
+            return '0001';
+        }
+        
+        $lastCode = intval($lastUser->codigo);
+        $newCode = $lastCode + 1;
+        
+        if ($newCode > 9999) {
+            throw new \Exception('Se ha alcanzado el límite de códigos disponibles (9999)');
+        }
+        
+        return str_pad($newCode, 4, '0', STR_PAD_LEFT);
     }
 }

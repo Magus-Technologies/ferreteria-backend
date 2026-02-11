@@ -63,7 +63,7 @@ class ProveedorController extends Controller
             'email' => 'nullable|email|max:191',
             'estado' => 'required|boolean',
             'vendedores' => 'nullable|array',
-            'vendedores.*.dni' => 'required|string|size:8|unique:vendedor,dni',
+            'vendedores.*.dni' => 'required|string|size:8',
             'vendedores.*.nombres' => 'required|string|max:191',
             'vendedores.*.direccion' => 'nullable|string|max:191',
             'vendedores.*.telefono' => 'nullable|string|max:191',
@@ -73,7 +73,7 @@ class ProveedorController extends Controller
             'carros' => 'nullable|array',
             'carros.*.placa' => 'required|string|max:191',
             'choferes' => 'nullable|array',
-            'choferes.*.dni' => 'required|string|size:8|unique:chofer,dni',
+            'choferes.*.dni' => 'required|string|size:8',
             'choferes.*.name' => 'required|string|max:191',
             'choferes.*.licencia' => 'required|string|max:191',
         ], [
@@ -81,9 +81,7 @@ class ProveedorController extends Controller
             'razon_social.unique' => 'Ya existe un proveedor con esta razón social',
             'ruc.required' => 'El RUC es requerido',
             'ruc.unique' => 'Ya existe un proveedor con este RUC',
-            'vendedores.*.dni.unique' => 'Ya existe un vendedor con este DNI',
             'vendedores.*.dni.size' => 'El DNI debe tener 8 dígitos',
-            'choferes.*.dni.unique' => 'Ya existe un chofer con este DNI',
             'choferes.*.dni.size' => 'El DNI debe tener 8 dígitos',
         ]);
 

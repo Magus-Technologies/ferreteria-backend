@@ -288,9 +288,173 @@ class CotizacionController extends Controller
      */
     public function update(Request $request, string $id): JsonResponse
     {
-        // TODO: Implementar lógica de actualización
-        // Considerar: devolver stock si se cambia reservar_stock de true a false
-        return response()->json(['message' => 'Actualización pendiente de implementar'], 501);
+        $cotizacion = Cotizacion::with([
+            'productosPorAlmacen.unidadesDerivadas'
+        ])->findOrFail($id);
+
+        // No permitir editar cotizaciones convertidas a venta, vendidas o canceladas
+        if (in_array($cotizacion->estado_cotizacion, ['co', 've', 'ca'])) {
+            return response()->json([
+                'message' => 'No se puede editar una cotización confirmada, vendida o cancelada'
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'fecha' => 'sometimes|date',
+            'vigencia_dias' => 'sometimes|integer|min:1',
+            'tipo_moneda' => 'sometimes|in:Soles,Dólares',
+            'tipo_de_cambio' => 'sometimes|numeric|min:0',
+            'observaciones' => 'nullable|string',
+            'reservar_stock' => 'sometimes|boolean',
+            'cliente_id' => 'nullable|integer|exists:cliente,id',
+            'ruc_dni' => 'nullable|string',
+            'telefono' => 'nullable|string',
+            'direccion' => 'nullable|string',
+            'tipo_documento' => 'nullable|string',
+            'forma_de_pago' => 'nullable|in:Contado,Crédito',
+            'almacen_id' => 'sometimes|integer|exists:almacen,id',
+            'productos' => 'sometimes|array',
+            'productos.*.producto_id' => 'required|integer|exists:producto,id',
+            'productos.*.unidad_derivada_id' => 'required|integer|exists:unidadderivada,id',
+            'productos.*.unidad_derivada_factor' => 'required|numeric|min:0.001',
+            'productos.*.cantidad' => 'required|numeric|min:0.001',
+            'productos.*.precio_venta' => 'required|numeric|min:0',
+            'productos.*.recargo' => 'nullable|numeric|min:0',
+            'productos.*.descuento_tipo' => 'nullable|in:m,p,%',
+            'productos.*.descuento' => 'nullable|numeric|min:0',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $reservarStockAnterior = $cotizacion->reservar_stock;
+            $almacenIdAnterior = $cotizacion->almacen_id;
+
+            // Si cambia reservar_stock de true a false, devolver stock
+            if ($reservarStockAnterior && isset($validated['reservar_stock']) && !$validated['reservar_stock']) {
+                foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
+                    $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
+                    if ($productoAlmacen) {
+                        foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
+                            $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
+                            $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+                        }
+                    }
+                }
+            }
+
+            // Si cambia reservar_stock de false a true, reservar stock
+            $reservarStockNuevo = $validated['reservar_stock'] ?? $cotizacion->reservar_stock;
+            if (!$reservarStockAnterior && $reservarStockNuevo) {
+                foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
+                    $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
+                    if ($productoAlmacen) {
+                        foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
+                            $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
+                            $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+                        }
+                    }
+                }
+            }
+
+            // Actualizar datos básicos de la cotización
+            $cotizacion->update(array_filter($validated, function($key) {
+                return !in_array($key, ['productos']);
+            }, ARRAY_FILTER_USE_KEY));
+
+            // Si se cambian los productos, eliminar los anteriores y crear nuevos
+            if (isset($validated['productos'])) {
+                // Primero devolver stock de productos anteriores si estaba reservado
+                if ($cotizacion->reservar_stock) {
+                    foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
+                        $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
+                        if ($productoAlmacen) {
+                            foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
+                                $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
+                                $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+                            }
+                        }
+                    }
+                }
+
+                // Eliminar productos anteriores
+                ProductoAlmacenCotizacion::where('cotizacion_id', $cotizacion->id)->delete();
+
+                // Crear nuevos productos
+                $productosAgrupados = collect($validated['productos'])->groupBy('producto_id');
+
+                foreach ($productosAgrupados as $productoId => $unidadesDelProducto) {
+                    $productoAlmacen = ProductoAlmacen::where('producto_id', $productoId)
+                        ->where('almacen_id', $cotizacion->almacen_id)
+                        ->first();
+
+                    if (!$productoAlmacen) {
+                        throw new \Exception("Producto ID {$productoId} no encontrado en almacén {$cotizacion->almacen_id}");
+                    }
+
+                    $productoAlmacenCotizacion = ProductoAlmacenCotizacion::create([
+                        'cotizacion_id' => $cotizacion->id,
+                        'producto_almacen_id' => $productoAlmacen->id,
+                        'costo' => $productoAlmacen->costo,
+                    ]);
+
+                    foreach ($unidadesDelProducto as $productoData) {
+                        $unidadDerivada = \App\Models\UnidadDerivada::find($productoData['unidad_derivada_id']);
+                        $nombreUnidad = $unidadDerivada ? $unidadDerivada->name : 'UNIDAD';
+
+                        $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                            ['name' => $nombreUnidad]
+                        );
+
+                        UnidadDerivadaInmutableCotizacion::create([
+                            'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
+                            'producto_almacen_cotizacion_id' => $productoAlmacenCotizacion->id,
+                            'factor' => $productoData['unidad_derivada_factor'],
+                            'cantidad' => $productoData['cantidad'],
+                            'precio' => $productoData['precio_venta'],
+                            'recargo' => $productoData['recargo'] ?? 0,
+                            'descuento_tipo' => $productoData['descuento_tipo'] ?? 'm',
+                            'descuento' => $productoData['descuento'] ?? 0,
+                        ]);
+
+                        // Reservar stock de nuevos productos si aplica
+                        if ($cotizacion->reservar_stock) {
+                            $cantidadEnFraccion = $productoData['cantidad'] * $productoData['unidad_derivada_factor'];
+                            $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+                        }
+                    }
+                }
+            }
+
+            // Recalcular fecha de vencimiento si cambia vigencia_dias o fecha
+            if (isset($validated['vigencia_dias']) || isset($validated['fecha'])) {
+                $fecha = $validated['fecha'] ?? $cotizacion->fecha;
+                $vigenciaDias = $validated['vigencia_dias'] ?? $cotizacion->vigencia_dias;
+                $cotizacion->fecha_vencimiento = \Carbon\Carbon::parse($fecha)->addDays($vigenciaDias);
+                $cotizacion->save();
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Cotización actualizada exitosamente',
+                'data' => $cotizacion->load([
+                    'cliente',
+                    'user',
+                    'almacen',
+                    'productosPorAlmacen.productoAlmacen.producto',
+                    'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                ])
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Error al actualizar cotización: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error al actualizar la cotización',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

@@ -11,6 +11,7 @@ use App\Http\Controllers\EntregaProductoController;
 use App\Http\Controllers\PaqueteController;
 use App\Http\Controllers\SerieDocumentoController;
 use App\Http\Controllers\ChoferController;
+use App\Http\Controllers\RecepcionAlmacenController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -27,7 +28,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // VENTAS
     // ============================================
-    Route::apiResource('ventas', VentaController::class);
+    Route::apiResource('ventas', VentaController::class)->middleware('caja.abierta');
 
     // ============================================
     // COMPRAS
@@ -51,13 +52,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PRÉSTAMOS (Clientes)
     // ============================================
-    Route::prefix('prestamos')->group(function () {
+    Route::prefix('prestamos')->middleware('caja.abierta')->group(function () {
         Route::get('/siguiente-numero/preview', [PrestamoController::class, 'siguienteNumero']);
         Route::get('/{id}/pagos', [PrestamoController::class, 'listarPagos']);
         Route::post('/{id}/pagos', [PrestamoController::class, 'registrarPago']);
         Route::delete('/{prestamo_id}/pagos/{pago_id}', [PrestamoController::class, 'eliminarPago']);
     });
-    Route::apiResource('prestamos', PrestamoController::class);
+    Route::apiResource('prestamos', PrestamoController::class)->middleware('caja.abierta');
 
     // ============================================
     // CLIENTES
@@ -75,6 +76,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // INGRESOS Y SALIDAS (Inventario)
     // ============================================
     Route::apiResource('ingresos-salidas', IngresoSalidaController::class);
+
+    // ============================================
+    // RECEPCIONES DE ALMACÉN
+    // ============================================
+    Route::apiResource('recepciones-almacen', RecepcionAlmacenController::class)->only(['index', 'show', 'store', 'destroy']);
 
     // ============================================
     // ENTREGAS DE PRODUCTOS
