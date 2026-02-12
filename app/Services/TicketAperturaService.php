@@ -10,8 +10,11 @@ class TicketAperturaService
 {
     /**
      * Generar HTML del ticket de apertura para envío por correo
+     * 
+     * @param AperturaCierreCaja $apertura
+     * @param string|null $userId Si se proporciona, solo muestra la distribución de ese usuario
      */
-    public function generarTicketHTML(AperturaCierreCaja $apertura): string
+    public function generarTicketHTML(AperturaCierreCaja $apertura, ?string $userId = null): string
     {
         $fechaApertura = $apertura->fecha_apertura ? 
             Carbon::parse($apertura->fecha_apertura)->format('d/m/Y h:i:s a') : 'N/A';
@@ -19,7 +22,15 @@ class TicketAperturaService
         // Cargar distribuciones de vendedores
         $apertura->load(['distribucionesVendedores.vendedor', 'cajaPrincipal', 'user']);
 
-        $distribuciones = $apertura->distribucionesVendedores->map(function ($dist) {
+        // Filtrar distribuciones si se proporciona un userId
+        $distribuciones = $apertura->distribucionesVendedores;
+        if ($userId) {
+            $distribuciones = $distribuciones->filter(function ($dist) use ($userId) {
+                return $dist->user_id === $userId;
+            });
+        }
+
+        $distribuciones = $distribuciones->map(function ($dist) {
             return [
                 'vendedor' => $dist->vendedor->name,
                 'monto' => $dist->monto,
@@ -39,8 +50,11 @@ class TicketAperturaService
 
     /**
      * Generar PDF del ticket de apertura
+     * 
+     * @param AperturaCierreCaja $apertura
+     * @param string|null $userId Si se proporciona, solo muestra la distribución de ese usuario
      */
-    public function generarTicketPDF(AperturaCierreCaja $apertura): \Barryvdh\DomPDF\PDF
+    public function generarTicketPDF(AperturaCierreCaja $apertura, ?string $userId = null): \Barryvdh\DomPDF\PDF
     {
         $fechaApertura = $apertura->fecha_apertura ? 
             Carbon::parse($apertura->fecha_apertura)->format('d/m/Y h:i:s a') : 'N/A';
@@ -48,7 +62,15 @@ class TicketAperturaService
         // Cargar distribuciones de vendedores
         $apertura->load(['distribucionesVendedores.vendedor', 'cajaPrincipal', 'user']);
 
-        $distribuciones = $apertura->distribucionesVendedores->map(function ($dist) {
+        // Filtrar distribuciones si se proporciona un userId
+        $distribuciones = $apertura->distribucionesVendedores;
+        if ($userId) {
+            $distribuciones = $distribuciones->filter(function ($dist) use ($userId) {
+                return $dist->user_id === $userId;
+            });
+        }
+
+        $distribuciones = $distribuciones->map(function ($dist) {
             return [
                 'vendedor' => $dist->vendedor->name,
                 'monto' => $dist->monto,

@@ -18,11 +18,11 @@ class CajaPrincipalRepository implements CajaPrincipalRepositoryInterface
         return CajaPrincipal::where('codigo', $codigo)->first();
     }
 
-    public function findByUserId(string $userId): ?CajaPrincipal
+    public function findByUserId(string $userId): Collection
     {
         return CajaPrincipal::where('user_id', $userId)
             ->with(['user', 'subCajas'])
-            ->first();
+            ->get();
     }
 
     public function getAll(): Collection
@@ -64,10 +64,5 @@ class CajaPrincipalRepository implements CajaPrincipalRepositoryInterface
         $nuevoNumero = $ultimoNumero + 1;
 
         return 'V'.str_pad($nuevoNumero, 2, '0', STR_PAD_LEFT);
-    }
-
-    public function existeCodigoParaUsuario(string $userId): bool
-    {
-        return CajaPrincipal::where('user_id', $userId)->exists();
     }
 }

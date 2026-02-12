@@ -11,7 +11,7 @@ interface CajaPrincipalRepositoryInterface
     
     public function findByCodigo(string $codigo): ?CajaPrincipal;
     
-    public function findByUserId(string $userId): ?CajaPrincipal;
+    public function findByUserId(string $userId): Collection;
     
     public function getAll(): Collection;
     
@@ -22,6 +22,4 @@ interface CajaPrincipalRepositoryInterface
     public function delete(int $id): bool;
     
     public function generarSiguienteCodigo(): string;
-    
-    public function existeCodigoParaUsuario(string $userId): bool;
 }

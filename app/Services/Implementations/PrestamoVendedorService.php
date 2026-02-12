@@ -22,11 +22,19 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 {
     public function crearSolicitud(CrearSolicitudEfectivoDTO $dto, int|string $vendedorSolicitanteId): array
     {
-        // Verificar efectivo disponible del prestamista
-        $efectivoDisponible = $this->calcularEfectivoDisponible($dto->aperturaId, $dto->vendedorPrestamistaId);
+        // Obtener el prestamista para verificar si es admin
+        $prestamista = \App\Models\User::find($dto->vendedorPrestamistaId);
+        
+        // Si el prestamista es admin, NO validar efectivo disponible
+        $esAdmin = $prestamista && ($prestamista->hasRole('admin') || $prestamista->hasRole('administrador'));
+        
+        if (!$esAdmin) {
+            // Solo validar efectivo disponible si el prestamista NO es admin
+            $efectivoDisponible = $this->calcularEfectivoDisponible($dto->aperturaId, $dto->vendedorPrestamistaId);
 
-        if ($efectivoDisponible < $dto->montoSolicitado) {
-            throw new EfectivoInsuficienteException($efectivoDisponible, $dto->montoSolicitado);
+            if ($efectivoDisponible < $dto->montoSolicitado) {
+                throw new EfectivoInsuficienteException($efectivoDisponible, $dto->montoSolicitado);
+            }
         }
 
         $solicitud = SolicitudEfectivoVendedor::create([
@@ -429,6 +437,27 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 
     public function calcularEfectivoDisponible(string $aperturaId, int|string $vendedorId): float
     {
+        // Obtener la apertura para saber la caja principal
+        $apertura = \App\Models\AperturaCierreCaja::find($aperturaId);
+        
+        if (!$apertura) {
+            // Intentar con tabla legacy
+            $aperturaLegacy = \App\Models\AperturaYCierreCaja::find($aperturaId);
+            if (!$aperturaLegacy) {
+                return 0;
+            }
+            
+            $cajaPrincipal = \App\Models\CajaPrincipal::where('user_id', $aperturaLegacy->user_id)->first();
+            if (!$cajaPrincipal) {
+                return 0;
+            }
+            
+            $cajaPrincipalId = $cajaPrincipal->id;
+        } else {
+            $cajaPrincipalId = $apertura->caja_principal_id;
+        }
+
+        // Verificar que el vendedor tenga distribución
         $distribucion = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaId)
             ->where('user_id', $vendedorId)
             ->first();
@@ -437,17 +466,8 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             return 0;
         }
 
-        $efectivoInicial = $distribucion->monto;
-
-        $prestamosDados = TransferenciaEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaId)
-            ->where('vendedor_origen_id', $vendedorId)
-            ->sum('monto');
-
-        $prestamosRecibidos = TransferenciaEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaId)
-            ->where('vendedor_destino_id', $vendedorId)
-            ->sum('monto');
-
-        return $efectivoInicial - $prestamosDados + $prestamosRecibidos;
+        // Calcular efectivo real en Caja Chica considerando todas las transacciones
+        return $this->calcularEfectivoEnCajaChica($cajaPrincipalId, $vendedorId);
     }
 
     public function listarTransferencias(int|string $vendedorId): array

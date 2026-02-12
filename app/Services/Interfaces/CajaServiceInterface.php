@@ -4,6 +4,7 @@ namespace App\Services\Interfaces;
 
 use App\Models\CajaPrincipal;
 use App\Models\SubCaja;
+use Illuminate\Database\Eloquent\Collection;
 
 interface CajaServiceInterface
 {
@@ -15,7 +16,7 @@ interface CajaServiceInterface
     
     public function eliminarSubCaja(int $subCajaId): bool;
     
-    public function obtenerCajaPorUsuario(string $userId): ?CajaPrincipal;
+    public function obtenerCajaPorUsuario(string $userId): Collection;
     
     public function obtenerSubCajas(int $cajaPrincipalId): array;
 }

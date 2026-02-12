@@ -53,7 +53,7 @@ class CierreCajaController extends Controller
                     'cajaPrincipal',
                     'subCaja',
                     'user',
-                    'supervisor',
+                    'supervisorValidador',
                     'distribucionesVendedores.vendedor'
                 ]);
 
@@ -365,7 +365,7 @@ class CierreCajaController extends Controller
                 'cajaPrincipal',
                 'subCaja',
                 'user',
-                'supervisor',
+                'supervisorValidador',
                 'distribucionesVendedores.vendedor'
             ])->find($id);
             

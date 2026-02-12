@@ -11,6 +11,7 @@ use App\Models\DespliegueDePago;
 use App\Repositories\Interfaces\CajaPrincipalRepositoryInterface;
 use App\Repositories\Interfaces\SubCajaRepositoryInterface;
 use App\Services\Interfaces\CajaServiceInterface;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -338,7 +339,7 @@ class CajaService implements CajaServiceInterface
         });
     }
 
-    public function obtenerCajaPorUsuario(string $userId): ?CajaPrincipal
+    public function obtenerCajaPorUsuario(string $userId): Collection
     {
         return $this->cajaPrincipalRepository->findByUserId($userId);
     }

@@ -26,11 +26,25 @@ class ValidateCajaAbierta
             ], 401);
         }
 
-        // Verificar si el usuario tiene una caja abierta
+        // Los administradores están exentos de la validación de caja abierta
+        if ($user->hasRole('admin') || $user->hasRole('administrador')) {
+            return $next($request);
+        }
+
+        // Verificar si el usuario tiene una caja abierta (sin importar la fecha de apertura)
+        // Opción 1: El usuario creó la apertura
         $cajaAbierta = AperturaCierreCaja::where('user_id', $user->id)
             ->where('estado', 'abierta')
-            ->whereDate('fecha_apertura', today())
             ->first();
+
+        // Opción 2: El usuario tiene una distribución de efectivo en una apertura abierta
+        if (!$cajaAbierta) {
+            $cajaAbierta = AperturaCierreCaja::where('estado', 'abierta')
+                ->whereHas('distribucionesVendedores', function ($query) use ($user) {
+                    $query->where('user_id', $user->id);
+                })
+                ->first();
+        }
 
         if (!$cajaAbierta) {
             throw new CajaCerradaException('Debe aperturar una caja antes de realizar esta operación');

@@ -138,13 +138,22 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // Préstamos entre Vendedores
-        Route::prefix('prestamos-vendedores')->middleware('caja.abierta')->group(function () {
+        Route::prefix('prestamos-vendedores')->group(function () {
+            // Consultas (NO requieren caja abierta)
             Route::get('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'listarSolicitudes']);
             Route::get('/pendientes', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'solicitudesPendientes']);
-            Route::post('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'crearSolicitud']);
-            Route::post('/{id}/aprobar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'aprobarSolicitud']);
-            Route::post('/{id}/rechazar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'rechazarSolicitud']);
             Route::get('/transferencias', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'listarTransferencias']);
+            
+            // Crear solicitud NO requiere caja abierta (solo necesita tener distribución)
+            Route::post('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'crearSolicitud']);
+            
+            // Rechazar NO requiere caja abierta (solo es cambiar estado)
+            Route::post('/{id}/rechazar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'rechazarSolicitud']);
+            
+            // Aprobar SÍ requiere caja abierta (involucra transferencia de dinero)
+            Route::middleware('caja.abierta')->group(function () {
+                Route::post('/{id}/aprobar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'aprobarSolicitud']);
+            });
         });
 
         // Vendedores con efectivo

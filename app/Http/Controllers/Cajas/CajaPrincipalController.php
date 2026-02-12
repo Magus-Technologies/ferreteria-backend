@@ -110,27 +110,19 @@ class CajaPrincipalController extends Controller
     }
 
     /**
-     * Obtener caja principal por usuario
+     * Obtener cajas principales por usuario
      */
     public function getByUser(Request $request): JsonResponse
     {
         try {
             $userId = $request->query('user_id', auth()->id());
-            $caja = $this->cajaPrincipalRepository->findByUserId($userId);
-
-            if (!$caja) {
-                // En lugar de error, retornar null para que el frontend maneje
-                return response()->json([
-                    'success' => true,
-                    'data' => null,
-                    'message' => 'El usuario no tiene una caja asignada',
-                ], 200);
-            }
+            $cajas = $this->cajaPrincipalRepository->findByUserId($userId);
 
             return response()->json([
                 'success' => true,
-                'data' => new CajaPrincipalResource($caja),
-            ]);
+                'data' => CajaPrincipalResource::collection($cajas),
+                'message' => $cajas->isEmpty() ? 'El usuario no tiene cajas asignadas' : null,
+            ], 200);
 
         } catch (\Exception $e) {
             return response()->json([

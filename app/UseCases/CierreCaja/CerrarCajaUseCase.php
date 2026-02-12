@@ -74,6 +74,9 @@ class CerrarCajaUseCase
             // Solo actualizamos los datos del cierre pero mantenemos estado='abierta'
             $apertura->update([
                 'monto_cierre' => $dto->montoCierre,
+                'monto_cierre_efectivo' => $dto->montoCierreEfectivo,
+                'monto_cierre_cuentas' => $dto->montoCierreCuentas,
+                'conteo_billetes_monedas' => $dto->conteoBilletesMonedas ? json_encode($dto->conteoBilletesMonedas) : null,
                 'comentarios' => $dto->observaciones,
                 'email_reporte' => $dto->emailReporte ?? null,
                 'whatsapp_reporte' => $dto->whatsappReporte ?? null,

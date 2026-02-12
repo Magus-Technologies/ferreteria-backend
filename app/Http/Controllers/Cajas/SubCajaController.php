@@ -286,12 +286,23 @@ class SubCajaController extends Controller
         try {
             $userId = auth()->id();
             
+            \Log::info('🔍 getTodasConSaldoVendedor', ['user_id' => $userId]);
+            
             // Obtener TODAS las sub-cajas activas
             $subCajas = \App\Models\SubCaja::where('estado', true)->get();
             
             $subCajasConSaldo = $subCajas->map(function ($subCaja) use ($userId) {
                 // Calcular saldo del vendedor en esta sub-caja
                 $saldoVendedor = $this->calcularSaldoVendedorEnSubCaja($subCaja->id, $userId);
+                
+                // Obtener métodos de pago con sus saldos individuales
+                $metodosPago = $this->obtenerMetodosPagoConSaldo($subCaja, $userId);
+                
+                \Log::info('📊 Sub-caja procesada', [
+                    'sub_caja' => $subCaja->nombre,
+                    'saldo_total' => $saldoVendedor,
+                    'metodos_count' => count($metodosPago),
+                ]);
                 
                 return [
                     'id' => $subCaja->id,
@@ -301,7 +312,7 @@ class SubCajaController extends Controller
                     'caja_principal_id' => $subCaja->caja_principal_id,
                     'saldo_actual' => $subCaja->saldo_actual, // Saldo total
                     'saldo_vendedor' => $saldoVendedor, // Saldo del vendedor actual
-                    'despliegues_pago' => $subCaja->getDesplieguePagos(),
+                    'metodos_pago' => $metodosPago, // Métodos de pago con saldos individuales
                     'es_caja_chica' => $subCaja->esCajaChica(),
                 ];
             });
@@ -311,6 +322,11 @@ class SubCajaController extends Controller
                 'data' => $subCajasConSaldo,
             ]);
         } catch (\Exception $e) {
+            \Log::error('❌ Error en getTodasConSaldoVendedor', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener sub-cajas: ' . $e->getMessage(),
@@ -640,6 +656,91 @@ class SubCajaController extends Controller
                 'message' => 'Error al obtener sub-cajas: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Obtener métodos de pago de una sub-caja con sus saldos individuales para el vendedor
+     */
+    private function obtenerMetodosPagoConSaldo($subCaja, string|int $userId): array
+    {
+        $desplieguePagos = $subCaja->getDesplieguePagos();
+        $metodosPago = [];
+        
+        foreach ($desplieguePagos as $despliegue) {
+            // Calcular saldo del vendedor para este método de pago específico
+            $saldo = $this->calcularSaldoVendedorPorMetodoPago($subCaja->id, $userId, $despliegue->id);
+            
+            $metodosPago[] = [
+                'despliegue_pago_id' => $despliegue->id,
+                'nombre' => $despliegue->name,
+                'metodo_de_pago_id' => $despliegue->metodo_de_pago_id,
+                'metodo_de_pago_nombre' => $despliegue->metodoDePago->name ?? 'Sin nombre',
+                'cuenta_bancaria' => $despliegue->metodoDePago->cuenta_bancaria ?? null,
+                'nombre_titular' => $despliegue->metodoDePago->nombre_titular ?? null,
+                'saldo_vendedor' => $saldo,
+            ];
+        }
+        
+        return $metodosPago;
+    }
+    
+    /**
+     * Calcular saldo del vendedor para un método de pago específico en una sub-caja
+     */
+    private function calcularSaldoVendedorPorMetodoPago(int $subCajaId, string|int $userId, string $desplieguePagoId): string
+    {
+        $subCaja = \App\Models\SubCaja::find($subCajaId);
+        if (!$subCaja) {
+            return '0.00';
+        }
+        
+        $montoInicial = 0;
+        
+        // Solo si es Caja Chica Y el método es efectivo, considerar la distribución inicial
+        if ($subCaja->esCajaChica()) {
+            // Verificar si este despliegue es efectivo
+            $despliegue = \App\Models\DespliegueDePago::find($desplieguePagoId);
+            if ($despliegue && $despliegue->metodoDePago) {
+                $esEfectivo = (empty($despliegue->metodoDePago->cuenta_bancaria) || 
+                              $despliegue->metodoDePago->cuenta_bancaria === 'SIN-CUENTA') &&
+                             (stripos($despliegue->metodoDePago->name, 'efectivo') !== false);
+                
+                if ($esEfectivo) {
+                    // Obtener la apertura activa de la caja principal
+                    $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+                        ->whereNull('fecha_cierre')
+                        ->first();
+                    
+                    if ($aperturaActiva) {
+                        // Sumar solo las distribuciones de efectivo del vendedor
+                        $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                            ->where('user_id', $userId)
+                            ->get();
+                        
+                        $montoInicial = $distribuciones->sum('monto');
+                    }
+                }
+            }
+        }
+        
+        // Calcular transacciones para este método de pago específico
+        // EXCLUIR transacciones de tipo "apertura" para evitar duplicar las distribuciones
+        $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
+            ->where('user_id', $userId)
+            ->where('despliegue_pago_id', $desplieguePagoId)
+            ->where(function ($query) {
+                $query->whereNull('referencia_tipo')
+                      ->orWhere('referencia_tipo', '!=', 'apertura');
+            })
+            ->get();
+        
+        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+        
+        // Saldo = Monto inicial (solo efectivo en Caja Chica) + Ingresos - Egresos
+        $saldo = $montoInicial + $ingresos - $egresos;
+        
+        return number_format($saldo, 2, '.', '');
     }
 
     /**

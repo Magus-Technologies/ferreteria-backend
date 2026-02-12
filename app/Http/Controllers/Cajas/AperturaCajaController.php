@@ -139,6 +139,54 @@ class AperturaCajaController extends Controller
                     
                     $aperturaActiva->load(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
                     
+                    // ✅ Enviar email automáticamente si está habilitado (IGUAL QUE EN NUEVA APERTURA)
+                    if ($enviarTicket && $emailDestino) {
+                        try {
+                            $ticketService = app(\App\Services\TicketAperturaService::class);
+                            $subject = 'Ticket de Apertura de Caja - ' . Carbon::parse($aperturaActiva->fecha_apertura)->format('d/m/Y H:i');
+                            
+                            // Determinar si debe filtrar por usuario
+                            // Si el usuario que solicita es vendedor (no admin), filtrar por su ID
+                            $filterUserId = null;
+                            $esAdmin = auth()->user()->hasRole('admin') || auth()->user()->hasRole('administrador');
+                            $esVendedorDistribuido = $aperturaActiva->distribucionesVendedores->contains('user_id', auth()->id());
+                            
+                            if (!$esAdmin && $esVendedorDistribuido) {
+                                $filterUserId = auth()->id();
+                            }
+                            
+                            // Generar HTML para el cuerpo del email
+                            $htmlContent = $ticketService->generarTicketHTML($aperturaActiva, $filterUserId);
+                            
+                            // Generar PDF
+                            $pdf = $ticketService->generarTicketPDF($aperturaActiva, $filterUserId);
+                            $pdfContent = $pdf->output();
+                            $pdfName = 'ticket-apertura-' . $aperturaActiva->id . '.pdf';
+                            
+                            // Enviar email con PDF adjunto
+                            Mail::html($htmlContent, function ($message) use ($emailDestino, $subject, $pdfContent, $pdfName) {
+                                $message->to($emailDestino)
+                                    ->subject($subject)
+                                    ->attachData($pdfContent, $pdfName, [
+                                        'mime' => 'application/pdf',
+                                    ]);
+                            });
+                            
+                            Log::info("Email de apertura con PDF enviado automáticamente (apertura existente)", [
+                                'apertura_id' => $aperturaActiva->id,
+                                'email' => $emailDestino,
+                                'filtrado_por_usuario' => $filterUserId ? 'Sí' : 'No',
+                            ]);
+                        } catch (\Exception $emailError) {
+                            // No fallar la apertura si el email falla
+                            Log::warning("Error al enviar email de apertura automático (apertura existente): " . $emailError->getMessage(), [
+                                'apertura_id' => $aperturaActiva->id,
+                                'email' => $emailDestino,
+                                'trace' => $emailError->getTraceAsString(),
+                            ]);
+                        }
+                    }
+                    
                     return response()->json([
                         'success' => true,
                         'message' => "Efectivo distribuido exitosamente. Nuevo saldo: S/. {$cajaChica->saldo_actual}",
@@ -212,11 +260,21 @@ class AperturaCajaController extends Controller
                         $ticketService = app(\App\Services\TicketAperturaService::class);
                         $subject = 'Ticket de Apertura de Caja - ' . Carbon::parse($apertura->fecha_apertura)->format('d/m/Y H:i');
                         
+                        // Determinar si debe filtrar por usuario
+                        // Si el usuario que solicita es vendedor (no admin), filtrar por su ID
+                        $filterUserId = null;
+                        $esAdmin = auth()->user()->hasRole('admin') || auth()->user()->hasRole('administrador');
+                        $esVendedorDistribuido = $apertura->distribucionesVendedores->contains('user_id', auth()->id());
+                        
+                        if (!$esAdmin && $esVendedorDistribuido) {
+                            $filterUserId = auth()->id();
+                        }
+                        
                         // Generar HTML para el cuerpo del email
-                        $htmlContent = $ticketService->generarTicketHTML($apertura);
+                        $htmlContent = $ticketService->generarTicketHTML($apertura, $filterUserId);
                         
                         // Generar PDF
-                        $pdf = $ticketService->generarTicketPDF($apertura);
+                        $pdf = $ticketService->generarTicketPDF($apertura, $filterUserId);
                         $pdfContent = $pdf->output();
                         $pdfName = 'ticket-apertura-' . $apertura->id . '.pdf';
                         
@@ -232,6 +290,7 @@ class AperturaCajaController extends Controller
                         Log::info("Email de apertura con PDF enviado automáticamente", [
                             'apertura_id' => $apertura->id,
                             'email' => $emailDestino,
+                            'filtrado_por_usuario' => $filterUserId ? 'Sí' : 'No',
                         ]);
                     } catch (\Exception $emailError) {
                         // No fallar la apertura si el email falla
@@ -487,8 +546,12 @@ class AperturaCajaController extends Controller
             $apertura = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor'])
                 ->findOrFail($id);
             
-            // Verificar permisos
-            if ($apertura->user_id !== auth()->id() && !auth()->user()->hasRole(['admin', 'administrador'])) {
+            // Verificar permisos: puede enviar si es el usuario de la apertura, si es uno de los vendedores, o si es admin
+            $esUsuarioApertura = $apertura->user_id === auth()->id();
+            $esVendedorDistribuido = $apertura->distribucionesVendedores->contains('user_id', auth()->id());
+            $esAdmin = auth()->user()->hasRole('admin') || auth()->user()->hasRole('administrador');
+            
+            if (!$esUsuarioApertura && !$esVendedorDistribuido && !$esAdmin) {
                 return response()->json([
                     'success' => false,
                     'message' => 'No tienes permiso para enviar este ticket',
@@ -498,16 +561,21 @@ class AperturaCajaController extends Controller
             // Determinar el asunto
             $subject = 'Ticket de Apertura de Caja - ' . Carbon::parse($apertura->fecha_apertura)->format('d/m/Y');
 
+            // Determinar si debe filtrar por usuario
+            // Si es admin, muestra todo. Si es vendedor, solo su distribución
+            $userId = null;
+            if (!$esAdmin && $esVendedorDistribuido) {
+                $userId = auth()->id();
+            }
+
             // Obtener el archivo PDF
             $pdfFile = $request->file('pdf');
             $pdfPath = $pdfFile->getRealPath();
             $pdfName = 'ticket-apertura-' . $id . '.pdf';
 
-            // Renderizar la vista HTML (igual que el cierre)
-            $htmlContent = view('emails.ticket-apertura-simple', [
-                'apertura' => $apertura,
-                'subject' => $subject
-            ])->render();
+            // Renderizar la vista HTML con filtro de usuario
+            $ticketService = app(\App\Services\TicketAperturaService::class);
+            $htmlContent = $ticketService->generarTicketHTML($apertura, $userId);
 
             // Enviar el correo con el PDF adjunto (igual que el cierre)
             Mail::html($htmlContent, function ($message) use ($request, $subject, $pdfPath, $pdfName) {
