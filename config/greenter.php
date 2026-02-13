@@ -57,6 +57,16 @@ return [
     
     /*
     |--------------------------------------------------------------------------
+    | Envío Automático a SUNAT
+    |--------------------------------------------------------------------------
+    | Habilita o deshabilita el envío automático programado de comprobantes
+    | true = Envío automático ACTIVADO (Job se ejecuta diariamente)
+    | false = Envío automático DESACTIVADO (solo envío manual)
+    */
+    'auto_send_enabled' => env('GREENTER_AUTO_SEND_ENABLED', false),
+    
+    /*
+    |--------------------------------------------------------------------------
     | Endpoints SUNAT
     |--------------------------------------------------------------------------
     | URLs de los servicios web de SUNAT

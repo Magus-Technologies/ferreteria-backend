@@ -28,7 +28,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // VENTAS
     // ============================================
-    Route::apiResource('ventas', VentaController::class);
+    Route::apiResource('ventas', VentaController::class)->middleware('caja.abierta');
 
     // ============================================
     // COMPRAS
@@ -52,13 +52,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PRÉSTAMOS (Clientes)
     // ============================================
-    Route::prefix('prestamos')->group(function () {
+    Route::prefix('prestamos')->middleware('caja.abierta')->group(function () {
         Route::get('/siguiente-numero/preview', [PrestamoController::class, 'siguienteNumero']);
         Route::get('/{id}/pagos', [PrestamoController::class, 'listarPagos']);
         Route::post('/{id}/pagos', [PrestamoController::class, 'registrarPago']);
         Route::delete('/{prestamo_id}/pagos/{pago_id}', [PrestamoController::class, 'eliminarPago']);
     });
-    Route::apiResource('prestamos', PrestamoController::class);
+    Route::apiResource('prestamos', PrestamoController::class)->middleware('caja.abierta');
 
     // ============================================
     // CLIENTES

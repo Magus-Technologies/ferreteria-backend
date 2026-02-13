@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\DespliegueDePago;
+use App\Http\Resources\Cajas\DesplieguePagoResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -30,16 +31,16 @@ class DespliegueDePagoController extends Controller
         $items = $query->get();
 
         return response()->json([
-            'data' => $items
+            'data' => DesplieguePagoResource::collection($items)
         ]);
     }
 
     public function show(string $id): JsonResponse
     {
-        $item = DespliegueDePago::findOrFail($id);
+        $item = DespliegueDePago::with('metodoDePago')->findOrFail($id);
         
         return response()->json([
-            'data' => $item
+            'data' => new DesplieguePagoResource($item)
         ]);
     }
 
@@ -50,11 +51,6 @@ class DespliegueDePagoController extends Controller
                 'required',
                 'string',
                 'max:191',
-                // Validar que sea único solo para el mismo banco
-                \Illuminate\Validation\Rule::unique('desplieguedepago', 'name')
-                    ->where(function ($query) use ($request) {
-                        return $query->where('metodo_de_pago_id', $request->input('metodo_de_pago_id'));
-                    }),
             ],
             'metodo_de_pago_id' => 'nullable|string|exists:metododepago,id',
             'requiere_numero_serie' => 'sometimes|boolean',
@@ -75,10 +71,6 @@ class DespliegueDePagoController extends Controller
             'numero_celular.regex' => 'El número de celular solo puede contener números y símbolos +, -, ( )',
         ]);
 
-        // Generar ID único
-        $validated['id'] = (string) \Illuminate\Support\Str::ulid();
-        $validated['activo'] = true;
-
         // Si no se proporciona metodo_de_pago_id, crear uno genérico
         if (empty($validated['metodo_de_pago_id'])) {
             // Buscar o crear método de pago genérico "Sin Banco"
@@ -92,6 +84,24 @@ class DespliegueDePagoController extends Controller
             );
             $validated['metodo_de_pago_id'] = $metodoGenerico->id;
         }
+
+        // Validar que no exista el mismo nombre para el mismo banco
+        $existeDuplicado = DespliegueDePago::where('name', $validated['name'])
+            ->where('metodo_de_pago_id', $validated['metodo_de_pago_id'])
+            ->exists();
+
+        if ($existeDuplicado) {
+            return response()->json([
+                'message' => 'Ya existe un método con este nombre para este banco',
+                'errors' => [
+                    'name' => ['Ya existe un método con este nombre para este banco']
+                ]
+            ], 422);
+        }
+
+        // Generar ID único
+        $validated['id'] = (string) \Illuminate\Support\Str::ulid();
+        $validated['activo'] = true;
 
         $item = DespliegueDePago::create($validated);
 

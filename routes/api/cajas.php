@@ -88,7 +88,7 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // Transacciones
-        Route::prefix('transacciones')->group(function () {
+        Route::prefix('transacciones')->middleware('caja.abierta')->group(function () {
             Route::post('/', [TransaccionController::class, 'store']);
             Route::get('/{id}', [TransaccionController::class, 'show']);
         });
@@ -98,6 +98,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/consulta-apertura/{cajaPrincipalId}', [AperturaCajaController::class, 'consultaApertura']);
         Route::get('/historial-aperturas', [AperturaCajaController::class, 'historial']);
         Route::get('/historial-aperturas/todas', [AperturaCajaController::class, 'historialTodas']);
+        Route::post('/apertura/{id}/enviar-email', [AperturaCajaController::class, 'enviarTicketEmail']); // Enviar ticket de apertura por correo
+        Route::get('/apertura/{id}/test-email', [AperturaCajaController::class, 'testEnviarEmail']); // TEST: Enviar email sin PDF
 
         // Cierre de Caja
         Route::prefix('cierre')->group(function () {
@@ -120,7 +122,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{id}/cierre', [CierreCajaController::class, 'obtenerCierre']); // Alias legacy
 
         // Préstamos entre Cajas
-        Route::prefix('prestamos')->group(function () {
+        Route::prefix('prestamos')->middleware('caja.abierta')->group(function () {
             Route::get('/', [PrestamoEntreCajasController::class, 'index']);
             Route::get('/pendientes', [PrestamoEntreCajasController::class, 'pendientes']);
             Route::post('/', [PrestamoEntreCajasController::class, 'store']);
@@ -130,19 +132,28 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // Movimientos Internos
-        Route::prefix('movimientos-internos')->group(function () {
+        Route::prefix('movimientos-internos')->middleware('caja.abierta')->group(function () {
             Route::get('/', [MovimientoInternoController::class, 'index']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
         });
 
         // Préstamos entre Vendedores
         Route::prefix('prestamos-vendedores')->group(function () {
+            // Consultas (NO requieren caja abierta)
             Route::get('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'listarSolicitudes']);
             Route::get('/pendientes', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'solicitudesPendientes']);
-            Route::post('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'crearSolicitud']);
-            Route::post('/{id}/aprobar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'aprobarSolicitud']);
-            Route::post('/{id}/rechazar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'rechazarSolicitud']);
             Route::get('/transferencias', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'listarTransferencias']);
+            
+            // Crear solicitud NO requiere caja abierta (solo necesita tener distribución)
+            Route::post('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'crearSolicitud']);
+            
+            // Rechazar NO requiere caja abierta (solo es cambiar estado)
+            Route::post('/{id}/rechazar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'rechazarSolicitud']);
+            
+            // Aprobar SÍ requiere caja abierta (involucra transferencia de dinero)
+            Route::middleware('caja.abierta')->group(function () {
+                Route::post('/{id}/aprobar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'aprobarSolicitud']);
+            });
         });
 
         // Vendedores con efectivo

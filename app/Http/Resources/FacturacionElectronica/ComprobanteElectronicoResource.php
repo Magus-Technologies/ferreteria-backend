@@ -37,6 +37,8 @@ class ComprobanteElectronicoResource extends JsonResource
             'pdf_path' => $this->pdf_path,
             'hash' => $this->hash_cpe,
             'hash_cpe' => $this->hash_cpe,
+            'tiene_xml' => !empty($this->xml_path) || !empty($this->xml_firmado),
+            'tiene_cdr' => !empty($this->cdr_path),
             
             // Cliente
             'cliente' => $this->when($this->relationLoaded('cliente'), function () {

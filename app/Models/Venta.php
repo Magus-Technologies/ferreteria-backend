@@ -97,4 +97,19 @@ class Venta extends Model
     {
         return $this->hasOne(Cotizacion::class);
     }
+
+    public function comprobanteElectronico(): HasOne
+    {
+        return $this->hasOne(ComprobanteElectronico::class);
+    }
+
+    public function notasDebito(): HasMany
+    {
+        return $this->hasMany(NotaDebito::class);
+    }
+
+    public function notasCredito(): HasMany
+    {
+        return $this->hasMany(NotaCredito::class);
+    }
 }

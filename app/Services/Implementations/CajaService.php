@@ -11,6 +11,7 @@ use App\Models\DespliegueDePago;
 use App\Repositories\Interfaces\CajaPrincipalRepositoryInterface;
 use App\Repositories\Interfaces\SubCajaRepositoryInterface;
 use App\Services\Interfaces\CajaServiceInterface;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -24,11 +25,6 @@ class CajaService implements CajaServiceInterface
     public function crearCajaPrincipal(string $userId, string $nombre): CajaPrincipal
     {
         return DB::transaction(function () use ($userId, $nombre) {
-            // Verificar si el usuario ya tiene una caja
-            if ($this->cajaPrincipalRepository->existeCodigoParaUsuario($userId)) {
-                throw new \Exception('El usuario ya tiene una caja principal asignada');
-            }
-
             // Generar código
             $codigo = $this->cajaPrincipalRepository->generarSiguienteCodigo();
 
@@ -43,7 +39,7 @@ class CajaService implements CajaServiceInterface
             // Crear automáticamente la Caja Chica
             $cajaChica = $this->crearCajaChicaAutomatica($cajaPrincipal->id, $codigo);
             
-            // ✅ NUEVO: Crear apertura automática con monto 0
+            // NUEVO: Crear apertura automática con monto 0
             AperturaCierreCaja::create([
                 'id' => (string) Str::ulid(),
                 'caja_principal_id' => $cajaPrincipal->id,
@@ -128,7 +124,7 @@ class CajaService implements CajaServiceInterface
             // Generar código
             $codigo = $this->subCajaRepository->generarSiguienteCodigo($cajaPrincipal->codigo);
 
-            return $this->subCajaRepository->create([
+            $subCaja = $this->subCajaRepository->create([
                 'codigo' => $codigo,
                 'nombre' => $data['nombre'],
                 'caja_principal_id' => $cajaPrincipalId,
@@ -139,7 +135,155 @@ class CajaService implements CajaServiceInterface
                 'proposito' => $data['proposito'] ?? null,
                 'estado' => 1,
             ]);
+
+            // Registrar monto_inicial automáticamente si aplica
+            $this->registrarMontoInicialSiAplica($subCaja);
+
+            return $subCaja;
         });
+    }
+
+    /**
+     * Registrar monto_inicial automáticamente cuando se crea una sub-caja digital
+     * con métodos de pago que tienen monto_inicial configurado
+     */
+    private function registrarMontoInicialSiAplica(SubCaja $subCaja): void
+    {
+        // Solo para sub-cajas digitales (no Caja Chica)
+        if ($subCaja->tipo_caja === 'CC') {
+            return;
+        }
+
+        // Obtener los despliegues de pago de esta sub-caja
+        $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
+        
+        if (empty($desplieguePagoIds)) {
+            return;
+        }
+
+        // Obtener los despliegues con sus métodos de pago
+        $despliegues = DespliegueDePago::with('metodoDePago')
+            ->whereIn('id', $desplieguePagoIds)
+            ->get();
+
+        // Agrupar por método de pago (banco) para registrar solo una vez por banco
+        $bancosConMontoInicial = [];
+
+        foreach ($despliegues as $despliegue) {
+            $metodoPago = $despliegue->metodoDePago;
+            
+            if (!$metodoPago || $metodoPago->monto_inicial <= 0) {
+                continue;
+            }
+
+            // Verificar que sea un método digital (no efectivo)
+            $esEfectivo = $this->esMetodoEfectivo($metodoPago);
+            
+            if ($esEfectivo) {
+                \Log::info('Saltando monto_inicial para método efectivo', [
+                    'metodo_pago_id' => $metodoPago->id,
+                    'name' => $metodoPago->name,
+                ]);
+                continue;
+            }
+
+            // Verificar si ya se registró este banco
+            if (isset($bancosConMontoInicial[$metodoPago->id])) {
+                continue;
+            }
+
+            // Verificar si ya se registró el monto_inicial para este banco en CUALQUIER sub-caja de esta caja principal
+            $yaRegistrado = \App\Models\TransaccionCaja::whereHas('subCaja', function($query) use ($subCaja) {
+                    $query->where('caja_principal_id', $subCaja->caja_principal_id);
+                })
+                ->where('referencia_tipo', 'monto_inicial')
+                ->where('referencia_id', $metodoPago->id)
+                ->exists();
+
+            if ($yaRegistrado) {
+                \Log::info('Monto inicial ya registrado para este banco en otra sub-caja', [
+                    'caja_principal_id' => $subCaja->caja_principal_id,
+                    'metodo_pago_id' => $metodoPago->id,
+                ]);
+                continue;
+            }
+
+            // IMPORTANTE: Usar el despliegue_id del método de pago actual (del banco)
+            // No usar cualquier despliegue, sino el que corresponde al banco del monto_inicial
+            $bancosConMontoInicial[$metodoPago->id] = [
+                'despliegue_id' => $despliegue->id, // Este es el despliegue del banco (ej: BCP/Yape, BCP/Izipay, etc)
+                'monto' => $metodoPago->monto_inicial,
+                'nombre_banco' => $metodoPago->name,
+            ];
+        }
+
+        // Registrar las transacciones de monto_inicial
+        foreach ($bancosConMontoInicial as $metodoPagoId => $info) {
+            try {
+                $saldoAnterior = $subCaja->saldo_actual;
+                $saldoNuevo = $saldoAnterior + $info['monto'];
+
+                // Crear transacción de ingreso
+                $transaccion = \App\Models\TransaccionCaja::create([
+                    'id' => (string) Str::ulid(),
+                    'sub_caja_id' => $subCaja->id,
+                    'user_id' => auth()->id() ?? $subCaja->cajaPrincipal->user_id,
+                    'tipo_transaccion' => 'ingreso',
+                    'monto' => $info['monto'],
+                    'saldo_anterior' => $saldoAnterior,
+                    'saldo_nuevo' => $saldoNuevo,
+                    'despliegue_pago_id' => $info['despliegue_id'],
+                    'descripcion' => "Monto inicial de {$info['nombre_banco']}",
+                    'referencia_tipo' => 'monto_inicial',
+                    'referencia_id' => $metodoPagoId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                // Actualizar saldo de la sub-caja
+                $subCaja->saldo_actual = $saldoNuevo;
+                $subCaja->save();
+
+                \Log::info('Monto inicial registrado exitosamente', [
+                    'sub_caja_id' => $subCaja->id,
+                    'metodo_pago_id' => $metodoPagoId,
+                    'monto' => $info['monto'],
+                    'transaccion_id' => $transaccion->id,
+                ]);
+            } catch (\Exception $e) {
+                \Log::error('Error al registrar monto inicial', [
+                    'sub_caja_id' => $subCaja->id,
+                    'metodo_pago_id' => $metodoPagoId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Verificar si un método de pago es efectivo
+     */
+    private function esMetodoEfectivo(\App\Models\MetodoDePago $metodoPago): bool
+    {
+        $nombre = strtolower($metodoPago->name ?? '');
+        $cuentaBancaria = $metodoPago->cuenta_bancaria;
+
+        // Es efectivo si:
+        // 1. El nombre contiene "efectivo"
+        // 2. No tiene cuenta bancaria o es "SIN-CUENTA"
+        if (str_contains($nombre, 'efectivo')) {
+            return true;
+        }
+
+        // Si no tiene cuenta bancaria real, podría ser efectivo
+        if (!$cuentaBancaria || $cuentaBancaria === 'SIN-CUENTA') {
+            // Verificar si el nombre sugiere que es efectivo
+            return str_contains($nombre, 'caja') || 
+                   str_contains($nombre, 'cash') ||
+                   $nombre === 'sin banco';
+        }
+
+        return false;
     }
 
     public function actualizarSubCaja(int $subCajaId, array $data): SubCaja
@@ -195,7 +339,7 @@ class CajaService implements CajaServiceInterface
         });
     }
 
-    public function obtenerCajaPorUsuario(string $userId): ?CajaPrincipal
+    public function obtenerCajaPorUsuario(string $userId): Collection
     {
         return $this->cajaPrincipalRepository->findByUserId($userId);
     }

@@ -25,6 +25,14 @@ class CerrarCajaUseCase
         private ValidadorSupervisorCaja $validadorSupervisor
     ) {}
 
+    /**
+     * Ejecutar arqueo diario de caja
+     * 
+     * Este proceso registra un arqueo (reporte) de las operaciones del día,
+     * pero NO cierra la caja realmente. La caja permanece 'abierta'.
+     * 
+     * Permite generar reportes de las transacciones realizadas durante la sesión.
+     */
     public function ejecutar(CierreCajaDTO $dto): CierreCajaResultadoDTO
     {
         return DB::transaction(function () use ($dto) {
@@ -70,23 +78,30 @@ class CerrarCajaUseCase
             // 5. Validar diferencia
             $this->validarDiferencia($resumen, $dto);
 
-            // 6. Registrar arqueo diario (NO cerrar la caja)
-            // Solo actualizamos los datos del cierre pero mantenemos estado='abierta'
+            // 6. Calcular diferencias ANTES de actualizar
+            $diferencia = $resumen->diferencia ?? 0;
+            $sobrante = $diferencia > 0 ? $diferencia : 0;
+            $faltante = $diferencia < 0 ? abs($diferencia) : 0;
+
+            // 7. Registrar datos del cierre como reporte histórico (NO cierra la caja)
             $apertura->update([
                 'monto_cierre' => $dto->montoCierre,
+                'monto_cierre_efectivo' => $dto->montoCierreEfectivo,
+                'monto_cierre_cuentas' => $dto->montoCierreCuentas,
+                'conteo_billetes_monedas' => $dto->conteoBilletesMonedas ? json_encode($dto->conteoBilletesMonedas) : null,
                 'comentarios' => $dto->observaciones,
                 'email_reporte' => $dto->emailReporte ?? null,
                 'whatsapp_reporte' => $dto->whatsappReporte ?? null,
                 'supervisor_id_validador' => $dto->supervisorId ?? null,
                 'supervisor_validado' => $supervisorValidado,
                 'reporte_enviado' => false, // El frontend enviará el PDF
-                // NO actualizamos 'estado' ni 'fecha_cierre' - la caja sigue abierta
+                'fecha_cierre' => now(), // Registrar fecha del arqueo
+                // NO cambiar estado - la caja permanece 'abierta' (solo es arqueo diario)
+                'diferencia_efectivo' => $diferencia,
+                'diferencia_total' => $diferencia,
             ]);
 
-            // 7. Crear DTO de resultado
-            $diferencia = $resumen->diferencia ?? 0;
-            $sobrante = $diferencia > 0 ? $diferencia : 0;
-            $faltante = $diferencia < 0 ? abs($diferencia) : 0;
+            // 8. Crear DTO de resultado
 
             $diferencias = new DiferenciasCajaDTO(
                 efectivoEsperado: $resumen->montoEsperado,

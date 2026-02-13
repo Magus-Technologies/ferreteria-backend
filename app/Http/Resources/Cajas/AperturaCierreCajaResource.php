@@ -14,9 +14,14 @@ class AperturaCierreCajaResource extends JsonResource
             'caja_principal_id' => $this->caja_principal_id,
             'sub_caja_id' => $this->sub_caja_id,
             'user_id' => $this->user_id,
+            'supervisor_id' => $this->supervisor_id,
             'monto_apertura' => number_format($this->monto_apertura, 2, '.', ''),
             'fecha_apertura' => $this->fecha_apertura->toIso8601String(),
             'monto_cierre' => $this->monto_cierre ? number_format($this->monto_cierre, 2, '.', '') : null,
+            'monto_cierre_efectivo' => $this->monto_cierre_efectivo ? number_format($this->monto_cierre_efectivo, 2, '.', '') : null,
+            'monto_cierre_cuentas' => $this->monto_cierre_cuentas ? number_format($this->monto_cierre_cuentas, 2, '.', '') : null,
+            'total_cuentas' => $this->monto_cierre_cuentas ? number_format($this->monto_cierre_cuentas, 2, '.', '') : null, // Alias para compatibilidad
+            'conteo_billetes_monedas' => $this->conteo_billetes_monedas ? json_decode($this->conteo_billetes_monedas, true) : null,
             'fecha_cierre' => $this->fecha_cierre?->toIso8601String(),
             'estado' => $this->estado,
             'caja_principal' => $this->whenLoaded('cajaPrincipal', function () {
@@ -24,6 +29,7 @@ class AperturaCierreCajaResource extends JsonResource
                     'id' => $this->cajaPrincipal->id,
                     'codigo' => $this->cajaPrincipal->codigo,
                     'nombre' => $this->cajaPrincipal->nombre,
+                    'name' => $this->cajaPrincipal->nombre, // Alias para compatibilidad
                 ];
             }),
             'sub_caja_chica' => $this->whenLoaded('subCaja', function () {
@@ -41,10 +47,11 @@ class AperturaCierreCajaResource extends JsonResource
                     'email' => $this->user->email,
                 ];
             }),
-            'supervisor' => $this->whenLoaded('supervisor', function () {
-                return $this->supervisor ? [
-                    'id' => $this->supervisor->id,
-                    'name' => $this->supervisor->name,
+            'supervisor' => $this->whenLoaded('supervisorValidador', function () {
+                return $this->supervisorValidador ? [
+                    'id' => $this->supervisorValidador->id,
+                    'name' => $this->supervisorValidador->name,
+                    'email' => $this->supervisorValidador->email,
                 ] : null;
             }),
             'diferencia_efectivo' => $this->diferencia_efectivo ? number_format($this->diferencia_efectivo, 2, '.', '') : null,

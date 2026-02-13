@@ -184,7 +184,7 @@ class CompraController extends Controller
                 $parts = explode('-', $validated['despliegue_de_pago_id']);
                 $validated['despliegue_de_pago_id'] = $parts[1] ?? $validated['despliegue_de_pago_id'];
             }
-            
+
             // Validar nueva compra
             $this->validarNuevaCompra($validated);
 
@@ -357,7 +357,7 @@ class CompraController extends Controller
                 $parts = explode('-', $validated['despliegue_de_pago_id']);
                 $validated['despliegue_de_pago_id'] = $parts[1] ?? $validated['despliegue_de_pago_id'];
             }
-            
+
             $compra = Compra::with([
                 'productosPorAlmacen.unidadesDerivadas',
             ])->findOrFail($id);
@@ -666,11 +666,11 @@ class CompraController extends Controller
                     $parts = explode('-', $desplieguePagoId);
                     $desplieguePagoId = $parts[1] ?? $desplieguePagoId;
                 }
-                
+
                 $despliegue = DespliegueDePago::where('id', $desplieguePagoId)
                     ->where('activo', true)
                     ->first();
-                
+
                 if (!$despliegue) {
                     throw new \Exception('El despliegue de pago seleccionado no existe o no está activo. Por favor, selecciona otro método de pago.');
                 }
@@ -692,7 +692,7 @@ class CompraController extends Controller
             if ($compra->despliegue_de_pago_id) {
                 $despliegue = DespliegueDePago::where('id', $compra->despliegue_de_pago_id)
                     ->first();
-                
+
                 if ($despliegue) {
                     MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
                         ->increment('monto', $totalSoles);
@@ -701,7 +701,7 @@ class CompraController extends Controller
 
             if ($compra->egreso_dinero_id) {
                 $egreso = EgresoDinero::find($compra->egreso_dinero_id);
-                
+
                 if ($egreso && $egreso->despliegue_de_pago_id) {
                     $despliegue = DespliegueDePago::where('id', $egreso->despliegue_de_pago_id)
                         ->first();
@@ -745,6 +745,8 @@ class CompraController extends Controller
             'fecha' => 'required|date',
             'observacion' => 'nullable|string',
             'afecta_caja' => 'required|boolean',
+            'numero_letra' => 'nullable|string',
+            'numero_operacion' => 'nullable|string',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
@@ -775,6 +777,8 @@ class CompraController extends Controller
                 'monto' => $validated['monto'],
                 'fecha' => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
                 'observacion' => $validated['observacion'] ?? null,
+                'numero_letra' => $validated['numero_letra'] ?? null,
+                'numero_operacion' => $validated['numero_operacion'] ?? null,
                 'estado' => true,
             ]);
 
@@ -812,7 +816,7 @@ class CompraController extends Controller
 
             // Verificar que todas las unidades derivadas pertenecen a esta compra
             $unidadIds = collect($validated['unidades_derivadas'])->pluck('id');
-            
+
             $unidadesValidas = UnidadDerivadaInmutableCompra::whereIn('id', $unidadIds)
                 ->whereHas('productoAlmacenCompra', function ($query) use ($id) {
                     $query->where('compra_id', $id);

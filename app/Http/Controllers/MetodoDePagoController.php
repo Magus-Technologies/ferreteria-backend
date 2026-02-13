@@ -92,7 +92,6 @@ class MetodoDePagoController extends Controller
             'cuenta_bancaria' => 'nullable|string|max:191',
             'nombre_titular' => 'nullable|string|max:191',
             'monto_inicial' => 'nullable|numeric|min:0',
-            'subcaja_id' => 'nullable|string|exists:subcaja,id',
         ], [
             'monto_inicial.numeric' => 'El monto inicial debe ser un número válido',
             'monto_inicial.min' => 'El monto inicial no puede ser negativo',
@@ -128,9 +127,12 @@ class MetodoDePagoController extends Controller
 
         $item = MetodoDePago::create($validated);
 
+        // NOTA: El monto_inicial se registrará automáticamente cuando se cree una sub-caja
+        // digital con los métodos de pago vinculados de este banco (ver CajaService::registrarMontoInicialSiAplica)
+
         return response()->json([
             'data' => $item,
-            'message' => 'Banco creado exitosamente'
+            'message' => 'Banco creado exitosamente. El monto inicial se registrará automáticamente al crear sub-cajas digitales con este banco.'
         ], 201);
     }
 
@@ -143,6 +145,7 @@ class MetodoDePagoController extends Controller
             'name' => 'required|string|max:191',
             'cuenta_bancaria' => 'nullable|string|max:191',
             'nombre_titular' => 'nullable|string|max:191',
+            'monto_inicial' => 'nullable|numeric|min:0',
         ]);
 
         // Si no se proporciona cuenta bancaria, usar un valor por defecto
@@ -166,6 +169,12 @@ class MetodoDePagoController extends Controller
         }
 
         $item = MetodoDePago::findOrFail($id);
+        
+        // Si se actualiza el monto_inicial, también actualizar el monto
+        if (isset($validated['monto_inicial'])) {
+            $validated['monto'] = $validated['monto_inicial'];
+        }
+        
         $item->update($validated);
 
         return response()->json([

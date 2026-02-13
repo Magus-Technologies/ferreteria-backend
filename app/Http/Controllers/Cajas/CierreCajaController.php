@@ -48,6 +48,15 @@ class CierreCajaController extends Controller
                 $cajaActiva = $this->cierreCajaService->obtenerCajaActivaConResumen($userId);
                 \Log::info('Caja activa obtenida como encargado', ['apertura_id' => $cajaActiva->apertura->id ?? 'null']);
 
+                // Cargar las relaciones necesarias
+                $cajaActiva->apertura->load([
+                    'cajaPrincipal',
+                    'subCaja',
+                    'user',
+                    'supervisorValidador',
+                    'distribucionesVendedores.vendedor'
+                ]);
+
                 $data = (new AperturaCierreCajaResource($cajaActiva->apertura))->toArray(request());
                 $data['resumen'] = $cajaActiva->resumen->toArray();
                 $data['tipo_usuario'] = 'encargado';
@@ -351,8 +360,14 @@ class CierreCajaController extends Controller
     public function obtenerCierre(string $id): JsonResponse
     {
         try {
-            // Obtener la apertura
-            $apertura = $this->cierreCajaService->obtenerApertura($id);
+            // Obtener la apertura con todas las relaciones necesarias
+            $apertura = \App\Models\AperturaCierreCaja::with([
+                'cajaPrincipal',
+                'subCaja',
+                'user',
+                'supervisorValidador',
+                'distribucionesVendedores.vendedor'
+            ])->find($id);
             
             if (!$apertura) {
                 throw new AperturaNoEncontradaException();

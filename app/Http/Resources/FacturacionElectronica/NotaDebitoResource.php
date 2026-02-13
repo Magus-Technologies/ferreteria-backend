@@ -9,6 +9,12 @@ class NotaDebitoResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        // Obtener comprobante electrónico manualmente
+        $comprobanteElectronico = \App\Models\ComprobanteElectronico::where('serie', $this->serie)
+            ->where('correlativo', $this->numero)
+            ->where('tipo_comprobante', '08')
+            ->first();
+
         return [
             'id' => $this->id,
             'tipo_documento' => $this->tipo_documento,
@@ -29,19 +35,21 @@ class NotaDebitoResource extends JsonResource
             'motivo' => $this->whenLoaded('motivo', function () {
                 return [
                     'id' => $this->motivo->id,
-                    'codigo' => $this->motivo->codigo,
+                    'codigo_sunat' => $this->motivo->codigo_sunat ?? $this->motivo->codigo,
                     'descripcion' => $this->motivo->descripcion,
                     'tipo' => $this->motivo->tipo,
                 ];
             }),
             'descripcion' => $this->descripcion,
             'monto_total' => (float) $this->monto_total,
+            'total' => (float) $this->monto_total, // Alias para compatibilidad con frontend
             'monto_igv' => (float) $this->monto_igv,
             'monto_subtotal' => (float) $this->monto_subtotal,
             'referencia_documento' => $this->referencia_documento,
             'fecha' => $this->fecha?->format('Y-m-d H:i:s'),
             'fecha_formato' => $this->fecha?->format('d/m/Y'),
             'estado' => $this->estado,
+            'estado_sunat' => $comprobanteElectronico?->estado_sunat ?? 'pendiente',
             'usuario_id' => $this->usuario_id,
             'usuario' => $this->whenLoaded('usuario', function () {
                 return [
@@ -58,9 +66,17 @@ class NotaDebitoResource extends JsonResource
                 ];
             }),
             'observaciones' => $this->observaciones,
-            'comprobante_electronico' => $this->whenLoaded('comprobanteElectronico', function () {
-                return new ComprobanteElectronicoResource($this->comprobanteElectronico);
-            }),
+            'comprobante_electronico' => $comprobanteElectronico ? [
+                'id' => $comprobanteElectronico->id,
+                'tipo_comprobante' => $comprobanteElectronico->tipo_comprobante,
+                'serie' => $comprobanteElectronico->serie,
+                'correlativo' => $comprobanteElectronico->correlativo,
+                'estado_sunat' => $comprobanteElectronico->estado_sunat,
+                'tiene_xml' => !empty($comprobanteElectronico->xml_path),
+                'tiene_cdr' => !empty($comprobanteElectronico->cdr_path),
+                'xml_path' => $comprobanteElectronico->xml_path,
+                'cdr_path' => $comprobanteElectronico->cdr_path,
+            ] : null,
             'puede_editarse' => $this->puedeEditarse(),
             'puede_enviarse' => $this->puedeEnviarse(),
             'puede_cancelarse' => $this->puedeCancelarse(),

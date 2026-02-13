@@ -25,6 +25,10 @@ class MovimientosCajaQuery
         // Si hay fecha de cierre, filtrar hasta esa fecha
         if ($apertura->fecha_cierre) {
             $query->where('fecha', '<=', $apertura->fecha_cierre);
+        } else {
+            // Limitar a 12 horas desde la apertura
+            $limiteMaximo = \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12);
+            $query->where('fecha', '<=', $limiteMaximo);
         }
 
         return $query
@@ -59,6 +63,10 @@ class MovimientosCajaQuery
         // Si hay fecha de cierre, filtrar hasta esa fecha
         if ($apertura->fecha_cierre) {
             $query->where('tc.fecha', '<=', $apertura->fecha_cierre);
+        } else {
+            // Limitar a 12 horas desde la apertura
+            $limiteMaximo = \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12);
+            $query->where('tc.fecha', '<=', $limiteMaximo);
         }
 
         return $query

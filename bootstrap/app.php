@@ -24,6 +24,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 \App\Http\Middleware\CheckProductoPermissions::class,
             "almacen.access" =>
                 \App\Http\Middleware\ValidateAlmacenAccess::class,
+            "caja.abierta" =>
+                \App\Http\Middleware\ValidateCajaAbierta::class,
         ]);
 
         // Excluir rutas de API del middleware CSRF

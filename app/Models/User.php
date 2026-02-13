@@ -144,6 +144,11 @@ class User extends Authenticatable
         return $this->hasOne(CajaPrincipal::class, "user_id");
     }
 
+    public function aperturaCierreCajas(): HasMany
+    {
+        return $this->hasMany(AperturaCierreCaja::class, "user_id");
+    }
+
     // ==================== SISTEMA DE RESTRICCIONES (lista negra) ====================
 
     /**

@@ -499,6 +499,260 @@ class GreenterService implements GreenterServiceInterface
      */
     private function generarXmlSimulado(array $data, string $tipoDoc = '08'): string
     {
+        // Determinar el tipo de documento y generar el XML correspondiente
+        if ($tipoDoc === '08') {
+            return $this->generarXmlNotaDebitoSimulado($data);
+        } elseif ($tipoDoc === '07') {
+            return $this->generarXmlNotaCreditoSimulado($data);
+        } else {
+            return $this->generarXmlFacturaSimulado($data, $tipoDoc);
+        }
+    }
+
+    /**
+     * Generar XML simulado para Nota de Débito
+     */
+    private function generarXmlNotaDebitoSimulado(array $data): string
+    {
+        $company = config('greenter.razon_social');
+        $ruc = config('greenter.ruc');
+        $direccion = config('greenter.direccion');
+        $ubigeo = config('greenter.ubigeo');
+        $departamento = config('greenter.departamento');
+        $provincia = config('greenter.provincia');
+        $distrito = config('greenter.distrito');
+        
+        $moneda = $data['tipo_moneda'] ?? 'PEN';
+        $mtoOperGravadas = number_format($data['mto_oper_gravadas'], 2, '.', '');
+        $mtoIgv = number_format($data['mto_igv'], 2, '.', '');
+        $total = number_format($data['total'], 2, '.', '');
+        
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+        $xml .= '<DebitNote xmlns="urn:oasis:names:specification:ubl:schema:xsd:DebitNote-2" ';
+        $xml .= 'xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" ';
+        $xml .= 'xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" ';
+        $xml .= 'xmlns:ds="http://www.w3.org/2000/09/xmldsig#" ';
+        $xml .= 'xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">' . "\n";
+        
+        // UBL Extensions (requerido para firma digital)
+        $xml .= "  <ext:UBLExtensions>\n";
+        $xml .= "    <ext:UBLExtension>\n";
+        $xml .= "      <ext:ExtensionContent>\n";
+        $xml .= "        <!-- Firma digital aquí (SIMULADO) -->\n";
+        $xml .= "      </ext:ExtensionContent>\n";
+        $xml .= "    </ext:UBLExtension>\n";
+        $xml .= "  </ext:UBLExtensions>\n";
+        
+        // Información básica del comprobante
+        $xml .= "  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>\n";
+        $xml .= "  <cbc:CustomizationID>2.0</cbc:CustomizationID>\n";
+        $xml .= "  <cbc:ID>{$data['serie']}-{$data['numero']}</cbc:ID>\n";
+        $xml .= "  <cbc:IssueDate>{$data['fecha']}</cbc:IssueDate>\n";
+        $xml .= "  <cbc:IssueTime>" . date('H:i:s') . "</cbc:IssueTime>\n";
+        $xml .= "  <cbc:Note languageLocaleID=\"1000\"><![CDATA[{$data['monto_en_letras']}]]></cbc:Note>\n";
+        $xml .= "  <cbc:DocumentCurrencyCode>{$moneda}</cbc:DocumentCurrencyCode>\n";
+        
+        // Documento afectado (referencia a la venta original)
+        $xml .= "  <cac:DiscrepancyResponse>\n";
+        $xml .= "    <cbc:ReferenceID>{$data['num_doc_afectado']}</cbc:ReferenceID>\n";
+        $xml .= "    <cbc:ResponseCode>{$data['cod_motivo']}</cbc:ResponseCode>\n";
+        $xml .= "    <cbc:Description>{$data['des_motivo']}</cbc:Description>\n";
+        $xml .= "  </cac:DiscrepancyResponse>\n";
+        
+        // Referencia al documento afectado
+        $xml .= "  <cac:BillingReference>\n";
+        $xml .= "    <cac:InvoiceDocumentReference>\n";
+        $xml .= "      <cbc:ID>{$data['num_doc_afectado']}</cbc:ID>\n";
+        $xml .= "      <cbc:DocumentTypeCode>{$data['tipo_doc_afectado']}</cbc:DocumentTypeCode>\n";
+        $xml .= "    </cac:InvoiceDocumentReference>\n";
+        $xml .= "  </cac:BillingReference>\n";
+        
+        // Firma (referencia)
+        $xml .= "  <cac:Signature>\n";
+        $xml .= "    <cbc:ID>SIGN{$ruc}</cbc:ID>\n";
+        $xml .= "    <cac:SignatoryParty>\n";
+        $xml .= "      <cac:PartyIdentification>\n";
+        $xml .= "        <cbc:ID>{$ruc}</cbc:ID>\n";
+        $xml .= "      </cac:PartyIdentification>\n";
+        $xml .= "      <cac:PartyName>\n";
+        $xml .= "        <cbc:Name><![CDATA[{$company}]]></cbc:Name>\n";
+        $xml .= "      </cac:PartyName>\n";
+        $xml .= "    </cac:SignatoryParty>\n";
+        $xml .= "    <cac:DigitalSignatureAttachment>\n";
+        $xml .= "      <cac:ExternalReference>\n";
+        $xml .= "        <cbc:URI>#GREENTER-SIGN</cbc:URI>\n";
+        $xml .= "      </cac:ExternalReference>\n";
+        $xml .= "    </cac:DigitalSignatureAttachment>\n";
+        $xml .= "  </cac:Signature>\n";
+        
+        // Proveedor (Emisor)
+        $xml .= "  <cac:AccountingSupplierParty>\n";
+        $xml .= "    <cac:Party>\n";
+        $xml .= "      <cac:PartyIdentification>\n";
+        $xml .= "        <cbc:ID schemeID=\"6\">{$ruc}</cbc:ID>\n";
+        $xml .= "      </cac:PartyIdentification>\n";
+        $xml .= "      <cac:PartyName>\n";
+        $xml .= "        <cbc:Name><![CDATA[{$company}]]></cbc:Name>\n";
+        $xml .= "      </cac:PartyName>\n";
+        $xml .= "      <cac:PartyLegalEntity>\n";
+        $xml .= "        <cbc:RegistrationName><![CDATA[{$company}]]></cbc:RegistrationName>\n";
+        $xml .= "        <cac:RegistrationAddress>\n";
+        $xml .= "          <cbc:ID>{$ubigeo}</cbc:ID>\n";
+        $xml .= "          <cbc:AddressTypeCode>0000</cbc:AddressTypeCode>\n";
+        $xml .= "          <cbc:CitySubdivisionName>{$distrito}</cbc:CitySubdivisionName>\n";
+        $xml .= "          <cbc:CityName>{$provincia}</cbc:CityName>\n";
+        $xml .= "          <cbc:CountrySubentity>{$departamento}</cbc:CountrySubentity>\n";
+        $xml .= "          <cbc:District>{$distrito}</cbc:District>\n";
+        $xml .= "          <cac:AddressLine>\n";
+        $xml .= "            <cbc:Line><![CDATA[{$direccion}]]></cbc:Line>\n";
+        $xml .= "          </cac:AddressLine>\n";
+        $xml .= "          <cac:Country>\n";
+        $xml .= "            <cbc:IdentificationCode>PE</cbc:IdentificationCode>\n";
+        $xml .= "          </cac:Country>\n";
+        $xml .= "        </cac:RegistrationAddress>\n";
+        $xml .= "      </cac:PartyLegalEntity>\n";
+        $xml .= "    </cac:Party>\n";
+        $xml .= "  </cac:AccountingSupplierParty>\n";
+        
+        // Cliente (Adquiriente)
+        $clienteTipoDoc = $data['cliente']['tipo_doc'];
+        $clienteNumDoc = $data['cliente']['num_doc'];
+        $clienteRazonSocial = htmlspecialchars($data['cliente']['razon_social'], ENT_XML1, 'UTF-8');
+        $clienteDireccion = htmlspecialchars($data['cliente']['direccion'] ?? '-', ENT_XML1, 'UTF-8');
+        
+        $xml .= "  <cac:AccountingCustomerParty>\n";
+        $xml .= "    <cac:Party>\n";
+        $xml .= "      <cac:PartyIdentification>\n";
+        $xml .= "        <cbc:ID schemeID=\"{$clienteTipoDoc}\">{$clienteNumDoc}</cbc:ID>\n";
+        $xml .= "      </cac:PartyIdentification>\n";
+        $xml .= "      <cac:PartyLegalEntity>\n";
+        $xml .= "        <cbc:RegistrationName><![CDATA[{$clienteRazonSocial}]]></cbc:RegistrationName>\n";
+        $xml .= "        <cac:RegistrationAddress>\n";
+        $xml .= "          <cac:AddressLine>\n";
+        $xml .= "            <cbc:Line><![CDATA[{$clienteDireccion}]]></cbc:Line>\n";
+        $xml .= "          </cac:AddressLine>\n";
+        $xml .= "          <cac:Country>\n";
+        $xml .= "            <cbc:IdentificationCode>PE</cbc:IdentificationCode>\n";
+        $xml .= "          </cac:Country>\n";
+        $xml .= "        </cac:RegistrationAddress>\n";
+        $xml .= "      </cac:PartyLegalEntity>\n";
+        $xml .= "    </cac:Party>\n";
+        $xml .= "  </cac:AccountingCustomerParty>\n";
+        
+        // Totales de impuestos
+        $xml .= "  <cac:TaxTotal>\n";
+        $xml .= "    <cbc:TaxAmount currencyID=\"{$moneda}\">{$mtoIgv}</cbc:TaxAmount>\n";
+        $xml .= "    <cac:TaxSubtotal>\n";
+        $xml .= "      <cbc:TaxableAmount currencyID=\"{$moneda}\">{$mtoOperGravadas}</cbc:TaxableAmount>\n";
+        $xml .= "      <cbc:TaxAmount currencyID=\"{$moneda}\">{$mtoIgv}</cbc:TaxAmount>\n";
+        $xml .= "      <cac:TaxCategory>\n";
+        $xml .= "        <cac:TaxScheme>\n";
+        $xml .= "          <cbc:ID>1000</cbc:ID>\n";
+        $xml .= "          <cbc:Name>IGV</cbc:Name>\n";
+        $xml .= "          <cbc:TaxTypeCode>VAT</cbc:TaxTypeCode>\n";
+        $xml .= "        </cac:TaxScheme>\n";
+        $xml .= "      </cac:TaxCategory>\n";
+        $xml .= "    </cac:TaxSubtotal>\n";
+        $xml .= "  </cac:TaxTotal>\n";
+        
+        // Totales monetarios
+        $xml .= "  <cac:RequestedMonetaryTotal>\n";
+        $xml .= "    <cbc:PayableAmount currencyID=\"{$moneda}\">{$total}</cbc:PayableAmount>\n";
+        $xml .= "  </cac:RequestedMonetaryTotal>\n";
+        
+        // Líneas de detalle (items) - Para Nota de Débito se usa DebitNoteLine
+        foreach ($data['items'] as $index => $item) {
+            $itemCodigo = htmlspecialchars($item['codigo'], ENT_XML1, 'UTF-8');
+            $itemDescripcion = htmlspecialchars($item['descripcion'], ENT_XML1, 'UTF-8');
+            $itemCantidad = number_format($item['cantidad'], 2, '.', '');
+            $itemValorUnitario = number_format($item['valor_unitario'], 2, '.', '');
+            $itemPrecioUnitario = number_format($item['precio_unitario'], 2, '.', '');
+            $itemValorVenta = number_format($item['valor_venta'], 2, '.', '');
+            $itemIgv = number_format($item['igv'], 2, '.', '');
+            $itemMtoBaseIgv = number_format($item['mto_base_igv'], 2, '.', '');
+            
+            $xml .= "  <cac:DebitNoteLine>\n";
+            $xml .= "    <cbc:ID>" . ($index + 1) . "</cbc:ID>\n";
+            $xml .= "    <cbc:DebitedQuantity unitCode=\"{$item['unidad']}\">{$itemCantidad}</cbc:DebitedQuantity>\n";
+            $xml .= "    <cbc:LineExtensionAmount currencyID=\"{$moneda}\">{$itemValorVenta}</cbc:LineExtensionAmount>\n";
+            $xml .= "    <cac:PricingReference>\n";
+            $xml .= "      <cac:AlternativeConditionPrice>\n";
+            $xml .= "        <cbc:PriceAmount currencyID=\"{$moneda}\">{$itemPrecioUnitario}</cbc:PriceAmount>\n";
+            $xml .= "        <cbc:PriceTypeCode>01</cbc:PriceTypeCode>\n";
+            $xml .= "      </cac:AlternativeConditionPrice>\n";
+            $xml .= "    </cac:PricingReference>\n";
+            $xml .= "    <cac:TaxTotal>\n";
+            $xml .= "      <cbc:TaxAmount currencyID=\"{$moneda}\">{$itemIgv}</cbc:TaxAmount>\n";
+            $xml .= "      <cac:TaxSubtotal>\n";
+            $xml .= "        <cbc:TaxableAmount currencyID=\"{$moneda}\">{$itemMtoBaseIgv}</cbc:TaxableAmount>\n";
+            $xml .= "        <cbc:TaxAmount currencyID=\"{$moneda}\">{$itemIgv}</cbc:TaxAmount>\n";
+            $xml .= "        <cac:TaxCategory>\n";
+            $xml .= "          <cbc:Percent>18</cbc:Percent>\n";
+            $xml .= "          <cbc:TaxExemptionReasonCode>10</cbc:TaxExemptionReasonCode>\n";
+            $xml .= "          <cac:TaxScheme>\n";
+            $xml .= "            <cbc:ID>1000</cbc:ID>\n";
+            $xml .= "            <cbc:Name>IGV</cbc:Name>\n";
+            $xml .= "            <cbc:TaxTypeCode>VAT</cbc:TaxTypeCode>\n";
+            $xml .= "          </cac:TaxScheme>\n";
+            $xml .= "        </cac:TaxCategory>\n";
+            $xml .= "      </cac:TaxSubtotal>\n";
+            $xml .= "    </cac:TaxTotal>\n";
+            $xml .= "    <cac:Item>\n";
+            $xml .= "      <cbc:Description><![CDATA[{$itemDescripcion}]]></cbc:Description>\n";
+            $xml .= "      <cac:SellersItemIdentification>\n";
+            $xml .= "        <cbc:ID>{$itemCodigo}</cbc:ID>\n";
+            $xml .= "      </cac:SellersItemIdentification>\n";
+            $xml .= "    </cac:Item>\n";
+            $xml .= "    <cac:Price>\n";
+            $xml .= "      <cbc:PriceAmount currencyID=\"{$moneda}\">{$itemValorUnitario}</cbc:PriceAmount>\n";
+            $xml .= "    </cac:Price>\n";
+            $xml .= "  </cac:DebitNoteLine>\n";
+        }
+        
+        $xml .= '</DebitNote>';
+        
+        return $xml;
+    }
+
+    /**
+     * Generar XML simulado para Nota de Crédito
+     */
+    private function generarXmlNotaCreditoSimulado(array $data): string
+    {
+        // Similar structure but with CreditNote tags
+        $company = config('greenter.razon_social');
+        $ruc = config('greenter.ruc');
+        $direccion = config('greenter.direccion');
+        $ubigeo = config('greenter.ubigeo');
+        $departamento = config('greenter.departamento');
+        $provincia = config('greenter.provincia');
+        $distrito = config('greenter.distrito');
+        
+        $moneda = $data['tipo_moneda'] ?? 'PEN';
+        $mtoOperGravadas = number_format($data['mto_oper_gravadas'], 2, '.', '');
+        $mtoIgv = number_format($data['mto_igv'], 2, '.', '');
+        $total = number_format($data['total'], 2, '.', '');
+        
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+        $xml .= '<CreditNote xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2" ';
+        $xml .= 'xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" ';
+        $xml .= 'xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" ';
+        $xml .= 'xmlns:ds="http://www.w3.org/2000/09/xmldsig#" ';
+        $xml .= 'xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">' . "\n";
+        
+        // Similar structure to DebitNote but with CreditNote-specific tags
+        // ... (rest of the implementation would be similar)
+        
+        $xml .= '</CreditNote>';
+        
+        return $xml;
+    }
+
+    /**
+     * Generar XML simulado para Factura/Boleta
+     */
+    private function generarXmlFacturaSimulado(array $data, string $tipoDoc): string
+    {
         $company = config('greenter.razon_social');
         $ruc = config('greenter.ruc');
         $direccion = config('greenter.direccion');

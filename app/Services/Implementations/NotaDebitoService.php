@@ -7,6 +7,7 @@ use App\Exceptions\NotaDebitoException;
 use App\Models\NotaDebito;
 use App\Models\Venta;
 use App\Models\SerieDocumento;
+use App\Models\ComprobanteElectronico;
 use App\Repositories\Interfaces\NotaDebitoRepositoryInterface;
 use App\Repositories\Interfaces\ComprobanteElectronicoRepositoryInterface;
 use App\Repositories\Interfaces\MotivoNotaRepositoryInterface;
@@ -82,7 +83,67 @@ class NotaDebitoService implements NotaDebitoServiceInterface
                 'observaciones' => $dto->observaciones,
             ]);
 
-            // 8. Actualizar correlativo de serie
+            // 8. Generar XML inmediatamente (sin enviar a SUNAT)
+            try {
+                $notaDebitoFresh = $notaDebito->fresh(['venta.cliente', 'motivo', 'usuario', 'almacen']);
+                $dataGreenter = $this->prepararDatosParaGreenter($notaDebitoFresh);
+                
+                // Generar solo el XML (sin enviar a SUNAT)
+                $xml = $this->greenterService->generarXmlNotaDebito($dataGreenter);
+                
+                if (!empty($xml)) {
+                    // Guardar XML
+                    $ruc = config('greenter.ruc');
+                    $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, '08', $notaDebito->serie, $notaDebito->numero);
+                    $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
+                    
+                    // Extraer hash del XML
+                    $hashCpe = null;
+                    if (preg_match('/<cbc:ID>(.*?)<\/cbc:ID>/', $xml, $matches)) {
+                        $hashCpe = $matches[1] ?? null;
+                    }
+                    
+                    // Crear comprobante electrónico con el XML
+                    $this->comprobanteRepository->create([
+                        'tipo_comprobante' => '08',
+                        'serie' => $notaDebito->serie,
+                        'correlativo' => $notaDebito->numero,
+                        'fecha_emision' => $notaDebito->fecha,
+                        'venta_id' => $venta->id,
+                        'cliente_id' => $venta->cliente_id,
+                        'cliente_tipo_documento' => $venta->cliente->tipo_documento === 'ruc' ? '6' : '1',
+                        'cliente_razon_social' => $venta->cliente->razon_social ?? $venta->cliente->nombre ?? 'Cliente',
+                        'cliente_numero_documento' => $venta->cliente->numero_documento,
+                        'moneda' => 'PEN',
+                        'operacion_gravada' => $notaDebito->monto_subtotal,
+                        'total_igv' => $notaDebito->monto_igv,
+                        'importe_total' => $notaDebito->monto_total,
+                        'estado_sunat' => 'PENDIENTE',
+                        'xml_firmado' => $xml,
+                        'xml_path' => $xmlPath,
+                        'hash_cpe' => $hashCpe,
+                        'user_id' => $dto->usuarioId ?? auth()->id(),
+                    ]);
+                    
+                    Log::info('✅ XML generado automáticamente para nota de débito', [
+                        'nota_debito_id' => $notaDebito->id,
+                        'serie' => $notaDebito->serie,
+                        'numero' => $notaDebito->numero,
+                        'xml_path' => $xmlPath,
+                        'hash_cpe' => $hashCpe,
+                    ]);
+                }
+            } catch (\Exception $e) {
+                // Si falla la generación del XML, solo logueamos el error
+                // pero no impedimos la creación de la nota
+                Log::warning('No se pudo generar XML al crear nota de débito', [
+                    'nota_debito_id' => $notaDebito->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+
+            // 9. Actualizar correlativo de serie
             $serie->increment('correlativo');
 
             DB::commit();
@@ -263,39 +324,50 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             }
 
             // Crear o actualizar comprobante electrónico
-            $comprobante = $this->comprobanteRepository->findByDocumento('nd', $notaDebito->id);
+            $comprobante = ComprobanteElectronico::where('serie', $notaDebito->serie)
+                ->where('correlativo', $notaDebito->numero)
+                ->where('tipo_comprobante', '08')
+                ->first();
+
+            $venta = $notaDebito->venta;
+            $cliente = $venta->cliente;
+
+            $comprobanteData = [
+                'tipo_comprobante' => '08', // Nota de Débito
+                'serie' => $notaDebito->serie,
+                'correlativo' => $notaDebito->numero,
+                'fecha_emision' => $notaDebito->fecha,
+                'cliente_id' => $cliente->id,
+                'cliente_tipo_documento' => $cliente->tipo_documento->value ?? ($cliente->tipo_documento === 'ruc' ? '6' : '1'),
+                'cliente_numero_documento' => $cliente->numero_documento,
+                'cliente_razon_social' => $cliente->razon_social ?? ($cliente->nombres . ' ' . $cliente->apellidos),
+                'cliente_direccion' => $cliente->direccion,
+                'moneda' => 'PEN',
+                'operacion_gravada' => $notaDebito->monto_subtotal,
+                'operacion_exonerada' => 0,
+                'operacion_inafecta' => 0,
+                'operacion_gratuita' => 0,
+                'total_igv' => $notaDebito->monto_igv,
+                'total_isc' => 0,
+                'total_otros_tributos' => 0,
+                'total_descuentos' => 0,
+                'total_cargos' => 0,
+                'total_anticipos' => 0,
+                'importe_total' => $notaDebito->monto_total,
+                'forma_pago' => 'CONTADO',
+                'venta_id' => $notaDebito->venta_id,
+                'user_id' => $notaDebito->usuario_id,
+                'estado_sunat' => 'PROCESANDO',
+                'xml_path' => $xmlPath,
+                'cdr_path' => $cdrPath,
+                'hash' => $resultado['hash_cpe'],
+                'fecha_envio_sunat' => now(),
+            ];
 
             if (!$comprobante) {
-                $comprobante = $this->comprobanteRepository->create([
-                    'tipo_documento' => 'nd',
-                    'documento_id' => $notaDebito->id,
-                    'serie' => $notaDebito->serie,
-                    'numero' => $notaDebito->numero,
-                    'fecha_emision' => $notaDebito->fecha,
-                    'estado_sunat' => 'enviado',
-                    'xml_firmado' => $resultado['xml'], // ✅ Guardar XML en BD
-                    'xml_path' => $xmlPath,
-                    'cdr_xml' => $cdrContent, // ✅ Guardar CDR en BD
-                    'cdr_path' => $cdrPath,
-                    'hash_cpe' => $resultado['hash_cpe'],
-                    'hash_cdr' => $resultado['hash_cdr'] ?? null,
-                    'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
-                    'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
-                    'fecha_envio_sunat' => now(),
-                ]);
+                $comprobante = ComprobanteElectronico::create($comprobanteData);
             } else {
-                $this->comprobanteRepository->update($comprobante->id, [
-                    'estado_sunat' => 'enviado',
-                    'xml_firmado' => $resultado['xml'], // ✅ Guardar XML en BD
-                    'xml_path' => $xmlPath,
-                    'cdr_xml' => $cdrContent, // ✅ Guardar CDR en BD
-                    'cdr_path' => $cdrPath,
-                    'hash_cpe' => $resultado['hash_cpe'],
-                    'hash_cdr' => $resultado['hash_cdr'] ?? null,
-                    'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
-                    'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
-                    'fecha_envio_sunat' => now(),
-                ]);
+                $comprobante->update($comprobanteData);
             }
 
             // Registrar intento de envío
@@ -580,7 +652,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             'fecha' => $notaDebito->fecha->format('Y-m-d'),
             'tipo_doc_afectado' => $venta->tipo_documento === '01' ? '01' : '03',
             'num_doc_afectado' => "{$venta->serie}-{$venta->numero}",
-            'cod_motivo' => $motivo->codigo,
+            'cod_motivo' => $motivo->codigo_sunat ?? $motivo->codigo,
             'des_motivo' => $motivo->descripcion,
             'tipo_moneda' => 'PEN',
             'mto_oper_gravadas' => $notaDebito->monto_subtotal,
@@ -618,20 +690,80 @@ class NotaDebitoService implements NotaDebitoServiceInterface
 
     private function convertirNumeroALetras(float $numero): string
     {
-        // Implementación básica - se puede mejorar con una librería
         $entero = floor($numero);
         $decimales = round(($numero - $entero) * 100);
+        $decimalesFormateados = str_pad($decimales, 2, '0', STR_PAD_LEFT);
 
-        return "SON: " . strtoupper($this->numeroALetrasBasico($entero)) . " CON {$decimales}/100 SOLES";
+        return strtoupper($this->numeroALetrasCompleto($entero)) . " CON {$decimalesFormateados}/100 SOLES";
     }
 
-    private function numeroALetrasBasico(int $numero): string
+    private function numeroALetrasCompleto(int $numero): string
     {
-        // Implementación muy básica - se recomienda usar una librería como luecano/numero-a-letras
         if ($numero === 0) return "CERO";
-        if ($numero === 1) return "UNO";
-        if ($numero < 100) return "VARIOS";
-        if ($numero < 1000) return "CIENTOS";
-        return "MILES";
+        if ($numero < 0) return "MENOS " . $this->numeroALetrasCompleto(abs($numero));
+
+        $unidades = ["", "UNO", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO", "NUEVE"];
+        $decenas = ["", "DIEZ", "VEINTE", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA", "SETENTA", "OCHENTA", "NOVENTA"];
+        $especiales = ["DIEZ", "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE", "DIECISÉIS", "DIECISIETE", "DIECIOCHO", "DIECINUEVE"];
+        $centenas = ["", "CIENTO", "DOSCIENTOS", "TRESCIENTOS", "CUATROCIENTOS", "QUINIENTOS", "SEISCIENTOS", "SETECIENTOS", "OCHOCIENTOS", "NOVECIENTOS"];
+
+        if ($numero < 10) {
+            return $unidades[$numero];
+        }
+
+        if ($numero < 20) {
+            return $especiales[$numero - 10];
+        }
+
+        if ($numero < 100) {
+            $unidad = $numero % 10;
+            $decena = (int) floor($numero / 10);
+            if ($unidad === 0) {
+                return $decenas[$decena];
+            }
+            if ($decena === 2) {
+                // 21-29: VEINTIUNO, VEINTIDÓS, etc.
+                return "VEINTI" . $unidades[$unidad];
+            }
+            return $decenas[$decena] . " Y " . $unidades[$unidad];
+        }
+
+        if ($numero < 1000) {
+            $centena = (int) floor($numero / 100);
+            $resto = $numero % 100;
+            if ($numero === 100) {
+                return "CIEN";
+            }
+            if ($resto === 0) {
+                return $centenas[$centena];
+            }
+            return $centenas[$centena] . " " . $this->numeroALetrasCompleto($resto);
+        }
+
+        if ($numero < 1000000) {
+            $miles = (int) floor($numero / 1000);
+            $resto = $numero % 1000;
+            if ($miles === 1) {
+                $textoMiles = "MIL";
+            } else {
+                $textoMiles = $this->numeroALetrasCompleto($miles) . " MIL";
+            }
+            if ($resto === 0) {
+                return $textoMiles;
+            }
+            return $textoMiles . " " . $this->numeroALetrasCompleto($resto);
+        }
+
+        if ($numero < 1000000000) {
+            $millones = (int) floor($numero / 1000000);
+            $resto = $numero % 1000000;
+            $textoMillones = $millones === 1 ? "UN MILLÓN" : $this->numeroALetrasCompleto($millones) . " MILLONES";
+            if ($resto === 0) {
+                return $textoMillones;
+            }
+            return $textoMillones . " " . $this->numeroALetrasCompleto($resto);
+        }
+
+        return "NÚMERO DEMASIADO GRANDE";
     }
 }

@@ -73,10 +73,30 @@ class NotaDebito extends Model
         return $this->belongsTo(Almacen::class, 'almacen_id');
     }
 
+    /**
+     * Obtener el comprobante electrónico asociado a esta nota de débito
+     */
     public function comprobanteElectronico(): HasOne
     {
-        return $this->hasOne(ComprobanteElectronico::class, 'documento_id')
-            ->where('tipo_documento', 'nd');
+        return $this->hasOne(ComprobanteElectronico::class, 'serie', 'serie')
+            ->where('tipo_comprobante', '08')
+            ->where('correlativo', $this->numero);
+    }
+
+    /**
+     * Accessor para obtener el comprobante electrónico de forma dinámica
+     */
+    public function getComprobanteElectronicoAttribute()
+    {
+        if (!isset($this->attributes['serie']) || !isset($this->attributes['numero'])) {
+            return null;
+        }
+
+        return ComprobanteElectronico::with('detalles')
+            ->where('serie', $this->attributes['serie'])
+            ->where('correlativo', $this->attributes['numero'])
+            ->where('tipo_comprobante', '08')
+            ->first();
     }
 
     public function comprobanteReferencia(): BelongsTo

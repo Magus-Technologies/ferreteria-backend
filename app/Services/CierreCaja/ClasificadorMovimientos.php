@@ -23,27 +23,19 @@ class ClasificadorMovimientos
      */
     public function clasificarPorTodasLasSubCajas(string $aperturaId, Collection $ventas): array
     {
-        \Log::info('🔍🔍🔍 clasificarPorTodasLasSubCajas - INICIO', [
-            'apertura_id' => $aperturaId,
-        ]);
-        
+
+
         // Obtener la apertura para saber el user_id (quien aperturó) y las fechas
         $apertura = DB::table('apertura_cierre_caja')
             ->where('id', $aperturaId)
             ->first();
 
         if (!$apertura) {
-            \Log::warning('⚠️ No se encontró apertura');
+
             return $this->respuestaVacia();
         }
 
-        \Log::info('✅ Apertura encontrada', [
-            'apertura_id' => $apertura->id,
-            'user_id' => $apertura->user_id,
-            'caja_principal_id' => $apertura->caja_principal_id,
-            'fecha_apertura' => $apertura->fecha_apertura,
-            'fecha_cierre' => $apertura->fecha_cierre,
-        ]);
+
 
         $userId = $apertura->user_id;
 
@@ -77,44 +69,39 @@ class ClasificadorMovimientos
         $totalGastos = $gastosYPagos->sum('monto');
         $totalPrestamosRecibidos = $prestamosRecibidos->sum('monto');
         $totalPrestamosDados = $prestamosDados->sum('monto');
-        
-        \Log::info('Préstamos calculados', [
-            'prestamos_recibidos_count' => $prestamosRecibidos->count(),
-            'total_prestamos_recibidos' => $totalPrestamosRecibidos,
-            'prestamos_dados_count' => $prestamosDados->count(),
-            'total_prestamos_dados' => $totalPrestamosDados,
-        ]);
+
+
 
         return [
             // Efectivo inicial
             'efectivo_inicial' => $efectivoInicial,
-            
+
             // Ventas
             'ventas' => $ventas,
-            
+
             // Cobros por método de pago (SOLO ventas del vendedor)
             'cobros_por_metodo' => $cobrosPorMetodo,
             'total_cobros' => $totalCobros,
-            
+
             // Otros ingresos (NO ventas)
             'otros_ingresos' => $otrosIngresos,
             'total_otros_ingresos' => $totalOtrosIngresos,
-            
+
             // Egresos
             'gastos_y_pagos' => $gastosYPagos,
             'total_gastos' => $totalGastos,
-            
+
             // Préstamos entre vendedores
             'prestamos_recibidos' => $prestamosRecibidos,
             'total_prestamos_recibidos' => $totalPrestamosRecibidos,
             'prestamos_dados' => $prestamosDados,
             'total_prestamos_dados' => $totalPrestamosDados,
-            
+
             // Movimientos internos (informativo)
             'movimientos_internos' => $movimientosInternos,
             'prestamos' => collect([]), // Deprecated
             'prestamos_vendedores' => $prestamosRecibidos->merge($prestamosDados),
-            
+
             // Resúmenes
             'resumen_ventas' => $totalCobros,
             'resumen_ingresos' => $totalCobros + $totalOtrosIngresos + $totalPrestamosRecibidos,
@@ -139,31 +126,23 @@ class ClasificadorMovimientos
      */
     private function obtenerCobrosPorMetodoVendedor(Collection $ventas, string $userId): Collection
     {
-        \Log::info('🔍 obtenerCobrosPorMetodoVendedor - Inicio', [
-            'total_ventas' => $ventas->count(),
-            'user_id' => $userId,
-        ]);
-        
+
+
         // Filtrar ventas del vendedor
         $ventasVendedor = $ventas->where('user_id', $userId);
-        
-        \Log::info('🔍 Ventas filtradas por vendedor', [
-            'ventas_vendedor_count' => $ventasVendedor->count(),
-            'ventas_vendedor_ids' => $ventasVendedor->pluck('id')->toArray(),
-        ]);
-        
+
+
+
         if ($ventasVendedor->isEmpty()) {
-            \Log::warning('⚠️ No hay ventas del vendedor');
+
             return collect([]);
         }
 
         // Obtener los pagos de las ventas desde despliegue_de_pago_ventas (TODOS los pagos)
         $ventaIds = $ventasVendedor->pluck('id');
-        
-        \Log::info('🔍 Buscando pagos en despliegue_de_pago_ventas', [
-            'venta_ids' => $ventaIds->toArray(),
-        ]);
-        
+
+
+
         $pagos = DB::table('desplieguedepagoventa as dpv')
             ->join('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
             ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
@@ -182,10 +161,7 @@ class ClasificadorMovimientos
             ])
             ->get();
 
-        \Log::info('🔍 Pagos encontrados', [
-            'pagos_count' => $pagos->count(),
-            'pagos' => $pagos->toArray(),
-        ]);
+
 
         // Agrupar por método de pago (sin importar titular o sub-caja)
         // Esto suma todas las transferencias BCP, BBVA, etc. juntas
@@ -196,7 +172,7 @@ class ClasificadorMovimientos
             $primer = $grupo->first();
             // Construir label con formato: Banco/Método
             $label = "{$primer->banco}/{$primer->metodo_pago}";
-                
+
             return [
                 'metodo_pago_id' => $primer->metodo_pago_id,
                 'banco' => $primer->banco,
@@ -216,12 +192,9 @@ class ClasificadorMovimientos
                 })->toArray()
             ];
         })->values();
-        
-        \Log::info('🔍 Cobros agrupados', [
-            'cobros_count' => $resultado->count(),
-            'cobros' => $resultado->toArray(),
-        ]);
-        
+
+
+
         return $resultado;
     }
 
@@ -230,25 +203,20 @@ class ClasificadorMovimientos
      */
     private function obtenerOtrosIngresosVendedor($subCajasIds, $apertura, string $userId): Collection
     {
-        \Log::info('Obteniendo otros ingresos del vendedor', [
-            'user_id' => $userId,
-            'sub_cajas_count' => count($subCajasIds)
-        ]);
-        
+
+
         $ingresos = DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
             ->whereIn('tc.sub_caja_id', $subCajasIds)
             ->where('tc.user_id', $userId) // ✅ FILTRAR POR VENDEDOR
             ->where('tc.tipo_transaccion', 'ingreso')
             // EXCLUIR ingresos que son de ventas, aperturas, transferencias entre vendedores o movimientos internos
-            ->where(function($query) {
+            ->where(function ($query) {
                 $query->whereNull('tc.referencia_tipo')
-                      ->orWhereNotIn('tc.referencia_tipo', ['venta', 'apertura', 'transferencia_vendedor', 'movimiento_interno']);
+                    ->orWhereNotIn('tc.referencia_tipo', ['venta', 'apertura', 'transferencia_vendedor', 'movimiento_interno']);
             })
             ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
-                return $query->where('tc.fecha', '<=', $fechaCierre);
-            })
+            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
             ->select([
                 'tc.id',
                 'tc.monto',
@@ -258,12 +226,9 @@ class ClasificadorMovimientos
                 'sc.nombre as sub_caja'
             ])
             ->get();
-            
-        \Log::info('Otros ingresos obtenidos', [
-            'count' => $ingresos->count(),
-            'total' => $ingresos->sum('monto')
-        ]);
-        
+
+
+
         return $ingresos;
     }
 
@@ -272,25 +237,20 @@ class ClasificadorMovimientos
      */
     private function obtenerGastosVendedor($subCajasIds, $apertura, string $userId): Collection
     {
-        \Log::info('Obteniendo gastos del vendedor', [
-            'user_id' => $userId,
-            'sub_cajas_count' => count($subCajasIds)
-        ]);
-        
+
+
         $gastos = DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
             ->whereIn('tc.sub_caja_id', $subCajasIds)
             ->where('tc.user_id', $userId) // ✅ FILTRAR POR VENDEDOR
             ->where('tc.tipo_transaccion', 'egreso')
             // EXCLUIR egresos que son préstamos a vendedores o movimientos internos
-            ->where(function($query) {
+            ->where(function ($query) {
                 $query->whereNull('tc.referencia_tipo')
-                      ->orWhereNotIn('tc.referencia_tipo', ['transferencia_vendedor', 'movimiento_interno']);
+                    ->orWhereNotIn('tc.referencia_tipo', ['transferencia_vendedor', 'movimiento_interno']);
             })
             ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
-                return $query->where('tc.fecha', '<=', $fechaCierre);
-            })
+            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
             ->select([
                 'tc.id',
                 'tc.monto',
@@ -300,12 +260,9 @@ class ClasificadorMovimientos
                 DB::raw("'gasto' as tipo")
             ])
             ->get();
-            
-        \Log::info('Gastos obtenidos', [
-            'count' => $gastos->count(),
-            'total' => $gastos->sum('monto')
-        ]);
-        
+
+
+
         return $gastos;
     }
 
@@ -315,24 +272,18 @@ class ClasificadorMovimientos
     private function obtenerPrestamosRecibidosVendedor($apertura, string $userId): Collection
     {
         try {
-            \Log::info('🔍🔍🔍 obtenerPrestamosRecibidosVendedor - INICIO', [
-                'apertura_id' => $apertura->id,
-                'user_id' => $userId,
-            ]);
-            
+
+
             // Verificar cuántas transferencias hay en total
             $totalTransferencias = DB::table('transferencias_efectivo_vendedores')->count();
-            \Log::info('📊 Total transferencias en DB', ['count' => $totalTransferencias]);
-            
+
+
             // Verificar transferencias con esta apertura
             $transferenciasApertura = DB::table('transferencias_efectivo_vendedores')
                 ->where('apertura_cierre_caja_id', $apertura->id)
                 ->get(['id', 'vendedor_origen_id', 'vendedor_destino_id', 'monto']);
-            \Log::info('📊 Transferencias de esta apertura', [
-                'count' => $transferenciasApertura->count(),
-                'transferencias' => $transferenciasApertura->toArray()
-            ]);
-            
+
+
             $prestamos = DB::table('transferencias_efectivo_vendedores as tev')
                 ->join('user as u_origen', 'tev.vendedor_origen_id', '=', 'u_origen.id')
                 ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
@@ -351,18 +302,12 @@ class ClasificadorMovimientos
                     DB::raw("'recibido' as tipo_prestamo")
                 ])
                 ->get();
-                
-            \Log::info('✅ Préstamos recibidos encontrados', [
-                'count' => $prestamos->count(),
-                'prestamos' => $prestamos->toArray(),
-            ]);
-            
+
+
+
             return $prestamos;
         } catch (\Exception $e) {
-            \Log::error('❌ Error en obtenerPrestamosRecibidosVendedor', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
+
             return collect([]);
         }
     }
@@ -372,11 +317,8 @@ class ClasificadorMovimientos
      */
     private function obtenerPrestamosDadosVendedor($apertura, string $userId): Collection
     {
-        \Log::info('🔍🔍🔍 obtenerPrestamosDadosVendedor - INICIO', [
-            'apertura_id' => $apertura->id,
-            'user_id' => $userId,
-        ]);
-        
+
+
         $prestamos = DB::table('transferencias_efectivo_vendedores as tev')
             ->join('user as u_destino', 'tev.vendedor_destino_id', '=', 'u_destino.id')
             ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
@@ -395,12 +337,9 @@ class ClasificadorMovimientos
                 DB::raw("'dado' as tipo_prestamo")
             ])
             ->get();
-            
-        \Log::info('✅ Préstamos dados encontrados', [
-            'count' => $prestamos->count(),
-            'prestamos' => $prestamos->toArray(),
-        ]);
-        
+
+
+
         return $prestamos;
     }
 
@@ -415,9 +354,7 @@ class ClasificadorMovimientos
             ->join('cajas_principales as cp_origen', 'sc_origen.caja_principal_id', '=', 'cp_origen.id')
             ->where('cp_origen.user_id', $userId)
             ->where('mi.fecha', '>=', $apertura->fecha_apertura)
-            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
-                return $query->where('mi.fecha', '<=', $fechaCierre);
-            })
+            ->where('mi.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
             ->select([
                 'mi.id',
                 'mi.monto',
@@ -440,7 +377,7 @@ class ClasificadorMovimientos
 
         // Obtener los pagos de las ventas desde la tabla correcta
         $ventaIds = $ventas->pluck('id');
-        
+
         $pagos = DB::table('numeros_operacion_pago as nop')
             ->join('desplieguedepago as dp', 'nop.despliegue_pago_id', '=', 'dp.id')
             ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
@@ -480,14 +417,12 @@ class ClasificadorMovimientos
             ->whereIn('tc.sub_caja_id', $subCajasIds)
             ->where('tc.tipo_transaccion', 'ingreso')
             // EXCLUIR ingresos que son de ventas (ya están en cobros_por_metodo)
-            ->where(function($query) {
+            ->where(function ($query) {
                 $query->whereNull('tc.referencia_tipo')
-                      ->orWhereNotIn('tc.referencia_tipo', ['venta']);
+                    ->orWhereNotIn('tc.referencia_tipo', ['venta']);
             })
             ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
-                return $query->where('tc.fecha', '<=', $fechaCierre);
-            })
+            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
             ->select([
                 'tc.id',
                 'tc.monto',
@@ -509,9 +444,7 @@ class ClasificadorMovimientos
             ->whereIn('tc.sub_caja_id', $subCajasIds)
             ->where('tc.tipo_transaccion', 'egreso')
             ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
-                return $query->where('tc.fecha', '<=', $fechaCierre);
-            })
+            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
             ->select([
                 'tc.id',
                 'tc.monto',
@@ -534,9 +467,7 @@ class ClasificadorMovimientos
             ->join('cajas_principales as cp_origen', 'sc_origen.caja_principal_id', '=', 'cp_origen.id')
             ->where('cp_origen.user_id', $apertura->user_id)
             ->where('mi.fecha', '>=', $apertura->fecha_apertura)
-            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
-                return $query->where('mi.fecha', '<=', $fechaCierre);
-            })
+            ->where('mi.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
             ->select([
                 'mi.id',
                 'mi.monto',
@@ -558,12 +489,10 @@ class ClasificadorMovimientos
             ->join('sub_cajas as sc_destino', 'pec.sub_caja_destino_id', '=', 'sc_destino.id')
             ->where(function ($query) use ($apertura) {
                 $query->where('pec.user_presta_id', $apertura->user_id)
-                      ->orWhere('pec.user_recibe_id', $apertura->user_id);
+                    ->orWhere('pec.user_recibe_id', $apertura->user_id);
             })
             ->where('pec.fecha_prestamo', '>=', $apertura->fecha_apertura)
-            ->when($apertura->fecha_cierre, function ($query, $fechaCierre) {
-                return $query->where('pec.fecha_prestamo', '<=', $fechaCierre);
-            })
+            ->where('pec.fecha_prestamo', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
             ->select([
                 'pec.id',
                 'pec.monto',
@@ -591,7 +520,7 @@ class ClasificadorMovimientos
             ->where('tev.apertura_cierre_caja_id', $apertura->id)
             ->where(function ($query) use ($apertura) {
                 $query->where('tev.vendedor_origen_id', $apertura->user_id)
-                      ->orWhere('tev.vendedor_destino_id', $apertura->user_id);
+                    ->orWhere('tev.vendedor_destino_id', $apertura->user_id);
             })
             ->select([
                 'tev.id',

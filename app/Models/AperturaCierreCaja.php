@@ -37,7 +37,6 @@ class AperturaCierreCaja extends Model
         'reporte_enviado',
         'supervisor_id_validador',
         'supervisor_validado',
-        'cerrado_por',
         'observaciones_cierre',
     ];
 
