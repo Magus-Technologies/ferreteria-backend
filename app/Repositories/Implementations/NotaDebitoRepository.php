@@ -16,8 +16,8 @@ class NotaDebitoRepository implements NotaDebitoRepositoryInterface
             'motivo',
             'usuario',
             'almacen',
-            'comprobanteElectronico',
-            'comprobanteReferencia'
+            'comprobanteElectronico.detalles',
+            'comprobanteReferencia.detalles'
         ])->find($id);
     }
 

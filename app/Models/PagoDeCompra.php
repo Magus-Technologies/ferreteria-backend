@@ -31,6 +31,8 @@ class PagoDeCompra extends Model
         'compra_id',
         'despliegue_de_pago_id',
         'monto',
+        'numero_letra',
+        'numero_operacion',
         'fecha',
         'observacion',
     ];

@@ -30,7 +30,7 @@ class AperturaCajaController extends Controller
             try {
                 // Obtener user_id del usuario autenticado
                 $userId = auth()->id();
-                
+
                 if (!$userId) {
                     return response()->json([
                         'success' => false,
@@ -78,32 +78,49 @@ class AperturaCajaController extends Controller
                     ->first();
 
                 if ($aperturaActiva) {
+                    /** @var AperturaCierreCaja $aperturaActiva */
                     // ✅ Si ya hay apertura, solo agregar el monto a la caja chica
                     $saldoAnterior = $cajaChica->saldo_actual;
                     $cajaChica->saldo_actual += $montoTotal;
                     $cajaChica->save();
-                    
+
                     // Actualizar el monto de apertura acumulado
                     $aperturaActiva->monto_apertura += $montoTotal;
                     $aperturaActiva->save();
-                    
+
                     // Registrar distribución a vendedores
                     if (!empty($vendedores)) {
                         foreach ($vendedores as $vendedor) {
-                            \App\Models\DistribucionEfectivoVendedor::create([
-                                'apertura_cierre_caja_id' => $aperturaActiva->id,
-                                'user_id' => $vendedor['user_id'],
-                                'monto' => $vendedor['monto'],
-                                'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
-                            ]);
+                            // Verificar si ya existe una distribución para este vendedor en esta apertura
+                            $distribucionExistente = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                                ->where('user_id', $vendedor['user_id'])
+                                ->first();
+
+                            if ($distribucionExistente) {
+                                // Actualizar distribución existente
+                                $distribucionExistente->monto += $vendedor['monto'];
+                                // Actualizar conteo si se proporciona (reemplazo simple por ahora)
+                                if (isset($vendedor['conteo_billetes_monedas'])) {
+                                    $distribucionExistente->conteo_billetes_monedas = $vendedor['conteo_billetes_monedas'];
+                                }
+                                $distribucionExistente->save();
+                            } else {
+                                // Crear nueva distribución
+                                \App\Models\DistribucionEfectivoVendedor::create([
+                                    'apertura_cierre_caja_id' => $aperturaActiva->id,
+                                    'user_id' => $vendedor['user_id'],
+                                    'monto' => $vendedor['monto'],
+                                    'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
+                                ]);
+                            }
                         }
                     }
-                    
+
                     // Buscar el despliegue de pago "Efectivo"
                     $desplieguePagoEfectivo = \App\Models\DespliegueDePago::where('name', 'Efectivo')
                         ->where('activo', true)
                         ->first();
-                    
+
                     // Registrar transacción
                     TransaccionCaja::create([
                         'id' => (string) Str::ulid(),
@@ -119,7 +136,7 @@ class AperturaCajaController extends Controller
                         'user_id' => $userId,
                         'fecha' => now(),
                     ]);
-                    
+
                     // Registrar movimiento
                     MovimientoCaja::create([
                         'id' => (string) Str::ulid(),
@@ -136,33 +153,48 @@ class AperturaCajaController extends Controller
                         'saldo_final' => $cajaChica->saldo_actual,
                         'estado_caja' => 'abierta',
                     ]);
-                    
+
                     $aperturaActiva->load(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
-                    
+
                     // ✅ Enviar email automáticamente si está habilitado (IGUAL QUE EN NUEVA APERTURA)
                     if ($enviarTicket && $emailDestino) {
                         try {
                             $ticketService = app(\App\Services\TicketAperturaService::class);
                             $subject = 'Ticket de Apertura de Caja - ' . Carbon::parse($aperturaActiva->fecha_apertura)->format('d/m/Y H:i');
-                            
-                            // Determinar si debe filtrar por usuario
-                            // Si el usuario que solicita es vendedor (no admin), filtrar por su ID
-                            $filterUserId = null;
-                            $esAdmin = auth()->user()->hasRole('admin') || auth()->user()->hasRole('administrador');
-                            $esVendedorDistribuido = $aperturaActiva->distribucionesVendedores->contains('user_id', auth()->id());
-                            
-                            if (!$esAdmin && $esVendedorDistribuido) {
-                                $filterUserId = auth()->id();
+
+                            // Obtener solo las distribuciones recién creadas/actualizadas
+                            $distribucionesRecientes = [];
+                            foreach ($vendedores as $vendedor) {
+                                $dist = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                                    ->where('user_id', $vendedor['user_id'])
+                                    ->with('vendedor')
+                                    ->first();
+                                
+                                if ($dist) {
+                                    $distribucionesRecientes[] = [
+                                        'vendedor' => $dist->vendedor->name,
+                                        'monto' => $vendedor['monto'], // Usar el monto de esta operación, no el acumulado
+                                        'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
+                                    ];
+                                }
                             }
-                            
-                            // Generar HTML para el cuerpo del email
-                            $htmlContent = $ticketService->generarTicketHTML($aperturaActiva, $filterUserId);
-                            
-                            // Generar PDF
-                            $pdf = $ticketService->generarTicketPDF($aperturaActiva, $filterUserId);
+
+                            // Generar HTML para el cuerpo del email con distribuciones específicas
+                            $htmlContent = $ticketService->generarTicketHTMLConDistribuciones(
+                                $aperturaActiva, 
+                                collect($distribucionesRecientes),
+                                $montoTotal
+                            );
+
+                            // Generar PDF con distribuciones específicas
+                            $pdf = $ticketService->generarTicketPDFConDistribuciones(
+                                $aperturaActiva, 
+                                collect($distribucionesRecientes),
+                                $montoTotal
+                            );
                             $pdfContent = $pdf->output();
                             $pdfName = 'ticket-apertura-' . $aperturaActiva->id . '.pdf';
-                            
+
                             // Enviar email con PDF adjunto
                             Mail::html($htmlContent, function ($message) use ($emailDestino, $subject, $pdfContent, $pdfName) {
                                 $message->to($emailDestino)
@@ -171,11 +203,11 @@ class AperturaCajaController extends Controller
                                         'mime' => 'application/pdf',
                                     ]);
                             });
-                            
+
                             Log::info("Email de apertura con PDF enviado automáticamente (apertura existente)", [
                                 'apertura_id' => $aperturaActiva->id,
                                 'email' => $emailDestino,
-                                'filtrado_por_usuario' => $filterUserId ? 'Sí' : 'No',
+                                'monto_operacion' => $montoTotal,
                             ]);
                         } catch (\Exception $emailError) {
                             // No fallar la apertura si el email falla
@@ -186,7 +218,7 @@ class AperturaCajaController extends Controller
                             ]);
                         }
                     }
-                    
+
                     return response()->json([
                         'success' => true,
                         'message' => "Efectivo distribuido exitosamente. Nuevo saldo: S/. {$cajaChica->saldo_actual}",
@@ -194,22 +226,24 @@ class AperturaCajaController extends Controller
                             'id' => $aperturaActiva->id,
                             'apertura_id' => $aperturaActiva->id,
                             'monto_agregado' => number_format($montoTotal, 2, '.', ''),
-                            'monto_apertura' => number_format($aperturaActiva->monto_apertura, 2, '.', ''),
-                            'monto_apertura_total' => number_format($aperturaActiva->monto_apertura, 2, '.', ''),
+                            'monto_apertura' => number_format($montoTotal, 2, '.', ''), // Monto de ESTA operación
+                            'monto_apertura_total' => number_format($aperturaActiva->monto_apertura, 2, '.', ''), // Monto acumulado total
                             'conteo_apertura_billetes_monedas' => $aperturaActiva->conteo_apertura_billetes_monedas,
                             'fecha_apertura' => $aperturaActiva->fecha_apertura->toIso8601String(),
                             'estado' => $aperturaActiva->estado,
                             'saldo_anterior' => number_format($saldoAnterior, 2, '.', ''),
                             'saldo_nuevo' => number_format($cajaChica->saldo_actual, 2, '.', ''),
                             'vendedores_count' => count($vendedores),
-                            'distribuciones' => $aperturaActiva->distribucionesVendedores->map(function ($dist) {
+                            // SOLO las distribuciones de esta operación
+                            'distribuciones' => collect($vendedores)->map(function ($vendedor) use ($aperturaActiva) {
+                                $dist = $aperturaActiva->distribucionesVendedores->firstWhere('user_id', $vendedor['user_id']);
                                 return [
-                                    'vendedor_id' => $dist->user_id,
-                                    'vendedor' => $dist->vendedor->name,
-                                    'monto' => number_format($dist->monto, 2, '.', ''),
-                                    'conteo_billetes_monedas' => $dist->conteo_billetes_monedas,
+                                    'vendedor_id' => $vendedor['user_id'],
+                                    'vendedor' => $dist ? $dist->vendedor->name : 'N/A',
+                                    'monto' => number_format($vendedor['monto'], 2, '.', ''), // Monto de ESTA operación
+                                    'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
                                 ];
-                            }),
+                            })->values(),
                             'caja_principal' => [
                                 'id' => $aperturaActiva->cajaPrincipal->id,
                                 'codigo' => $aperturaActiva->cajaPrincipal->codigo,
@@ -259,25 +293,40 @@ class AperturaCajaController extends Controller
                     try {
                         $ticketService = app(\App\Services\TicketAperturaService::class);
                         $subject = 'Ticket de Apertura de Caja - ' . Carbon::parse($apertura->fecha_apertura)->format('d/m/Y H:i');
-                        
-                        // Determinar si debe filtrar por usuario
-                        // Si el usuario que solicita es vendedor (no admin), filtrar por su ID
-                        $filterUserId = null;
-                        $esAdmin = auth()->user()->hasRole('admin') || auth()->user()->hasRole('administrador');
-                        $esVendedorDistribuido = $apertura->distribucionesVendedores->contains('user_id', auth()->id());
-                        
-                        if (!$esAdmin && $esVendedorDistribuido) {
-                            $filterUserId = auth()->id();
+
+                        // Preparar distribuciones para el ticket
+                        $distribucionesParaTicket = [];
+                        foreach ($vendedores as $vendedor) {
+                            $dist = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
+                                ->where('user_id', $vendedor['user_id'])
+                                ->with('vendedor')
+                                ->first();
+                            
+                            if ($dist) {
+                                $distribucionesParaTicket[] = [
+                                    'vendedor' => $dist->vendedor->name,
+                                    'monto' => $vendedor['monto'],
+                                    'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
+                                ];
+                            }
                         }
-                        
+
                         // Generar HTML para el cuerpo del email
-                        $htmlContent = $ticketService->generarTicketHTML($apertura, $filterUserId);
-                        
+                        $htmlContent = $ticketService->generarTicketHTMLConDistribuciones(
+                            $apertura, 
+                            collect($distribucionesParaTicket),
+                            $montoTotal
+                        );
+
                         // Generar PDF
-                        $pdf = $ticketService->generarTicketPDF($apertura, $filterUserId);
+                        $pdf = $ticketService->generarTicketPDFConDistribuciones(
+                            $apertura, 
+                            collect($distribucionesParaTicket),
+                            $montoTotal
+                        );
                         $pdfContent = $pdf->output();
                         $pdfName = 'ticket-apertura-' . $apertura->id . '.pdf';
-                        
+
                         // Enviar email con PDF adjunto
                         Mail::html($htmlContent, function ($message) use ($emailDestino, $subject, $pdfContent, $pdfName) {
                             $message->to($emailDestino)
@@ -286,11 +335,11 @@ class AperturaCajaController extends Controller
                                     'mime' => 'application/pdf',
                                 ]);
                         });
-                        
+
                         Log::info("Email de apertura con PDF enviado automáticamente", [
                             'apertura_id' => $apertura->id,
                             'email' => $emailDestino,
-                            'filtrado_por_usuario' => $filterUserId ? 'Sí' : 'No',
+                            'monto_operacion' => $montoTotal,
                         ]);
                     } catch (\Exception $emailError) {
                         // No fallar la apertura si el email falla
@@ -315,14 +364,15 @@ class AperturaCajaController extends Controller
                         'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
                         'estado' => $apertura->estado,
                         'vendedores_count' => count($vendedores),
-                        'distribuciones' => $apertura->distribucionesVendedores->map(function ($dist) {
+                        'distribuciones' => collect($vendedores)->map(function ($vendedor) use ($apertura) {
+                            $dist = $apertura->distribucionesVendedores->firstWhere('user_id', $vendedor['user_id']);
                             return [
-                                'vendedor_id' => $dist->user_id,
-                                'vendedor' => $dist->vendedor->name,
-                                'monto' => number_format($dist->monto, 2, '.', ''),
-                                'conteo_billetes_monedas' => $dist->conteo_billetes_monedas,
+                                'vendedor_id' => $vendedor['user_id'],
+                                'vendedor' => $dist ? $dist->vendedor->name : 'N/A',
+                                'monto' => number_format($vendedor['monto'], 2, '.', ''),
+                                'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
                             ];
-                        }),
+                        })->values(),
                         'caja_principal' => [
                             'id' => $apertura->cajaPrincipal->id,
                             'codigo' => $apertura->cajaPrincipal->codigo,
@@ -406,17 +456,17 @@ class AperturaCajaController extends Controller
         try {
             $userId = auth()->id();
             $perPage = request()->query('per_page', 15);
-            
+
             // Construir la consulta base
             $query = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user']);
-            
+
             // Si hay usuario autenticado, filtrar por sus cajas
             if ($userId) {
                 $query->whereHas('cajaPrincipal', function ($q) use ($userId) {
                     $q->where('user_id', $userId);
                 });
             }
-            
+
             $historial = $query->orderBy('fecha_apertura', 'desc')
                 ->paginate($perPage);
 
@@ -470,14 +520,14 @@ class AperturaCajaController extends Controller
         try {
             $perPage = request()->query('per_page', 15);
             $cajaPrincipalId = request()->query('caja_principal_id');
-            
+
             $query = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
-            
+
             // Filtrar por caja principal si se especifica
             if ($cajaPrincipalId) {
                 $query->where('caja_principal_id', $cajaPrincipalId);
             }
-            
+
             $historial = $query->orderBy('fecha_apertura', 'desc')
                 ->paginate($perPage);
 
@@ -487,6 +537,7 @@ class AperturaCajaController extends Controller
                     return [
                         'id' => $apertura->id,
                         'caja_principal_id' => $apertura->caja_principal_id,
+                        'user_id' => $apertura->user_id,
                         'monto_apertura' => number_format($apertura->monto_apertura, 2, '.', ''),
                         'monto_cierre' => $apertura->monto_cierre ? number_format($apertura->monto_cierre, 2, '.', '') : null,
                         'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
@@ -545,12 +596,12 @@ class AperturaCajaController extends Controller
             // Obtener la apertura
             $apertura = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor'])
                 ->findOrFail($id);
-            
+
             // Verificar permisos: puede enviar si es el usuario de la apertura, si es uno de los vendedores, o si es admin
             $esUsuarioApertura = $apertura->user_id === auth()->id();
             $esVendedorDistribuido = $apertura->distribucionesVendedores->contains('user_id', auth()->id());
             $esAdmin = auth()->user()->hasRole('admin') || auth()->user()->hasRole('administrador');
-            
+
             if (!$esUsuarioApertura && !$esVendedorDistribuido && !$esAdmin) {
                 return response()->json([
                     'success' => false,
@@ -598,7 +649,6 @@ class AperturaCajaController extends Controller
                 'success' => true,
                 'message' => 'Ticket enviado exitosamente por correo electrónico',
             ]);
-
         } catch (\Exception $e) {
             Log::error('Error al enviar ticket de apertura por correo: ' . $e->getMessage());
             return response()->json([
@@ -628,7 +678,7 @@ class AperturaCajaController extends Controller
 
             // Enviar el correo SIN PDF adjunto (solo para test)
             $emailDestino = 'victorcanchari61@gmail.com';
-            
+
             Mail::html($htmlContent, function ($message) use ($emailDestino, $subject) {
                 $message->to($emailDestino)
                     ->subject($subject);
@@ -650,12 +700,11 @@ class AperturaCajaController extends Controller
                     'fecha_envio' => now()->toIso8601String(),
                 ],
             ]);
-
         } catch (\Exception $e) {
             Log::error('TEST: Error al enviar email: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString()
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al enviar el email de prueba: ' . $e->getMessage(),

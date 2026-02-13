@@ -103,7 +103,7 @@
         </div>
 
         @php
-            $distribuciones = $apertura->distribucionesVendedores ?? collect();
+            // Use the filtered $distribuciones passed from the service
             $cantidadVendedores = $distribuciones->count();
         @endphp
 
@@ -111,7 +111,7 @@
             @php
                 $tieneDesglose = false;
                 foreach($distribuciones as $dist) {
-                    if(isset($dist->conteo_billetes_monedas) && !empty($dist->conteo_billetes_monedas)) {
+                    if(isset($dist['conteo_billetes_monedas']) && !empty($dist['conteo_billetes_monedas'])) {
                         $tieneDesglose = true;
                         break;
                     }
@@ -122,9 +122,9 @@
             <div class="section">
                 <div class="label" style="margin-bottom: 5px;">DESGLOSE DE DENOMINACIONES</div>
                 @foreach($distribuciones as $dist)
-                    @if(isset($dist->conteo_billetes_monedas) && !empty($dist->conteo_billetes_monedas))
+                    @if(isset($dist['conteo_billetes_monedas']) && !empty($dist['conteo_billetes_monedas']))
                         @php
-                            $conteo = $dist->conteo_billetes_monedas;
+                            $conteo = $dist['conteo_billetes_monedas'];
                             $denominaciones = [
                                 ['label' => 'Billete S/. 200', 'valor' => 200, 'key' => 'b200'],
                                 ['label' => 'Billete S/. 100', 'valor' => 100, 'key' => 'b100'],
@@ -146,7 +146,7 @@
 
                         @if(count($denominacionesConValor) > 0)
                             @if($cantidadVendedores > 1)
-                            <div style="font-weight: bold; margin-top: 10px; font-size: 11px;">{{ $dist->vendedor->name }}:</div>
+                            <div style="font-weight: bold; margin-top: 10px; font-size: 11px;">{{ $dist['vendedor'] }}:</div>
                             @endif
                             
                             <table class="table" style="margin-top: 5px;">
@@ -172,7 +172,7 @@
                                 </tbody>
                             </table>
                             <div style="text-align: right; font-weight: bold; margin-top: 5px; padding-top: 5px; border-top: 1px solid #000;">
-                                Subtotal: S/ {{ number_format($dist->monto, 2) }}
+                                Subtotal: S/ {{ number_format($dist['monto'], 2) }}
                             </div>
                         @endif
                     @endif
@@ -192,8 +192,8 @@
                     <tbody>
                         @foreach($distribuciones as $dist)
                         <tr>
-                            <td>{{ $dist->vendedor->name }}</td>
-                            <td style="text-align: right;">S/ {{ number_format($dist->monto, 2) }}</td>
+                            <td>{{ $dist['vendedor'] }}</td>
+                            <td style="text-align: right;">S/ {{ number_format($dist['monto'], 2) }}</td>
                         </tr>
                         @endforeach
                     </tbody>

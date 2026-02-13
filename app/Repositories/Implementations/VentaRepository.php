@@ -20,12 +20,14 @@ class VentaRepository implements VentaRepositoryInterface
             return collect([]);
         }
 
-        // Obtener el día de la apertura (sin hora)
+        // Usar la hora exacta de apertura (no inicio del día)
         $fechaApertura = \Carbon\Carbon::parse($apertura->fecha_apertura);
-        $inicioDia = $fechaApertura->copy()->startOfDay();
+        $inicioDia = $fechaApertura;
+        // Limitar a 12 horas máximo desde la apertura
+        $limiteMaximo = $fechaApertura->copy()->addHours(12);
         $finDia = $apertura->fecha_cierre 
             ? \Carbon\Carbon::parse($apertura->fecha_cierre)
-            : $fechaApertura->copy()->endOfDay();
+            : $limiteMaximo;
 
         $ventas = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
             ->where('user_id', $apertura->user_id)

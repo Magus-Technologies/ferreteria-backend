@@ -65,6 +65,7 @@ class VentaController extends Controller
                 'despliegueDePagoVentas.despliegueDePago',
                 'user:id,name',
                 'almacen:id,name',
+                'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
             ])
             ->withCount('entregasProductos as entregas_productos_count')
             ->withSum('despliegueDePagoVentas as total_pagado', 'monto');
@@ -503,6 +504,7 @@ class VentaController extends Controller
             'user:id,name',
             'almacen:id,name',
             'entregasProductos',
+            'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
         ])
             ->withCount('entregasProductos as entregas_productos_count')
             ->withSum('despliegueDePagoVentas as total_pagado', 'monto')
@@ -682,6 +684,54 @@ class VentaController extends Controller
             // Proceso post venta
             $validated['id'] = $id;
             $this->procesoPostVenta($validated);
+
+            // ✅ REGENERAR COMPROBANTE ELECTRÓNICO AUTOMÁTICAMENTE AL EDITAR
+            // Solo para facturas (01) y boletas (03) que ya tienen comprobante
+            $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
+                ? $venta->tipo_documento->value 
+                : $venta->tipo_documento;
+
+            if (in_array($tipoDocumento, ['01', '03'])) {
+                try {
+                    // Verificar si ya existe un comprobante para esta venta
+                    $comprobanteExistente = \App\Models\ComprobanteElectronico::where('venta_id', $venta->id)->first();
+                    
+                    if ($comprobanteExistente) {
+                        Log::info('🔄 Regenerando comprobante electrónico automáticamente', [
+                            'venta_id' => $venta->id,
+                            'comprobante_id' => $comprobanteExistente->id,
+                        ]);
+
+                        // Eliminar el comprobante existente y sus detalles
+                        \App\Models\DetalleComprobanteElectronico::where('comprobante_electronico_id', $comprobanteExistente->id)->delete();
+                        $comprobanteExistente->delete();
+
+                        Log::info('🗑️ Comprobante anterior eliminado', [
+                            'venta_id' => $venta->id,
+                            'comprobante_id' => $comprobanteExistente->id,
+                        ]);
+
+                        // Generar nuevo comprobante
+                        $dto = new FacturaDTO(
+                            ventaId: $venta->id,
+                            usuarioId: $venta->user_id
+                        );
+
+                        $resultado = $this->facturaService->generarComprobanteDesdeVenta($dto);
+                        
+                        Log::info('✅ Comprobante electrónico regenerado automáticamente', [
+                            'venta_id' => $venta->id,
+                            'comprobante_id' => $resultado['comprobante']->id ?? 'NO_ID',
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    // No fallar la actualización si hay error al regenerar comprobante
+                    Log::error('❌ Error al regenerar comprobante automáticamente', [
+                        'venta_id' => $venta->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             return response()->json([
                 'data' => $venta->fresh([

@@ -54,6 +54,15 @@ class NotaDebitoController extends Controller
 
             $notasDebito = $this->notaDebitoService->listar($filtros);
 
+            // Log temporal para debugging
+            if ($notasDebito->isNotEmpty()) {
+                \Log::info('Notas de débito encontradas', [
+                    'cantidad' => $notasDebito->count(),
+                    'primer_id' => $notasDebito->first()->id ?? 'sin id',
+                    'tipo_primer_id' => gettype($notasDebito->first()->id ?? null),
+                ]);
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => NotaDebitoResource::collection($notasDebito),
@@ -74,20 +83,22 @@ class NotaDebitoController extends Controller
     public function store(CrearNotaDebitoRequest $request): JsonResponse
     {
         try {
+            $validated = $request->validated();
+            
             $dto = new NotaDebitoDTO(
-                ventaId: $request->validated('venta_id'),
-                motivoId: $request->validated('motivo_id'),
-                serie: $request->validated('serie'),
-                almacenId: $request->validated('almacen_id'),
-                numero: $request->validated('numero'),
-                descripcion: $request->validated('descripcion'),
-                montoTotal: $request->validated('monto_total'),
-                montoIgv: $request->validated('monto_igv'),
-                montoSubtotal: $request->validated('monto_subtotal'),
-                fecha: $request->validated('fecha') ? new \DateTime($request->validated('fecha')) : null,
+                ventaId: $validated['venta_id'],
+                motivoId: $validated['motivo_id'],
+                serie: $validated['serie'],
+                almacenId: $validated['almacen_id'],
+                numero: $validated['numero'] ?? null,
+                descripcion: $validated['descripcion'] ?? '',
+                montoTotal: $validated['monto_total'],
+                montoIgv: $validated['monto_igv'],
+                montoSubtotal: $validated['monto_subtotal'],
+                fecha: isset($validated['fecha']) ? new \DateTime($validated['fecha']) : null,
                 usuarioId: auth()->id(),
-                observaciones: $request->validated('observaciones'),
-                items: $request->validated('items')
+                observaciones: $validated['observaciones'] ?? null,
+                items: $validated['items'] ?? []
             );
 
             $notaDebito = $this->notaDebitoService->crear($dto);
@@ -145,20 +156,22 @@ class NotaDebitoController extends Controller
     public function update(ActualizarNotaDebitoRequest $request, string $id): JsonResponse
     {
         try {
+            $validated = $request->validated();
+            
             $dto = new NotaDebitoDTO(
                 ventaId: null, // No se actualiza la venta
-                motivoId: $request->validated('motivo_id'),
+                motivoId: $validated['motivo_id'],
                 serie: null, // No se actualiza la serie
                 almacenId: null, // No se actualiza el almacén
                 numero: null,
-                descripcion: $request->validated('descripcion'),
-                montoTotal: $request->validated('monto_total'),
-                montoIgv: $request->validated('monto_igv'),
-                montoSubtotal: $request->validated('monto_subtotal'),
+                descripcion: $validated['descripcion'] ?? '',
+                montoTotal: $validated['monto_total'],
+                montoIgv: $validated['monto_igv'],
+                montoSubtotal: $validated['monto_subtotal'],
                 fecha: null,
                 usuarioId: null,
-                observaciones: $request->validated('observaciones'),
-                items: $request->validated('items')
+                observaciones: $validated['observaciones'] ?? null,
+                items: $validated['items'] ?? []
             );
 
             $notaDebito = $this->notaDebitoService->actualizar($id, $dto);
@@ -216,6 +229,12 @@ class NotaDebitoController extends Controller
     public function enviarSunat(string $id): JsonResponse
     {
         try {
+            // Log para debugging
+            \Log::info('Enviando nota de débito a SUNAT', [
+                'id_recibido' => $id,
+                'tipo_id' => gettype($id),
+            ]);
+
             $resultado = $this->notaDebitoService->enviarASunat($id, 'manual');
 
             return response()->json([
@@ -229,13 +248,25 @@ class NotaDebitoController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('Error al enviar nota de débito a SUNAT', [
+                'id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             $statusCode = method_exists($e, 'getCode') && $e->getCode() >= 400 && $e->getCode() < 600
                 ? $e->getCode()
                 : 500;
 
+            // Asegurar que el mensaje esté en UTF-8 válido
+            $message = $e->getMessage();
+            if (!mb_check_encoding($message, 'UTF-8')) {
+                $message = mb_convert_encoding($message, 'UTF-8', 'UTF-8');
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => $e->getMessage(),
+                'message' => $message,
             ], $statusCode);
         }
     }

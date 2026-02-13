@@ -101,6 +101,8 @@ class ComprobanteElectronico extends Model
         'errores_sunat' => 'array',
     ];
 
+    protected $appends = ['tiene_xml', 'tiene_cdr'];
+
     // Relationships
     public function cliente(): BelongsTo
     {
@@ -163,6 +165,16 @@ class ComprobanteElectronico extends Model
     public function getNumeroCompletoAttribute(): string
     {
         return "{$this->serie}-" . str_pad($this->correlativo, 8, '0', STR_PAD_LEFT);
+    }
+
+    public function getTieneXmlAttribute(): bool
+    {
+        return !empty($this->xml_path) || !empty($this->xml_firmado);
+    }
+
+    public function getTieneCdrAttribute(): bool
+    {
+        return !empty($this->cdr_path);
     }
 
     public function tieneXml(): bool

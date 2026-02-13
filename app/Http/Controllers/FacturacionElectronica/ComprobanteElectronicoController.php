@@ -19,6 +19,7 @@ class ComprobanteElectronicoController extends Controller
             $query = $request->input('query');
             $tipo = $request->input('tipo'); // 01=Factura, 03=Boleta
             $limit = $request->input('limit', 50);
+            $paraNotaDebito = $request->input('para_nota_debito', false); // Nuevo parámetro
 
             if (empty($query)) {
                 return response()->json([
@@ -57,6 +58,14 @@ class ComprobanteElectronicoController extends Controller
                     }
                 })
                 ->when($tipo, fn($q) => $q->where('tipo_comprobante', $tipo))
+                // ✅ NUEVO FILTRO: Excluir comprobantes con nota de débito aceptada
+                ->when($paraNotaDebito, function ($q) {
+                    $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
+                        $subQ->whereHas('comprobanteElectronico', function ($compQ) {
+                            $compQ->where('estado_sunat', 'ACEPTADO');
+                        });
+                    });
+                })
                 ->orderBy('fecha_emision', 'desc')
                 ->orderBy('correlativo', 'desc')
                 ->limit($limit)
