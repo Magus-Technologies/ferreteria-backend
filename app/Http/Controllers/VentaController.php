@@ -51,6 +51,7 @@ class VentaController extends Controller
             'desde' => 'sometimes|date',
             'hasta' => 'sometimes|date',
             'search' => 'sometimes|string',
+            'entrega' => 'sometimes|string|in:pendiente,completa',
             'per_page' => 'sometimes|integer|min:1|max:100',
             'page' => 'sometimes|integer|min:1',
         ]);
@@ -139,6 +140,19 @@ class VentaController extends Controller
                             ->orWhere('numero_documento', 'LIKE', "%{$search}%");
                     });
             });
+        }
+
+        // Filter by entrega status (pendiente = tiene cantidad_pendiente > 0, completa = todo entregado)
+        if ($request->has('entrega')) {
+            if ($request->entrega === 'pendiente') {
+                $query->whereHas('productosPorAlmacen.unidadesDerivadas', function ($q) {
+                    $q->where('cantidad_pendiente', '>', 0);
+                });
+            } elseif ($request->entrega === 'completa') {
+                $query->whereDoesntHave('productosPorAlmacen.unidadesDerivadas', function ($q) {
+                    $q->where('cantidad_pendiente', '>', 0);
+                });
+            }
         }
 
         $perPage = $request->input('per_page', 50);

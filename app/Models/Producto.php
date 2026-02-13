@@ -40,6 +40,7 @@ class Producto extends Model
             'unidades_contenidas' => 'decimal:3',
             'estado' => 'boolean',
             'permitido' => 'boolean',
+            'tiene_ingresos' => 'boolean',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Cache\ProductoCacheService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -17,6 +18,15 @@ class ProductoAlmacen extends Model
         'costo',
         'ubicacion_id',
     ];
+
+    protected static function booted(): void
+    {
+        static::updated(function (ProductoAlmacen $productoAlmacen) {
+            if ($productoAlmacen->wasChanged('stock_fraccion')) {
+                app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+            }
+        });
+    }
 
     protected function casts(): array
     {

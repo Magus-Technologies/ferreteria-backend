@@ -62,10 +62,6 @@ class ProductoService implements ProductoServiceInterface
             },
         );
 
-        // NOTA: El campo 'tiene_ingresos' se calcula bajo demanda en el endpoint
-        // DELETE /productos/{id} para evitar N+1 queries (3 queries × N productos)
-        // Esto mejora el tiempo de respuesta de ~12s a ~1s con 5000+ productos
-
         return response()->json($productos);
     }
 

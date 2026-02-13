@@ -10,6 +10,7 @@ use App\Models\Compra;
 use App\Repositories\Interfaces\ProductoRepositoryInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 
 class ProductoRepository implements ProductoRepositoryInterface
 {
@@ -48,7 +49,13 @@ class ProductoRepository implements ProductoRepositoryInterface
      */
     public function findByAlmacen(int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator
     {
-        $query = Producto::with([
+        $query = Producto::select([
+                'id', 'cod_producto', 'cod_barra', 'name', 'name_ticket',
+                'categoria_id', 'marca_id', 'unidad_medida_id',
+                'accion_tecnica', 'img', 'ficha_tecnica', 'stock_min', 'stock_max',
+                'unidades_contenidas', 'estado', 'permitido',
+            ])
+            ->with([
             'marca:id,name',
             'categoria:id,name',
             'unidadMedida:id,name',
@@ -66,16 +73,23 @@ class ProductoRepository implements ProductoRepositoryInterface
             },
         ]);
 
+        // Calcular tiene_ingresos con subqueries (1 query, no N+1)
+        $query->addSelect(DB::raw('(
+            EXISTS (SELECT 1 FROM productoalmaceningresosalida pai JOIN productoalmacen pa ON pa.id = pai.producto_almacen_id WHERE pa.producto_id = producto.id)
+            OR EXISTS (SELECT 1 FROM productoalmacenventa pav JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id WHERE pa.producto_id = producto.id)
+            OR EXISTS (SELECT 1 FROM productoalmacencompra pac JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id WHERE pa.producto_id = producto.id)
+        ) as tiene_ingresos'));
+
         // Apply filters
         $this->applyFilters($query, $filters, $almacenId);
 
-        // Orden alfabético: Primero letras (A-Z), luego números (0-9)
+        // Orden alfabético: Primero letras (A-Z), luego números y símbolos
         return $query->orderByRaw('
             CASE 
-                WHEN LOWER(name) REGEXP "^[a-z]" THEN 0
+                WHEN LEFT(LOWER(name), 1) BETWEEN "a" AND "z" THEN 0
                 ELSE 1
             END,
-            LOWER(name) ASC
+            name ASC
         ')->paginate($perPage);
     }
 

@@ -10,6 +10,7 @@ use App\Models\UnidadDerivadaInmutableCompra;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenCompra;
+use App\Services\Cache\ProductoCacheService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -306,6 +307,9 @@ class RecepcionAlmacenController extends Controller
 
                     ProductoAlmacen::where('id', $productoAlmacen->id)
                         ->update($updateData);
+
+                    // Invalidar cache de productos
+                    app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
                 }
 
                 // 6. Verificar si quedan productos pendientes en la compra
@@ -427,10 +431,16 @@ class RecepcionAlmacenController extends Controller
                     }
 
                     // Decrementar stock
+                    $paModel = ProductoAlmacen::find($productoAlmacenId);
                     ProductoAlmacen::where('id', $productoAlmacenId)
                         ->update([
                             'stock_fraccion' => DB::raw("stock_fraccion - {$acumulado}"),
                         ]);
+
+                    // Invalidar cache de productos
+                    if ($paModel) {
+                        app(ProductoCacheService::class)->invalidateProductosAlmacen($paModel->almacen_id);
+                    }
                 }
 
                 // 4. Marcar compra como Creado (ya no está completamente recepcionada)
