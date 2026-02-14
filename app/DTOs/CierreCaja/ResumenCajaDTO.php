@@ -25,7 +25,8 @@ class ResumenCajaDTO
         public float $totalPrestamosDados = 0,
         public Collection $movimientosInternos = new Collection(),
         public Collection $prestamos = new Collection(),
-        public Collection $prestamosVendedores = new Collection()
+        public Collection $prestamosVendedores = new Collection(),
+        public Collection $resumenBancos = new Collection()
     ) {}
 
     public function toArray(): array
@@ -50,6 +51,7 @@ class ResumenCajaDTO
             'movimientos_internos' => $this->movimientosInternos,
             'prestamos' => $this->prestamos,
             'prestamos_vendedores' => $this->prestamosVendedores,
+            'resumen_bancos' => $this->resumenBancos,
         ];
     }
 }
