@@ -30,7 +30,7 @@ class CategoriaController extends Controller
 
         $categorias = $query->get(["id", "name", "estado"]);
 
-        return response()->json($categorias);
+        return response()->json(['data' => $categorias]);
     }
 
     /**
