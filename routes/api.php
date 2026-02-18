@@ -82,6 +82,8 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/api/cajas.php';        // Cajas (apertura, cierre, transacciones, préstamos)
     require __DIR__ . '/api/facturacion-electronica.php';  // Facturación electrónica (notas de débito, crédito, facturas)
     require __DIR__ . '/api/ganancias.php';    // Gestión contable y financiera - Mis Ganancias
+    require __DIR__ . '/api/ingresos.php';     // Gestión contable y financiera - Mis Ingresos
+    require __DIR__ . '/api/gastos.php';       // Gestión contable y financiera - Mis Gastos
 
     // ============================================
     // USUARIOS
