@@ -30,6 +30,7 @@ class IngresoDinero extends Model
     protected $fillable = [
         'monto',
         'observaciones',
+        'estado',
         'despliegue_de_pago_id',
         'user_id',
     ];
@@ -41,6 +42,7 @@ class IngresoDinero extends Model
     {
         return [
             'monto' => 'decimal:2',
+            'estado' => 'boolean',
             'createdAt' => 'datetime',
             'updatedAt' => 'datetime',
         ];
