@@ -34,6 +34,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // COMPRAS
     // ============================================
     Route::prefix('compras')->group(function () {
+        Route::get('/por-pagar', [CompraController::class, 'comprasPorPagar']);
         Route::get('/{id}/pagos', [CompraController::class, 'getPagos']);
         Route::post('/{id}/pagos', [CompraController::class, 'storePago']);
         Route::put('/{id}/lotes-vencimientos', [CompraController::class, 'updateLotesVencimientos']);
@@ -63,6 +64,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // CLIENTES
     // ============================================
+    Route::get('clientes/estadisticas', [ClienteController::class, 'estadisticas']);
     Route::post('clientes/check-documento', [ClienteController::class, 'checkDocumento']);
     Route::apiResource('clientes', ClienteController::class);
 
