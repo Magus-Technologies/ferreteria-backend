@@ -27,7 +27,14 @@ class IngresoSalidaController extends Controller
         $request->validate([
             "almacen_id" => "nullable|integer|exists:almacen,id",
             "tipo_documento" => "nullable|string|in:Ingreso,Salida",
-            "per_page" => "nullable|integer|min:1|max:100",
+            "desde" => "nullable|date",
+            "hasta" => "nullable|date",
+            "search_producto" => "nullable|string",
+            "search_proveedor" => "nullable|string",
+            "observacion" => "nullable|string",
+            "tipo" => "nullable|string",
+            "listar_no_anuladas" => "nullable",
+            "per_page" => "nullable|integer|min:1|max:500",
             "page" => "nullable|integer|min:1",
         ]);
 
@@ -38,47 +45,89 @@ class IngresoSalidaController extends Controller
             "user:id,name",
             "productosPorAlmacen" => function ($q) {
                 $q->with([
-                    "productoAlmacen.producto:id,name,cod_producto",
+                    "productoAlmacen.producto" => function ($pq) {
+                        $pq->with('marca:id,name');
+                    },
                     "unidadesDerivadas" => function ($uq) {
                         $uq->with([
                             "unidadDerivadaInmutable:id,name",
-                            "historial",
                         ]);
                     },
                 ]);
             },
         ]);
 
+        // Filtro por Almacén
         if ($request->has("almacen_id")) {
             $query->where("almacen_id", $request->almacen_id);
         }
 
+        // Filtro por Tipo de Documento (Ingreso/Salida)
         if ($request->has("tipo_documento")) {
-            // Convertir string a enum
             $tipoDocEnum =
                 $request->tipo_documento === "Ingreso"
-                    ? TipoDocumento::Ingreso
-                    : TipoDocumento::Salida;
+                ? TipoDocumento::Ingreso
+                : TipoDocumento::Salida;
             $query->where("tipo_documento", $tipoDocEnum->value);
         }
 
-        $perPage = $request->get("per_page", 15);
+        // Filtro por Rango de Fechas
+        if ($request->has("desde")) {
+            $query->whereDate("fecha", ">=", $request->desde);
+        }
+        if ($request->has("hasta")) {
+            $query->whereDate("fecha", "<=", $request->hasta);
+        }
+
+        // Filtro por Nombre de Producto (en el detalle)
+        if ($request->has("search_producto")) {
+            $search = $request->search_producto;
+            $query->whereHas("productosPorAlmacen.productoAlmacen.producto", function ($q) use ($search) {
+                $q->where("name", "LIKE", "%{$search}%")
+                    ->orWhere("cod_producto", "LIKE", "%{$search}%");
+            });
+        }
+
+        // Filtro por Proveedor
+        if ($request->has("search_proveedor")) {
+            $search = $request->search_proveedor;
+            $query->whereHas("proveedor", function ($q) use ($search) {
+                $q->where("razon_social", "LIKE", "%{$search}%")
+                    ->orWhere("numero_documento", "LIKE", "%{$search}%");
+            });
+        }
+
+        // Filtro por Observación (Descripción en el header)
+        if ($request->has("observacion")) {
+            $query->where("descripcion", "LIKE", "%{$request->observacion}%");
+        }
+
+        // Filtro por Tipo (Nombre del Tipo de Ingreso/Salida)
+        if ($request->has("tipo") && $request->tipo !== 'TODOS') {
+            $query->whereHas("tipoIngreso", function ($q) use ($request) {
+                $q->where("name", $request->tipo);
+            });
+        }
+
+        // Filtro por Estado (No Anuladas)
+        if ($request->boolean("listar_no_anuladas")) {
+            $query->where("estado", true);
+        }
+
+        $perPage = $request->get("per_page", 50);
         $page = $request->get("page", 1);
 
         $result = $query
-            ->orderBy("created_at", "desc")
+            ->orderBy("fecha", "desc")
+            ->orderBy("numero", "desc")
             ->paginate($perPage, ["*"], "page", $page);
 
-        // Convertir keys de camelCase a snake_case para compatibilidad con frontend
+        // Transformación para compatibilidad
         $items = collect($result->items())
             ->map(function ($item) {
                 $itemArray = $item->toArray();
-                $itemArray["tipo_ingreso"] =
-                    $itemArray["tipoIngreso"] ??
-                    ($itemArray["tipo_ingreso"] ?? null);
-                $itemArray["productos_por_almacen"] =
-                    $itemArray["productosPorAlmacen"] ??
-                    ($itemArray["productos_por_almacen"] ?? []);
+                $itemArray["tipo_ingreso"] = $itemArray["tipo_ingreso"] ?? $itemArray["tipoIngreso"] ?? null;
+                $itemArray["productos_por_almacen"] = $itemArray["productos_por_almacen"] ?? $itemArray["productosPorAlmacen"] ?? [];
                 unset($itemArray["tipoIngreso"]);
                 unset($itemArray["productosPorAlmacen"]);
                 return $itemArray;
@@ -120,8 +169,8 @@ class IngresoSalidaController extends Controller
             $tipoDocumentoString = $validated["tipo_documento"];
             $tipoDocumentoEnum =
                 $tipoDocumentoString === "Ingreso"
-                    ? TipoDocumento::Ingreso
-                    : TipoDocumento::Salida;
+                ? TipoDocumento::Ingreso
+                : TipoDocumento::Salida;
 
             $almacenId = $validated["almacen_id"];
             $productoId = $validated["producto_id"];
@@ -151,7 +200,7 @@ class IngresoSalidaController extends Controller
                 return response()->json(
                     [
                         "message" =>
-                            "Unidad derivada no encontrada para este producto",
+                        "Unidad derivada no encontrada para este producto",
                     ],
                     404,
                 );
@@ -170,7 +219,7 @@ class IngresoSalidaController extends Controller
                 return response()->json(
                     [
                         "message" =>
-                            "Stock insuficiente para realizar la salida",
+                        "Stock insuficiente para realizar la salida",
                     ],
                     400,
                 );
@@ -224,9 +273,9 @@ class IngresoSalidaController extends Controller
             $unidadDerivadaInmutableIngresoSalida = UnidadDerivadaInmutableIngresoSalida::create(
                 [
                     "producto_almacen_ingreso_salida_id" =>
-                        $productoAlmacenIngresoSalida->id,
+                    $productoAlmacenIngresoSalida->id,
                     "unidad_derivada_inmutable_id" =>
-                        $unidadDerivadaInmutable->id,
+                    $unidadDerivadaInmutable->id,
                     "factor" => $factor,
                     "cantidad" => $cantidad,
                     "cantidad_restante" => $cantidad,
@@ -241,7 +290,7 @@ class IngresoSalidaController extends Controller
 
             HistorialUnidadDerivadaInmutableIngresoSalida::create([
                 "unidad_derivada_inmutable_ingreso_salida_id" =>
-                    $unidadDerivadaInmutableIngresoSalida->id,
+                $unidadDerivadaInmutableIngresoSalida->id,
                 "stock_anterior" => $stockAnterior,
                 "stock_nuevo" => $stockNuevo,
             ]);

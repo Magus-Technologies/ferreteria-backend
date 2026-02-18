@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\MetodoDePago;
+use App\Queries\ResumenBancoQuery;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -213,6 +214,37 @@ class MetodoDePagoController extends Controller
             return response()->json([
                 'message' => 'No se puede eliminar este banco'
             ], 400);
+        }
+    }
+
+    /**
+     * GET /api/metodos-de-pago/{id}/resumen-detallado
+     * Obtener resumen detallado de un banco con filtros
+     */
+    public function getResumenDetallado(string $id, Request $request): JsonResponse
+    {
+        try {
+            $query = new ResumenBancoQuery();
+            
+            $data = $query->obtenerResumenDetallado(
+                $id,
+                $request->input('fecha_inicio'),
+                $request->input('fecha_fin'),
+                $request->input('vendedor_id'),
+                $request->input('sub_caja_id'),
+                $request->input('despliegue_pago_id')
+            );
+
+            return response()->json([
+                'success' => true,
+                'data' => $data,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener resumen detallado del banco',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
 }

@@ -22,6 +22,12 @@ class Cliente extends Model
         'direccion_3',
         'direccion_4',
         'telefono',
+        'celular',
+        'horario_atencion',
+        'fecha_nacimiento',
+        'puntos',
+        'centimos',
+        'contacto_referencia',
         'email',
         'estado',
     ];
@@ -31,6 +37,9 @@ class Cliente extends Model
         return [
             'tipo_cliente' => TipoCliente::class,
             'estado' => 'boolean',
+            'fecha_nacimiento' => 'date',
+            'puntos' => 'integer',
+            'centimos' => 'integer',
         ];
     }
 

@@ -44,9 +44,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // MÉTODOS DE PAGO (Alias para compatibilidad)
     // ============================================
     Route::prefix('metodos-de-pago')->group(function () {
+        Route::get('/agrupados-por-banco', [\App\Http\Controllers\MetodoDePagoController::class, 'agrupadosPorBanco']);
+        Route::get('/{id}/resumen-detallado', [\App\Http\Controllers\MetodoDePagoController::class, 'getResumenDetallado']);
         Route::get('/', [\App\Http\Controllers\MetodoDePagoController::class, 'index']);
         Route::post('/', [\App\Http\Controllers\MetodoDePagoController::class, 'store']);
-        Route::get('/agrupados-por-banco', [\App\Http\Controllers\MetodoDePagoController::class, 'agrupadosPorBanco']);
         Route::get('/{id}', [\App\Http\Controllers\MetodoDePagoController::class, 'show']);
         Route::put('/{id}', [\App\Http\Controllers\MetodoDePagoController::class, 'update']);
         Route::delete('/{id}', [\App\Http\Controllers\MetodoDePagoController::class, 'destroy']);
@@ -134,6 +135,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Movimientos Internos
         Route::prefix('movimientos-internos')->middleware('caja.abierta')->group(function () {
             Route::get('/', [MovimientoInternoController::class, 'index']);
+            Route::get('/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
         });
 

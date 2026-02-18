@@ -373,8 +373,8 @@ class CierreCajaController extends Controller
                 throw new AperturaNoEncontradaException();
             }
 
-            // Verificar que la caja esté cerrada
-            if ($apertura->estado !== 'cerrada') {
+            // Verificar que la caja esté cerrada (por estado o por tener fecha_cierre)
+            if ($apertura->estado !== 'cerrada' && !$apertura->fecha_cierre) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Solo se pueden consultar cierres de cajas cerradas',

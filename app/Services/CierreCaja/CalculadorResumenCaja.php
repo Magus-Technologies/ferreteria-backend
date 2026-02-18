@@ -99,7 +99,8 @@ class CalculadorResumenCaja
             totalPrestamosDados: $clasificacion['total_prestamos_dados'],
             movimientosInternos: $clasificacion['movimientos_internos'],
             prestamos: $clasificacion['prestamos'],
-            prestamosVendedores: $clasificacion['prestamos_vendedores']
+            prestamosVendedores: $clasificacion['prestamos_vendedores'],
+            resumenBancos: $clasificacion['resumen_bancos']
         );
         
         \Log::info('🔍 ResumenCajaDTO creado', [

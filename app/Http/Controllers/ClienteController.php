@@ -218,6 +218,63 @@ class ClienteController extends Controller
     }
 
     /**
+     * Obtener estadísticas de clientes
+     */
+    public function estadisticas(): JsonResponse
+    {
+        // Excluir "CLIENTE VARIOS" (DNI: 99999999) de las estadísticas
+        $query = Cliente::where('numero_documento', '!=', '99999999');
+
+        // Estadísticas básicas
+        $activos = (clone $query)->where('estado', true)->count();
+        $inactivos = (clone $query)->where('estado', false)->count();
+
+        // VIP: Empresas con información completa (email, teléfono y dirección)
+        $vip = (clone $query)->where('tipo_cliente', 'e')
+            ->whereNotNull('email')
+            ->whereNotNull('telefono')
+            ->whereNotNull('direccion')
+            ->where('email', '!=', '')
+            ->where('telefono', '!=', '')
+            ->where('direccion', '!=', '')
+            ->count();
+
+        // Frecuentes: Clientes con información de contacto completa (email y teléfono)
+        $frecuentes = (clone $query)->whereNotNull('email')
+            ->whereNotNull('telefono')
+            ->where('email', '!=', '')
+            ->where('telefono', '!=', '')
+            ->count();
+
+        // Problemáticos: Clientes inactivos o con información incompleta
+        $problematicos = (clone $query)->where(function ($q) {
+            $q->where('estado', false)
+              ->orWhere(function ($subQ) {
+                  $subQ->where(function ($emailQ) {
+                      $emailQ->whereNull('email')->orWhere('email', '');
+                  })->where(function ($telefonoQ) {
+                      $telefonoQ->whereNull('telefono')->orWhere('telefono', '');
+                  });
+              });
+        })->count();
+
+        // Nuevos: Clientes creados en los últimos 30 días
+        $hace30Dias = now()->subDays(30);
+        $nuevos = (clone $query)->where('created_at', '>=', $hace30Dias)->count();
+
+        return response()->json([
+            'data' => [
+                'activos' => $activos,
+                'inactivos' => $inactivos,
+                'vip' => $vip,
+                'frecuentes' => $frecuentes,
+                'problematicos' => $problematicos,
+                'nuevos' => $nuevos,
+            ]
+        ]);
+    }
+
+    /**
      * Eliminar un cliente
      */
     public function destroy(string $id): JsonResponse

@@ -63,7 +63,10 @@ class ClasificadorMovimientos
         // 7. MOVIMIENTOS INTERNOS (solo informativo, NO afecta total)
         $movimientosInternos = $this->obtenerMovimientosInternosVendedor($apertura, $userId);
 
-        // 8. CALCULAR TOTALES
+        // 8. RESUMEN DE BANCOS (montos iniciales + ingresos - egresos por banco)
+        $resumenBancos = $this->obtenerResumenBancosVendedor($subCajasIds, $apertura, $userId, $ventas);
+
+        // 9. CALCULAR TOTALES
         $totalCobros = $cobrosPorMetodo->sum('total');
         $totalOtrosIngresos = $otrosIngresos->sum('monto');
         $totalGastos = $gastosYPagos->sum('monto');
@@ -101,6 +104,9 @@ class ClasificadorMovimientos
             'movimientos_internos' => $movimientosInternos,
             'prestamos' => collect([]), // Deprecated
             'prestamos_vendedores' => $prestamosRecibidos->merge($prestamosDados),
+
+            // Resumen de bancos (nuevo)
+            'resumen_bancos' => $resumenBancos,
 
             // Resúmenes
             'resumen_ventas' => $totalCobros,
@@ -199,21 +205,26 @@ class ClasificadorMovimientos
     }
 
     /**
-     * Obtener otros ingresos del vendedor (ingresos manuales, NO ventas)
+     * Obtener otros ingresos del vendedor (ingresos manuales, NO ventas, NO montos iniciales)
+     * Los montos iniciales de bancos NO deben aparecer aquí
      */
     private function obtenerOtrosIngresosVendedor($subCajasIds, $apertura, string $userId): Collection
     {
-
-
         $ingresos = DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
             ->whereIn('tc.sub_caja_id', $subCajasIds)
-            ->where('tc.user_id', $userId) // ✅ FILTRAR POR VENDEDOR
+            ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'ingreso')
-            // EXCLUIR ingresos que son de ventas, aperturas, transferencias entre vendedores o movimientos internos
+            // EXCLUIR: ventas, aperturas, transferencias, movimientos internos Y MONTOS INICIALES
             ->where(function ($query) {
                 $query->whereNull('tc.referencia_tipo')
-                    ->orWhereNotIn('tc.referencia_tipo', ['venta', 'apertura', 'transferencia_vendedor', 'movimiento_interno']);
+                    ->orWhereNotIn('tc.referencia_tipo', [
+                        'venta',
+                        'apertura',
+                        'transferencia_vendedor',
+                        'movimiento_interno',
+                        'monto_inicial' // ✅ EXCLUIR montos iniciales de bancos
+                    ]);
             })
             ->where('tc.fecha', '>=', $apertura->fecha_apertura)
             ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
@@ -226,8 +237,6 @@ class ClasificadorMovimientos
                 'sc.nombre as sub_caja'
             ])
             ->get();
-
-
 
         return $ingresos;
     }
@@ -364,6 +373,100 @@ class ClasificadorMovimientos
                 'sc_destino.nombre as sub_caja_destino'
             ])
             ->get();
+    }
+
+    /**
+     * Obtener resumen de bancos del vendedor
+     * Agrupa por MetodoDePago (banco) y calcula: monto_inicial + ingresos - egresos
+     */
+    private function obtenerResumenBancosVendedor($subCajasIds, $apertura, string $userId, Collection $ventas): Collection
+    {
+        // 1. Obtener montos iniciales de bancos (transacciones con referencia_tipo = 'monto_inicial')
+        $montosIniciales = DB::table('transacciones_caja as tc')
+            ->join('desplieguedepago as dp', 'tc.despliegue_pago_id', '=', 'dp.id')
+            ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+            ->whereIn('tc.sub_caja_id', $subCajasIds)
+            ->where('tc.referencia_tipo', 'monto_inicial')
+            ->select([
+                'mp.id as banco_id',
+                'mp.name as banco',
+                'mp.nombre_titular as titular',
+                'mp.cuenta_bancaria as cuenta',
+                DB::raw('SUM(tc.monto) as monto_inicial')
+            ])
+            ->groupBy('mp.id', 'mp.name', 'mp.nombre_titular', 'mp.cuenta_bancaria')
+            ->get();
+
+        // 2. Obtener ingresos digitales por banco (de ventas del vendedor)
+        $ventasVendedor = $ventas->where('user_id', $userId);
+        $ventaIds = $ventasVendedor->pluck('id');
+
+        $ingresosPorBanco = collect([]);
+        if ($ventaIds->isNotEmpty()) {
+            $ingresosPorBanco = DB::table('desplieguedepagoventa as dpv')
+                ->join('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
+                ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+                ->whereIn('dpv.venta_id', $ventaIds)
+                ->select([
+                    'mp.id as banco_id',
+                    'dp.name as metodo_pago',
+                    DB::raw('SUM(dpv.monto) as total_ingresos')
+                ])
+                ->groupBy('mp.id', 'dp.name')
+                ->get()
+                ->groupBy('banco_id')
+                ->map(function ($grupo) {
+                    return [
+                        'total' => $grupo->sum('total_ingresos'),
+                        'detalle' => $grupo->map(function ($item) {
+                            return [
+                                'metodo_pago' => $item->metodo_pago,
+                                'monto' => $item->total_ingresos
+                            ];
+                        })->toArray()
+                    ];
+                });
+        }
+
+        // 3. Obtener egresos digitales por banco (del vendedor)
+        $egresosPorBanco = DB::table('transacciones_caja as tc')
+            ->join('desplieguedepago as dp', 'tc.despliegue_pago_id', '=', 'dp.id')
+            ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+            ->whereIn('tc.sub_caja_id', $subCajasIds)
+            ->where('tc.user_id', $userId)
+            ->where('tc.tipo_transaccion', 'egreso')
+            ->where('tc.referencia_tipo', '!=', 'monto_inicial')
+            ->where('tc.fecha', '>=', $apertura->fecha_apertura)
+            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->select([
+                'mp.id as banco_id',
+                DB::raw('SUM(tc.monto) as total_egresos')
+            ])
+            ->groupBy('mp.id')
+            ->get()
+            ->keyBy('banco_id');
+
+        // 4. Consolidar resumen por banco
+        return $montosIniciales->map(function ($banco) use ($ingresosPorBanco, $egresosPorBanco) {
+            $ingresos = $ingresosPorBanco->get($banco->banco_id);
+            $egresos = $egresosPorBanco->get($banco->banco_id);
+
+            $totalIngresos = $ingresos ? $ingresos['total'] : 0;
+            $totalEgresos = $egresos ? $egresos->total_egresos : 0;
+            $saldoFinal = $banco->monto_inicial + $totalIngresos - $totalEgresos;
+
+            return [
+                'banco_id' => $banco->banco_id,
+                'banco' => $banco->banco,
+                'titular' => $banco->titular,
+                'cuenta' => $banco->cuenta,
+                'monto_inicial' => (float) $banco->monto_inicial,
+                'total_ingresos' => (float) $totalIngresos,
+                'detalle_ingresos' => $ingresos ? $ingresos['detalle'] : [],
+                'total_egresos' => (float) $totalEgresos,
+                'saldo_final' => (float) $saldoFinal
+            ];
+        });
     }
 
     /**

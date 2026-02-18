@@ -733,6 +733,117 @@ class CompraController extends Controller
 
         return response()->json(['data' => $pagos]);
     }
+    /**
+     * Get compras por pagar (credit purchases with pending balance)
+     */
+    public function comprasPorPagar(Request $request)
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'proveedor_id' => 'sometimes|integer',
+            'user_id' => 'sometimes|string',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'search' => 'sometimes|string',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $query = Compra::query()
+            ->with([
+                'proveedor:id,ruc,razon_social',
+                'productosPorAlmacen.productoAlmacen.producto.marca',
+                'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                'user:id,name',
+            ])
+            ->withSum([
+                'pagosDeCompras as total_pagado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto')
+            // Only credit purchases
+            ->where('forma_de_pago', FormaDePago::Credito)
+            // Only active purchases (not cancelled)
+            ->where('estado_de_compra', '!=', EstadoDeCompra::Anulado);
+
+        // Filter by almacen_id
+        if ($request->has('almacen_id')) {
+            $query->where('almacen_id', $request->almacen_id);
+        }
+
+        // Filter by proveedor_id
+        if ($request->has('proveedor_id')) {
+            $query->where('proveedor_id', $request->proveedor_id);
+        }
+
+        // Filter by user_id
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        // Filter by fecha range (desde/hasta)
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
+        }
+
+        // Search by serie, numero, or proveedor razon_social
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('serie', 'LIKE', "%{$search}%")
+                    ->orWhere('numero', 'LIKE', "%{$search}%")
+                    ->orWhereHas('proveedor', function ($q2) use ($search) {
+                        $q2->where('razon_social', 'LIKE', "%{$search}%");
+                    });
+            });
+        }
+
+        $perPage = $request->input('per_page', 50);
+
+        if ($perPage === -1) {
+            // Return all without pagination
+            $compras = $query->orderBy('fecha', 'desc')->limit(100)->get();
+
+            // Filter only purchases with pending balance
+            $comprasConSaldo = $compras->filter(function ($compra) {
+                $total = $this->getTotalCompra($compra);
+                $totalPagado = (float) ($compra->total_pagado ?? 0);
+                $saldo = $total - $totalPagado;
+                return $saldo > 0.01; // Only show if balance > 1 cent
+            });
+
+            return response()->json([
+                'data' => $comprasConSaldo->values(),
+                'total' => $comprasConSaldo->count(),
+            ]);
+        }
+
+        $compras = $query->orderBy('fecha', 'desc')->paginate($perPage);
+
+        // Filter only purchases with pending balance
+        $comprasConSaldo = $compras->getCollection()->filter(function ($compra) {
+            $total = $this->getTotalCompra($compra);
+            $totalPagado = (float) ($compra->total_pagado ?? 0);
+            $saldo = $total - $totalPagado;
+            return $saldo > 0.01; // Only show if balance > 1 cent
+        });
+
+        // Update the collection with filtered results
+        $compras->setCollection($comprasConSaldo);
+
+        return response()->json([
+            'data' => $compras->items(),
+            'total' => $comprasConSaldo->count(),
+            'current_page' => $compras->currentPage(),
+            'per_page' => $compras->perPage(),
+            'last_page' => $compras->lastPage(),
+        ]);
+    }
+
 
     /**
      * Store pago de compra
