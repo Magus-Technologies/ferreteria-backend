@@ -9,6 +9,7 @@ use App\Models\ProductoAlmacenIngresoSalida;
 use App\Models\UnidadDerivadaInmutableIngresoSalida;
 use App\Models\HistorialUnidadDerivadaInmutableIngresoSalida;
 use App\Models\UnidadDerivadaInmutable;
+use App\Services\Cache\ProductoCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -305,6 +306,9 @@ class IngresoSalidaController extends Controller
                 "stock_fraccion" => $stockNuevo,
                 "costo" => $nuevoCosto,
             ]);
+
+            // Invalidar cache de productos del almacén
+            app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
 
             // PASO 13: Retornar resultado con relaciones
             $result = IngresoSalida::with([

@@ -19,10 +19,10 @@ class ProductoCacheService
     const CACHE_TTL = 300;
 
     /**
-     * Tamaño máximo de respuesta para cachear (5MB en bytes)
+     * Tamaño máximo de respuesta para cachear (10MB en bytes)
      * Respuestas más grandes no se cachearán para evitar errores
      */
-    const MAX_CACHE_SIZE = 5 * 1024 * 1024; // 5MB
+    const MAX_CACHE_SIZE = 10 * 1024 * 1024; // 10MB
 
     /**
      * Obtener productos por almacén con cache
@@ -96,18 +96,13 @@ class ProductoCacheService
     public function invalidateProductosAlmacen(int $almacenId): void
     {
         // Limpiar todos los caches relacionados con este almacén
-        $pattern = "productos_almacen_{$almacenId}_*";
+        // Las keys en DB tienen prefijo de Laravel: {prefix}productos_almacen_{almacenId}_{hash}
+        $prefix = config('cache.prefix', '');
+        $pattern = "{$prefix}productos_almacen_{$almacenId}_%";
         
-        // Obtener todas las claves que coincidan
-        $keys = DB::table('cache')
+        DB::table('cache')
             ->where('key', 'like', $pattern)
-            ->pluck('key');
-        
-        foreach ($keys as $key) {
-            Cache::forget($key);
-        }
-        
-        // \Log::info("Cache invalidado para almacén {$almacenId}");
+            ->delete();
     }
 
     /**
@@ -117,17 +112,12 @@ class ProductoCacheService
      */
     public function invalidateAll(): void
     {
-        $pattern = "productos_almacen_%";
+        $prefix = config('cache.prefix', '');
+        $pattern = "{$prefix}productos_almacen_%";
         
-        $keys = DB::table('cache')
+        DB::table('cache')
             ->where('key', 'like', $pattern)
-            ->pluck('key');
-        
-        foreach ($keys as $key) {
-            Cache::forget($key);
-        }
-        
-        // \Log::info("Todo el cache de productos invalidado");
+            ->delete();
     }
 
     /**
@@ -155,12 +145,13 @@ class ProductoCacheService
      */
     public function getStats(): array
     {
+        $prefix = config('cache.prefix', '');
         $totalKeys = DB::table('cache')
-            ->where('key', 'like', 'productos_almacen_%')
+            ->where('key', 'like', "{$prefix}productos_almacen_%")
             ->count();
         
         $totalSize = DB::table('cache')
-            ->where('key', 'like', 'productos_almacen_%')
+            ->where('key', 'like', "{$prefix}productos_almacen_%")
             ->sum(DB::raw('LENGTH(value)'));
         
         return [

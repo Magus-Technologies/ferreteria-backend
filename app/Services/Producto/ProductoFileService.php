@@ -216,7 +216,7 @@ class ProductoFileService implements ProductoFileServiceInterface
                     $placeholders = implode(',', array_fill(0, count($ids), '?'));
 
                     DB::update(
-                        "UPDATE productos SET {$fieldName} = CASE {$caseStatement} END, updated_at = NOW() WHERE id IN ({$placeholders})",
+                        "UPDATE producto SET {$fieldName} = CASE {$caseStatement} END, updated_at = NOW() WHERE id IN ({$placeholders})",
                         array_merge($params, $ids)
                     );
                 });
