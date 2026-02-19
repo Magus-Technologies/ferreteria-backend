@@ -343,4 +343,30 @@ class IngresoSalidaController extends Controller
             return response()->json(["data" => $resultArray], 201);
         }, 5);
     }
+
+    /**
+     * Anular (soft delete) un ingreso/salida.
+     *
+     * DELETE /api/ingresos-salidas/{id}
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $ingresoSalida = IngresoSalida::findOrFail($id);
+
+        // Verificar si ya está anulado
+        if (!$ingresoSalida->estado) {
+            return response()->json(
+                ["message" => "El documento ya está anulado"],
+                400
+            );
+        }
+
+        // Anular el documento (cambiar estado a false)
+        $ingresoSalida->update(["estado" => false]);
+
+        return response()->json([
+            "message" => "Documento anulado exitosamente",
+            "data" => $ingresoSalida
+        ]);
+    }
 }
