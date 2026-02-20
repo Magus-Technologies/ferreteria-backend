@@ -75,6 +75,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('clientes/estadisticas', [ClienteController::class, 'estadisticas']);
     Route::post('clientes/check-documento', [ClienteController::class, 'checkDocumento']);
+    
+    // Rutas de direcciones de clientes
+    Route::get('clientes/{clienteId}/direcciones', [ClienteController::class, 'listarDirecciones']);
+    Route::post('clientes/{clienteId}/direcciones', [ClienteController::class, 'crearDireccion']);
+    Route::put('direcciones/{id}', [ClienteController::class, 'actualizarDireccion']);
+    Route::delete('direcciones/{id}', [ClienteController::class, 'eliminarDireccion']);
+    Route::post('direcciones/{id}/marcar-principal', [ClienteController::class, 'marcarDireccionPrincipal']);
+    
     Route::apiResource('clientes', ClienteController::class);
 
     // ============================================
