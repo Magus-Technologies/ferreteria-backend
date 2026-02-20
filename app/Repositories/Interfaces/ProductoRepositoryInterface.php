@@ -87,4 +87,9 @@ interface ProductoRepositoryInterface
      * Search products by term (name, code, barcode)
      */
     public function search(string $term, int $almacenId, int $limit = 20): Collection;
+
+    /**
+     * Get products with batches nearing expiration
+     */
+    public function getVencimientos(int $almacenId, int $dias): \Illuminate\Support\Collection;
 }

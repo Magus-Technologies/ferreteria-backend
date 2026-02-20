@@ -57,6 +57,13 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ============================================
+    // REPORTES
+    // ============================================
+    Route::prefix('productos')->group(function () {
+        Route::get('/vencimientos', [ProductoController::class, 'vencimientos']);
+    });
+
+    // ============================================
     // CRUD (apiResource)
     // ============================================
     Route::apiResource('productos', ProductoController::class);

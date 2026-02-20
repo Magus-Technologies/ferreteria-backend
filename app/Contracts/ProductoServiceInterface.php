@@ -47,4 +47,12 @@ interface ProductoServiceInterface
      * @return JsonResponse
      */
     public function delete(int $id): JsonResponse;
+
+    /**
+     * Get products with batches nearing expiration
+     *
+     * @param array $filters
+     * @return JsonResponse
+     */
+    public function getVencimientos(array $filters): JsonResponse;
 }
