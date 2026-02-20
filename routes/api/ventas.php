@@ -5,6 +5,7 @@ use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\PrestamoController;
 use App\Http\Controllers\ClienteController;
+use App\Http\Controllers\ClienteReporteController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\EntregaProductoController;
@@ -28,12 +29,20 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // VENTAS
     // ============================================
+    Route::prefix('ventas')->group(function () {
+        Route::get('/por-cobrar', [VentaController::class, 'ventasPorCobrar']);
+        Route::get('/historial', [VentaController::class, 'historialGeneral']);
+        Route::get('/{id}/historial', [VentaController::class, 'getHistorial']);
+    });
     Route::apiResource('ventas', VentaController::class)->middleware('caja.abierta');
 
     // ============================================
     // COMPRAS
     // ============================================
     Route::prefix('compras')->group(function () {
+        Route::get('/resumen-mensual', [CompraController::class, 'resumenMensual']);
+        Route::get('/reporte', [CompraController::class, 'reporteCompras']);
+        Route::get('/resumen', [CompraController::class, 'resumenCompras']);
         Route::get('/por-pagar', [CompraController::class, 'comprasPorPagar']);
         Route::get('/{id}/pagos', [CompraController::class, 'getPagos']);
         Route::post('/{id}/pagos', [CompraController::class, 'storePago']);
@@ -67,6 +76,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('clientes/estadisticas', [ClienteController::class, 'estadisticas']);
     Route::post('clientes/check-documento', [ClienteController::class, 'checkDocumento']);
     Route::apiResource('clientes', ClienteController::class);
+
+    // ============================================
+    // CLIENTES - REPORTES
+    // ============================================
+    Route::prefix('cliente-reportes')->group(function () {
+        Route::get('/top-clientes', [ClienteReporteController::class, 'topClientes']);
+        Route::get('/resumen', [ClienteReporteController::class, 'resumen']);
+        Route::get('/por-cobrar', [ClienteReporteController::class, 'clientesPorCobrar']);
+        Route::get('/listado', [ClienteReporteController::class, 'listadoClientes']);
+        Route::get('/frecuentes', [ClienteReporteController::class, 'clientesFrecuentes']);
+        Route::get('/recientes', [ClienteReporteController::class, 'clientesRecientes']);
+    });
 
     // ============================================
     // PROVEEDORES

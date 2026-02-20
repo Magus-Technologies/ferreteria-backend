@@ -15,10 +15,84 @@ use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableCompra;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use App\Services\Interfaces\CompraReporteServiceInterface;
 
 class CompraController extends Controller
 {
+    private ?CompraReporteServiceInterface $reporteService;
+
+    public function __construct(CompraReporteServiceInterface $reporteService)
+    {
+        $this->reporteService = $reporteService;
+    }
+
+    /**
+     * Resumen mensual de compras (para gráfico)
+     */
+    public function resumenMensual(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'proveedor_id' => 'sometimes|integer',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta', 'proveedor_id']);
+        $datos = $this->reporteService->obtenerResumenMensual($filtros);
+
+        return response()->json(['data' => $datos]);
+    }
+
+    /**
+     * Resumen de compras (para cards KPI)
+     */
+    public function resumenCompras(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'proveedor_id' => 'sometimes|integer',
+            'forma_de_pago' => 'sometimes|string',
+            'tipo_documento' => 'sometimes|string',
+            'user_id' => 'sometimes|string',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta', 'proveedor_id', 'forma_de_pago', 'tipo_documento', 'user_id']);
+        $resumen = $this->reporteService->obtenerResumenCompras($filtros);
+
+        return response()->json(['data' => $resumen]);
+    }
+
+    /**
+     * Reporte detallado de compras (para tabla/exportación)
+     */
+    public function reporteCompras(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'proveedor_id' => 'sometimes|integer',
+            'forma_de_pago' => 'sometimes|string',
+            'tipo_documento' => 'sometimes|string',
+            'user_id' => 'sometimes|string',
+            'per_page' => 'sometimes|integer|min:1|max:10000',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta', 'proveedor_id', 'forma_de_pago', 'tipo_documento', 'user_id']);
+        $perPage = $request->get('per_page', 50);
+        $page = $request->get('page', 1);
+
+        $resultado = $this->reporteService->obtenerReporteCompras($filtros, $perPage, $page);
+
+        return response()->json($resultado);
+    }
+
     /**
      * Display a listing of the resource.
      */

@@ -20,6 +20,7 @@ use App\Models\TransaccionCaja;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\Venta;
+use App\Models\VentaHistorial;
 use App\Services\Interfaces\FacturaServiceInterface;
 use App\Services\ValeCompraService;
 use Illuminate\Http\Request;
@@ -189,6 +190,8 @@ class VentaController extends Controller
             'numero' => 'nullable|integer', // Opcional: Se genera automáticamente
             'descripcion' => 'nullable|string',
             'forma_de_pago' => 'required|string',
+            'numero_dias' => 'nullable|integer',
+            'fecha_vencimiento' => 'nullable|date',
             'tipo_moneda' => 'required|string',
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'required|date',
@@ -289,6 +292,8 @@ class VentaController extends Controller
                 'numero' => $validated['numero'],
                 'descripcion' => $validated['descripcion'] ?? null,
                 'forma_de_pago' => $formaDePagoEnum,
+                'numero_dias' => $validated['numero_dias'] ?? null,
+                'fecha_vencimiento' => $validated['fecha_vencimiento'] ?? null,
                 'tipo_moneda' => $tipoMonedaEnum,
                 'tipo_de_cambio' => $validated['tipo_de_cambio'] ?? 1,
                 'fecha' => $validated['fecha'],
@@ -538,6 +543,8 @@ class VentaController extends Controller
             'numero' => 'sometimes|integer',
             'descripcion' => 'nullable|string',
             'forma_de_pago' => 'sometimes|string',
+            'numero_dias' => 'nullable|integer',
+            'fecha_vencimiento' => 'nullable|date',
             'tipo_moneda' => 'sometimes|string',
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'sometimes|date',
@@ -618,6 +625,22 @@ class VentaController extends Controller
                     $updateData[$key] = $value;
                 }
             }
+
+            // Capturar datos anteriores para historial
+            $datosAnteriores = [
+                'tipo_documento' => $venta->tipo_documento instanceof \BackedEnum ? $venta->tipo_documento->value : $venta->tipo_documento,
+                'serie' => $venta->serie,
+                'numero' => $venta->numero,
+                'forma_de_pago' => $venta->forma_de_pago instanceof \BackedEnum ? $venta->forma_de_pago->value : $venta->forma_de_pago,
+                'estado_de_venta' => $venta->estado_de_venta instanceof \BackedEnum ? $venta->estado_de_venta->value : $venta->estado_de_venta,
+                'cliente_id' => $venta->cliente_id,
+                'fecha' => $venta->fecha?->toDateTimeString(),
+                'tipo_moneda' => $venta->tipo_moneda instanceof \BackedEnum ? $venta->tipo_moneda->value : $venta->tipo_moneda,
+                'numero_dias' => $venta->numero_dias,
+                'fecha_vencimiento' => $venta->fecha_vencimiento?->toDateTimeString(),
+                'descripcion' => $venta->descripcion,
+                'productos_count' => $venta->productosPorAlmacen->count(),
+            ];
 
             // Update venta
             $venta->update($updateData);
@@ -747,8 +770,34 @@ class VentaController extends Controller
                 }
             }
 
+            // Registrar historial de edición
+            $ventaFresh = $venta->fresh(['productosPorAlmacen']);
+            $datosNuevos = [
+                'tipo_documento' => $ventaFresh->tipo_documento instanceof \BackedEnum ? $ventaFresh->tipo_documento->value : $ventaFresh->tipo_documento,
+                'serie' => $ventaFresh->serie,
+                'numero' => $ventaFresh->numero,
+                'forma_de_pago' => $ventaFresh->forma_de_pago instanceof \BackedEnum ? $ventaFresh->forma_de_pago->value : $ventaFresh->forma_de_pago,
+                'estado_de_venta' => $ventaFresh->estado_de_venta instanceof \BackedEnum ? $ventaFresh->estado_de_venta->value : $ventaFresh->estado_de_venta,
+                'cliente_id' => $ventaFresh->cliente_id,
+                'fecha' => $ventaFresh->fecha?->toDateTimeString(),
+                'tipo_moneda' => $ventaFresh->tipo_moneda instanceof \BackedEnum ? $ventaFresh->tipo_moneda->value : $ventaFresh->tipo_moneda,
+                'numero_dias' => $ventaFresh->numero_dias,
+                'fecha_vencimiento' => $ventaFresh->fecha_vencimiento?->toDateTimeString(),
+                'descripcion' => $ventaFresh->descripcion,
+                'productos_count' => $ventaFresh->productosPorAlmacen->count(),
+            ];
+
+            VentaHistorial::registrar(
+                ventaId: $id,
+                accion: 'edicion',
+                descripcion: "Venta {$ventaFresh->serie}-{$ventaFresh->numero} editada",
+                datosAnteriores: $datosAnteriores,
+                datosNuevos: $datosNuevos,
+                userId: $validated['user_id'] ?? auth()->id(),
+            );
+
             return response()->json([
-                'data' => $venta->fresh([
+                'data' => $ventaFresh->load([
                     'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                     'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                     'productosPorAlmacen.productoAlmacen.producto.marca',
@@ -1322,6 +1371,181 @@ class VentaController extends Controller
                     ->decrement('monto', (float) $ingreso->monto);
             }
         }
+    }
+
+    /**
+     * Ventas por cobrar (crédito con saldo pendiente)
+     */
+    public function ventasPorCobrar(Request $request)
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'cliente_id' => 'sometimes|integer',
+            'user_id' => 'sometimes|string',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'search' => 'sometimes|string',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $query = Venta::query()
+            ->with([
+                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,email',
+                'productosPorAlmacen.productoAlmacen.producto.marca',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                'user:id,name',
+            ])
+            ->withSum('despliegueDePagoVentas as total_pagado', 'monto')
+            // Only credit sales
+            ->where('forma_de_pago', FormaDePago::Credito)
+            // Only active sales (not cancelled)
+            ->where('estado_de_venta', '!=', EstadoDeVenta::Anulado);
+
+        // Filter by almacen_id
+        if ($request->has('almacen_id')) {
+            $query->where('almacen_id', $request->almacen_id);
+        }
+
+        // Filter by cliente_id
+        if ($request->has('cliente_id')) {
+            $query->where('cliente_id', $request->cliente_id);
+        }
+
+        // Filter by user_id
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        // Filter by fecha range
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
+        }
+
+        // Search by serie, numero, or cliente
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('serie', 'LIKE', "%{$search}%")
+                    ->orWhere('numero', 'LIKE', "%{$search}%")
+                    ->orWhereHas('cliente', function ($q2) use ($search) {
+                        $q2->where('razon_social', 'LIKE', "%{$search}%")
+                            ->orWhere('nombres', 'LIKE', "%{$search}%")
+                            ->orWhere('apellidos', 'LIKE', "%{$search}%")
+                            ->orWhere('numero_documento', 'LIKE', "%{$search}%");
+                    });
+            });
+        }
+
+        $perPage = $request->input('per_page', 50);
+
+        if ($perPage === -1) {
+            $ventas = $query->orderBy('fecha', 'desc')->limit(100)->get();
+
+            $ventasConSaldo = $ventas->filter(function ($venta) {
+                $total = $this->getTotalVenta($venta);
+                $totalPagado = (float) ($venta->total_pagado ?? 0);
+                $saldo = $total - $totalPagado;
+                return $saldo > 0.01;
+            });
+
+            return response()->json([
+                'data' => $ventasConSaldo->values(),
+                'total' => $ventasConSaldo->count(),
+            ]);
+        }
+
+        $ventas = $query->orderBy('fecha', 'desc')->paginate($perPage);
+
+        $ventasConSaldo = $ventas->getCollection()->filter(function ($venta) {
+            $total = $this->getTotalVenta($venta);
+            $totalPagado = (float) ($venta->total_pagado ?? 0);
+            $saldo = $total - $totalPagado;
+            return $saldo > 0.01;
+        });
+
+        $ventas->setCollection($ventasConSaldo);
+
+        return response()->json([
+            'data' => $ventas->items(),
+            'total' => $ventasConSaldo->count(),
+            'current_page' => $ventas->currentPage(),
+            'per_page' => $ventas->perPage(),
+            'last_page' => $ventas->lastPage(),
+        ]);
+    }
+
+    /**
+     * Historial de ediciones de una venta específica
+     */
+    public function getHistorial(string $id)
+    {
+        $venta = Venta::findOrFail($id);
+
+        $historial = $venta->historial()
+            ->with('usuario:id,name')
+            ->orderBy('fecha', 'desc')
+            ->get();
+
+        return response()->json(['data' => $historial]);
+    }
+
+    /**
+     * Historial general de ediciones de todas las ventas
+     */
+    public function historialGeneral(Request $request)
+    {
+        $request->validate([
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'user_id' => 'sometimes|string',
+            'accion' => 'sometimes|string',
+            'search' => 'sometimes|string',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $query = VentaHistorial::query()
+            ->with([
+                'usuario:id,name',
+                'venta:id,tipo_documento,serie,numero,cliente_id,fecha',
+                'venta.cliente:id,numero_documento,razon_social,nombres,apellidos',
+            ])
+            ->orderBy('fecha', 'desc');
+
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
+        }
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+        if ($request->has('accion')) {
+            $query->where('accion', $request->accion);
+        }
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            $query->whereHas('venta', function ($q) use ($search) {
+                $q->where('serie', 'LIKE', "%{$search}%")
+                    ->orWhere('numero', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $perPage = $request->input('per_page', 50);
+        $historial = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $historial->items(),
+            'total' => $historial->total(),
+            'current_page' => $historial->currentPage(),
+            'per_page' => $historial->perPage(),
+            'last_page' => $historial->lastPage(),
+        ]);
     }
 
     /**
