@@ -18,6 +18,8 @@ use App\Models\UnidadDerivadaInmutable;
 use App\Models\TipoIngresoSalida;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class ProductoService implements ProductoServiceInterface
 {
@@ -108,9 +110,7 @@ class ProductoService implements ProductoServiceInterface
             try {
                 // Step 1: Auto-generate product code if not provided
                 if (empty($data["cod_producto"])) {
-                    $data[
-                        "cod_producto"
-                    ] = $this->productoRepository->generateNextCode();
+                    $data["cod_producto"] = $this->productoRepository->generateNextCode();
                 }
 
                 // Step 2: Create Product
@@ -136,9 +136,9 @@ class ProductoService implements ProductoServiceInterface
                 $unidadesDerivadas = $data["unidades_derivadas"];
                 $costoUnidad =
                     count($unidadesDerivadas) > 0
-                        ? $unidadesDerivadas[0]["costo"] /
-                            $unidadesDerivadas[0]["factor"]
-                        : 0;
+                    ? $unidadesDerivadas[0]["costo"] /
+                    $unidadesDerivadas[0]["factor"]
+                    : 0;
 
                 $productoAlmacen = $this->productoAlmacenRepository->create([
                     "producto_id" => $producto->id,
@@ -171,10 +171,10 @@ class ProductoService implements ProductoServiceInterface
                 $producto->load(["categoria", "marca", "unidadMedida"]);
 
                 // Dispatch product created event
-                ProductoCreated::dispatch($producto, (int) auth()->id(), [
+                ProductoCreated::dispatch($producto, (int) Auth::id(), [
                     "almacen_id" => $data["almacen_id"],
                     "has_initial_stock" =>
-                        isset($data["compra"]) &&
+                    isset($data["compra"]) &&
                         $this->hasInitialStock($data["compra"]),
                     "created_via" => "web_form",
                 ]);
@@ -195,7 +195,7 @@ class ProductoService implements ProductoServiceInterface
                 return response()->json(
                     [
                         "error" =>
-                            "Error al crear el producto: " . $e->getMessage(),
+                        "Error al crear el producto: " . $e->getMessage(),
                     ],
                     500,
                 );
@@ -227,22 +227,20 @@ class ProductoService implements ProductoServiceInterface
 
                 // Step 1: Auto-generate product code if not provided
                 if (empty($data["cod_producto"])) {
-                    $data[
-                        "cod_producto"
-                    ] = $this->productoRepository->generateNextCode();
+                    $data["cod_producto"] = $this->productoRepository->generateNextCode();
                 }
 
                 // Step 2: Prepare update data
                 $dataToUpdate = [
                     "cod_producto" =>
-                        $producto->cod_producto === $data["cod_producto"]
-                            ? $producto->cod_producto
-                            : $data["cod_producto"],
+                    $producto->cod_producto === $data["cod_producto"]
+                        ? $producto->cod_producto
+                        : $data["cod_producto"],
                     "cod_barra" => $data["cod_barra"] ?? null,
                     "name" =>
-                        $producto->name === $data["name"]
-                            ? $producto->name
-                            : $data["name"],
+                    $producto->name === $data["name"]
+                        ? $producto->name
+                        : $data["name"],
                     "name_ticket" => $data["name_ticket"],
                     "categoria_id" => $data["categoria_id"],
                     "marca_id" => $data["marca_id"],
@@ -267,9 +265,9 @@ class ProductoService implements ProductoServiceInterface
                 $unidadesDerivadas = $data["unidades_derivadas"];
                 $costoUnidad =
                     count($unidadesDerivadas) > 0
-                        ? $unidadesDerivadas[0]["costo"] /
-                            $unidadesDerivadas[0]["factor"]
-                        : 0;
+                    ? $unidadesDerivadas[0]["costo"] /
+                    $unidadesDerivadas[0]["factor"]
+                    : 0;
 
                 $productoAlmacen = $this->productoAlmacenRepository->findByProductoAndAlmacen(
                     $id,
@@ -280,7 +278,7 @@ class ProductoService implements ProductoServiceInterface
                     return response()->json(
                         [
                             "error" =>
-                                "Producto no encontrado en el almacén especificado",
+                            "Producto no encontrado en el almacén especificado",
                         ],
                         404,
                     );
@@ -317,7 +315,7 @@ class ProductoService implements ProductoServiceInterface
                 ]);
 
                 // Dispatch product updated event
-                ProductoUpdated::dispatch($producto, (int) auth()->id(), [
+                ProductoUpdated::dispatch($producto, (int) Auth::id(), [
                     "almacen_id" => $data["almacen_id"],
                     "updated_fields" => array_keys($dataToUpdate),
                     "updated_via" => "web_form",
@@ -336,7 +334,7 @@ class ProductoService implements ProductoServiceInterface
                 return response()->json(
                     [
                         "error" =>
-                            "Error al actualizar el producto: " .
+                        "Error al actualizar el producto: " .
                             $e->getMessage(),
                     ],
                     500,
@@ -371,7 +369,7 @@ class ProductoService implements ProductoServiceInterface
                     return response()->json(
                         [
                             "error" =>
-                                "No se puede eliminar el producto porque tiene movimientos de inventario (ingresos/salidas)",
+                            "No se puede eliminar el producto porque tiene movimientos de inventario (ingresos/salidas)",
                         ],
                         400,
                     );
@@ -382,7 +380,7 @@ class ProductoService implements ProductoServiceInterface
                     return response()->json(
                         [
                             "error" =>
-                                "No se puede eliminar el producto porque tiene ventas asociadas",
+                            "No se puede eliminar el producto porque tiene ventas asociadas",
                         ],
                         400,
                     );
@@ -409,12 +407,12 @@ class ProductoService implements ProductoServiceInterface
                     if (
                         $compra &&
                         $compra->descripcion !==
-                            "Stock inicial por creación de producto"
+                        "Stock inicial por creación de producto"
                     ) {
                         return response()->json(
                             [
                                 "error" =>
-                                    "El producto tiene compras realizadas",
+                                "El producto tiene compras realizadas",
                             ],
                             400,
                         );
@@ -430,7 +428,7 @@ class ProductoService implements ProductoServiceInterface
                 $this->productoRepository->delete($id);
 
                 // Dispatch product deleted event
-                ProductoDeleted::dispatch($producto, (int) auth()->id(), [
+                ProductoDeleted::dispatch($producto, (int) Auth::id(), [
                     "had_purchases" => $purchasesCount > 0,
                     "deleted_via" => "web_form",
                 ]);
@@ -445,7 +443,7 @@ class ProductoService implements ProductoServiceInterface
                 return response()->json(
                     [
                         "error" =>
-                            "Error al eliminar el producto: " .
+                        "Error al eliminar el producto: " .
                             $e->getMessage(),
                     ],
                     500,
@@ -501,7 +499,7 @@ class ProductoService implements ProductoServiceInterface
         $numero = $ultimoIngreso ? $ultimoIngreso->numero + 1 : 1;
 
         // Get user and series
-        $user = auth()->user();
+        $user = Auth::user();
 
         // Create IngresoSalida
         $ingresoSalida = IngresoSalida::create([
@@ -556,7 +554,7 @@ class ProductoService implements ProductoServiceInterface
             [
                 "unidad_derivada_inmutable_id" => $unidadDerivadaInmutable->id,
                 "producto_almacen_ingreso_salida_id" =>
-                    $productoAlmacenIngresoSalida->id,
+                $productoAlmacenIngresoSalida->id,
                 "factor" => $factor,
                 "cantidad" => $compraCantidad / $factor,
                 "cantidad_restante" => $compraCantidad / $factor,
@@ -568,7 +566,7 @@ class ProductoService implements ProductoServiceInterface
         // Create history record
         HistorialUnidadDerivadaInmutableIngresoSalida::create([
             "unidad_derivada_inmutable_ingreso_salida_id" =>
-                $unidadDerivadaInmutableIngresoSalida->id,
+            $unidadDerivadaInmutableIngresoSalida->id,
             "stock_anterior" => 0,
             "stock_nuevo" => $compraCantidad,
         ]);
@@ -577,6 +575,34 @@ class ProductoService implements ProductoServiceInterface
         $this->productoAlmacenRepository->update($productoAlmacen->id, [
             "stock_fraccion" => $compraCantidad,
             "costo" => $compraCosto / $factor,
+        ]);
+    }
+
+    /**
+     * Get products with batches nearing expiration
+     */
+    public function getVencimientos(array $filters): JsonResponse
+    {
+        if (!isset($filters["almacen_id"])) {
+            return response()->json(
+                [
+                    "error" => "El parámetro almacen_id es requerido",
+                ],
+                422,
+            );
+        }
+
+        $almacenId = $filters["almacen_id"];
+        $dias = $filters["dias"] ?? 30;
+
+        Log::info("API Vencimientos Call", ['almacen_id' => $almacenId, 'dias' => $dias]);
+
+        $vencimientos = $this->productoRepository->getVencimientos((int) $almacenId, (int) $dias);
+
+        Log::info("API Vencimientos Results", ['count' => count($vencimientos)]);
+
+        return response()->json([
+            "data" => $vencimientos
         ]);
     }
 }

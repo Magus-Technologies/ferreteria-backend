@@ -100,4 +100,14 @@ class ProductoController extends Controller
     {
         return $this->productoService->delete($id);
     }
+
+    /**
+     * Get products with batches nearing expiration
+     *
+     * GET /api/productos/vencimientos
+     */
+    public function vencimientos(\Illuminate\Http\Request $request): JsonResponse
+    {
+        return $this->productoService->getVencimientos($request->all());
+    }
 }

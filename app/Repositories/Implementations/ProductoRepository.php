@@ -50,28 +50,40 @@ class ProductoRepository implements ProductoRepositoryInterface
     public function findByAlmacen(int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator
     {
         $query = Producto::select([
-                'id', 'cod_producto', 'cod_barra', 'name', 'name_ticket',
-                'categoria_id', 'marca_id', 'unidad_medida_id',
-                'accion_tecnica', 'img', 'ficha_tecnica', 'stock_min', 'stock_max',
-                'unidades_contenidas', 'estado', 'permitido',
-            ])
+            'id',
+            'cod_producto',
+            'cod_barra',
+            'name',
+            'name_ticket',
+            'categoria_id',
+            'marca_id',
+            'unidad_medida_id',
+            'accion_tecnica',
+            'img',
+            'ficha_tecnica',
+            'stock_min',
+            'stock_max',
+            'unidades_contenidas',
+            'estado',
+            'permitido',
+        ])
             ->with([
-            'marca:id,name',
-            'categoria:id,name',
-            'unidadMedida:id,name',
-            'productoEnAlmacenes' => function ($q) use ($almacenId) {
-                $q->where('almacen_id', $almacenId)
-                    ->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo')
-                    ->with([
-                        'ubicacion:id,name',
-                        'unidadesDerivadas' => function ($udq) {
-                            $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'precio_especial', 'precio_minimo', 'precio_ultimo')
-                                ->with('unidadDerivada:id,name')
-                                ->orderBy('factor', 'desc');
-                        },
-                    ]);
-            },
-        ]);
+                'marca:id,name',
+                'categoria:id,name',
+                'unidadMedida:id,name',
+                'productoEnAlmacenes' => function ($q) use ($almacenId) {
+                    $q->where('almacen_id', $almacenId)
+                        ->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo')
+                        ->with([
+                            'ubicacion:id,name',
+                            'unidadesDerivadas' => function ($udq) {
+                                $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'precio_especial', 'precio_minimo', 'precio_ultimo')
+                                    ->with('unidadDerivada:id,name')
+                                    ->orderBy('factor', 'desc');
+                            },
+                        ]);
+                },
+            ]);
 
         // Calcular tiene_ingresos con subqueries (1 query, no N+1)
         $query->addSelect(DB::raw('(
@@ -347,5 +359,83 @@ class ProductoRepository implements ProductoRepositoryInterface
                 });
             });
         }
+    }
+
+    /**
+     * Get products with batches nearing expiration
+     */
+    public function getVencimientos(int $almacenId, int $dias): \Illuminate\Support\Collection
+    {
+        $now = now();
+        $nowStr = $now->format('Y-m-d H:i:s');
+        $fechaLimite = $dias > 0 ? now()->addDays($dias) : null;
+
+        // Helper to map data
+        $mapper = function ($item, $dateField, $qtyField) use ($now) {
+            $vencimiento = \Carbon\Carbon::parse($item->{$dateField});
+            return (object) [
+                'name' => $item->name,
+                'cantidad' => $item->{$qtyField},
+                'stock_min' => $item->stock_min,
+                'almacen' => $item->almacen,
+                'vencimiento' => $item->{$dateField},
+                'lote' => $item->lote,
+                'estado' => $vencimiento->isPast() ? 'Vencido' : 'Por Vencer',
+                'dias_restantes' => (int) $now->startOfDay()->diffInDays($vencimiento->startOfDay(), false)
+            ];
+        };
+
+        $executeQuery = function ($table, $idField, $pivotTable, $qtyField) use ($almacenId, $dias, $nowStr, $fechaLimite) {
+            $query = DB::table("$table as ud")
+                ->join("$pivotTable as pt", 'pt.id', '=', "ud.$idField")
+                ->join('productoalmacen as pa', 'pa.id', '=', 'pt.producto_almacen_id')
+                ->join('producto as p', 'p.id', '=', 'pa.producto_id')
+                ->join('almacen as a', 'a.id', '=', 'pa.almacen_id')
+                ->where('pa.almacen_id', $almacenId)
+                ->where("ud.$qtyField", '>', 0)
+                ->whereNotNull('ud.vencimiento');
+
+            if ($dias === 0) {
+                // ONLY EXPIRED
+                $query->where('ud.vencimiento', '<=', $nowStr);
+            } elseif ($dias > 0 && $dias < 3650) {
+                // ONLY UPCOMING (Future only: now < vencimiento <= now + N days)
+                $query->where('ud.vencimiento', '>', $nowStr)
+                    ->where('ud.vencimiento', '<=', $fechaLimite->format('Y-m-d H:i:s'));
+            }
+            // else: dias = -1 or very large -> Show All (No filter)
+
+            return $query->select([
+                'p.name as name',
+                "ud.$qtyField as cantidad",
+                'p.stock_min',
+                'a.name as almacen',
+                'ud.vencimiento',
+                'ud.lote'
+            ])->get();
+        };
+
+        $ingresos = $executeQuery(
+            'unidadderivadainmutableingresosalida',
+            'producto_almacen_ingreso_salida_id',
+            'productoalmaceningresosalida',
+            'cantidad_restante'
+        )->map(fn($item) => $mapper($item, 'vencimiento', 'cantidad'));
+
+        $recepciones = $executeQuery(
+            'unidadderivadainmutablerecepcion',
+            'producto_almacen_recepcion_id',
+            'productoalmacenrecepcion',
+            'cantidad_restante'
+        )->map(fn($item) => $mapper($item, 'vencimiento', 'cantidad'));
+
+        $compras = $executeQuery(
+            'unidadderivadainmutablecompra',
+            'producto_almacen_compra_id',
+            'productoalmacencompra',
+            'cantidad_pendiente'
+        )->map(fn($item) => $mapper($item, 'vencimiento', 'cantidad'));
+
+        return $ingresos->concat($recepciones)->concat($compras)->sortBy('vencimiento')->values();
     }
 }
