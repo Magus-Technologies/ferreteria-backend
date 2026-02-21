@@ -939,10 +939,9 @@ class VentaController extends Controller
 
         // Validar que no exista otra venta con la misma serie y número
         if (
-            $estadoEnum === EstadoDeVenta::Creado ||
-            ($estadoEnum === EstadoDeVenta::EnEspera &&
-                isset($venta['serie']) &&
-                isset($venta['numero']))
+            isset($venta['serie']) &&
+            isset($venta['numero']) &&
+            ($estadoEnum === EstadoDeVenta::Creado || $estadoEnum === EstadoDeVenta::EnEspera)
         ) {
             $existingVenta = Venta::where('serie', $venta['serie'])
                 ->where('numero', $venta['numero']);

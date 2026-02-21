@@ -9,6 +9,7 @@ use App\Http\Controllers\RestrictionController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\MotivoTrasladoController;
 use App\Http\Controllers\NotificacionController;
+use App\Http\Controllers\CumpleanosController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -103,6 +104,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/entrega-programada', [NotificacionController::class, 'notifyEntregaProgramada']);
         Route::post('/test', [NotificacionController::class, 'testNotification']); // Endpoint de prueba
     });
+
+    // ============================================
+    // CUMPLEAÑOS
+    // ============================================
+    Route::get('/cumpleanos/proximos', [CumpleanosController::class, 'proximos']);
 
     // ============================================
     // EMPRESA
