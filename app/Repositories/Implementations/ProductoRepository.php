@@ -256,13 +256,14 @@ class ProductoRepository implements ProductoRepositoryInterface
      */
     private function applyFilters($query, array $filters, int $almacenId): void
     {
-        // Search filter - busca solo al inicio (startsWith)
+        // Search filter - busca coincidencias parciales (contains)
         if (isset($filters['search'])) {
             $search = $filters['search'];
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "{$search}%")
-                    ->orWhere('cod_producto', 'like', "{$search}%")
-                    ->orWhere('cod_barra', 'like', "{$search}%");
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('cod_producto', 'like', "%{$search}%")
+                    ->orWhere('cod_barra', 'like', "%{$search}%")
+                    ->orWhere('name_ticket', 'like', "%{$search}%");
             });
         }
 
