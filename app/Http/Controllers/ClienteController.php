@@ -21,7 +21,7 @@ class ClienteController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Cliente::query();
+        $query = Cliente::query()->with('direcciones');
 
         // Excluir "CLIENTE VARIOS" (DNI: 99999999) de las búsquedas
         $query->where('numero_documento', '!=', '99999999');

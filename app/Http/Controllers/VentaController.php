@@ -59,7 +59,8 @@ class VentaController extends Controller
 
         $query = Venta::query()
             ->with([
-                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,direccion_2,direccion_3,direccion_4,telefono,email',
+                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+                'cliente.direcciones',
                 'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                 'productosPorAlmacen.productoAlmacen.producto.marca',
                 'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
@@ -513,7 +514,8 @@ class VentaController extends Controller
     public function show(string $id)
     {
         $venta = Venta::with([
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,direccion_2,direccion_3,direccion_4,telefono,email',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+            'cliente.direcciones',
             'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
@@ -1373,110 +1375,8 @@ class VentaController extends Controller
         }
     }
 
-    /**
-     * Ventas por cobrar (crédito con saldo pendiente)
-     */
-    public function ventasPorCobrar(Request $request)
-    {
-        $request->validate([
-            'almacen_id' => 'sometimes|integer',
-            'cliente_id' => 'sometimes|integer',
-            'user_id' => 'sometimes|string',
-            'desde' => 'sometimes|date',
-            'hasta' => 'sometimes|date',
-            'search' => 'sometimes|string',
-            'per_page' => 'sometimes|integer|min:1|max:100',
-            'page' => 'sometimes|integer|min:1',
-        ]);
+    // ventasPorCobrar() movido al final del archivo (usa cobrosVenta)
 
-        $query = Venta::query()
-            ->with([
-                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,email',
-                'productosPorAlmacen.productoAlmacen.producto.marca',
-                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
-                'user:id,name',
-            ])
-            ->withSum('despliegueDePagoVentas as total_pagado', 'monto')
-            // Only credit sales
-            ->where('forma_de_pago', FormaDePago::Credito)
-            // Only active sales (not cancelled)
-            ->where('estado_de_venta', '!=', EstadoDeVenta::Anulado);
-
-        // Filter by almacen_id
-        if ($request->has('almacen_id')) {
-            $query->where('almacen_id', $request->almacen_id);
-        }
-
-        // Filter by cliente_id
-        if ($request->has('cliente_id')) {
-            $query->where('cliente_id', $request->cliente_id);
-        }
-
-        // Filter by user_id
-        if ($request->has('user_id')) {
-            $query->where('user_id', $request->user_id);
-        }
-
-        // Filter by fecha range
-        if ($request->has('desde')) {
-            $query->whereDate('fecha', '>=', $request->desde);
-        }
-        if ($request->has('hasta')) {
-            $query->whereDate('fecha', '<=', $request->hasta);
-        }
-
-        // Search by serie, numero, or cliente
-        if ($request->has('search') && !empty($request->search)) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('serie', 'LIKE', "%{$search}%")
-                    ->orWhere('numero', 'LIKE', "%{$search}%")
-                    ->orWhereHas('cliente', function ($q2) use ($search) {
-                        $q2->where('razon_social', 'LIKE', "%{$search}%")
-                            ->orWhere('nombres', 'LIKE', "%{$search}%")
-                            ->orWhere('apellidos', 'LIKE', "%{$search}%")
-                            ->orWhere('numero_documento', 'LIKE', "%{$search}%");
-                    });
-            });
-        }
-
-        $perPage = $request->input('per_page', 50);
-
-        if ($perPage === -1) {
-            $ventas = $query->orderBy('fecha', 'desc')->limit(100)->get();
-
-            $ventasConSaldo = $ventas->filter(function ($venta) {
-                $total = $this->getTotalVenta($venta);
-                $totalPagado = (float) ($venta->total_pagado ?? 0);
-                $saldo = $total - $totalPagado;
-                return $saldo > 0.01;
-            });
-
-            return response()->json([
-                'data' => $ventasConSaldo->values(),
-                'total' => $ventasConSaldo->count(),
-            ]);
-        }
-
-        $ventas = $query->orderBy('fecha', 'desc')->paginate($perPage);
-
-        $ventasConSaldo = $ventas->getCollection()->filter(function ($venta) {
-            $total = $this->getTotalVenta($venta);
-            $totalPagado = (float) ($venta->total_pagado ?? 0);
-            $saldo = $total - $totalPagado;
-            return $saldo > 0.01;
-        });
-
-        $ventas->setCollection($ventasConSaldo);
-
-        return response()->json([
-            'data' => $ventas->items(),
-            'total' => $ventasConSaldo->count(),
-            'current_page' => $ventas->currentPage(),
-            'per_page' => $ventas->perPage(),
-            'last_page' => $ventas->lastPage(),
-        ]);
-    }
 
     /**
      * Historial de ediciones de una venta específica
@@ -1582,5 +1482,218 @@ class VentaController extends Controller
         }
 
         return $detalles;
+    }
+
+    /**
+     * Listar ventas a crédito con saldo pendiente (para módulo "Ventas por Cobrar")
+     */
+    public function ventasPorCobrar(Request $request)
+    {
+        $request->validate([
+            'almacen_id'  => 'sometimes|integer',
+            'cliente_id'  => 'sometimes|integer',
+            'user_id'     => 'sometimes|string',
+            'desde'       => 'sometimes|date',
+            'hasta'       => 'sometimes|date',
+            'search'      => 'sometimes|string',
+            'dias'        => 'sometimes|integer|min:1', // Ventas que vencen en X días
+            'per_page'    => 'sometimes|integer|min:1|max:200',
+            'page'        => 'sometimes|integer|min:1',
+        ]);
+
+        $query = Venta::query()
+            ->with([
+                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+                'productosPorAlmacen.productoAlmacen.producto.marca',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                'user:id,name',
+                'almacen:id,name',
+            ])
+            ->withSum([
+                'cobrosVenta as total_cobrado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto')
+            // Solo ventas a crédito
+            ->where('forma_de_pago', FormaDePago::Credito)
+            // Solo activas (no anuladas)
+            ->where('estado_de_venta', '!=', EstadoDeVenta::Anulado);
+
+        // Filtros opcionales
+        if ($request->has('almacen_id')) {
+            $query->where('almacen_id', $request->almacen_id);
+        }
+
+        if ($request->has('cliente_id')) {
+            $query->where('cliente_id', $request->cliente_id);
+        }
+
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
+        }
+
+        // Filtro por días a vencer (ej: ventas que vencen en 15 días desde hoy)
+        if ($request->has('dias')) {
+            $fechaLimite = now()->addDays($request->dias)->toDateString();
+            $query->whereNotNull('fecha_vencimiento')
+                ->whereDate('fecha_vencimiento', '<=', $fechaLimite);
+        }
+
+        // Búsqueda por serie, número o cliente
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('serie', 'LIKE', "%{$search}%")
+                    ->orWhere('numero', 'LIKE', "%{$search}%")
+                    ->orWhereHas('cliente', function ($q2) use ($search) {
+                        $q2->where('razon_social', 'LIKE', "%{$search}%")
+                            ->orWhere('nombres', 'LIKE', "%{$search}%")
+                            ->orWhere('apellidos', 'LIKE', "%{$search}%")
+                            ->orWhere('numero_documento', 'LIKE', "%{$search}%");
+                    });
+            });
+        }
+
+        $perPage = $request->input('per_page', 50);
+
+        if ($perPage === -1) {
+            $ventas = $query->orderBy('fecha', 'asc')->limit(200)->get();
+
+            // Filtrar solo las que tienen saldo > 0
+            $ventasConSaldo = $ventas->filter(function ($venta) {
+                $total        = $this->getTotalVenta($venta);
+                $totalCobrado = (float) ($venta->total_cobrado ?? 0);
+                return ($total - $totalCobrado) > 0.01;
+            });
+
+            return response()->json([
+                'data'  => $ventasConSaldo->values(),
+                'total' => $ventasConSaldo->count(),
+            ]);
+        }
+
+        $ventas = $query->orderBy('fecha', 'asc')->paginate($perPage);
+
+        // Filtrar solo las que tienen saldo pendiente
+        $ventasConSaldo = $ventas->getCollection()->filter(function ($venta) {
+            $total        = $this->getTotalVenta($venta);
+            $totalCobrado = (float) ($venta->total_cobrado ?? 0);
+            return ($total - $totalCobrado) > 0.01;
+        });
+
+        $ventas->setCollection($ventasConSaldo);
+
+        return response()->json([
+            'data'         => $ventas->items(),
+            'total'        => $ventasConSaldo->count(),
+            'current_page' => $ventas->currentPage(),
+            'per_page'     => $ventas->perPage(),
+            'last_page'    => $ventas->lastPage(),
+        ]);
+    }
+
+    /**
+     * Listar cobros de una venta específica
+     */
+    public function getCobros(string $id)
+    {
+        $venta = Venta::findOrFail($id);
+
+        $cobros = $venta->cobrosVenta()
+            ->with('despliegueDePago.metodoDePago', 'user:id,name')
+            ->orderBy('fecha', 'desc')
+            ->get();
+
+        return response()->json(['data' => $cobros]);
+    }
+
+    /**
+     * Registrar un cobro para una venta a crédito
+     */
+    public function storeCobro(Request $request, string $id)
+    {
+        $validated = $request->validate([
+            'despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
+            'monto'                 => 'required|numeric|min:0.01',
+            'fecha'                 => 'required|date',
+            'observacion'           => 'nullable|string|max:500',
+            'numero_letra'          => 'nullable|string|max:100',
+            'numero_operacion'      => 'nullable|string|max:100',
+            'user_id'               => 'required|string|exists:users,id',
+        ]);
+
+        return DB::transaction(function () use ($id, $validated) {
+            $venta = Venta::with([
+                'productosPorAlmacen.unidadesDerivadas',
+                'cobrosVenta' => function ($query) {
+                    $query->where('estado', true);
+                },
+            ])->findOrFail($id);
+
+            // Validar que la venta es a crédito
+            if ($venta->forma_de_pago !== FormaDePago::Credito) {
+                return response()->json([
+                    'error' => ['message' => 'Solo se pueden registrar cobros en ventas a crédito'],
+                ], 422);
+            }
+
+            // Validar que la venta no está anulada
+            if ($venta->estado_de_venta === EstadoDeVenta::Anulado) {
+                return response()->json([
+                    'error' => ['message' => 'No se puede registrar un cobro en una venta anulada'],
+                ], 422);
+            }
+
+            // Calcular total de la venta
+            $totalVenta = $this->getTotalVenta($venta);
+
+            // Calcular total cobrado hasta ahora
+            $totalCobrado = $venta->cobrosVenta->sum('monto');
+
+            // Calcular saldo pendiente
+            $saldoPendiente = $totalVenta - $totalCobrado;
+
+            // Validar que el monto no exceda el saldo
+            if ($validated['monto'] > $saldoPendiente + 0.01) {
+                return response()->json([
+                    'error' => ['message' => 'El monto del cobro (S/ ' . number_format($validated['monto'], 2) . ') no puede exceder el saldo pendiente de S/ ' . number_format($saldoPendiente, 2)],
+                ], 422);
+            }
+
+            // Crear el cobro
+            $cobro = $venta->cobrosVenta()->create([
+                'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
+                'monto'                 => $validated['monto'],
+                'fecha'                 => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
+                'observacion'           => $validated['observacion'] ?? null,
+                'numero_letra'          => $validated['numero_letra'] ?? null,
+                'numero_operacion'      => $validated['numero_operacion'] ?? null,
+                'estado'                => true,
+                'user_id'               => $validated['user_id'],
+            ]);
+
+            // Actualizar estado de la venta si quedó completamente pagada
+            $nuevoTotalCobrado = $totalCobrado + $validated['monto'];
+            if ($nuevoTotalCobrado >= ($totalVenta - 0.01)) {
+                $venta->update(['estado_de_venta' => EstadoDeVenta::Procesado]);
+            }
+
+            // Cargar relaciones para la respuesta
+            $cobro->load('despliegueDePago.metodoDePago', 'user:id,name');
+
+            return response()->json([
+                'data'    => $cobro,
+                'message' => 'Cobro registrado correctamente',
+                'saldo_pendiente' => max(0, $saldoPendiente - $validated['monto']),
+            ], 201);
+        });
     }
 }

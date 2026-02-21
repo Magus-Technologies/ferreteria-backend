@@ -340,7 +340,7 @@ class ClienteReporteService implements ClienteReporteServiceInterface
             ->join('venta as v', 'v.cliente_id', '=', 'c.id')
             ->where('c.numero_documento', '!=', '99999999')
             ->where('v.estado_de_venta', '!=', 'an')
-            ->groupBy('c.id', 'c.numero_documento', 'c.tipo_cliente', 'c.razon_social', 'c.nombres', 'c.apellidos', 'c.direccion', 'c.telefono', 'c.email', 'c.estado')
+            ->groupBy('c.id', 'c.numero_documento', 'c.tipo_cliente', 'c.razon_social', 'c.nombres', 'c.apellidos', 'c.telefono', 'c.email', 'c.estado')
             ->havingRaw('MIN(v.fecha) >= ?', [$fechaLimite]);
 
         $query->selectRaw("

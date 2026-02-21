@@ -121,4 +121,9 @@ class Venta extends Model
     {
         return $this->hasMany(VentaHistorial::class);
     }
+
+    public function cobrosVenta(): HasMany
+    {
+        return $this->hasMany(CobroVenta::class);
+    }
 }
