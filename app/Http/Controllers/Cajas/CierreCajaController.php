@@ -30,10 +30,10 @@ class CierreCajaController extends Controller
     {
         try {
             \Log::info('=== INICIO obtenerCajaActiva ===');
-            
+
             $userId = auth()->id();
             \Log::info('User ID obtenido', ['userId' => $userId, 'type' => gettype($userId)]);
-            
+
             if (!$userId) {
                 \Log::warning('Usuario no autenticado');
                 return response()->json([
@@ -41,7 +41,7 @@ class CierreCajaController extends Controller
                     'message' => 'Usuario no autenticado',
                 ], 401);
             }
-            
+
             // Intentar obtener caja como encargado
             try {
                 \Log::info('Intentando obtener caja como encargado');
@@ -60,7 +60,7 @@ class CierreCajaController extends Controller
                 $data = (new AperturaCierreCajaResource($cajaActiva->apertura))->toArray(request());
                 $data['resumen'] = $cajaActiva->resumen->toArray();
                 $data['tipo_usuario'] = 'encargado';
-                
+
                 \Log::info('=== FIN obtenerCajaActiva SUCCESS (Encargado) ===');
 
                 return response()->json([
@@ -70,7 +70,7 @@ class CierreCajaController extends Controller
             } catch (AperturaNoEncontradaException $e) {
                 // No es encargado, intentar como vendedor
                 \Log::info('No es encargado, intentando como vendedor');
-                
+
                 // Buscar distribuciones activas del vendedor
                 $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('user_id', $userId)
                     ->whereHas('aperturaCierreCaja', function ($query) {
@@ -78,20 +78,20 @@ class CierreCajaController extends Controller
                     })
                     ->with('aperturaCierreCaja')
                     ->get();
-                
+
                 if ($distribuciones->isEmpty()) {
                     throw new AperturaNoEncontradaException();
                 }
-                
+
                 // Tomar la primera distribución (normalmente solo hay una activa)
                 $distribucion = $distribuciones->first();
                 $apertura = $distribucion->aperturaCierreCaja;
-                
+
                 // Calcular resumen del vendedor
                 $resumenVendedor = $this->calcularResumenVendedor($userId, $apertura);
-                
+
                 \Log::info('=== FIN obtenerCajaActiva SUCCESS (Vendedor) ===');
-                
+
                 return response()->json([
                     'success' => true,
                     'data' => [
@@ -131,35 +131,35 @@ class CierreCajaController extends Controller
         $montoInicial = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
             ->where('user_id', $userId)
             ->sum('monto');
-        
+
         // Obtener Cajas Chicas
         $cajasChicas = \App\Models\SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
             ->where('tipo_caja', 'CC')
             ->pluck('id');
-        
+
         // Transacciones del vendedor
         $transacciones = \App\Models\TransaccionCaja::whereIn('sub_caja_id', $cajasChicas)
             ->where('user_id', $userId)
             ->where(function ($query) {
                 $query->whereNull('referencia_tipo')
-                      ->orWhere('referencia_tipo', '!=', 'apertura');
+                    ->orWhere('referencia_tipo', '!=', 'apertura');
             })
             ->get();
-        
+
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
         $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
-        
+
         // Préstamos dados y recibidos
         $prestamosDados = \App\Models\TransferenciaEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
             ->where('vendedor_origen_id', $userId)
             ->sum('monto');
-        
+
         $prestamosRecibidos = \App\Models\TransferenciaEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
             ->where('vendedor_destino_id', $userId)
             ->sum('monto');
-        
+
         $montoEsperado = $montoInicial + $ingresos - $egresos;
-        
+
         return [
             'efectivo_inicial' => (float) $montoInicial,
             'monto_apertura' => (float) $montoInicial,
@@ -236,6 +236,60 @@ class CierreCajaController extends Controller
     }
 
     /**
+     * Volver a cerrar una caja (Re-Cierre)
+     */
+    public function reCerrarCaja(string $id, CerrarCajaRequest $request): JsonResponse
+    {
+        try {
+            $resultado = $this->cierreCajaService->reCerrarCajaConResumen(
+                $id,
+                $request->validated()
+            );
+
+            $resultado->apertura->refresh();
+
+            // Crear el resumen DTO desde el array
+            $resumenDTO = new \App\DTOs\CierreCaja\ResumenCajaDTO(
+                efectivoInicial: $resultado->resumen['efectivo_inicial'] ?? 0,
+                montoApertura: $resultado->resumen['monto_apertura'] ?? 0,
+                totalIngresos: $resultado->resumen['total_ingresos'] ?? 0,
+                totalEgresos: $resultado->resumen['total_egresos'] ?? 0,
+                totalVentas: $resultado->resumen['total_ventas'] ?? 0,
+                montoEsperado: $resultado->resumen['monto_esperado'] ?? 0,
+                montoCierre: $resultado->resumen['monto_cierre'] ?? null,
+                diferencia: $resultado->resumen['diferencia'] ?? null,
+                detalleIngresos: collect($resultado->resumen['detalle_ingresos'] ?? []),
+                detalleEgresos: collect($resultado->resumen['detalle_egresos'] ?? []),
+                detalleVentas: collect($resultado->resumen['detalle_ventas'] ?? []),
+                detalleMetodosPago: collect($resultado->resumen['detalle_metodos_pago'] ?? []),
+                prestamosRecibidos: collect($resultado->resumen['prestamos_recibidos'] ?? []),
+                totalPrestamosRecibidos: $resultado->resumen['total_prestamos_recibidos'] ?? 0,
+                prestamosDados: collect($resultado->resumen['prestamos_dados'] ?? []),
+                totalPrestamosDados: $resultado->resumen['total_prestamos_dados'] ?? 0,
+                movimientosInternos: collect($resultado->resumen['movimientos_internos'] ?? []),
+                prestamos: collect($resultado->resumen['prestamos'] ?? []),
+                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? [])
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Caja re-cerrada exitosamente',
+                'data' => (new CierreCajaResource($resultado->apertura, $resumenDTO))->toArray(request()),
+            ]);
+        } catch (AperturaNoEncontradaException | SupervisorRequeridoException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], $e->getCode());
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al re-cerrar caja: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Obtener detalle completo de movimientos de la caja
      */
     public function obtenerDetalleMovimientos(string $id): JsonResponse
@@ -267,10 +321,10 @@ class CierreCajaController extends Controller
     {
         try {
             $validated = $request->validated();
-            
+
             $supervisor = $this->cierreCajaService->validarSupervisor(
-                $validated['email'],
-                $validated['password']
+                $validated['supervisor_id'],
+                $validated['supervisor_password']
             );
 
             if (!$supervisor) {
@@ -304,7 +358,7 @@ class CierreCajaController extends Controller
             // Verificar que el usuario sea administrador
             // $user = auth()->user();
             // $isAdmin = $user->roles()->whereIn('name', ['admin', 'administrador'])->exists();
-            
+
             // if (!$isAdmin) {
             //     return response()->json([
             //         'success' => false,
@@ -314,7 +368,7 @@ class CierreCajaController extends Controller
 
             // Obtener la apertura
             $apertura = $this->cierreCajaService->obtenerApertura($id);
-            
+
             if (!$apertura) {
                 throw new AperturaNoEncontradaException();
             }
@@ -346,7 +400,7 @@ class CierreCajaController extends Controller
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al recalcular cierre: ' . $e->getMessage(),
@@ -356,11 +410,40 @@ class CierreCajaController extends Controller
 
     /**
      * Obtener un cierre específico con su resumen completo
+     * Busca primero en arqueos_diarios, luego en apertura_cierre_caja (backward compat)
      */
     public function obtenerCierre(string $id): JsonResponse
     {
         try {
-            // Obtener la apertura con todas las relaciones necesarias
+            // Primero buscar en arqueos_diarios
+            $arqueo = \App\Models\ArqueoDiario::with([
+                'aperturaCierreCaja.cajaPrincipal',
+                'aperturaCierreCaja.subCaja',
+                'aperturaCierreCaja.distribucionesVendedores.vendedor',
+                'user',
+                'supervisorValidador',
+            ])->find($id);
+
+            if ($arqueo) {
+                // Usar el resumen_snapshot guardado
+                $apertura = $arqueo->aperturaCierreCaja;
+                $data = (new \App\Http\Resources\Cajas\AperturaCierreCajaResource($apertura))->toArray(request());
+                // Sobrescribir con datos del arqueo específico
+                $data['id'] = $arqueo->id;
+                $data['fecha_cierre'] = $arqueo->created_at;
+                $data['monto_cierre'] = $arqueo->monto_cierre;
+                $data['estado_cierre'] = $arqueo->estado_cierre;
+                $data['comentarios'] = $arqueo->comentarios;
+                $data['resumen'] = $arqueo->resumen_snapshot;
+                $data['tipo_usuario'] = 'encargado';
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $data,
+                ]);
+            }
+
+            // Fallback: buscar en apertura_cierre_caja (registros antiguos)
             $apertura = \App\Models\AperturaCierreCaja::with([
                 'cajaPrincipal',
                 'subCaja',
@@ -368,24 +451,16 @@ class CierreCajaController extends Controller
                 'supervisorValidador',
                 'distribucionesVendedores.vendedor'
             ])->find($id);
-            
+
             if (!$apertura) {
                 throw new AperturaNoEncontradaException();
             }
 
-            // Verificar que la caja esté cerrada (por estado o por tener fecha_cierre)
-            if ($apertura->estado !== 'cerrada' && !$apertura->fecha_cierre) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Solo se pueden consultar cierres de cajas cerradas',
-                ], 400);
-            }
-
-            // Calcular el resumen completo usando el calculador
             $calculador = app(\App\Services\CierreCaja\CalculadorResumenCaja::class);
-            $resumen = $calculador->calcular($apertura);
+            $fechaCierre = $apertura->fecha_ultimo_arqueo ?? $apertura->fecha_cierre;
+            $fechaFiltro = $fechaCierre ? \Carbon\Carbon::parse($fechaCierre) : null;
+            $resumen = $calculador->calcular($apertura, true, $fechaFiltro);
 
-            // Preparar la respuesta con el formato esperado
             $data = (new \App\Http\Resources\Cajas\AperturaCierreCajaResource($apertura))->toArray(request());
             $data['resumen'] = $resumen->toArray();
             $data['tipo_usuario'] = 'encargado';
@@ -405,12 +480,138 @@ class CierreCajaController extends Controller
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener cierre: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Listar arqueos diarios por vendedor (1 fila por vendedor que cerró)
+     */
+    public function listarArqueos(Request $request): JsonResponse
+    {
+        try {
+            $query = \App\Models\ArqueoDiario::with([
+                'aperturaCierreCaja.cajaPrincipal',
+                'aperturaCierreCaja.subCaja',
+                'aperturaCierreCaja.distribucionesVendedores.vendedor',
+                'user',
+                'supervisorValidador',
+                'deudaPersonal',
+            ])->orderBy('created_at', 'desc');
+
+            // Filtrar por fecha
+            if ($request->has('fecha_inicio') && $request->has('fecha_fin')) {
+                $query->whereBetween('fecha_arqueo', [$request->fecha_inicio, $request->fecha_fin]);
+            }
+
+            // Filtrar por caja principal
+            if ($request->has('caja_principal_id')) {
+                $query->whereHas('aperturaCierreCaja', function ($q) use ($request) {
+                    $q->where('caja_principal_id', $request->caja_principal_id);
+                });
+            }
+
+            $arqueos = $query->get();
+
+            // Explotar cada arqueo en filas por vendedor
+            $rows = collect();
+
+            foreach ($arqueos as $arqueo) {
+                $apertura = $arqueo->aperturaCierreCaja;
+                $distribuciones = $apertura?->distribucionesVendedores ?? collect();
+
+                if ($distribuciones->isEmpty()) {
+                    // Sin distribuciones: 1 fila con el usuario del arqueo
+                    $rows->push($this->formatArqueoRow($arqueo, $apertura, null));
+                } else {
+                    // Con distribuciones: 1 fila por cada vendedor
+                    foreach ($distribuciones as $dist) {
+                        // Filtrar por usuario vendedor si aplica
+                        if ($request->has('user_id') && $dist->user_id !== $request->user_id) {
+                            continue;
+                        }
+                        $rows->push($this->formatArqueoRow($arqueo, $apertura, $dist));
+                    }
+                }
+            }
+
+            // Si filtramos por user_id y no había distribuciones, filtrar por usuario del arqueo
+            if ($request->has('user_id')) {
+                $rows = $rows->filter(function ($row) use ($request) {
+                    return $row['vendedor_id'] === $request->user_id
+                        || $row['user_id'] === $request->user_id;
+                })->values();
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => ['data' => $rows],
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error al listar arqueos', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al listar arqueos: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Formatear una fila de arqueo (por vendedor o por usuario del arqueo)
+     */
+    private function formatArqueoRow($arqueo, $apertura, $distribucion = null): array
+    {
+        $vendedor = $distribucion?->vendedor;
+
+        return [
+            'id' => $arqueo->id,
+            'apertura_id' => $apertura?->id,
+            'user_id' => $arqueo->user_id,
+            'vendedor_id' => $distribucion?->user_id ?? $arqueo->user_id,
+            'vendedor' => $vendedor ? [
+                'id' => $vendedor->id,
+                'name' => $vendedor->name,
+                'email' => $vendedor->email,
+            ] : ($arqueo->user ? [
+                'id' => $arqueo->user->id,
+                'name' => $arqueo->user->name,
+                'email' => $arqueo->user->email,
+            ] : null),
+            'monto_asignado' => $distribucion?->monto ?? $arqueo->monto_cierre,
+            'fecha_apertura' => $apertura?->fecha_apertura,
+            'fecha_cierre' => $arqueo->created_at,
+            'fecha_arqueo' => $arqueo->fecha_arqueo,
+            'monto_apertura' => $distribucion ? $distribucion->monto : ($apertura?->monto_apertura ?? 0),
+            'monto_cierre' => $arqueo->monto_cierre,
+            'estado' => 'cerrada',
+            'estado_cierre' => $arqueo->estado_cierre,
+            'diferencia_efectivo' => $arqueo->diferencia_efectivo,
+            'diferencia_total' => $arqueo->diferencia_total,
+            'supervisor_validado' => $arqueo->supervisor_validado,
+            'comentarios' => $arqueo->comentarios,
+            'deuda' => $arqueo->deudaPersonal ? [
+                'id' => $arqueo->deudaPersonal->id,
+                'monto' => $arqueo->deudaPersonal->monto,
+                'estado' => $arqueo->deudaPersonal->estado,
+                'observaciones' => $arqueo->deudaPersonal->observaciones,
+            ] : null,
+            'user' => $arqueo->user ? [
+                'id' => $arqueo->user->id,
+                'name' => $arqueo->user->name,
+                'email' => $arqueo->user->email,
+            ] : null,
+            'caja_principal' => $apertura?->cajaPrincipal ? [
+                'id' => $apertura->cajaPrincipal->id,
+                'nombre' => $apertura->cajaPrincipal->nombre,
+            ] : null,
+        ];
     }
 
     /**
@@ -421,7 +622,7 @@ class CierreCajaController extends Controller
         try {
             // Obtener la apertura
             $apertura = $this->cierreCajaService->obtenerApertura($id);
-            
+
             if (!$apertura) {
                 throw new AperturaNoEncontradaException();
             }
@@ -438,11 +639,11 @@ class CierreCajaController extends Controller
             if ($request->has('monto_cierre')) {
                 $apertura->monto_cierre = $request->input('monto_cierre');
             }
-            
+
             if ($request->has('comentarios')) {
                 $apertura->comentarios = $request->input('comentarios');
             }
-            
+
             $apertura->save();
 
             return response()->json([
@@ -461,7 +662,7 @@ class CierreCajaController extends Controller
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al actualizar cierre: ' . $e->getMessage(),
@@ -476,12 +677,12 @@ class CierreCajaController extends Controller
     public function diagnosticoDistribuciones(): JsonResponse
     {
         $userId = auth()->id();
-        
+
         // Obtener todas las distribuciones del usuario
         $todasDistribuciones = \App\Models\DistribucionEfectivoVendedor::where('user_id', $userId)
             ->with(['aperturaCierreCaja', 'vendedor'])
             ->get();
-        
+
         // Obtener distribuciones activas (con apertura sin cerrar)
         $distribucionesActivas = \App\Models\DistribucionEfectivoVendedor::where('user_id', $userId)
             ->whereHas('aperturaCierreCaja', function ($query) {
@@ -489,7 +690,7 @@ class CierreCajaController extends Controller
             })
             ->with(['aperturaCierreCaja', 'vendedor'])
             ->get();
-        
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -535,7 +736,7 @@ class CierreCajaController extends Controller
 
             // Obtener la apertura
             $apertura = \App\Models\AperturaCierreCaja::with('user')->findOrFail($id);
-            
+
             // Verificar permisos
             if ($apertura->user_id !== auth()->id() && !auth()->user()->hasRole(['admin', 'administrador'])) {
                 return response()->json([
@@ -545,7 +746,7 @@ class CierreCajaController extends Controller
             }
 
             // Determinar el asunto según el estado
-            $subject = $apertura->estado === 'cerrada' 
+            $subject = $apertura->estado === 'cerrada'
                 ? 'Ticket de Cierre de Caja - ' . \Carbon\Carbon::parse($apertura->fecha_cierre)->format('d/m/Y')
                 : 'Ticket de Caja Abierta - ' . \Carbon\Carbon::parse($apertura->fecha_apertura)->format('d/m/Y');
 
@@ -582,12 +783,124 @@ class CierreCajaController extends Controller
                 'success' => true,
                 'message' => 'Ticket enviado exitosamente por correo electrónico',
             ]);
-
         } catch (\Exception $e) {
             \Log::error('Error al enviar ticket por correo: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Error al enviar el ticket: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+    /**
+     * Aprobar un cierre/arqueo pendiente (requiere clave de supervisor)
+     * Busca primero en arqueos_diarios, luego en apertura_cierre_caja
+     */
+    public function aprobarCierre(string $id, Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'supervisor_id' => 'required|string|exists:user,id',
+                'supervisor_password' => 'required|string',
+            ]);
+
+            // Buscar primero en arqueos_diarios
+            $arqueo = \App\Models\ArqueoDiario::find($id);
+
+            if ($arqueo) {
+                if ($arqueo->estado_cierre !== 'pendiente') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Solo se pueden aprobar cierres con estado pendiente',
+                    ], 400);
+                }
+
+                // Validar supervisor
+                $supervisor = \App\Models\User::find($request->supervisor_id);
+                if (!$supervisor || !$supervisor->es_supervisor) {
+                    return response()->json(['success' => false, 'message' => 'El usuario no es un supervisor válido'], 403);
+                }
+                if (!$supervisor->supervisor_password) {
+                    return response()->json(['success' => false, 'message' => 'El supervisor no tiene contraseña configurada'], 400);
+                }
+                if (!\Illuminate\Support\Facades\Hash::check($request->supervisor_password, $supervisor->supervisor_password)) {
+                    return response()->json(['success' => false, 'message' => 'Contraseña de supervisor incorrecta'], 401);
+                }
+
+                // Aprobar en arqueos_diarios
+                $arqueo->update([
+                    'estado_cierre' => 'aprobado',
+                    'supervisor_id_validador' => $supervisor->id,
+                    'supervisor_validado' => true,
+                ]);
+
+                // También actualizar la apertura
+                $arqueo->aperturaCierreCaja->update([
+                    'estado_cierre' => 'aprobado',
+                    'supervisor_id_validador' => $supervisor->id,
+                    'supervisor_validado' => true,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Cierre aprobado exitosamente',
+                    'data' => [
+                        'id' => $arqueo->id,
+                        'estado_cierre' => $arqueo->estado_cierre,
+                        'supervisor' => [
+                            'id' => $supervisor->id,
+                            'name' => $supervisor->name,
+                        ],
+                    ],
+                ]);
+            }
+
+            // Fallback: buscar en apertura_cierre_caja
+            $apertura = \App\Models\AperturaCierreCaja::findOrFail($id);
+
+            if ($apertura->estado_cierre !== 'pendiente') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Solo se pueden aprobar cierres con estado pendiente',
+                ], 400);
+            }
+
+            $supervisor = \App\Models\User::find($request->supervisor_id);
+            if (!$supervisor || !$supervisor->es_supervisor) {
+                return response()->json(['success' => false, 'message' => 'El usuario no es un supervisor válido'], 403);
+            }
+            if (!$supervisor->supervisor_password) {
+                return response()->json(['success' => false, 'message' => 'El supervisor no tiene contraseña configurada'], 400);
+            }
+            if (!\Illuminate\Support\Facades\Hash::check($request->supervisor_password, $supervisor->supervisor_password)) {
+                return response()->json(['success' => false, 'message' => 'Contraseña de supervisor incorrecta'], 401);
+            }
+
+            $apertura->update([
+                'estado_cierre' => 'aprobado',
+                'supervisor_id_validador' => $supervisor->id,
+                'supervisor_validado' => true,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cierre aprobado exitosamente',
+                'data' => [
+                    'id' => $apertura->id,
+                    'estado_cierre' => $apertura->estado_cierre,
+                    'supervisor' => [
+                        'id' => $supervisor->id,
+                        'name' => $supervisor->name,
+                    ],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error al aprobar cierre', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al aprobar cierre: ' . $e->getMessage(),
             ], 500);
         }
     }

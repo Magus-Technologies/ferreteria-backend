@@ -198,13 +198,13 @@ class ClienteController extends Controller
     {
         $request->validate([
             'numero_documento' => 'required|string|max:11',
-            'exclude_id' => 'nullable|string', // Para excluir el ID actual al editar
+            'exclude_id' => 'nullable|integer', // Para excluir el ID actual al editar
         ]);
 
         $query = Cliente::where('numero_documento', $request->numero_documento);
 
         // Si estamos editando, excluir el ID actual
-        if ($request->has('exclude_id')) {
+        if ($request->has('exclude_id') && $request->exclude_id) {
             $query->where('id', '!=', $request->exclude_id);
         }
 
@@ -257,9 +257,9 @@ class ClienteController extends Controller
               });
         })->count();
 
-        // Nuevos: Clientes creados en los últimos 30 días
-        $hace30Dias = now()->subDays(30);
-        $nuevos = (clone $query)->where('created_at', '>=', $hace30Dias)->count();
+        // Nuevos: No se puede calcular sin columna created_at
+        // La tabla cliente no tiene timestamps
+        $nuevos = 0;
 
         return response()->json([
             'data' => [

@@ -26,9 +26,17 @@ interface CierreCajaServiceInterface
     ): CierreCajaResultadoDTO;
 
     /**
+     * Volver a cerrar una caja previamente cerrada (Re-Cierre)
+     */
+    public function reCerrarCajaConResumen(
+        string $aperturaId,
+        array $datosCierre
+    ): CierreCajaResultadoDTO;
+
+    /**
      * Validar si un usuario puede autorizar como supervisor
      */
-    public function validarSupervisor(string $email, string $password): ?array;
+    public function validarSupervisor(string $supervisorId, string $password): ?array;
 
     /**
      * Obtener una apertura por ID

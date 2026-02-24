@@ -24,6 +24,7 @@ class AperturaCierreCajaResource extends JsonResource
             'conteo_billetes_monedas' => $this->conteo_billetes_monedas ? json_decode($this->conteo_billetes_monedas, true) : null,
             'fecha_cierre' => $this->fecha_cierre?->toIso8601String(),
             'estado' => $this->estado,
+            'estado_cierre' => $this->estado_cierre,
             'caja_principal' => $this->whenLoaded('cajaPrincipal', function () {
                 return [
                     'id' => $this->cajaPrincipal->id,

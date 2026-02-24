@@ -38,6 +38,7 @@ class AperturaCierreCaja extends Model
         'supervisor_id_validador',
         'supervisor_validado',
         'observaciones_cierre',
+        'estado_cierre',
     ];
 
     protected $casts = [
@@ -99,6 +100,11 @@ class AperturaCierreCaja extends Model
     public function distribucionesVendedores()
     {
         return $this->hasMany(DistribucionEfectivoVendedor::class, 'apertura_cierre_caja_id');
+    }
+
+    public function arqueosDiarios()
+    {
+        return $this->hasMany(ArqueoDiario::class, 'apertura_cierre_caja_id');
     }
 
     // Métodos helper

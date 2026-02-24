@@ -14,18 +14,17 @@ class ValidarSupervisorRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['required', 'email', 'exists:users,email'],
-            'password' => ['required', 'string'],
+            'supervisor_id' => ['required', 'exists:user,id'],
+            'supervisor_password' => ['required', 'string'],
         ];
     }
 
     public function messages(): array
     {
         return [
-            'email.required' => 'El email es requerido',
-            'email.email' => 'El email debe ser válido',
-            'email.exists' => 'El email no existe en el sistema',
-            'password.required' => 'La contraseña es requerida',
+            'supervisor_id.required' => 'El id del supervisor es requerido',
+            'supervisor_id.exists' => 'El supervisor no existe en el sistema',
+            'supervisor_password.required' => 'La contraseña de supervisor es requerida',
         ];
     }
 }

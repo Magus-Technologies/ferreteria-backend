@@ -169,7 +169,7 @@ class AperturaCajaController extends Controller
                                     ->where('user_id', $vendedor['user_id'])
                                     ->with('vendedor')
                                     ->first();
-                                
+
                                 if ($dist) {
                                     $distribucionesRecientes[] = [
                                         'vendedor' => $dist->vendedor->name,
@@ -181,14 +181,14 @@ class AperturaCajaController extends Controller
 
                             // Generar HTML para el cuerpo del email con distribuciones específicas
                             $htmlContent = $ticketService->generarTicketHTMLConDistribuciones(
-                                $aperturaActiva, 
+                                $aperturaActiva,
                                 collect($distribucionesRecientes),
                                 $montoTotal
                             );
 
                             // Generar PDF con distribuciones específicas
                             $pdf = $ticketService->generarTicketPDFConDistribuciones(
-                                $aperturaActiva, 
+                                $aperturaActiva,
                                 collect($distribucionesRecientes),
                                 $montoTotal
                             );
@@ -301,7 +301,7 @@ class AperturaCajaController extends Controller
                                 ->where('user_id', $vendedor['user_id'])
                                 ->with('vendedor')
                                 ->first();
-                            
+
                             if ($dist) {
                                 $distribucionesParaTicket[] = [
                                     'vendedor' => $dist->vendedor->name,
@@ -313,14 +313,14 @@ class AperturaCajaController extends Controller
 
                         // Generar HTML para el cuerpo del email
                         $htmlContent = $ticketService->generarTicketHTMLConDistribuciones(
-                            $apertura, 
+                            $apertura,
                             collect($distribucionesParaTicket),
                             $montoTotal
                         );
 
                         // Generar PDF
                         $pdf = $ticketService->generarTicketPDFConDistribuciones(
-                            $apertura, 
+                            $apertura,
                             collect($distribucionesParaTicket),
                             $montoTotal
                         );
@@ -481,6 +481,7 @@ class AperturaCajaController extends Controller
                         'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
                         'fecha_cierre' => $apertura->fecha_cierre?->toIso8601String(),
                         'estado' => $apertura->estado,
+                        'estado_cierre' => $apertura->estado_cierre,
                         'caja_principal' => [
                             'id' => $apertura->cajaPrincipal->id,
                             'codigo' => $apertura->cajaPrincipal->codigo,
@@ -531,42 +532,23 @@ class AperturaCajaController extends Controller
             $historial = $query->orderBy('fecha_apertura', 'desc')
                 ->paginate($perPage);
 
+            $rows = collect();
+
+            foreach ($historial->items() as $apertura) {
+                $distribuciones = $apertura->distribucionesVendedores ?? collect();
+
+                if ($distribuciones->isEmpty()) {
+                    $rows->push($this->formatAperturaRow($apertura, null));
+                } else {
+                    foreach ($distribuciones as $dist) {
+                        $rows->push($this->formatAperturaRow($apertura, $dist));
+                    }
+                }
+            }
+
             return response()->json([
                 'success' => true,
-                'data' => $historial->map(function ($apertura) {
-                    return [
-                        'id' => $apertura->id,
-                        'caja_principal_id' => $apertura->caja_principal_id,
-                        'user_id' => $apertura->user_id,
-                        'monto_apertura' => number_format($apertura->monto_apertura, 2, '.', ''),
-                        'monto_cierre' => $apertura->monto_cierre ? number_format($apertura->monto_cierre, 2, '.', '') : null,
-                        'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
-                        'fecha_cierre' => $apertura->fecha_cierre?->toIso8601String(),
-                        'estado' => $apertura->estado,
-                        'caja_principal' => [
-                            'id' => $apertura->cajaPrincipal->id,
-                            'codigo' => $apertura->cajaPrincipal->codigo,
-                            'nombre' => $apertura->cajaPrincipal->nombre,
-                        ],
-                        'sub_caja' => [
-                            'id' => $apertura->subCaja->id,
-                            'codigo' => $apertura->subCaja->codigo,
-                            'nombre' => $apertura->subCaja->nombre,
-                        ],
-                        'user' => [
-                            'id' => $apertura->user->id,
-                            'name' => $apertura->user->name,
-                        ],
-                        'distribuciones_vendedores' => $apertura->distribucionesVendedores->map(function ($dist) {
-                            return [
-                                'vendedor_id' => $dist->user_id,
-                                'vendedor' => $dist->vendedor->name,
-                                'monto' => number_format($dist->monto, 2, '.', ''),
-                                'conteo_billetes_monedas' => $dist->conteo_billetes_monedas,
-                            ];
-                        }),
-                    ];
-                }),
+                'data' => $rows,
                 'pagination' => [
                     'total' => $historial->total(),
                     'per_page' => $historial->perPage(),
@@ -580,6 +562,56 @@ class AperturaCajaController extends Controller
                 'message' => 'Error al obtener historial: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function formatAperturaRow($apertura, $distribucion = null): array
+    {
+        $vendedor = $distribucion?->vendedor;
+
+        return [
+            'id' => $apertura->id,
+            'caja_principal_id' => $apertura->caja_principal_id,
+            'user_id' => $apertura->user_id, // Usuario que abrió
+            'vendedor_id' => $distribucion?->user_id ?? $apertura->user_id, // Usuario vendedor asignado
+            'vendedor' => $vendedor ? [
+                'id' => $vendedor->id,
+                'name' => $vendedor->name,
+                'email' => $vendedor->email,
+            ] : ($apertura->user ? [
+                'id' => $apertura->user->id,
+                'name' => $apertura->user->name,
+                'email' => $apertura->user->email,
+            ] : null),
+            'monto_apertura' => $distribucion ? number_format($distribucion->monto, 2, '.', '') : number_format($apertura->monto_apertura, 2, '.', ''), // Monto de este vendedor
+            'monto_cierre' => $apertura->monto_cierre ? number_format($apertura->monto_cierre, 2, '.', '') : null,
+            'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
+            'fecha_cierre' => $apertura->fecha_cierre?->toIso8601String(),
+            'estado' => $apertura->estado,
+            'estado_cierre' => $apertura->estado_cierre,
+            'caja_principal' => [
+                'id' => $apertura->cajaPrincipal->id,
+                'codigo' => $apertura->cajaPrincipal->codigo,
+                'nombre' => $apertura->cajaPrincipal->nombre,
+            ],
+            'sub_caja' => [
+                'id' => $apertura->subCaja->id,
+                'codigo' => $apertura->subCaja->codigo,
+                'nombre' => $apertura->subCaja->nombre,
+            ],
+            'user' => [
+                'id' => $apertura->user->id,
+                'name' => $apertura->user->name,
+            ],
+            // Si hay que abrir modal, enviamos las distribuciones
+            'distribuciones_vendedores' => $apertura->distribucionesVendedores->map(function ($dist) {
+                return [
+                    'vendedor_id' => $dist->user_id,
+                    'vendedor' => $dist->vendedor->name,
+                    'monto' => number_format($dist->monto, 2, '.', ''),
+                    'conteo_billetes_monedas' => $dist->conteo_billetes_monedas,
+                ];
+            }),
+        ];
     }
 
     /**

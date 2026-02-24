@@ -20,8 +20,12 @@ class ClasificadorMovimientos
     /**
      * Consolidar cierre de caja SOLO del vendedor actual
      * Filtra transacciones por user_id para mostrar solo lo que hizo el vendedor
+     * 
+     * @param string $aperturaId ID de la apertura
+     * @param Collection $ventas Colección de ventas
+     * @param bool $soloDiaActual Si es true, filtra solo movimientos del día actual (para arqueo diario)
      */
-    public function clasificarPorTodasLasSubCajas(string $aperturaId, Collection $ventas): array
+    public function clasificarPorTodasLasSubCajas(string $aperturaId, Collection $ventas, bool $soloDiaActual = false, ?\Carbon\Carbon $fechaFiltro = null): array
     {
 
 
@@ -35,7 +39,17 @@ class ClasificadorMovimientos
             return $this->respuestaVacia();
         }
 
-
+        // Determinar el rango de fechas según el tipo de cierre
+        if ($soloDiaActual) {
+            // Para arqueo diario: solo movimientos del día especificado (o hoy por defecto)
+            $fechaDia = $fechaFiltro ?? \Carbon\Carbon::today();
+            $fechaInicio = $fechaDia->copy()->startOfDay();
+            $fechaFin = $fechaDia->copy()->endOfDay();
+        } else {
+            // Para cierre definitivo: desde apertura hasta cierre (o +12 horas)
+            $fechaInicio = $apertura->fecha_apertura;
+            $fechaFin = $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12);
+        }
 
         $userId = $apertura->user_id;
 
@@ -49,22 +63,22 @@ class ClasificadorMovimientos
         $cobrosPorMetodo = $this->obtenerCobrosPorMetodoVendedor($ventas, $userId);
 
         // 3. OTROS INGRESOS (ingresos manuales del vendedor, NO ventas)
-        $otrosIngresos = $this->obtenerOtrosIngresosVendedor($subCajasIds, $apertura, $userId);
+        $otrosIngresos = $this->obtenerOtrosIngresosVendedor($subCajasIds, $apertura, $userId, $fechaInicio, $fechaFin);
 
         // 4. GASTOS (egresos del vendedor)
-        $gastosYPagos = $this->obtenerGastosVendedor($subCajasIds, $apertura, $userId);
+        $gastosYPagos = $this->obtenerGastosVendedor($subCajasIds, $apertura, $userId, $fechaInicio, $fechaFin);
 
         // 5. PRÉSTAMOS RECIBIDOS (de otros vendedores)
-        $prestamosRecibidos = $this->obtenerPrestamosRecibidosVendedor($apertura, $userId);
+        $prestamosRecibidos = $this->obtenerPrestamosRecibidosVendedor($apertura, $userId, $fechaInicio, $fechaFin);
 
         // 6. PRÉSTAMOS DADOS (a otros vendedores)
-        $prestamosDados = $this->obtenerPrestamosDadosVendedor($apertura, $userId);
+        $prestamosDados = $this->obtenerPrestamosDadosVendedor($apertura, $userId, $fechaInicio, $fechaFin);
 
         // 7. MOVIMIENTOS INTERNOS (solo informativo, NO afecta total)
-        $movimientosInternos = $this->obtenerMovimientosInternosVendedor($apertura, $userId);
+        $movimientosInternos = $this->obtenerMovimientosInternosVendedor($apertura, $userId, $fechaInicio, $fechaFin);
 
         // 8. RESUMEN DE BANCOS (montos iniciales + ingresos - egresos por banco)
-        $resumenBancos = $this->obtenerResumenBancosVendedor($subCajasIds, $apertura, $userId, $ventas);
+        $resumenBancos = $this->obtenerResumenBancosVendedor($subCajasIds, $apertura, $userId, $ventas, $fechaInicio, $fechaFin);
 
         // 9. CALCULAR TOTALES
         $totalCobros = $cobrosPorMetodo->sum('total');
@@ -208,7 +222,7 @@ class ClasificadorMovimientos
      * Obtener otros ingresos del vendedor (ingresos manuales, NO ventas, NO montos iniciales)
      * Los montos iniciales de bancos NO deben aparecer aquí
      */
-    private function obtenerOtrosIngresosVendedor($subCajasIds, $apertura, string $userId): Collection
+    private function obtenerOtrosIngresosVendedor($subCajasIds, $apertura, string $userId, $fechaInicio, $fechaFin): Collection
     {
         $ingresos = DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
@@ -226,8 +240,8 @@ class ClasificadorMovimientos
                         'monto_inicial' // ✅ EXCLUIR montos iniciales de bancos
                     ]);
             })
-            ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->where('tc.fecha', '>=', $fechaInicio)
+            ->where('tc.fecha', '<=', $fechaFin)
             ->select([
                 'tc.id',
                 'tc.monto',
@@ -244,7 +258,7 @@ class ClasificadorMovimientos
     /**
      * Obtener gastos del vendedor (egresos reales)
      */
-    private function obtenerGastosVendedor($subCajasIds, $apertura, string $userId): Collection
+    private function obtenerGastosVendedor($subCajasIds, $apertura, string $userId, $fechaInicio, $fechaFin): Collection
     {
 
 
@@ -258,8 +272,8 @@ class ClasificadorMovimientos
                 $query->whereNull('tc.referencia_tipo')
                     ->orWhereNotIn('tc.referencia_tipo', ['transferencia_vendedor', 'movimiento_interno']);
             })
-            ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->where('tc.fecha', '>=', $fechaInicio)
+            ->where('tc.fecha', '<=', $fechaFin)
             ->select([
                 'tc.id',
                 'tc.monto',
@@ -278,7 +292,7 @@ class ClasificadorMovimientos
     /**
      * Obtener préstamos recibidos por el vendedor
      */
-    private function obtenerPrestamosRecibidosVendedor($apertura, string $userId): Collection
+    private function obtenerPrestamosRecibidosVendedor($apertura, string $userId, $fechaInicio, $fechaFin): Collection
     {
         try {
 
@@ -300,6 +314,8 @@ class ClasificadorMovimientos
                 ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
                 ->where('tev.apertura_cierre_caja_id', $apertura->id) // ✅ Filtrar por apertura
                 ->where('tev.vendedor_destino_id', $userId) // Recibidos por este vendedor
+                ->where('tev.fecha_transferencia', '>=', $fechaInicio)
+                ->where('tev.fecha_transferencia', '<=', $fechaFin)
                 ->select([
                     'tev.id',
                     'tev.monto',
@@ -308,6 +324,7 @@ class ClasificadorMovimientos
                     'sc_origen.nombre as sub_caja_origen',
                     'sc_destino.nombre as sub_caja_destino',
                     'sev.motivo',
+                    DB::raw("'Efectivo' as metodo_pago"),
                     DB::raw("'recibido' as tipo_prestamo")
                 ])
                 ->get();
@@ -324,7 +341,7 @@ class ClasificadorMovimientos
     /**
      * Obtener préstamos dados por el vendedor
      */
-    private function obtenerPrestamosDadosVendedor($apertura, string $userId): Collection
+    private function obtenerPrestamosDadosVendedor($apertura, string $userId, $fechaInicio, $fechaFin): Collection
     {
 
 
@@ -335,6 +352,8 @@ class ClasificadorMovimientos
             ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
             ->where('tev.apertura_cierre_caja_id', $apertura->id) // ✅ Filtrar por apertura
             ->where('tev.vendedor_origen_id', $userId) // Dados por este vendedor
+            ->where('tev.fecha_transferencia', '>=', $fechaInicio)
+            ->where('tev.fecha_transferencia', '<=', $fechaFin)
             ->select([
                 'tev.id',
                 'tev.monto',
@@ -343,6 +362,7 @@ class ClasificadorMovimientos
                 'sc_origen.nombre as sub_caja_origen',
                 'sc_destino.nombre as sub_caja_destino',
                 'sev.motivo',
+                DB::raw("'Efectivo' as metodo_pago"),
                 DB::raw("'dado' as tipo_prestamo")
             ])
             ->get();
@@ -355,22 +375,24 @@ class ClasificadorMovimientos
     /**
      * Obtener movimientos internos del vendedor (solo informativo)
      */
-    private function obtenerMovimientosInternosVendedor($apertura, string $userId): Collection
+    private function obtenerMovimientosInternosVendedor($apertura, string $userId, $fechaInicio, $fechaFin): Collection
     {
         return DB::table('movimientos_internos as mi')
             ->join('sub_cajas as sc_origen', 'mi.sub_caja_origen_id', '=', 'sc_origen.id')
             ->join('sub_cajas as sc_destino', 'mi.sub_caja_destino_id', '=', 'sc_destino.id')
             ->join('cajas_principales as cp_origen', 'sc_origen.caja_principal_id', '=', 'cp_origen.id')
+            ->leftJoin('desplieguedepago as dp_origen', 'mi.despliegue_de_pago_origen_id', '=', 'dp_origen.id')
             ->where('cp_origen.user_id', $userId)
-            ->where('mi.fecha', '>=', $apertura->fecha_apertura)
-            ->where('mi.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->where('mi.fecha', '>=', $fechaInicio)
+            ->where('mi.fecha', '<=', $fechaFin)
             ->select([
                 'mi.id',
                 'mi.monto',
                 'mi.justificacion',
                 'mi.fecha',
                 'sc_origen.nombre as sub_caja_origen',
-                'sc_destino.nombre as sub_caja_destino'
+                'sc_destino.nombre as sub_caja_destino',
+                'dp_origen.name as metodo_pago'
             ])
             ->get();
     }
@@ -379,7 +401,7 @@ class ClasificadorMovimientos
      * Obtener resumen de bancos del vendedor
      * Agrupa por MetodoDePago (banco) y calcula: monto_inicial + ingresos - egresos
      */
-    private function obtenerResumenBancosVendedor($subCajasIds, $apertura, string $userId, Collection $ventas): Collection
+    private function obtenerResumenBancosVendedor($subCajasIds, $apertura, string $userId, Collection $ventas, $fechaInicio, $fechaFin): Collection
     {
         // 1. Obtener montos iniciales de bancos (transacciones con referencia_tipo = 'monto_inicial')
         $montosIniciales = DB::table('transacciones_caja as tc')
@@ -436,8 +458,8 @@ class ClasificadorMovimientos
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'egreso')
             ->where('tc.referencia_tipo', '!=', 'monto_inicial')
-            ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->where('tc.fecha', '>=', $fechaInicio)
+            ->where('tc.fecha', '<=', $fechaFin)
             ->select([
                 'mp.id as banco_id',
                 DB::raw('SUM(tc.monto) as total_egresos')
@@ -513,7 +535,7 @@ class ClasificadorMovimientos
      * Obtener otros ingresos (ingresos manuales, NO ventas)
      * EXCLUYE ingresos que son de ventas para no duplicar
      */
-    private function obtenerOtrosIngresos($subCajasIds, $apertura): Collection
+    private function obtenerOtrosIngresos($subCajasIds, $apertura, $fechaInicio, $fechaFin): Collection
     {
         return DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
@@ -524,8 +546,8 @@ class ClasificadorMovimientos
                 $query->whereNull('tc.referencia_tipo')
                     ->orWhereNotIn('tc.referencia_tipo', ['venta']);
             })
-            ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->where('tc.fecha', '>=', $fechaInicio)
+            ->where('tc.fecha', '<=', $fechaFin)
             ->select([
                 'tc.id',
                 'tc.monto',
@@ -540,14 +562,14 @@ class ClasificadorMovimientos
     /**
      * Obtener gastos y pagos (egresos reales)
      */
-    private function obtenerGastosYPagos($subCajasIds, $apertura): Collection
+    private function obtenerGastosYPagos($subCajasIds, $apertura, $fechaInicio, $fechaFin): Collection
     {
         return DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
             ->whereIn('tc.sub_caja_id', $subCajasIds)
             ->where('tc.tipo_transaccion', 'egreso')
-            ->where('tc.fecha', '>=', $apertura->fecha_apertura)
-            ->where('tc.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->where('tc.fecha', '>=', $fechaInicio)
+            ->where('tc.fecha', '<=', $fechaFin)
             ->select([
                 'tc.id',
                 'tc.monto',
@@ -562,22 +584,24 @@ class ClasificadorMovimientos
     /**
      * Obtener movimientos internos (solo informativo)
      */
-    private function obtenerMovimientosInternos($apertura): Collection
+    private function obtenerMovimientosInternos($apertura, $fechaInicio, $fechaFin): Collection
     {
         return DB::table('movimientos_internos as mi')
             ->join('sub_cajas as sc_origen', 'mi.sub_caja_origen_id', '=', 'sc_origen.id')
             ->join('sub_cajas as sc_destino', 'mi.sub_caja_destino_id', '=', 'sc_destino.id')
             ->join('cajas_principales as cp_origen', 'sc_origen.caja_principal_id', '=', 'cp_origen.id')
+            ->leftJoin('desplieguedepago as dp_origen', 'mi.despliegue_de_pago_origen_id', '=', 'dp_origen.id')
             ->where('cp_origen.user_id', $apertura->user_id)
-            ->where('mi.fecha', '>=', $apertura->fecha_apertura)
-            ->where('mi.fecha', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->where('mi.fecha', '>=', $fechaInicio)
+            ->where('mi.fecha', '<=', $fechaFin)
             ->select([
                 'mi.id',
                 'mi.monto',
                 'mi.justificacion',
                 'mi.fecha',
                 'sc_origen.nombre as sub_caja_origen',
-                'sc_destino.nombre as sub_caja_destino'
+                'sc_destino.nombre as sub_caja_destino',
+                'dp_origen.name as metodo_pago'
             ])
             ->get();
     }
@@ -585,7 +609,7 @@ class ClasificadorMovimientos
     /**
      * Obtener préstamos entre cajas (solo informativo)
      */
-    private function obtenerPrestamos($apertura): Collection
+    private function obtenerPrestamos($apertura, $fechaInicio, $fechaFin): Collection
     {
         return DB::table('prestamos_entre_cajas as pec')
             ->leftJoin('sub_cajas as sc_origen', 'pec.sub_caja_origen_id', '=', 'sc_origen.id')
@@ -594,8 +618,8 @@ class ClasificadorMovimientos
                 $query->where('pec.user_presta_id', $apertura->user_id)
                     ->orWhere('pec.user_recibe_id', $apertura->user_id);
             })
-            ->where('pec.fecha_prestamo', '>=', $apertura->fecha_apertura)
-            ->where('pec.fecha_prestamo', '<=', $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12))
+            ->where('pec.fecha_prestamo', '>=', $fechaInicio)
+            ->where('pec.fecha_prestamo', '<=', $fechaFin)
             ->select([
                 'pec.id',
                 'pec.monto',

@@ -34,11 +34,11 @@ class CajaService
 
             // 2. Obtener todos los métodos de efectivo desde desplieguedepago
             $metodosEfectivo = DespliegueDePago::whereHas('metodoDePago', function ($query) {
-                $query->where('tipo', 'efectivo');
+                $query->where('name', 'like', 'Efectivo');
             })
-            ->where('mostrar', 1)
-            ->pluck('id')
-            ->toArray();
+                ->where('mostrar', 1)
+                ->pluck('id')
+                ->toArray();
 
             if (empty($metodosEfectivo)) {
                 throw new Exception('No se encontraron métodos de pago en efectivo activos');
@@ -46,7 +46,7 @@ class CajaService
 
             // 3. Crear la Caja Chica automáticamente
             $codigoCajaChica = $cajaPrincipal->codigo . '-001';
-            
+
             SubCaja::create([
                 'codigo' => $codigoCajaChica,
                 'nombre' => 'sub_caja_chica_1',
@@ -71,7 +71,13 @@ class CajaService
         return DB::transaction(function () use ($data) {
             $cajaPrincipal = CajaPrincipal::findOrFail($data['caja_principal_id']);
 
-            // Validar que no exista configuración duplicada
+            // Validar de forma ampliada que ningún método exclusivo esté siendo robado
+            $this->subCajaRepository->validarExclusividadMetodosPago(
+                $cajaPrincipal->id,
+                $data['despliegues_pago_ids']
+            );
+
+            // Validar que no exista configuración duplicada EXACTA
             if ($this->subCajaRepository->existeConfiguracionDuplicada(
                 $cajaPrincipal->id,
                 $data['despliegues_pago_ids'],
@@ -115,6 +121,14 @@ class CajaService
             }
 
             // Validar configuración duplicada (excluyendo la actual)
+            if (isset($data['despliegues_pago_ids'])) {
+                $this->subCajaRepository->validarExclusividadMetodosPago(
+                    $subCaja->caja_principal_id,
+                    $data['despliegues_pago_ids'],
+                    $id
+                );
+            }
+
             if (isset($data['despliegues_pago_ids']) && isset($data['tipos_comprobante'])) {
                 if ($this->subCajaRepository->existeConfiguracionDuplicada(
                     $subCaja->caja_principal_id,
@@ -183,8 +197,8 @@ class CajaService
             }
 
             // Calcular nuevo saldo
-            $nuevoSaldo = $tipo === 'ingreso' 
-                ? $subCaja->saldo_actual + $monto 
+            $nuevoSaldo = $tipo === 'ingreso'
+                ? $subCaja->saldo_actual + $monto
                 : $subCaja->saldo_actual - $monto;
 
             if ($nuevoSaldo < 0) {

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\DespliegueDePago;
 use App\Http\Resources\Cajas\DesplieguePagoResource;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -28,6 +30,38 @@ class DespliegueDePagoController extends Controller
             $query->where('metodo_de_pago_id', $request->input('metodo_de_pago_id'));
         }
 
+        // Excluir métodos ya usados por sub-cajas de una caja principal específica
+        // EXCEPCIÓN: El efectivo SÍ puede ser compartido entre múltiples sub-cajas
+        if ($request->has('exclude_used_by_caja_principal_id')) {
+            $cajaPrincipalId = $request->input('exclude_used_by_caja_principal_id');
+
+            // Obtener todos los despliegue_pago_ids ya asignados a sub-cajas de esta caja principal
+            $usedConfigs = \App\Models\SubCaja::where('caja_principal_id', $cajaPrincipalId)
+                ->where('estado', true)
+                ->get()
+                ->pluck('despliegues_pago_ids');
+
+            $usedIds = $usedConfigs->flatten()->filter()->unique()->toArray();
+            $hasWildcard = $usedConfigs->map(fn($ids) => in_array('*', (array)$ids))->contains(true);
+
+            // Validar exclusividad de métodos de pago
+            if ($hasWildcard) {
+                // Si ya hay una caja que acepta TODO (*), solo permitir efectivo
+                $query->whereHas('metodoDePago', function ($subQ) {
+                    $subQ->where('name', 'like', '%Efectivo%');
+                });
+            } elseif (!empty($usedIds)) {
+                // Excluir métodos ya usados EXCEPTO efectivo (que puede ser compartido)
+                $query->where(function ($q) use ($usedIds) {
+                    $q->whereNotIn('id', $usedIds)
+                        ->orWhereHas('metodoDePago', function ($subQ) {
+                            // El efectivo SIEMPRE se permite aunque esté en uso
+                            $subQ->where('name', 'like', '%Efectivo%');
+                        });
+                });
+            }
+        }
+
         $items = $query->get();
 
         return response()->json([
@@ -38,7 +72,7 @@ class DespliegueDePagoController extends Controller
     public function show(string $id): JsonResponse
     {
         $item = DespliegueDePago::with('metodoDePago')->findOrFail($id);
-        
+
         return response()->json([
             'data' => new DesplieguePagoResource($item)
         ]);
@@ -114,7 +148,7 @@ class DespliegueDePagoController extends Controller
     public function update(Request $request, string $id): JsonResponse
     {
         $item = DespliegueDePago::findOrFail($id);
-        
+
         $validated = $request->validate([
             'name' => 'sometimes|string|max:191|unique:desplieguedepago,name,' . $id,
             'requiere_numero_serie' => 'sometimes|boolean',
@@ -148,16 +182,16 @@ class DespliegueDePagoController extends Controller
     {
         try {
             $item = DespliegueDePago::findOrFail($id);
-            
+
             // Verificar si está siendo usado en ventas o transacciones
-            $enUso = \DB::table('desplieguedepagoventa')
+            $enUso = DB::table('desplieguedepagoventa')
                 ->where('despliegue_de_pago_id', $id)
                 ->exists();
-            
+
             if ($enUso) {
                 // Solo desactivar
                 $item->update(['activo' => false]);
-                
+
                 return response()->json([
                     'message' => 'Método desactivado (está siendo usado en ventas)'
                 ]);
