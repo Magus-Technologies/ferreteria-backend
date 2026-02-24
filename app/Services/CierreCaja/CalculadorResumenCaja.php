@@ -15,23 +15,32 @@ class CalculadorResumenCaja
         private ClasificadorMovimientos $clasificador
     ) {}
 
-    public function calcular(AperturaCierreCaja $apertura): ResumenCajaDTO
+    public function calcular(AperturaCierreCaja $apertura, bool $soloDiaActual = false, ?\Carbon\Carbon $fechaFiltro = null): ResumenCajaDTO
     {
         \Log::info(' CalculadorResumenCaja::calcular - Inicio', [
             'apertura_id' => $apertura->id,
+            'solo_dia_actual' => $soloDiaActual,
         ]);
-        
+
         // Obtener ventas usando el repositorio existente
         $ventas = $this->ventaRepository->obtenerPorApertura($apertura->id);
-        
+
+        // Si es arqueo diario, filtrar ventas solo del día especificado (o hoy por defecto)
+        if ($soloDiaActual) {
+            $fechaDia = $fechaFiltro ?? \Carbon\Carbon::today();
+            $ventas = $ventas->filter(function ($venta) use ($fechaDia) {
+                return \Carbon\Carbon::parse($venta->created_at)->isSameDay($fechaDia);
+            });
+        }
+
         \Log::info(' Ventas obtenidas del repositorio', [
             'total_ventas' => $ventas->count(),
             'ventas_ids' => $ventas->pluck('id')->toArray(),
             'ventas_user_ids' => $ventas->pluck('user_id')->unique()->toArray(),
         ]);
-        
+
         // Consolidar información de todas las subcajas
-        $clasificacion = $this->clasificador->clasificarPorTodasLasSubCajas($apertura->id, $ventas);
+        $clasificacion = $this->clasificador->clasificarPorTodasLasSubCajas($apertura->id, $ventas, $soloDiaActual, $fechaFiltro);
 
         \Log::info(' Clasificación obtenida', [
             'efectivo_inicial' => $clasificacion['efectivo_inicial'],
@@ -46,11 +55,11 @@ class CalculadorResumenCaja
         // FÓRMULA DEL CIERRE:
         // Total en Caja = Efectivo Inicial + Total Cobros + Otros Ingresos + Préstamos Recibidos - Gastos - Préstamos Dados
         // (Movimientos internos NO afectan el total)
-        
+
         $montoEsperado = $clasificacion['efectivo_inicial']
-                       + $clasificacion['resumen_ingresos'] 
-                       - $clasificacion['resumen_egresos'];
-        
+            + $clasificacion['resumen_ingresos']
+            - $clasificacion['resumen_egresos'];
+
         $montoCierre = $apertura->monto_cierre;
         $diferencia = $montoCierre !== null ? ($montoCierre - $montoEsperado) : null;
 
@@ -102,13 +111,13 @@ class CalculadorResumenCaja
             prestamosVendedores: $clasificacion['prestamos_vendedores'],
             resumenBancos: $clasificacion['resumen_bancos']
         );
-        
+
         \Log::info('🔍 ResumenCajaDTO creado', [
             'total_ventas' => $resultado->totalVentas,
             'detalle_ventas_count' => $resultado->detalleVentas->count(),
             'detalle_metodos_pago_count' => $resultado->detalleMetodosPago->count(),
         ]);
-        
+
         return $resultado;
     }
 
@@ -124,8 +133,8 @@ class CalculadorResumenCaja
                 // Obtener la sub-caja desde transacciones_caja
                 ->leftJoin('transacciones_caja as tc', function ($join) use ($venta) {
                     $join->on('tc.despliegue_pago_id', '=', 'dpv.despliegue_de_pago_id')
-                         ->where('tc.referencia_id', '=', $venta->id)
-                         ->where('tc.referencia_tipo', '=', 'venta');
+                        ->where('tc.referencia_id', '=', $venta->id)
+                        ->where('tc.referencia_tipo', '=', 'venta');
                 })
                 ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
                 ->where('dpv.venta_id', $venta->id)

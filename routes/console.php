@@ -20,3 +20,11 @@ Schedule::command('sunat:enviar-facturas')
     ->withoutOverlapping()
     ->onOneServer()
     ->runInBackground();
+
+// Cerrar automáticamente las cajas que quedaron abiertas del día anterior
+// Se ejecuta diariamente a las 11:59 PM
+Schedule::command('cajas:cerrar-olvidadas')
+    ->dailyAt('23:59')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->runInBackground();

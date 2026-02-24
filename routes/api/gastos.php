@@ -13,32 +13,42 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware('auth:sanctum')->group(function () {
-    
+
     // Rutas principales de gastos
     Route::prefix('gastos')->group(function () {
-        
+
         // Obtener reporte de gastos con filtros
         Route::get('/', [EgresoDineroController::class, 'index']);
-        
+
         // Obtener resumen de gastos (para las cards)
         Route::get('/resumen', [EgresoDineroController::class, 'resumen']);
-        
+
         // Crear nuevo gasto
         Route::post('/', [EgresoDineroController::class, 'store']);
-        
+
         // Mostrar gasto específico
         Route::get('/{id}', [EgresoDineroController::class, 'show']);
-        
+
         // Actualizar gasto
         Route::put('/{id}', [EgresoDineroController::class, 'update']);
-        
+
         // Anular gasto
         Route::delete('/{id}', [EgresoDineroController::class, 'destroy']);
-        
+
         // Exportar reporte
         Route::post('/exportar', [EgresoDineroController::class, 'exportar']);
-        
+
         // Enviar por correo
         Route::post('/enviar-correo', [EgresoDineroController::class, 'enviarCorreo']);
+    });
+
+    // Rutas para los gastos extras
+    Route::prefix('gastos-extras')->group(function () {
+        Route::get('/resumen', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'resumen']);
+        Route::get('/', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'store']);
+        Route::put('/{id}', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'update']);
+        Route::post('/{id}/anular', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'anular']);
+        Route::post('/{id}/aprobar', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'aprobar']);
     });
 });

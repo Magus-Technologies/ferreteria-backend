@@ -11,6 +11,7 @@ use App\Repositories\Interfaces\AperturaCierreCajaRepositoryInterface;
 use App\Services\CierreCaja\CalculadorResumenCaja;
 use App\Services\Interfaces\CierreCajaServiceInterface;
 use App\UseCases\CierreCaja\CerrarCajaUseCase;
+use App\UseCases\CierreCaja\ReCerrarCajaUseCase;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 
@@ -29,6 +30,7 @@ class CierreCajaService implements CierreCajaServiceInterface
     public function __construct(
         private AperturaCierreCajaRepositoryInterface $aperturaRepository,
         private CerrarCajaUseCase $cerrarCajaUseCase,
+        private ReCerrarCajaUseCase $reCerrarCajaUseCase,
         private CalculadorResumenCaja $calculadorResumen,
         private MovimientosCajaQuery $movimientosQuery
     ) {}
@@ -39,7 +41,7 @@ class CierreCajaService implements CierreCajaServiceInterface
             'userId' => $userId,
             'type' => gettype($userId)
         ]);
-        
+
         $apertura = $this->aperturaRepository->findCajaActiva($userId);
         \Log::info('Apertura obtenida del repositorio', ['apertura' => $apertura ? 'encontrada' : 'null']);
 
@@ -48,8 +50,9 @@ class CierreCajaService implements CierreCajaServiceInterface
             throw new AperturaNoEncontradaException();
         }
 
-        \Log::info('Calculando resumen');
-        $resumen = $this->calculadorResumen->calcular($apertura);
+        \Log::info('Calculando resumen SOLO DEL DÍA ACTUAL (arqueo diario)');
+        // Pasar $soloDiaActual = true para filtrar solo movimientos de HOY
+        $resumen = $this->calculadorResumen->calcular($apertura, true);
         \Log::info('Resumen calculado');
 
         return new CajaActivaDTO($apertura, $resumen);
@@ -81,6 +84,32 @@ class CierreCajaService implements CierreCajaServiceInterface
         return $this->cerrarCajaUseCase->ejecutar($dto);
     }
 
+    public function reCerrarCajaConResumen(string $aperturaId, array $data): CierreCajaResultadoDTO
+    {
+        $apertura = $this->aperturaRepository->findById($aperturaId);
+
+        if (!$apertura) {
+            throw new AperturaNoEncontradaException();
+        }
+
+        $dto = new CierreCajaDTO(
+            cajaId: $apertura->caja_principal_id,
+            subCajaId: $apertura->sub_caja_id,
+            montoCierre: $data['monto_cierre_efectivo'] + ($data['total_cuentas'] ?? 0),
+            usuarioId: auth()->id(),
+            montoCierreEfectivo: $data['monto_cierre_efectivo'] ?? null,
+            montoCierreCuentas: $data['total_cuentas'] ?? null,
+            conteoBilletesMonedas: $data['conteo_billetes_monedas'] ?? null,
+            supervisorId: $data['supervisor_id'] ?? null,
+            supervisorPassword: $data['supervisor_password'] ?? null,
+            emailReporte: $data['email_reporte'] ?? null,
+            whatsappReporte: $data['whatsapp_reporte'] ?? null,
+            observaciones: $data['comentarios'] ?? null
+        );
+
+        return $this->reCerrarCajaUseCase->ejecutar($dto);
+    }
+
     public function obtenerDetalleMovimientos(string $aperturaId): array
     {
         $apertura = $this->aperturaRepository->findById($aperturaId);
@@ -98,9 +127,9 @@ class CierreCajaService implements CierreCajaServiceInterface
         ];
     }
 
-    public function validarSupervisor(string $email, string $password): ?array
+    public function validarSupervisor(string $supervisorId, string $password): ?array
     {
-        $supervisor = User::where('email', $email)->first();
+        $supervisor = User::find($supervisorId);
 
         if (!$supervisor) {
             return null;

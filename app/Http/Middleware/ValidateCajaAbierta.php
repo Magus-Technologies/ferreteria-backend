@@ -32,7 +32,9 @@ class ValidateCajaAbierta
         }
 
         // Verificar si el usuario tiene una caja abierta (sin importar la fecha de apertura)
-        // Opción 1: El usuario creó la apertura
+        // Esto permite que las cajas permanezcan abiertas por múltiples días
+        
+        // Opción 1: El usuario creó la apertura y está abierta
         $cajaAbierta = AperturaCierreCaja::where('user_id', $user->id)
             ->where('estado', 'abierta')
             ->first();

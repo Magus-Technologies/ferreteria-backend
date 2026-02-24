@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 
-class CerrarCajaUseCase
+class ReCerrarCajaUseCase
 {
     public function __construct(
         private AperturaCierreCajaRepositoryInterface $aperturaRepository,
@@ -44,7 +44,7 @@ class CerrarCajaUseCase
             );
 
             if (!$apertura) {
-                throw new CajaYaCerradaException();
+                throw new \Exception('No hay una caja activa abierta para re-arquear.');
             }
 
             // 2. Actualizar monto de cierre primero
@@ -84,7 +84,19 @@ class CerrarCajaUseCase
             $sobrante = $diferencia > 0 ? $diferencia : 0;
             $faltante = $diferencia < 0 ? abs($diferencia) : 0;
 
-            // 7. Registrar datos del arqueo diario en tabla separada
+            // 6.5 Borrar arqueos y deudas anteriores para este usuario en esta apertura (Re-Cierre)
+            $vendedorId = $dto->usuarioId ?? $apertura->user_id;
+            $arqueosAnteriores = ArqueoDiario::where('apertura_cierre_caja_id', $apertura->id)
+                ->where('user_id', $vendedorId)
+                ->get();
+
+            foreach ($arqueosAnteriores as $viejoArqueo) {
+                /** @var \App\Models\ArqueoDiario $viejoArqueo */
+                \App\Models\DeudaPersonal::where('arqueo_diario_id', $viejoArqueo->id)->delete();
+                $viejoArqueo->delete();
+            }
+
+            // 7. Registrar datos del NUEVO arqueo diario en tabla separada
             $arqueoDiario = ArqueoDiario::create([
                 'apertura_cierre_caja_id' => $apertura->id,
                 'user_id' => $dto->usuarioId ?? $apertura->user_id,
@@ -126,8 +138,6 @@ class CerrarCajaUseCase
                 'supervisor_validado' => $supervisorValidado,
                 'estado_cierre' => $supervisorValidado ? 'aprobado' : 'pendiente',
                 'fecha_ultimo_arqueo' => now(),
-                'fecha_cierre' => now(), // NUEVO: Setear fecha de cierre real
-                'estado' => 'cerrada',   // NUEVO: Cambiar estado a cerrada
                 'diferencia_efectivo' => $diferencia,
                 'diferencia_total' => $diferencia,
             ]);
