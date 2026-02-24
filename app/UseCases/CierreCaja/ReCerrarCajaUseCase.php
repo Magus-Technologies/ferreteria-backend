@@ -34,17 +34,23 @@ class ReCerrarCajaUseCase
      * 
      * Permite generar reportes de las transacciones realizadas durante la sesión.
      */
-    public function ejecutar(CierreCajaDTO $dto): CierreCajaResultadoDTO
+    public function ejecutar(CierreCajaDTO $dto, ?string $aperturaId = null): CierreCajaResultadoDTO
     {
-        return DB::transaction(function () use ($dto) {
-            // 1. Obtener apertura activa
-            $apertura = $this->aperturaRepository->obtenerAperturaActiva(
-                $dto->cajaId,
-                $dto->subCajaId
-            );
+        return DB::transaction(function () use ($dto, $aperturaId) {
+            // 1. Obtener apertura (puede estar abierta o cerrada para re-cierre)
+            // En re-cierre, recibimos el aperturaId directamente
+            if ($aperturaId) {
+                $apertura = $this->aperturaRepository->findById($aperturaId);
+            } else {
+                // Fallback: buscar apertura activa (para compatibilidad)
+                $apertura = $this->aperturaRepository->obtenerAperturaActiva(
+                    $dto->cajaId,
+                    $dto->subCajaId
+                );
+            }
 
             if (!$apertura) {
-                throw new \Exception('No hay una caja activa abierta para re-arquear.');
+                throw new \Exception('No se encontró la apertura de caja para re-arquear.');
             }
 
             // 2. Actualizar monto de cierre primero

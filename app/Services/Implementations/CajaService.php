@@ -112,6 +112,28 @@ class CajaService implements CajaServiceInterface
                 throw new CajaNoEncontradaException('Caja principal no encontrada');
             }
 
+            // NUEVO: Validar exclusividad de métodos de pago
+            // Caso 1: Si se intenta crear con "*" (todos), verificar que NO haya sub-cajas existentes
+            if (in_array('*', $data['despliegues_pago_ids'])) {
+                $subCajasExistentes = $this->subCajaRepository->findByCajaPrincipalId($cajaPrincipalId);
+                
+                // Filtrar solo sub-cajas manuales (tipo SC), excluir Caja Chica (tipo CC)
+                $subCajasManuales = $subCajasExistentes->filter(function($subCaja) {
+                    return $subCaja->tipo_caja === 'SC';
+                });
+                
+                if ($subCajasManuales->isNotEmpty()) {
+                    throw new \Exception('No se puede crear una sub-caja con TODOS los métodos de pago porque ya existen otras sub-cajas con métodos específicos. Elimine las sub-cajas existentes primero.');
+                }
+            }
+            // Caso 2: Si se intenta crear con métodos específicos, validar que ningún método esté en uso
+            else {
+                $this->subCajaRepository->validarExclusividadMetodosPago(
+                    $cajaPrincipalId,
+                    $data['despliegues_pago_ids']
+                );
+            }
+
             // Validar configuración duplicada
             if ($this->subCajaRepository->existeConfiguracionDuplicada(
                 $cajaPrincipalId,

@@ -107,7 +107,8 @@ class CierreCajaService implements CierreCajaServiceInterface
             observaciones: $data['comentarios'] ?? null
         );
 
-        return $this->reCerrarCajaUseCase->ejecutar($dto);
+        // Pasar el aperturaId al UseCase para que use findById en lugar de obtenerAperturaActiva
+        return $this->reCerrarCajaUseCase->ejecutar($dto, $aperturaId);
     }
 
     public function obtenerDetalleMovimientos(string $aperturaId): array

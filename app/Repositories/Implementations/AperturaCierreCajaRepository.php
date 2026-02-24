@@ -15,10 +15,16 @@ class AperturaCierreCajaRepository implements AperturaCierreCajaRepositoryInterf
 
     public function findCajaActiva(string $userId): ?AperturaCierreCaja
     {
-        // Buscar apertura activa de la caja principal del usuario
-        return AperturaCierreCaja::where('estado', 'abierta')
-            ->where('user_id', $userId)
+        // CORREGIDO: Buscar apertura del día actual (abierta o cerrada)
+        // La caja debe estar visible hasta el día siguiente, incluso después del arqueo diario
+        $hoy = now()->startOfDay();
+        $manana = now()->addDay()->startOfDay();
+
+        return AperturaCierreCaja::where('user_id', $userId)
+            ->where('fecha_apertura', '>=', $hoy)
+            ->where('fecha_apertura', '<', $manana)
             ->with(['cajaPrincipal', 'subCaja', 'user', 'supervisor', 'distribucionesVendedores.vendedor'])
+            ->orderBy('fecha_apertura', 'desc')
             ->first();
     }
 

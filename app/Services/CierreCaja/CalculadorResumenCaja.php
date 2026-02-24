@@ -52,13 +52,40 @@ class CalculadorResumenCaja
             'total_gastos' => $clasificacion['total_gastos'],
         ]);
 
-        // FÓRMULA DEL CIERRE:
-        // Total en Caja = Efectivo Inicial + Total Cobros + Otros Ingresos + Préstamos Recibidos - Gastos - Préstamos Dados
+        // FÓRMULA DEL CIERRE (SOLO EFECTIVO):
+        // Total en Caja = Efectivo Inicial + Cobros en Efectivo + Otros Ingresos en Efectivo + Préstamos Recibidos - Gastos en Efectivo - Préstamos Dados
         // (Movimientos internos NO afectan el total)
+        // (Pagos digitales NO afectan el efectivo en caja)
+
+        // Filtrar solo cobros en EFECTIVO (método de pago "Efectivo")
+        $cobrosEfectivo = $clasificacion['cobros_por_metodo']
+            ->filter(function ($metodo) {
+                return stripos($metodo['label'], 'Efectivo') !== false;
+            })
+            ->sum('total');
+
+        // Filtrar solo otros ingresos en EFECTIVO
+        $otrosIngresosEfectivo = $clasificacion['otros_ingresos']
+            ->filter(function ($ingreso) {
+                // Verificar si el ingreso es en efectivo (sub_caja contiene "Chica" o es efectivo)
+                return stripos($ingreso->sub_caja ?? '', 'Chica') !== false;
+            })
+            ->sum('monto');
+
+        // Filtrar solo gastos en EFECTIVO
+        $gastosEfectivo = $clasificacion['gastos_y_pagos']
+            ->filter(function ($gasto) {
+                // Verificar si el gasto es en efectivo (sub_caja contiene "Chica" o es efectivo)
+                return stripos($gasto->sub_caja ?? '', 'Chica') !== false;
+            })
+            ->sum('monto');
 
         $montoEsperado = $clasificacion['efectivo_inicial']
-            + $clasificacion['resumen_ingresos']
-            - $clasificacion['resumen_egresos'];
+            + $cobrosEfectivo
+            + $otrosIngresosEfectivo
+            + $clasificacion['total_prestamos_recibidos']
+            - $gastosEfectivo
+            - $clasificacion['total_prestamos_dados'];
 
         $montoCierre = $apertura->monto_cierre;
         $diferencia = $montoCierre !== null ? ($montoCierre - $montoEsperado) : null;

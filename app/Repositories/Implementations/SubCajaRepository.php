@@ -163,18 +163,15 @@ class SubCajaRepository implements SubCajaRepositoryInterface
         array $desplieguePagoIds,
         ?string $excludeId = null
     ): void {
-        // Obtenemos los despliegues de pago solicitados que NO son de tipo 'efectivo'
+        // ACTUALIZADO: Validar exclusividad de métodos de pago
+        // EXCEPCIÓN: El efectivo puede ser compartido entre múltiples sub-cajas
+        
         $metodosRestringidos = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
-            ->whereHas('metodoDePago', function ($query) {
-                // Como no existe la columna 'tipo', usamos el nombre para identificar efectivo
-                // Lo hacemos de forma insensible a mayúsculas/minúsculas
-                $query->where('name', 'NOT LIKE', 'Efectivo');
-            })
             ->with('metodoDePago')
             ->get();
 
         if ($metodosRestringidos->isEmpty()) {
-            return; // Todos los métodos seleccionados son 'efectivo' o no hay métodos
+            return; // No hay métodos para validar
         }
 
         // Consultamos todas las Sub-Cajas de esta caja principal
@@ -187,15 +184,29 @@ class SubCajaRepository implements SubCajaRepositoryInterface
         $subCajasExistentes = $query->get();
 
         foreach ($metodosRestringidos as $despliegueSolicitado) {
+            // EXCEPCIÓN: Permitir que el efectivo sea compartido
+            $nombreMetodo = strtolower($despliegueSolicitado->name ?? '');
+            $esEfectivo = str_contains($nombreMetodo, 'efectivo');
+            
+            if ($esEfectivo) {
+                continue; // El efectivo puede ser usado por múltiples sub-cajas
+            }
+
             foreach ($subCajasExistentes as $subCaja) {
                 // Verificamos si la Sub-Caja tiene este despliegue dentro de su array JSON ids
                 $idsExistentes = $subCaja->despliegues_pago_ids ?? [];
 
-                if (in_array($despliegueSolicitado->id, $idsExistentes)) {
-                    $nombreMetodo = $despliegueSolicitado->metodoDePago->name ?? 'Desconocido';
+                // Si la sub-caja tiene "*" (todos los métodos), significa que usa TODOS
+                if (in_array('*', $idsExistentes)) {
+                    $nombreMetodoDisplay = $despliegueSolicitado->metodoDePago->name ?? 'Desconocido';
                     $nombreSubCaja = $subCaja->nombre;
+                    throw new \Exception("El método de pago '{$nombreMetodoDisplay}' ya está siendo usado por la caja '{$nombreSubCaja}' que acepta TODOS los métodos. No se puede asignar a otra sub-caja.");
+                }
 
-                    throw new \Exception("El método de pago '{$nombreMetodo}' ya está siendo usado exclusivamente por la caja '{$nombreSubCaja}'. Solo el pago en Efectivo puede compartirse.");
+                if (in_array($despliegueSolicitado->id, $idsExistentes)) {
+                    $nombreMetodoDisplay = $despliegueSolicitado->metodoDePago->name ?? 'Desconocido';
+                    $nombreSubCaja = $subCaja->nombre;
+                    throw new \Exception("El método de pago '{$nombreMetodoDisplay}' ya está siendo usado exclusivamente por la caja '{$nombreSubCaja}'. Cada método de pago solo puede ser asignado a una sub-caja.");
                 }
             }
         }
