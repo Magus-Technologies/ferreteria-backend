@@ -35,73 +35,62 @@ class EnviarComprobantesASunatJob implements ShouldQueue
 
     public function handle(FacturaServiceInterface $facturaService): void
     {
-        // ✅ Verificar si el envío automático está habilitado
-        if (!config('greenter.auto_send_enabled', false)) {
-            Log::info('Envío automático a SUNAT está DESACTIVADO. No se procesarán comprobantes.');
-            return;
+        Log::info('=== Iniciando proceso de envío automático SUNAT ===');
+
+        // 1. PROCESAR FACTURAS (01)
+        if (config('greenter.auto_send_factura_enabled', false)) {
+            $afterDays = config('greenter.auto_send_factura_after_days', 3);
+            $this->procesarTipoDocumento($facturaService, '01', 'factura', $afterDays);
+        } else {
+            Log::info('Envío automático de FACTURAS está DESACTIVADO.');
         }
 
-        Log::info('=== Iniciando envío automático de FACTURAS a SUNAT ===');
+        // 2. PROCESAR BOLETAS (03)
+        if (config('greenter.auto_send_boleta_enabled', false)) {
+            $afterDays = config('greenter.auto_send_boleta_after_days', 0);
+            $this->procesarTipoDocumento($facturaService, '03', 'boleta', $afterDays);
+        } else {
+            Log::info('Envío automático de BOLETAS está DESACTIVADO.');
+        }
 
-        // Obtener FACTURAS (01) con más de 3 días y BOLETAS (03) con más de 5 MINUTOS (TESTING)
-        $fechaLimiteFacturas = Carbon::now()->subDays(3); // Facturas: 3 días máximo
-        $fechaLimiteBoletas = Carbon::now()->subMinutes(5);  // Boletas: 5 MINUTOS para testing
+        Log::info('=== Finalizado proceso de envío automático SUNAT ===');
+    }
 
-        // Obtener facturas (01) pendientes con más de 3 días
-        $facturasPendientes = ComprobanteElectronico::where('tipo_documento', '01')
-            ->where('estado_sunat', 'pendiente')
+    private function procesarTipoDocumento(FacturaServiceInterface $facturaService, string $tipoDoc, string $configKey, int $diasAntiguedad): void
+    {
+        // Plazo máximo legal de SUNAT
+        $maxDiasPlazo = ($tipoDoc === '01') ? 3 : 7;
+
+        // Se envían los comprobantes que tienen AL MENOS $diasAntiguedad de emitidos
+        $fechaLimiteMin = Carbon::now()->subDays($diasAntiguedad);
+
+        // Pero que NO superan el plazo máximo legal de SUNAT
+        $fechaLimiteMax = Carbon::now()->subDays($maxDiasPlazo);
+
+        $pendientes = ComprobanteElectronico::where('tipo_comprobante', $tipoDoc)
+            ->where('estado_sunat', 'PENDIENTE')
             ->whereNull('fecha_envio_sunat')
-            ->where('fecha_emision', '<=', $fechaLimiteFacturas)
+            ->whereDate('fecha_emision', '<=', $fechaLimiteMin->toDateString())
+            ->whereDate('fecha_emision', '>=', $fechaLimiteMax->toDateString())
             ->with('venta')
             ->get();
 
-        // Obtener boletas (03) pendientes con más de 5 MINUTOS (TESTING)
-        $boletasPendientes = ComprobanteElectronico::where('tipo_documento', '03')
-            ->where('estado_sunat', 'pendiente')
-            ->whereNull('fecha_envio_sunat')
-            ->where('fecha_emision', '<=', $fechaLimiteBoletas)
-            ->with('venta')
-            ->get();
-
-        // Combinar ambas colecciones
-        $comprobantesPendientes = $facturasPendientes->merge($boletasPendientes);
-
-        Log::info("Comprobantes pendientes encontrados: {$comprobantesPendientes->count()}", [
-            'facturas' => $facturasPendientes->count(),
-            'boletas' => $boletasPendientes->count(),
-        ]);
-
-        if ($comprobantesPendientes->isEmpty()) {
-            Log::info('No hay comprobantes pendientes de envío automático');
+        if ($pendientes->isEmpty()) {
+            Log::info("No hay {$configKey}s pendientes dentro del plazo legal ({$maxDiasPlazo} días) con antigüedad >= {$diasAntiguedad} días.");
             return;
         }
 
-        foreach ($comprobantesPendientes as $comprobante) {
+        Log::info("Encontrados {$pendientes->count()} {$configKey}s para enviar (Plazo legal: {$maxDiasPlazo} días, Antigüedad config: {$diasAntiguedad} días).");
+
+        foreach ($pendientes as $comprobante) {
             try {
-                Log::info("Procesando comprobante: {$comprobante->tipo_documento}-{$comprobante->serie}-{$comprobante->numero}", [
-                    'comprobante_id' => $comprobante->id,
-                    'documento_id' => $comprobante->documento_id,
-                    'fecha_emision' => $comprobante->fecha_emision,
-                    'tipo' => $comprobante->tipo_documento === '01' ? 'Factura' : 'Boleta',
-                ]);
-
-                $resultado = $facturaService->enviarASunat($comprobante->documento_id, 'automatico');
-                
-                Log::info("Comprobante enviado exitosamente: {$comprobante->id}", [
-                    'resultado' => $resultado,
-                ]);
-
+                Log::info("Enviando {$configKey} a SUNAT: {$comprobante->serie}-{$comprobante->correlativo} (Venta ID: {$comprobante->venta_id})");
+                $facturaService->enviarASunat($comprobante->venta_id, 'automatico');
+                Log::info("{$configKey} {$comprobante->serie}-{$comprobante->correlativo} enviado.");
             } catch (\Exception $e) {
-                Log::error("Error al procesar comprobante {$comprobante->id}: {$e->getMessage()}", [
-                    'comprobante_id' => $comprobante->id,
-                    'tipo' => $comprobante->tipo_documento,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
+                Log::error("Error enviando {$configKey} {$comprobante->id}: {$e->getMessage()}");
             }
         }
-
-        Log::info('=== Finalizado envío automático de FACTURAS a SUNAT ===');
     }
 
     public function failed(\Throwable $exception): void

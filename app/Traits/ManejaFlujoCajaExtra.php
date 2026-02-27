@@ -16,8 +16,14 @@ trait ManejaFlujoCajaExtra
     protected function registrarEnCajaActiva(string $referenciaId, string $referenciaTipo, string $tipoTransaccion, float $monto, ?string $desplieguePagoId, string $descripcion): void
     {
         // Obtener la caja abierta activa del usuario actual
+        // Puede ser el dueño de la apertura o un vendedor con distribución asignada
         $apertura = AperturaCierreCaja::where('estado', 'abierta')
-            ->where('user_id', Auth::id())
+            ->where(function ($query) {
+                $query->where('user_id', Auth::id())
+                    ->orWhereHas('distribucionesVendedores', function ($q) {
+                        $q->where('user_id', Auth::id());
+                    });
+            })
             ->first();
 
         // Si el usuario no tiene una caja abierta, registramos que no hubo impacto en una subcaja específica,

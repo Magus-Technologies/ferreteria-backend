@@ -12,26 +12,42 @@ class ConfiguracionController extends Controller
      */
     public function getAutoSendStatus()
     {
+        \Log::info('ConfiguracionController::getAutoSendStatus - Inicio');
         // Leer directamente del .env para obtener el valor más actualizado
         $envPath = base_path('.env');
+        \Log::info('Path .env: ' . $envPath);
 
         if (!File::exists($envPath)) {
+            \Log::info('.env no existe');
             return response()->json([
-                'enabled' => false
+                'factura' => ['enabled' => false, 'after_days' => 3],
+                'boleta' => ['enabled' => false, 'after_days' => 0],
             ]);
         }
 
         $envContent = File::get($envPath);
-        $enabled = false;
+        \Log::info('.env cargado, longitud: ' . strlen($envContent));
 
-        // Buscar la línea GREENTER_AUTO_SEND_ENABLED en el .env
-        if (preg_match('/^GREENTER_AUTO_SEND_ENABLED=(true|false)/m', $envContent, $matches)) {
+        return response()->json([
+            'factura' => $this->parseConfig($envContent, 'FACTURA', 3),
+            'boleta' => $this->parseConfig($envContent, 'BOLETA', 0),
+        ]);
+    }
+
+    private function parseConfig($envContent, $type, $defaultDays)
+    {
+        $enabled = false;
+        $afterDays = $defaultDays;
+
+        if (preg_match('/^GREENTER_AUTO_SEND_' . $type . '_ENABLED=(true|false)/m', $envContent, $matches)) {
             $enabled = $matches[1] === 'true';
         }
 
-        return response()->json([
-            'enabled' => $enabled
-        ]);
+        if (preg_match('/^GREENTER_AUTO_SEND_' . $type . '_AFTER_DAYS=(\d+)/m', $envContent, $matches)) {
+            $afterDays = (int)$matches[1];
+        }
+
+        return ['enabled' => $enabled, 'after_days' => $afterDays];
     }
 
     /**
@@ -40,54 +56,61 @@ class ConfiguracionController extends Controller
     public function updateAutoSendStatus(Request $request)
     {
         $request->validate([
-            'enabled' => 'required|boolean'
+            'type' => 'required|in:factura,boleta,all',
+            'config' => 'required_unless:type,all|array',
+            'config.enabled' => 'required_with:config|boolean',
+            'config.after_days' => 'required_with:config|integer|min:0|max:15',
+            'configs' => 'required_if:type,all|array',
         ]);
 
-        $enabled = $request->input('enabled');
         $envPath = base_path('.env');
-
         if (!File::exists($envPath)) {
-            return response()->json([
-                'message' => 'Archivo .env no encontrado'
-            ], 404);
+            return response()->json(['message' => 'Archivo .env no encontrado'], 404);
         }
 
         $envContent = File::get($envPath);
+        $type = $request->input('type');
 
-        // Buscar y reemplazar la línea GREENTER_AUTO_SEND_ENABLED
-        $newValue = $enabled ? 'true' : 'false';
-
-        if (preg_match('/^GREENTER_AUTO_SEND_ENABLED=.*/m', $envContent)) {
-            // Si existe, reemplazarla
-            $envContent = preg_replace(
-                '/^GREENTER_AUTO_SEND_ENABLED=.*/m',
-                "GREENTER_AUTO_SEND_ENABLED={$newValue}",
-                $envContent
-            );
+        if ($type === 'all') {
+            $configs = $request->input('configs');
+            foreach (['factura', 'boleta'] as $t) {
+                if (isset($configs[$t])) {
+                    $envContent = $this->updateEnvConfig($envContent, strtoupper($t), $configs[$t]);
+                }
+            }
         } else {
-            // Si no existe, agregarla al final
-            $envContent .= "\nGREENTER_AUTO_SEND_ENABLED={$newValue}\n";
+            $envContent = $this->updateEnvConfig($envContent, strtoupper($type), $request->input('config'));
         }
 
         // Guardar el archivo
         File::put($envPath, $envContent);
 
-        // Leer el valor guardado directamente del .env para confirmar
-        $envContentUpdated = File::get($envPath);
-        $savedValue = false;
-        if (preg_match('/^GREENTER_AUTO_SEND_ENABLED=(true|false)/m', $envContentUpdated, $matches)) {
-            $savedValue = $matches[1] === 'true';
+        return response()->json([
+            'message' => 'Configuración actualizada correctamente',
+        ]);
+    }
+
+    private function updateEnvConfig($envContent, $upperType, $config)
+    {
+        $enabled = $config['enabled'] ? 'true' : 'false';
+        $afterDays = (int)($config['after_days'] ?? 0);
+
+        // Enabled
+        $keyEnabled = "GREENTER_AUTO_SEND_{$upperType}_ENABLED";
+        if (preg_match("/^{$keyEnabled}=.*/m", $envContent)) {
+            $envContent = preg_replace("/^{$keyEnabled}=.*/m", "{$keyEnabled}={$enabled}", $envContent);
+        } else {
+            $envContent .= "\n{$keyEnabled}={$enabled}";
         }
 
+        // After Days
+        $keyAfterDays = "GREENTER_AUTO_SEND_{$upperType}_AFTER_DAYS";
+        if (preg_match("/^{$keyAfterDays}=.*/m", $envContent)) {
+            $envContent = preg_replace("/^{$keyAfterDays}=.*/m", "{$keyAfterDays}={$afterDays}", $envContent);
+        } else {
+            $envContent .= "\n{$keyAfterDays}={$afterDays}";
+        }
 
-
-        // Retornar respuesta inmediatamente sin limpiar cache
-        // El cache no es necesario porque siempre leemos directamente del .env
-        return response()->json([
-            'message' => $enabled
-                ? 'Envío automático activado correctamente'
-                : 'Envío automático desactivado correctamente',
-            'enabled' => $savedValue
-        ]);
+        return $envContent;
     }
 }

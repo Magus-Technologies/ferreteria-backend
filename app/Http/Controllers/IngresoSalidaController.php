@@ -355,22 +355,63 @@ class IngresoSalidaController extends Controller
      */
     public function destroy(int $id): JsonResponse
     {
-        $ingresoSalida = IngresoSalida::findOrFail($id);
+        return DB::transaction(function () use ($id) {
+            $ingresoSalida = IngresoSalida::with([
+                "productosPorAlmacen.unidadesDerivadas",
+            ])->findOrFail($id);
 
-        // Verificar si ya está anulado
-        if (!$ingresoSalida->estado) {
-            return response()->json(
-                ["message" => "El documento ya está anulado"],
-                400
-            );
-        }
+            // Verificar si ya está anulado
+            if (!$ingresoSalida->estado) {
+                return response()->json(
+                    ["message" => "El documento ya está anulado"],
+                    400
+                );
+            }
 
-        // Anular el documento (cambiar estado a false)
-        $ingresoSalida->update(["estado" => false]);
+            $esIngreso = $ingresoSalida->tipo_documento === TipoDocumento::Ingreso;
 
-        return response()->json([
-            "message" => "Documento anulado exitosamente",
-            "data" => $ingresoSalida
-        ]);
+            foreach ($ingresoSalida->productosPorAlmacen as $detalle) {
+                $productoAlmacen = $detalle->productoAlmacen;
+                if (!$productoAlmacen) continue;
+
+                foreach ($detalle->unidadesDerivadas as $ud) {
+                    $factor = (float) $ud->factor;
+                    $cantidad = (float) $ud->cantidad;
+
+                    // Calcular cantidad en fracciones original
+                    $cantidadFraccionOriginal = $factor * $cantidad;
+
+                    // Si era un ingreso (sumó), al anular restamos.
+                    // Si era una salida (restó), al anular sumamos.
+                    $reversionFraccion = $esIngreso ? -$cantidadFraccionOriginal : $cantidadFraccionOriginal;
+
+                    $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+                    $stockNuevo = $stockAnterior + $reversionFraccion;
+
+                    // Actualizar stock del producto
+                    $productoAlmacen->update([
+                        "stock_fraccion" => $stockNuevo,
+                    ]);
+
+                    // Registrar en historial de la unidad inmutable
+                    HistorialUnidadDerivadaInmutableIngresoSalida::create([
+                        "unidad_derivada_inmutable_ingreso_salida_id" => $ud->id,
+                        "stock_anterior" => $stockAnterior,
+                        "stock_nuevo" => $stockNuevo,
+                    ]);
+                }
+
+                // Invalida cache de productos del almacén
+                app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+            }
+
+            // Anular el documento (cambiar estado a false)
+            $ingresoSalida->update(["estado" => false]);
+
+            return response()->json([
+                "message" => "Documento anulado y stock revertido exitosamente",
+                "data" => $ingresoSalida
+            ]);
+        });
     }
 }
