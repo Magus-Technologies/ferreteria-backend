@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\ConfiguracionImpresionController;
+use App\Http\Controllers\ConfiguracionNotificacionController;
 use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\GuiaRemisionController;
 use App\Http\Controllers\PermissionController;
@@ -109,6 +110,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // CUMPLEAÑOS
     // ============================================
     Route::get('/cumpleanos/proximos', [CumpleanosController::class, 'proximos']);
+
+    // ============================================
+    // CONFIGURACIÓN DE NOTIFICACIONES
+    // ============================================
+    Route::prefix('configuracion-notificaciones')->group(function () {
+        Route::get('/', [ConfiguracionNotificacionController::class, 'index']);
+        Route::post('/', [ConfiguracionNotificacionController::class, 'store']);
+        Route::get('/cumpleanos', [ConfiguracionNotificacionController::class, 'getCumpleanos']);
+    });
 
     // ============================================
     // EMPRESA

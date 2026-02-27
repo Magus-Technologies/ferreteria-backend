@@ -11,9 +11,13 @@ class CumpleanosController extends Controller
     /**
      * Obtener usuarios con cumpleaños próximos (hoy, 3 días, 7 días)
      */
-    public function proximos(): JsonResponse
+    public function proximos(\Illuminate\Http\Request $request): JsonResponse
     {
         $hoy = Carbon::today();
+        // Máximo 30 días, por defecto 7
+        $diasMaximos = (int) $request->query('dias', 7);
+        $diasMaximos = max(0, min(30, $diasMaximos));
+
         $usuarios = User::where('estado', true)
             ->whereNotNull('fecha_nacimiento')
             ->get(['id', 'name', 'fecha_nacimiento', 'image']);
@@ -31,7 +35,7 @@ class CumpleanosController extends Controller
 
             $diasRestantes = (int) $hoy->diffInDays($cumpleEsteAnio);
 
-            if ($diasRestantes >= 0 && $diasRestantes <= 7) {
+            if ($diasRestantes >= 0 && $diasRestantes <= $diasMaximos) {
                 $tipo = 'proximo';
                 if ($diasRestantes === 0) {
                     $tipo = 'hoy';
