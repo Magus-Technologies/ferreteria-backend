@@ -31,7 +31,6 @@ class DespliegueDePagoController extends Controller
         }
 
         // Excluir métodos ya usados por sub-cajas de una caja principal específica
-        // EXCEPCIÓN: El efectivo SÍ puede ser compartido entre múltiples sub-cajas
         if ($request->has('exclude_used_by_caja_principal_id')) {
             $cajaPrincipalId = $request->input('exclude_used_by_caja_principal_id');
 
@@ -46,19 +45,11 @@ class DespliegueDePagoController extends Controller
 
             // Validar exclusividad de métodos de pago
             if ($hasWildcard) {
-                // Si ya hay una caja que acepta TODO (*), solo permitir efectivo
-                $query->whereHas('metodoDePago', function ($subQ) {
-                    $subQ->where('name', 'like', '%Efectivo%');
-                });
+                // Si ya hay una caja que acepta TODO (*), no permitir ningún método adicional
+                $query->whereRaw('1 = 0');
             } elseif (!empty($usedIds)) {
-                // Excluir métodos ya usados EXCEPTO efectivo (que puede ser compartido)
-                $query->where(function ($q) use ($usedIds) {
-                    $q->whereNotIn('id', $usedIds)
-                        ->orWhereHas('metodoDePago', function ($subQ) {
-                            // El efectivo SIEMPRE se permite aunque esté en uso
-                            $subQ->where('name', 'like', '%Efectivo%');
-                        });
-                });
+                // Excluir todos los métodos ya usados, incluyendo efectivo (sin excepciones)
+                $query->whereNotIn('id', $usedIds);
             }
         }
 

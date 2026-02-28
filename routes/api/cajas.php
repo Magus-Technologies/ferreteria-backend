@@ -164,7 +164,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // Deudas de Personal
         Route::prefix('deudas-personal')->group(function () {
             Route::get('/', [DeudaPersonalController::class, 'index']);
-            Route::post('/{id}/pagar', [DeudaPersonalController::class, 'pagar']);
+            Route::get('/resumen', [DeudaPersonalController::class, 'resumen']);
+            Route::post('/abono', [DeudaPersonalController::class, 'registrarAbono']);
+            Route::get('/{id}/historial', [DeudaPersonalController::class, 'historialAbonos']);
+            Route::post('/{id}/pagar', [DeudaPersonalController::class, 'pagar']); // Mantener para compatibilidad
         });
     });
 });
