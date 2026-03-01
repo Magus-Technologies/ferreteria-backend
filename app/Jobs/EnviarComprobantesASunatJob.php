@@ -10,6 +10,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
 
 /**
@@ -38,16 +39,16 @@ class EnviarComprobantesASunatJob implements ShouldQueue
         Log::info('=== Iniciando proceso de envío automático SUNAT ===');
 
         // 1. PROCESAR FACTURAS (01)
-        if (config('greenter.auto_send_factura_enabled', false)) {
-            $afterDays = config('greenter.auto_send_factura_after_days', 3);
+        if (Cache::get('greenter_auto_send_factura_enabled', config('greenter.auto_send_factura_enabled', false))) {
+            $afterDays = (int) Cache::get('greenter_auto_send_factura_after_days', config('greenter.auto_send_factura_after_days', 3));
             $this->procesarTipoDocumento($facturaService, '01', 'factura', $afterDays);
         } else {
             Log::info('Envío automático de FACTURAS está DESACTIVADO.');
         }
 
         // 2. PROCESAR BOLETAS (03)
-        if (config('greenter.auto_send_boleta_enabled', false)) {
-            $afterDays = config('greenter.auto_send_boleta_after_days', 0);
+        if (Cache::get('greenter_auto_send_boleta_enabled', config('greenter.auto_send_boleta_enabled', false))) {
+            $afterDays = (int) Cache::get('greenter_auto_send_boleta_after_days', config('greenter.auto_send_boleta_after_days', 0));
             $this->procesarTipoDocumento($facturaService, '03', 'boleta', $afterDays);
         } else {
             Log::info('Envío automático de BOLETAS está DESACTIVADO.');
