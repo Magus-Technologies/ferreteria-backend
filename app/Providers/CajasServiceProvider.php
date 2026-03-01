@@ -19,6 +19,7 @@ use App\Services\Interfaces\PrestamoEntreCajasServiceInterface;
 use App\Services\Interfaces\PrestamoVendedorServiceInterface;
 use App\Services\Interfaces\MovimientoInternoServiceInterface;
 use App\Services\Interfaces\AbonoDeudaServiceInterface;
+use App\Services\Interfaces\TrasladoBovedaServiceInterface;
 
 // Implementations
 use App\Repositories\Implementations\CajaPrincipalRepository;
@@ -35,6 +36,7 @@ use App\Services\Implementations\PrestamoEntreCajasService;
 use App\Services\Implementations\PrestamoVendedorService;
 use App\Services\Implementations\MovimientoInternoService;
 use App\Services\Implementations\AbonoDeudaService;
+use App\Services\Implementations\TrasladoBovedaService;
 
 class CajasServiceProvider extends ServiceProvider
 {
@@ -60,6 +62,7 @@ class CajasServiceProvider extends ServiceProvider
         $this->app->bind(PrestamoVendedorServiceInterface::class, PrestamoVendedorService::class);
         $this->app->bind(MovimientoInternoServiceInterface::class, MovimientoInternoService::class);
         $this->app->bind(AbonoDeudaServiceInterface::class, AbonoDeudaService::class);
+        $this->app->bind(TrasladoBovedaServiceInterface::class, TrasladoBovedaService::class);
     }
 
     /**

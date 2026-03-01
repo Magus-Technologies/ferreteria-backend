@@ -11,6 +11,7 @@ use App\Http\Controllers\Cajas\PrestamoEntreCajasController;
 use App\Http\Controllers\Cajas\SubCajaController;
 use App\Http\Controllers\Cajas\TransaccionController;
 use App\Http\Controllers\Cajas\DeudaPersonalController;
+use App\Http\Controllers\Cajas\TrasladoBovedaController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -168,6 +169,15 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/abono', [DeudaPersonalController::class, 'registrarAbono']);
             Route::get('/{id}/historial', [DeudaPersonalController::class, 'historialAbonos']);
             Route::post('/{id}/pagar', [DeudaPersonalController::class, 'pagar']); // Mantener para compatibilidad
+        });
+
+        // Traslados a Bóveda
+        Route::prefix('traslados-boveda')->group(function () {
+            Route::get('/caja/{aperturaCierreId}', [TrasladoBovedaController::class, 'obtenerPorCaja']);
+            Route::get('/{aperturaCierreId}/total', [TrasladoBovedaController::class, 'obtenerTotal']);
+            Route::post('/', [TrasladoBovedaController::class, 'registrar']);
+            Route::post('/validar-supervisor', [TrasladoBovedaController::class, 'validarSupervisor']);
+            Route::post('/{trasladoId}/anular', [TrasladoBovedaController::class, 'anular']);
         });
     });
 });

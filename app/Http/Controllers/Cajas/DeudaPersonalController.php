@@ -12,12 +12,12 @@ use Illuminate\Http\JsonResponse;
 class DeudaPersonalController extends Controller
 {
     protected $abonoService;
-    
+
     public function __construct(AbonoDeudaServiceInterface $abonoService)
     {
         $this->abonoService = $abonoService;
     }
-    
+
     /**
      * Listar deudas de personal
      */
@@ -38,7 +38,7 @@ class DeudaPersonalController extends Controller
             if ($request->has('estado')) {
                 $query->where('estado', $request->query('estado'));
             }
-            
+
             if ($request->has('fecha_desde') && $request->has('fecha_hasta')) {
                 $query->whereHas('arqueoDiario.aperturaCierreCaja', function ($q) use ($request) {
                     $q->whereBetween('fecha_cierre', [
@@ -61,7 +61,7 @@ class DeudaPersonalController extends Controller
             ], 500);
         }
     }
-    
+
     /**
      * Obtener resumen de deudas de un usuario
      */
@@ -69,7 +69,7 @@ class DeudaPersonalController extends Controller
     {
         try {
             $userId = $request->query('user_id', auth()->id());
-            
+
             // Validar permisos
             if ($userId != auth()->id() && !auth()->user()->hasAnyRole(['supervisor', 'admin', 'administrador'])) {
                 return response()->json([
@@ -77,9 +77,9 @@ class DeudaPersonalController extends Controller
                     'message' => 'No autorizado'
                 ], 403);
             }
-            
+
             $resumen = $this->abonoService->obtenerResumenDeudas($userId);
-            
+
             return response()->json([
                 'success' => true,
                 'data' => $resumen
@@ -91,23 +91,23 @@ class DeudaPersonalController extends Controller
             ], 500);
         }
     }
-    
+
     /**
      * Registrar un abono a una deuda
      */
     public function registrarAbono(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'deuda_personal_id' => 'required|exists:deudas_personales,id',
+            'deuda_personal_id' => 'required|exists:deuda_personals,id',
             'monto' => 'required|numeric|min:0.01',
-            'metodo_pago_id' => 'nullable|exists:metodo_de_pago,id',
+            'metodo_pago_id' => 'nullable|exists:metododepago,id',
             'numero_operacion' => 'nullable|string|max:100',
             'observaciones' => 'nullable|string|max:500',
         ]);
-        
+
         try {
             $abono = $this->abonoService->registrarAbono($validated);
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'Abono registrado exitosamente',
@@ -120,7 +120,7 @@ class DeudaPersonalController extends Controller
             ], 400);
         }
     }
-    
+
     /**
      * Obtener historial de abonos de una deuda
      */
@@ -128,7 +128,7 @@ class DeudaPersonalController extends Controller
     {
         try {
             $historial = $this->abonoService->obtenerHistorialAbonos($deudaId);
-            
+
             return response()->json([
                 'success' => true,
                 'data' => $historial
