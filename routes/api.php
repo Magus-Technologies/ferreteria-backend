@@ -86,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/api/ganancias.php';    // Gestión contable y financiera - Mis Ganancias
     require __DIR__ . '/api/ingresos.php';     // Gestión contable y financiera - Mis Ingresos
     require __DIR__ . '/api/gastos.php';       // Gestión contable y financiera - Mis Gastos
+    require __DIR__ . '/api/servicios.php';    // Servicios (catálogo de servicios para ventas)
 
     // ============================================
     // USUARIOS

@@ -8,6 +8,7 @@ use App\Enums\FormaDePago;
 use App\Enums\TipoDocumento;
 use App\Enums\TipoMoneda;
 use App\Models\AperturaCierreCaja;
+use App\Models\DetalleEntregaProducto;
 use App\Models\DespliegueDePago;
 use App\Models\DespliegueDePagoVenta;
 use App\Models\IngresoDinero;
@@ -15,6 +16,7 @@ use App\Models\MetodoDePago;
 use App\Models\MovimientoCaja;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenVenta;
+use App\Models\ServicioVenta;
 use App\Models\SubCaja;
 use App\Models\TransaccionCaja;
 use App\Models\UnidadDerivadaInmutable;
@@ -66,6 +68,7 @@ class VentaController extends Controller
                 'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                 'despliegueDePagoVentas.despliegueDePago',
+                'serviciosVenta.servicio',
                 'user:id,name',
                 'almacen:id,name',
                 'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
@@ -225,6 +228,13 @@ class VentaController extends Controller
             'despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
             'despliegue_de_pago_ventas.*.recibe_efectivo' => 'nullable|numeric',
             'ingreso_dinero_id' => 'nullable|string',
+            // Servicios
+            'servicios_venta' => 'sometimes|array',
+            'servicios_venta.*.servicio_id' => 'required|integer|exists:servicio,id',
+            'servicios_venta.*.cantidad' => 'required|numeric|min:0.001',
+            'servicios_venta.*.precio_unitario' => 'required|numeric|min:0',
+            'servicios_venta.*.subtotal' => 'required|numeric|min:0',
+            'servicios_venta.*.referencia' => 'nullable|string|max:200',
         ]);
 
         return DB::transaction(function () use ($validated) {
@@ -421,6 +431,20 @@ class VentaController extends Controller
                 }
             }
 
+            // Crear servicios de la venta si se proporcionan
+            if (isset($validated['servicios_venta']) && !empty($validated['servicios_venta'])) {
+                foreach ($validated['servicios_venta'] as $srv) {
+                    ServicioVenta::create([
+                        'venta_id' => $venta->id,
+                        'servicio_id' => $srv['servicio_id'],
+                        'cantidad' => $srv['cantidad'],
+                        'precio_unitario' => $srv['precio_unitario'],
+                        'subtotal' => $srv['subtotal'],
+                        'referencia' => $srv['referencia'] ?? null,
+                    ]);
+                }
+            }
+
             // Proceso post venta
             $validated['id'] = $venta->id;
             $this->procesoPostVenta($validated);
@@ -500,6 +524,7 @@ class VentaController extends Controller
                     'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                     'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                     'despliegueDePagoVentas.despliegueDePago',
+                    'serviciosVenta.servicio',
                     'user:id,name',
                     'almacen:id,name',
                 ]),
@@ -522,6 +547,7 @@ class VentaController extends Controller
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
             'productosPorAlmacen.unidadesDerivadas.detallesEntrega',
             'despliegueDePagoVentas.despliegueDePago.metodoDePago',
+            'serviciosVenta.servicio',
             'user:id,name',
             'almacen:id,name',
             'entregasProductos',
@@ -574,6 +600,13 @@ class VentaController extends Controller
             'despliegue_de_pago_ventas' => 'sometimes|array',
             'despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required|string',
             'despliegue_de_pago_ventas.*.monto' => 'required|numeric',
+            // Servicios
+            'servicios_venta' => 'sometimes|array',
+            'servicios_venta.*.servicio_id' => 'required|integer|exists:servicio,id',
+            'servicios_venta.*.cantidad' => 'required|numeric|min:0.001',
+            'servicios_venta.*.precio_unitario' => 'required|numeric|min:0',
+            'servicios_venta.*.subtotal' => 'required|numeric|min:0',
+            'servicios_venta.*.referencia' => 'nullable|string|max:200',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
@@ -623,12 +656,13 @@ class VentaController extends Controller
                     $updateData[$key] = TipoDocumento::from($value);
                 } elseif ($key === 'tipo_moneda') {
                     $updateData[$key] = TipoMoneda::from($value);
-                } elseif ($key !== 'productos_por_almacen' && $key !== 'despliegue_de_pago_ventas' && $key !== 'id') {
+                } elseif ($key !== 'productos_por_almacen' && $key !== 'despliegue_de_pago_ventas' && $key !== 'servicios_venta' && $key !== 'id') {
                     $updateData[$key] = $value;
                 }
             }
 
-            // Capturar datos anteriores para historial
+            // Capturar datos anteriores para historial (incluye detalle de productos)
+            $venta->load(['productosPorAlmacen.productoAlmacen.producto', 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable']);
             $datosAnteriores = [
                 'tipo_documento' => $venta->tipo_documento instanceof \BackedEnum ? $venta->tipo_documento->value : $venta->tipo_documento,
                 'serie' => $venta->serie,
@@ -642,6 +676,23 @@ class VentaController extends Controller
                 'fecha_vencimiento' => $venta->fecha_vencimiento?->toDateTimeString(),
                 'descripcion' => $venta->descripcion,
                 'productos_count' => $venta->productosPorAlmacen->count(),
+                'productos' => $venta->productosPorAlmacen->map(function ($pav) {
+                    return [
+                        'nombre' => $pav->productoAlmacen?->producto?->name,
+                        'codigo' => $pav->productoAlmacen?->producto?->cod_producto,
+                        'costo' => $pav->costo,
+                        'unidades' => $pav->unidadesDerivadas->map(function ($ud) {
+                            return [
+                                'unidad' => $ud->unidadDerivadaInmutable?->name,
+                                'cantidad' => $ud->cantidad,
+                                'precio' => $ud->precio,
+                                'descuento' => $ud->descuento,
+                                'descuento_tipo' => $ud->descuento_tipo,
+                                'recargo' => $ud->recargo,
+                            ];
+                        })->toArray(),
+                    ];
+                })->toArray(),
             ];
 
             // Update venta
@@ -649,7 +700,12 @@ class VentaController extends Controller
 
             // If productos_por_almacen is provided, update them
             if (isset($validated['productos_por_almacen'])) {
-                // Delete existing productos_por_almacen
+                // Eliminar registros hijos en orden correcto para evitar FK constraint
+                $productoAlmacenVentaIds = ProductoAlmacenVenta::where('venta_id', $id)->pluck('id');
+                $unidadDerivadaVentaIds = UnidadDerivadaInmutableVenta::whereIn('producto_almacen_venta_id', $productoAlmacenVentaIds)->pluck('id');
+                DetalleEntregaProducto::whereIn('unidad_derivada_venta_id', $unidadDerivadaVentaIds)->delete();
+
+                // Delete existing productos_por_almacen (cascades to unidadderivadainmutableventa)
                 ProductoAlmacenVenta::where('venta_id', $id)->delete();
 
                 // Create new productos_por_almacen
@@ -720,6 +776,22 @@ class VentaController extends Controller
                 }
             }
 
+            // If servicios_venta is provided, update them
+            if (isset($validated['servicios_venta'])) {
+                ServicioVenta::where('venta_id', $id)->delete();
+
+                foreach ($validated['servicios_venta'] as $srv) {
+                    ServicioVenta::create([
+                        'venta_id' => $venta->id,
+                        'servicio_id' => $srv['servicio_id'],
+                        'cantidad' => $srv['cantidad'],
+                        'precio_unitario' => $srv['precio_unitario'],
+                        'subtotal' => $srv['subtotal'],
+                        'referencia' => $srv['referencia'] ?? null,
+                    ]);
+                }
+            }
+
             // Proceso post venta
             $validated['id'] = $id;
             $this->procesoPostVenta($validated);
@@ -772,8 +844,8 @@ class VentaController extends Controller
                 }
             }
 
-            // Registrar historial de edición
-            $ventaFresh = $venta->fresh(['productosPorAlmacen']);
+            // Registrar historial de edición (con detalle de productos nuevos)
+            $ventaFresh = $venta->fresh(['productosPorAlmacen.productoAlmacen.producto', 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable']);
             $datosNuevos = [
                 'tipo_documento' => $ventaFresh->tipo_documento instanceof \BackedEnum ? $ventaFresh->tipo_documento->value : $ventaFresh->tipo_documento,
                 'serie' => $ventaFresh->serie,
@@ -787,6 +859,23 @@ class VentaController extends Controller
                 'fecha_vencimiento' => $ventaFresh->fecha_vencimiento?->toDateTimeString(),
                 'descripcion' => $ventaFresh->descripcion,
                 'productos_count' => $ventaFresh->productosPorAlmacen->count(),
+                'productos' => $ventaFresh->productosPorAlmacen->map(function ($pav) {
+                    return [
+                        'nombre' => $pav->productoAlmacen?->producto?->name,
+                        'codigo' => $pav->productoAlmacen?->producto?->cod_producto,
+                        'costo' => $pav->costo,
+                        'unidades' => $pav->unidadesDerivadas->map(function ($ud) {
+                            return [
+                                'unidad' => $ud->unidadDerivadaInmutable?->name,
+                                'cantidad' => $ud->cantidad,
+                                'precio' => $ud->precio,
+                                'descuento' => $ud->descuento,
+                                'descuento_tipo' => $ud->descuento_tipo,
+                                'recargo' => $ud->recargo,
+                            ];
+                        })->toArray(),
+                    ];
+                })->toArray(),
             ];
 
             VentaHistorial::registrar(
@@ -806,6 +895,7 @@ class VentaController extends Controller
                     'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                     'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                     'despliegueDePagoVentas.despliegueDePago',
+                    'serviciosVenta.servicio',
                     'user:id,name',
                     'almacen:id,name',
                 ]),
