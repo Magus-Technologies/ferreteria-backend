@@ -23,18 +23,19 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->group(function () {
-    
+
     // ========== CONFIGURACIÓN ==========
     Route::get('/configuracion/auto-send-status', [ConfiguracionController::class, 'getAutoSendStatus']);
     Route::post('/configuracion/auto-send-status', [ConfiguracionController::class, 'updateAutoSendStatus']);
-    
+
     // ========== COMPROBANTES ELECTRÓNICOS ==========
     Route::prefix('comprobantes')->group(function () {
         Route::get('/buscar', [ComprobanteElectronicoController::class, 'buscar']);
+        Route::get('/pendientes-alerta', [ComprobanteElectronicoController::class, 'pendientesAlerta']);
         Route::get('/ayuda-motivos', [ComprobanteElectronicoController::class, 'getAyudaMotivos']);
         Route::get('/{id}', [ComprobanteElectronicoController::class, 'show']);
     });
-    
+
     // ========== MOTIVOS DE NOTA ==========
     Route::prefix('motivos-nota')->group(function () {
         Route::get('/', [MotivoNotaController::class, 'index']);
@@ -81,7 +82,7 @@ Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->group(fu
         // Archivos XML y CDR
         Route::get('/{id}/xml', [NotaCreditoController::class, 'verXml']);
         Route::get('/{id}/cdr', [NotaCreditoController::class, 'descargarCdr']);
-        
+
         // PDF
         Route::get('/{id}/pdf', [NotaCreditoController::class, 'generarPdf']);
 

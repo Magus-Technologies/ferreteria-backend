@@ -41,9 +41,9 @@ class ComprobanteElectronicoController extends Controller
                     // Buscar por serie-número concatenado (ej: B001-6, F001-123)
                     if (str_contains($query, '-')) {
                         [$serie, $numero] = explode('-', $query, 2);
-                        $q->where(function($subQ) use ($serie, $numero) {
+                        $q->where(function ($subQ) use ($serie, $numero) {
                             $subQ->where('serie', 'like', "%{$serie}%")
-                                 ->where('correlativo', 'like', "%{$numero}%");
+                                ->where('correlativo', 'like', "%{$numero}%");
                         });
                     } else {
                         // Buscar por serie, número o cliente (nombres, apellidos, razón social o documento)
@@ -75,7 +75,6 @@ class ComprobanteElectronicoController extends Controller
                 'success' => true,
                 'data' => ComprobanteElectronicoResource::collection($comprobantes),
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -103,7 +102,6 @@ class ComprobanteElectronicoController extends Controller
                 'success' => true,
                 'data' => new ComprobanteElectronicoResource($comprobante),
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -122,7 +120,7 @@ class ComprobanteElectronicoController extends Controller
     public function getAyudaMotivos(Request $request): JsonResponse
     {
         $tipo = $request->query('tipo'); // 'NC' o 'ND'
-        
+
         if (!in_array($tipo, ['NC', 'ND'])) {
             return response()->json([
                 'success' => false,
@@ -238,6 +236,50 @@ class ComprobanteElectronicoController extends Controller
             return in_array($codigo, ['04', '05', '07', '09']);
         } else {
             return in_array($codigo, ['03', '10']);
+        }
+    }
+
+    /**
+     * Obtener comprobantes pendientes que están a 1 día de vencer (Alertas)
+     */
+    public function pendientesAlerta(): JsonResponse
+    {
+        try {
+            $now = \Carbon\Carbon::now();
+
+            // Facturas (01) y notas (07, 08): Límite 3 días. Alertamos desde el día 1 hasta el día 3.
+            $fechaFacturaAlertaInicio = $now->copy()->subDays(3)->toDateString();
+            $fechaFacturaAlertaFin = $now->copy()->subDays(1)->toDateString();
+
+            // Boletas (03): Límite 7 días. Alertamos desde el día 5 hasta el día 7.
+            $fechaBoletaAlertaInicio = $now->copy()->subDays(7)->toDateString();
+            $fechaBoletaAlertaFin = $now->copy()->subDays(5)->toDateString();
+
+            $pendientes = ComprobanteElectronico::with(['cliente'])
+                ->where('estado_sunat', 'PENDIENTE')
+                ->whereNull('fecha_envio_sunat')
+                ->where(function ($query) use ($fechaFacturaAlertaInicio, $fechaFacturaAlertaFin, $fechaBoletaAlertaInicio, $fechaBoletaAlertaFin) {
+                    $query->where(function ($q) use ($fechaFacturaAlertaInicio, $fechaFacturaAlertaFin) {
+                        $q->whereIn('tipo_comprobante', ['01', '07', '08'])
+                            ->whereBetween('fecha_emision', [$fechaFacturaAlertaInicio, $fechaFacturaAlertaFin]);
+                    })->orWhere(function ($q) use ($fechaBoletaAlertaInicio, $fechaBoletaAlertaFin) {
+                        $q->where('tipo_comprobante', '03')
+                            ->whereBetween('fecha_emision', [$fechaBoletaAlertaInicio, $fechaBoletaAlertaFin]);
+                    });
+                })
+                ->orderBy('fecha_emision', 'asc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => ComprobanteElectronicoResource::collection($pendientes),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener alertas de comprobantes',
+                'error' => $e->getMessage(),
+            ], 500);
         }
     }
 }

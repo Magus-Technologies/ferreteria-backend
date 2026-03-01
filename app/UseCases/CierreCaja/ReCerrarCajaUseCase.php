@@ -124,10 +124,14 @@ class ReCerrarCajaUseCase
 
             // 7.5 Registrar deuda si hay faltante
             if ($diferencia < 0) {
+                $montoDeuda = abs($diferencia);
                 \App\Models\DeudaPersonal::create([
                     'user_id' => $dto->usuarioId ?? $apertura->user_id,
                     'arqueo_diario_id' => $arqueoDiario->id,
-                    'monto' => abs($diferencia),
+                    'monto' => $montoDeuda,
+                    'monto_original' => $montoDeuda,
+                    'monto_abonado' => 0,
+                    'saldo_pendiente' => $montoDeuda,
                     'estado' => 'pendiente',
                     'observaciones' => 'Faltante en caja registrado durante el cierre del ' . now()->format('d/m/Y H:i'),
                 ]);
