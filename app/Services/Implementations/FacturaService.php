@@ -14,6 +14,10 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Encoding\Encoding;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\Writer\PngWriter;
 
 /**
  * Servicio para gestión de Facturas y Boletas Electrónicas
@@ -100,6 +104,15 @@ class FacturaService implements FacturaServiceInterface
 
             $hashCpe = hash('sha256', $xml);
 
+            // Generar código QR para el comprobante (formato SUNAT)
+            $codigoQr = $this->generarCodigoQR(
+                $venta,
+                $tipoDocumento,
+                $dataGreenter['mto_igv'],
+                $dataGreenter['total'],
+                $hashCpe
+            );
+
             // Guardar XML
             Log::info('🔍 [FacturaService] Guardando XML en storage...');
             $ruc = config('greenter.ruc');
@@ -169,6 +182,7 @@ class FacturaService implements FacturaServiceInterface
                 'xml_firmado' => $xml,
                 'xml_path' => $xmlPath,
                 'hash_cpe' => $hashCpe,
+                'codigo_qr' => $codigoQr,
                 'user_id' => $userId,
             ]);
 
@@ -313,6 +327,16 @@ class FacturaService implements FacturaServiceInterface
                 $cdrContent = base64_decode($cdrContent);
             }
 
+            // Regenerar QR con el hash actualizado de SUNAT
+            $dataGreenter = $this->prepararDatosParaGreenter($venta, false);
+            $codigoQrActualizado = $this->generarCodigoQR(
+                $venta,
+                $tipoDoc,
+                $dataGreenter['mto_igv'],
+                $dataGreenter['total'],
+                $resultado['hash_cpe']
+            );
+
             // Actualizar comprobante
             $this->comprobanteRepository->update($comprobante->id, [
                 'estado_sunat' => 'ACEPTADO',
@@ -321,6 +345,7 @@ class FacturaService implements FacturaServiceInterface
                 'cdr_xml' => $cdrContent, // ✅ Guardar CDR en BD
                 'cdr_path' => $cdrPath,
                 'hash_cpe' => $resultado['hash_cpe'],
+                'codigo_qr' => $codigoQrActualizado,
                 'codigo_respuesta_sunat' => $resultado['codigo_sunat'] ?? null,
                 'mensaje_respuesta_sunat' => $resultado['mensaje_sunat'] ?? null,
                 'fecha_envio_sunat' => now(),
@@ -793,6 +818,45 @@ class FacturaService implements FacturaServiceInterface
                 'informacion_adicional' => null,
                 'es_bonificacion' => false,
             ]);
+        }
+    }
+
+    /**
+     * Generar código QR como base64 Data URI (formato SUNAT)
+     * Formato: RUC|TIPO_DOC|SERIE|NUMERO|IGV|TOTAL|FECHA|TIPO_DOC_CLIENTE|NUM_DOC_CLIENTE|HASH
+     */
+    private function generarCodigoQR(Venta $venta, string $tipoDocumento, float $igv, float $total, string $hashCpe): ?string
+    {
+        try {
+            $cliente = $venta->cliente;
+            $clienteTipoDoc = $cliente->tipo_documento === 'ruc' ? '6' : '1';
+
+            $qrText = implode('|', [
+                config('greenter.ruc'),
+                $tipoDocumento,
+                $venta->serie,
+                $venta->numero,
+                number_format($igv, 2, '.', ''),
+                number_format($total, 2, '.', ''),
+                $venta->fecha->format('Y-m-d'),
+                $clienteTipoDoc,
+                $cliente->numero_documento,
+                $hashCpe,
+            ]);
+
+            $result = Builder::create()
+                ->writer(new PngWriter())
+                ->data($qrText)
+                ->encoding(new Encoding('UTF-8'))
+                ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
+                ->size(200)
+                ->margin(10)
+                ->build();
+
+            return $result->getDataUri();
+        } catch (\Exception $e) {
+            Log::warning('No se pudo generar el código QR', ['error' => $e->getMessage()]);
+            return null;
         }
     }
 }
