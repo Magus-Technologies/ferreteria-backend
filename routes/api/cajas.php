@@ -167,6 +167,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/', [DeudaPersonalController::class, 'index']);
             Route::get('/resumen', [DeudaPersonalController::class, 'resumen']);
             Route::post('/abono', [DeudaPersonalController::class, 'registrarAbono']);
+            Route::put('/abono/{abonoId}', [DeudaPersonalController::class, 'actualizarAbono']);
+            Route::delete('/abono/{abonoId}', [DeudaPersonalController::class, 'eliminarAbono']);
             Route::get('/{id}/historial', [DeudaPersonalController::class, 'historialAbonos']);
             Route::post('/{id}/pagar', [DeudaPersonalController::class, 'pagar']); // Mantener para compatibilidad
         });
