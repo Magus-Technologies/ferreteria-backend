@@ -5,11 +5,22 @@ namespace App\Services;
 use App\Models\GuiaRemision;
 use App\Models\DetalleGuiaRemision;
 use App\Models\ProductoAlmacen;
+use App\Services\Interfaces\GreenterServiceInterface;
+use App\Services\Interfaces\XmlStorageServiceInterface;
+use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Encoding\Encoding;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\Writer\PngWriter;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class GuiaRemisionService
 {
+    public function __construct(
+        private GreenterServiceInterface $greenterService,
+        private XmlStorageServiceInterface $xmlStorageService,
+    ) {}
     /**
      * Crear una nueva guía de remisión con sus detalles
      */
@@ -19,16 +30,27 @@ class GuiaRemisionService
             // Generar ULID para la guía
             $guiaId = (string) Str::ulid();
 
+            // Auto-generar serie y número si no se proporcionan
+            if (empty($data['serie']) || empty($data['numero'])) {
+                $serie = 'T001';
+                if (($data['tipo_guia'] ?? '') === 'FISICA') {
+                    $serie = 'TF01';
+                }
+                $maxNumero = GuiaRemision::where('serie', $serie)->max('numero') ?? 0;
+                $data['serie'] = $serie;
+                $data['numero'] = $maxNumero + 1;
+            }
+
             // Crear guía de remisión
             $guia = GuiaRemision::create([
                 'id' => $guiaId,
                 'venta_id' => $data['venta_id'] ?? null,
                 'tipo_guia' => $data['tipo_guia'],
-                'serie' => $data['serie'] ?? null,
-                'numero' => $data['numero'] ?? null,
+                'serie' => $data['serie'],
+                'numero' => $data['numero'],
                 'fecha_emision' => $data['fecha_emision'],
                 'fecha_traslado' => $data['fecha_traslado'],
-                'afecta_stock' => $data['afecta_stock'],
+                'afecta_stock' => $data['afecta_stock'] ?? false,
                 'cliente_id' => $data['cliente_id'] ?? null,
                 'motivo_traslado_id' => $data['motivo_traslado_id'],
                 'modalidad_transporte' => $data['modalidad_transporte'],
@@ -48,7 +70,7 @@ class GuiaRemisionService
             $this->crearDetalles($guiaId, $data['detalles']);
 
             // Si afecta stock, descontar del almacén de origen
-            if ($data['afecta_stock']) {
+            if ($data['afecta_stock'] ?? false) {
                 $this->afectarStock($data['detalles'], 'descontar');
             }
 
@@ -101,6 +123,18 @@ class GuiaRemisionService
             }
 
             $guia->update(['estado' => 'EMITIDA']);
+
+            // Generar XML y QR automáticamente para guías electrónicas
+            if ($guia->tipo_guia !== 'FISICA') {
+                try {
+                    $this->generarXml($guia);
+                } catch (\Exception $e) {
+                    Log::warning('No se pudo generar XML al emitir guía', [
+                        'guia_id' => $guia->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             return $guia->fresh([
                 'venta',
@@ -177,18 +211,292 @@ class GuiaRemisionService
         });
     }
 
+    // =========================================================================
+    // SUNAT / XML / QR
+    // =========================================================================
+
+    /**
+     * Preparar datos de la guía para Greenter
+     */
+    public function prepararDatosParaGreenter(GuiaRemision $guia): array
+    {
+        $guia->loadMissing([
+            'cliente',
+            'motivoTraslado',
+            'chofer',
+            'detalles.producto',
+            'detalles.unidadDerivadaInmutable',
+        ]);
+
+        // Destinatario
+        $cliente = $guia->cliente;
+        $destinatario = [
+            'tipo_doc' => '1', // DNI por defecto
+            'num_doc' => '00000000',
+            'razon_social' => 'VARIOS',
+        ];
+
+        if ($cliente) {
+            $tipoDoc = '1'; // DNI
+            if ($cliente->tipo_cliente?->value === 'e') {
+                $tipoDoc = '6'; // RUC
+            }
+            $destinatario = [
+                'tipo_doc' => $tipoDoc,
+                'num_doc' => $cliente->numero_documento ?? '00000000',
+                'razon_social' => $cliente->razon_social
+                    ? $cliente->razon_social
+                    : (trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'VARIOS'),
+            ];
+        }
+
+        // Chofer
+        $choferes = [];
+        if ($guia->chofer) {
+            $nameParts = explode(' ', trim($guia->chofer->name), 2);
+            $choferes[] = [
+                'tipo' => 'Principal',
+                'tipo_doc' => '1', // DNI
+                'nro_doc' => $guia->chofer->dni ?? '',
+                'nombres' => $nameParts[0] ?? '',
+                'apellidos' => $nameParts[1] ?? '',
+                'licencia' => $guia->chofer->licencia ?? null,
+            ];
+        }
+
+        // Items
+        $items = [];
+        foreach ($guia->detalles as $detalle) {
+            $items[] = [
+                'codigo' => $detalle->producto?->cod_producto ?? (string) $detalle->producto_id,
+                'descripcion' => $detalle->producto?->name ?? 'Producto',
+                'unidad' => $this->mapearUnidadSunat($detalle->unidad_derivada_inmutable_name),
+                'cantidad' => (float) $detalle->cantidad,
+            ];
+        }
+
+        return [
+            'serie' => $guia->serie ?? 'T001',
+            'correlativo' => str_pad($guia->numero ?? '1', 8, '0', STR_PAD_LEFT),
+            'fecha_emision' => $guia->fecha_emision->format('Y-m-d'),
+            'fecha_traslado' => $guia->fecha_traslado->format('Y-m-d'),
+            'cod_traslado' => $guia->motivoTraslado->codigo ?? '01',
+            'des_traslado' => $guia->motivoTraslado->descripcion ?? 'Venta',
+            'mod_traslado' => $guia->modalidad_transporte === 'PRIVADO' ? '02' : '01',
+            'peso_total' => max(0.01, (float) $guia->detalles->sum('peso_total')),
+            'ubigeo_partida' => config('greenter.ubigeo'),
+            'direccion_partida' => $guia->punto_partida,
+            'ubigeo_llegada' => config('greenter.ubigeo'),
+            'direccion_llegada' => $guia->punto_llegada,
+            'vehiculo_placa' => $guia->vehiculo_placa,
+            'destinatario' => $destinatario,
+            'choferes' => $choferes,
+            'items' => $items,
+            'observacion' => $guia->observaciones,
+        ];
+    }
+
+    /**
+     * Generar XML y QR para una guía (al emitir)
+     */
+    public function generarXml(GuiaRemision $guia): GuiaRemision
+    {
+        $dataGreenter = $this->prepararDatosParaGreenter($guia);
+
+        // Generar XML
+        $xml = $this->greenterService->generarXmlGuiaRemision($dataGreenter);
+        $hashCpe = hash('sha256', $xml);
+
+        // Generar QR
+        $codigoQr = $this->generarCodigoQR($guia, $hashCpe);
+
+        // Guardar XML en storage
+        $ruc = config('greenter.ruc');
+        $nombreXml = $this->xmlStorageService->generarNombreXml(
+            $ruc, '09', $dataGreenter['serie'], $dataGreenter['correlativo']
+        );
+        $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
+
+        // Actualizar guía
+        $guia->update([
+            'sunat_codigo_hash' => $hashCpe,
+            'sunat_xml_path' => $xmlPath,
+            'sunat_codigo_qr' => $codigoQr,
+        ]);
+
+        return $guia->fresh();
+    }
+
+    /**
+     * Enviar guía de remisión a SUNAT
+     */
+    public function enviarASunat(GuiaRemision $guia): array
+    {
+        if ($guia->estado !== 'EMITIDA') {
+            throw new \Exception('Solo se pueden enviar guías en estado EMITIDA');
+        }
+
+        if ($guia->sunat_estado === 'ACEPTADO') {
+            throw new \Exception('Esta guía ya fue aceptada por SUNAT');
+        }
+
+        if ($guia->tipo_guia === 'FISICA') {
+            throw new \Exception('Las guías físicas no se envían a SUNAT');
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $dataGreenter = $this->prepararDatosParaGreenter($guia);
+            $resultado = $this->greenterService->generarYEnviarGuiaRemision($dataGreenter);
+
+            if (!$resultado['success']) {
+                throw new \Exception('Error al enviar guía a SUNAT');
+            }
+
+            // Guardar XML y CDR
+            $ruc = config('greenter.ruc');
+            $nombreXml = $this->xmlStorageService->generarNombreXml(
+                $ruc, '09', $dataGreenter['serie'], $dataGreenter['correlativo']
+            );
+            $nombreCdr = $this->xmlStorageService->generarNombreCdr(
+                $ruc, '09', $dataGreenter['serie'], $dataGreenter['correlativo']
+            );
+
+            $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
+            $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
+
+            // Regenerar QR con hash actualizado
+            $codigoQr = $this->generarCodigoQR($guia, $resultado['hash_cpe']);
+
+            // Actualizar guía
+            $guia->update([
+                'sunat_estado' => 'ACEPTADO',
+                'sunat_codigo_hash' => $resultado['hash_cpe'],
+                'sunat_xml_path' => $xmlPath,
+                'sunat_cdr_xml' => $resultado['cdr'],
+                'sunat_cdr_path' => $cdrPath,
+                'sunat_codigo_qr' => $codigoQr,
+                'sunat_fecha_envio' => now(),
+                'sunat_mensaje' => $resultado['mensaje_sunat'] ?? 'Aceptado',
+            ]);
+
+            DB::commit();
+
+            Log::info('Guía de remisión enviada a SUNAT', [
+                'guia_id' => $guia->id,
+                'serie' => $guia->serie,
+                'numero' => $guia->numero,
+                'modo' => $resultado['modo'] ?? 'DESCONOCIDO',
+            ]);
+
+            return [
+                'success' => true,
+                'mensaje' => 'Guía de remisión enviada correctamente a SUNAT',
+                'modo' => $resultado['modo'],
+                'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
+                'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
+            ];
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error al enviar guía a SUNAT', [
+                'guia_id' => $guia->id,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Generar código QR para guía de remisión
+     * Formato: RUC|09|SERIE|NUMERO|FECHA|HASH
+     */
+    private function generarCodigoQR(GuiaRemision $guia, string $hashCpe): ?string
+    {
+        try {
+            $qrText = implode('|', [
+                config('greenter.ruc'),
+                '09',
+                $guia->serie ?? 'T001',
+                $guia->numero ?? '0',
+                $guia->fecha_emision->format('Y-m-d'),
+                $hashCpe,
+            ]);
+
+            $result = Builder::create()
+                ->writer(new PngWriter())
+                ->data($qrText)
+                ->encoding(new Encoding('UTF-8'))
+                ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
+                ->size(200)
+                ->margin(10)
+                ->build();
+
+            return $result->getDataUri();
+        } catch (\Exception $e) {
+            Log::warning('No se pudo generar QR para guía', ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * Mapear nombre de unidad a código SUNAT
+     */
+    private function mapearUnidadSunat(?string $unidadNombre): string
+    {
+        if (!$unidadNombre) return 'NIU';
+
+        $mapa = [
+            'unidad' => 'NIU',
+            'unidades' => 'NIU',
+            'kilogramo' => 'KGM',
+            'kilogramos' => 'KGM',
+            'kg' => 'KGM',
+            'metro' => 'MTR',
+            'metros' => 'MTR',
+            'litro' => 'LTR',
+            'litros' => 'LTR',
+            'caja' => 'BX',
+            'cajas' => 'BX',
+            'bolsa' => 'BG',
+            'bolsas' => 'BG',
+            'pieza' => 'NIU',
+            'piezas' => 'NIU',
+            'rollo' => 'NIU',
+            'rollos' => 'NIU',
+            'paquete' => 'PK',
+            'paquetes' => 'PK',
+            'galón' => 'GLL',
+            'galon' => 'GLL',
+            'galones' => 'GLL',
+        ];
+
+        return $mapa[strtolower(trim($unidadNombre))] ?? 'NIU';
+    }
+
     /**
      * Crear detalles de la guía
      */
     private function crearDetalles(string $guiaId, array $detalles): void
     {
         foreach ($detalles as $detalle) {
+            // Resolver unidad_derivada_inmutable_id por nombre si el ID no existe en la tabla inmutable
+            $inmutableId = $detalle['unidad_derivada_inmutable_id'];
+            $inmutableName = $detalle['unidad_derivada_inmutable_name'];
+            $existsInmutable = DB::table('unidadderivadainmutable')->where('id', $inmutableId)->exists();
+            if (!$existsInmutable && $inmutableName) {
+                $resolved = DB::table('unidadderivadainmutable')->where('name', $inmutableName)->first();
+                if ($resolved) {
+                    $inmutableId = $resolved->id;
+                }
+            }
+
             DetalleGuiaRemision::create([
                 'guia_remision_id' => $guiaId,
                 'producto_id' => $detalle['producto_id'],
                 'producto_almacen_id' => $detalle['producto_almacen_id'],
-                'unidad_derivada_inmutable_id' => $detalle['unidad_derivada_inmutable_id'],
-                'unidad_derivada_inmutable_name' => $detalle['unidad_derivada_inmutable_name'],
+                'unidad_derivada_inmutable_id' => $inmutableId,
+                'unidad_derivada_inmutable_name' => $inmutableName,
                 'factor' => $detalle['factor'],
                 'cantidad' => $detalle['cantidad'],
                 'peso_total' => $detalle['peso_total'] ?? null,

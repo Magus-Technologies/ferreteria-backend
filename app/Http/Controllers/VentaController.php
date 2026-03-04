@@ -205,7 +205,7 @@ class VentaController extends Controller
             'recomendado_por_id' => 'nullable|integer',
             'user_id' => 'required|string',
             'almacen_id' => 'required|integer',
-            'productos_por_almacen' => 'required|array',
+            'productos_por_almacen' => 'required_without:servicios_venta|array',
             'productos_por_almacen.*.costo' => 'required|numeric',
             'productos_por_almacen.*.producto_almacen_id' => 'sometimes|integer',
             'productos_por_almacen.*.producto_id' => 'sometimes|integer',
@@ -317,7 +317,7 @@ class VentaController extends Controller
             ]);
 
             // Create productos_por_almacen and unidades_derivadas
-            foreach ($validated['productos_por_almacen'] as $producto) {
+            foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                 // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
                 $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
 

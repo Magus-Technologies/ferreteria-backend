@@ -110,14 +110,14 @@ class ValeCompraController extends Controller
             'descripcion' => 'nullable|string',
             'tipo_promocion' => [
                 'required',
-                Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS'])
+                Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS', 'DOS_POR_UNO'])
             ],
             'modalidad' => [
                 'required',
                 Rule::in(['CANTIDAD_MINIMA', 'POR_CATEGORIA', 'POR_PRODUCTOS', 'MIXTO'])
             ],
             'cantidad_minima' => 'required|numeric|min:0.001',
-            
+
             // Para descuentos
             'descuento_tipo' => [
                 'nullable',
@@ -130,7 +130,7 @@ class ValeCompraController extends Controller
                 'numeric',
                 'min:0'
             ],
-            
+
             // Para producto gratis
             'producto_gratis_id' => [
                 'nullable',
@@ -239,7 +239,7 @@ class ValeCompraController extends Controller
             'descripcion' => 'nullable|string',
             'tipo_promocion' => [
                 'sometimes',
-                Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS'])
+                Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS', 'DOS_POR_UNO'])
             ],
             'modalidad' => [
                 'sometimes',
