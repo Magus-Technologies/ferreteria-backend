@@ -61,6 +61,8 @@ class RecepcionAlmacenController extends Controller
         $query = RecepcionAlmacen::with([
             'compra.proveedor',
             'compra.almacen',
+            'ordenCompra.proveedor',
+            'ordenCompra.almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
@@ -73,8 +75,15 @@ class RecepcionAlmacenController extends Controller
         }
 
         if ($request->has('almacen_id')) {
-            $query->whereHas('compra', function ($q) use ($request) {
-                $q->where('almacen_id', $request->almacen_id);
+            // Filtrar por almacén de Compra antigua O almacén de OrdenCompra
+            $query->where(function ($q) use ($request) {
+                $q->whereHas('compra', function ($subQ) use ($request) {
+                    $subQ->where('almacen_id', $request->almacen_id);
+                })
+                // O recepciones de OrdenCompra con el mismo almacén
+                ->orWhereHas('ordenCompra', function ($subQ) use ($request) {
+                    $subQ->where('almacen_id', $request->almacen_id);
+                });
             });
         }
 
@@ -93,6 +102,19 @@ class RecepcionAlmacenController extends Controller
         if ($request->has('estado')) {
             $query->where('estado', filter_var($request->estado, FILTER_VALIDATE_BOOLEAN));
         }
+
+        // Filtrar solo órdenes de compra aprobadas (en_proceso o completada)
+        // Soporta tanto Compra antigua como OrdenCompra nueva
+        $query->where(function ($q) {
+            // Recepciones vinculadas a Compra antigua
+            $q->whereHas('compra', function ($subQ) {
+                $subQ->whereIn('estado_de_compra', ['en_proceso', 'completada']);
+            })
+            // O recepciones vinculadas a OrdenCompra nueva
+            ->orWhereHas('ordenCompra', function ($subQ) {
+                $subQ->whereIn('estado', ['en_proceso', 'completada']);
+            });
+        });
 
         $query->orderBy('fecha', 'asc');
 
@@ -321,7 +343,7 @@ class RecepcionAlmacenController extends Controller
                 if (!$existePendiente) {
                     DB::table('compra')
                         ->where('id', $request->compra_id)
-                        ->update(['estado_de_compra' => 'pr']); // Procesado = 'pr'
+                        ->update(['estado_de_compra' => 'completada']);
                 }
 
                 return $recepcion;
@@ -446,7 +468,7 @@ class RecepcionAlmacenController extends Controller
                 // 4. Marcar compra como Creado (ya no está completamente recepcionada)
                 DB::table('compra')
                     ->where('id', $recepcion->compra_id)
-                    ->update(['estado_de_compra' => 'cr']); // Creado = 'cr'
+                    ->update(['estado_de_compra' => 'pendiente']);
 
                 return $recepcion;
             });
