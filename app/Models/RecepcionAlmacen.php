@@ -36,6 +36,7 @@ class RecepcionAlmacen extends Model
         'estado',
         'user_id',
         'compra_id',
+        'orden_compra_id',
     ];
 
     /**
@@ -57,6 +58,14 @@ class RecepcionAlmacen extends Model
     public function compra(): BelongsTo
     {
         return $this->belongsTo(Compra::class);
+    }
+
+    /**
+     * Relación: Pertenece a una orden de compra (nuevo sistema)
+     */
+    public function ordenCompra(): BelongsTo
+    {
+        return $this->belongsTo(OrdenCompra::class, 'orden_compra_id');
     }
 
     /**

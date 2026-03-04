@@ -142,6 +142,54 @@ class DeudaPersonalController extends Controller
     }
 
     /**
+     * Actualizar un abono existente
+     */
+    public function actualizarAbono(int $abonoId, Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'monto' => 'sometimes|numeric|min:0.01',
+            'metodo_pago_id' => 'nullable|exists:metododepago,id',
+            'numero_operacion' => 'nullable|string|max:100',
+            'observaciones' => 'nullable|string|max:500',
+        ]);
+
+        try {
+            $abono = $this->abonoService->actualizarAbono($abonoId, $validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Abono actualizado exitosamente',
+                'data' => $abono
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Eliminar un abono existente
+     */
+    public function eliminarAbono(int $abonoId): JsonResponse
+    {
+        try {
+            $this->abonoService->eliminarAbono($abonoId);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Abono eliminado exitosamente'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
      * Marcar una deuda como pagada (mantener para compatibilidad)
      */
     public function pagar(string $id, Request $request): JsonResponse

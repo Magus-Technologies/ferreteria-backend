@@ -10,6 +10,7 @@ use App\Http\Controllers\TipoIngresoSalidaController;
 use App\Http\Controllers\DepartamentoController;
 use App\Http\Controllers\ProvinciaController;
 use App\Http\Controllers\DistritoController;
+use App\Http\Controllers\TipoServicioController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -33,6 +34,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('unidades-medida', UnidadMedidaController::class);
     Route::apiResource('unidades-derivadas', UnidadDerivadaController::class);
     Route::apiResource('tipos-ingreso-salida', TipoIngresoSalidaController::class);
+    Route::apiResource('tipos-servicio', TipoServicioController::class);
 
     // ============================================
     // UBIGEO (Departamentos, Provincias, Distritos)

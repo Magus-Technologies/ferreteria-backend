@@ -10,6 +10,7 @@ return [
     App\Providers\FacturacionElectronicaServiceProvider::class,
     App\Providers\GananciasServiceProvider::class,
     App\Providers\GestionContableServiceProvider::class,
+    App\Providers\OrdenCompraServiceProvider::class,
     App\Providers\ProductoServiceProvider::class,
     App\Providers\RepositoryServiceProvider::class,
 ];

@@ -4,8 +4,8 @@ namespace App\Enums;
 
 enum EstadoDeCompra: string
 {
-    case Creado = 'cr';
-    case EnEspera = 'ee';
-    case Anulado = 'an';
-    case Procesado = 'pr';
+    case Pendiente = 'pendiente';
+    case EnProceso = 'en_proceso';
+    case Completada = 'completada';
+    case Anulada = 'anulada';
 }
