@@ -160,6 +160,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::prefix('vales-compra')->group(function () {
         Route::post('/vales-aplicables', [\App\Http\Controllers\ValeCompraController::class, 'valesAplicables']);
+        Route::post('/verificar-codigo', [\App\Http\Controllers\ValeCompraController::class, 'verificarCodigoVale']);
         Route::post('/{id}/cambiar-estado', [\App\Http\Controllers\ValeCompraController::class, 'cambiarEstado']);
         Route::get('/{id}/historial-aplicaciones', [\App\Http\Controllers\ValeCompraController::class, 'historialAplicaciones']);
         Route::get('/venta/{ventaId}/vales-aplicados', [\App\Http\Controllers\ValeCompraController::class, 'valesAplicadosVenta']);

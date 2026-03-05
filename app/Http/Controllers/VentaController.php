@@ -235,6 +235,8 @@ class VentaController extends Controller
             'servicios_venta.*.precio_unitario' => 'required|numeric|min:0',
             'servicios_venta.*.subtotal' => 'required|numeric|min:0',
             'servicios_venta.*.referencia' => 'nullable|string|max:200',
+            // Vale de compra (código de vale generado para canjear)
+            'codigo_vale' => 'nullable|string|max:50',
         ]);
 
         return DB::transaction(function () use ($validated) {
@@ -468,6 +470,32 @@ class VentaController extends Controller
                 ]);
             }
 
+            // CANJEAR VALE GENERADO (código de próxima compra)
+            if (!empty($validated['codigo_vale'])) {
+                try {
+                    $canjeado = $this->valeCompraService->aplicarValeGenerado(
+                        $validated['codigo_vale'],
+                        $venta
+                    );
+                    if ($canjeado) {
+                        Log::info('Vale generado canjeado en la venta', [
+                            'venta_id' => $venta->id,
+                            'codigo_vale' => $validated['codigo_vale'],
+                        ]);
+                    } else {
+                        Log::warning('Vale generado no válido o ya usado', [
+                            'codigo_vale' => $validated['codigo_vale'],
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Error al canjear vale generado', [
+                        'venta_id' => $venta->id,
+                        'codigo_vale' => $validated['codigo_vale'],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
             // GENERAR COMPROBANTE ELECTRÓNICO AUTOMÁTICAMENTE
             // Solo para facturas (01) y boletas (03)
             $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
@@ -527,6 +555,7 @@ class VentaController extends Controller
                     'serviciosVenta.servicio',
                     'user:id,name',
                     'almacen:id,name',
+                    'valesAplicados.valeCompra',
                 ]),
                 'message' => 'Venta creada exitosamente',
             ], 201);
@@ -1586,7 +1615,7 @@ class VentaController extends Controller
             'hasta'       => 'sometimes|date',
             'search'      => 'sometimes|string',
             'dias'        => 'sometimes|integer|min:1', // Ventas que vencen en X días
-            'per_page'    => 'sometimes|integer|min:1|max:200',
+            'per_page'    => 'sometimes|integer|min:-1|max:200',
             'page'        => 'sometimes|integer|min:1',
         ]);
 
@@ -1651,7 +1680,7 @@ class VentaController extends Controller
             });
         }
 
-        $perPage = $request->input('per_page', 50);
+        $perPage = (int) $request->input('per_page', 50);
 
         if ($perPage === -1) {
             $ventas = $query->orderBy('fecha', 'asc')->limit(200)->get();
@@ -1716,7 +1745,7 @@ class VentaController extends Controller
             'observacion'           => 'nullable|string|max:500',
             'numero_letra'          => 'nullable|string|max:100',
             'numero_operacion'      => 'nullable|string|max:100',
-            'user_id'               => 'required|string|exists:users,id',
+            'user_id'               => 'required|string|exists:user,id',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {

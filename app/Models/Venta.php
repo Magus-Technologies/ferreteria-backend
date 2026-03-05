@@ -131,4 +131,9 @@ class Venta extends Model
     {
         return $this->hasMany(CobroVenta::class);
     }
+
+    public function valesAplicados(): HasMany
+    {
+        return $this->hasMany(ValeCompraAplicado::class);
+    }
 }

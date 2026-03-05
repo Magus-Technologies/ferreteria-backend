@@ -462,6 +462,36 @@ class ValeCompraController extends Controller
     /**
      * Obtener vales aplicados a una venta específica
      */
+    /**
+     * Verificar si un código de vale generado es válido
+     */
+    public function verificarCodigoVale(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'codigo' => 'required|string|max:50',
+        ]);
+
+        $valeAplicado = ValeCompraAplicado::where('codigo_vale_generado', $validated['codigo'])
+            ->where('genera_vale_futuro', true)
+            ->where('usado', false)
+            ->where('fecha_validez_generado', '>=', now())
+            ->with(['valeCompra:id,codigo,nombre,tipo_promocion,descuento_tipo,descuento_valor'])
+            ->first();
+
+        if (!$valeAplicado) {
+            return response()->json([
+                'valido' => false,
+                'message' => 'El código de vale no es válido, ya fue usado o ha expirado.',
+            ]);
+        }
+
+        return response()->json([
+            'valido' => true,
+            'data' => $valeAplicado,
+            'message' => 'Vale válido.',
+        ]);
+    }
+
     public function valesAplicadosVenta(string $ventaId): JsonResponse
     {
         $valesAplicados = ValeCompraAplicado::where('venta_id', $ventaId)
