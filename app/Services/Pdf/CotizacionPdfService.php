@@ -7,13 +7,17 @@ use Illuminate\Http\Response;
 
 class CotizacionPdfService
 {
-    public function generar(string $cotizacionId): Response
+    public function generar(string $cotizacionId, string $formato = 'a4'): Response
     {
         $cotizacion = $this->obtenerCotizacion($cotizacionId);
         $empresa = $cotizacion->user->empresa;
 
         $productos = $this->prepararProductos($cotizacion);
         $calculos = $this->calcularTotales($productos);
+
+        if ($formato === 'ticket') {
+            return $this->generarTicket($cotizacion, $empresa, $productos, $calculos);
+        }
 
         $data = [
             'cotizacion' => $cotizacion,
@@ -31,6 +35,40 @@ class CotizacionPdfService
         $filename = "COTIZACION-{$cotizacion->numero}.pdf";
 
         return PdfService::render('pdf.cotizacion', $data, $filename);
+    }
+
+    private function generarTicket($cotizacion, $empresa, array $productos, array $calculos): Response
+    {
+        $cliente = $cotizacion->cliente;
+        $clienteNombre = $cliente?->razon_social
+            ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
+            ?: 'CLIENTE GENERAL';
+
+        $data = [
+            'titulo' => "Ticket {$cotizacion->numero}",
+            'cotizacion' => $cotizacion,
+            'empresa' => $empresa,
+            'logoPath' => PdfService::getLogoPath($empresa->logo),
+            'numeroDocumento' => $cotizacion->numero,
+            'productos' => $productos,
+            'calculos' => $calculos,
+            'clienteNombre' => $clienteNombre,
+            'clienteDocumento' => $cliente?->numero_documento ?? '99999999',
+            'clienteDireccion' => $cliente?->direccion ?? '',
+            'vendedor' => $cotizacion->user->name,
+            'son' => PdfService::numeroALetras($calculos['total']),
+        ];
+
+        $filename = "TICKET-{$cotizacion->numero}.pdf";
+
+        // 80mm = 226.77pt
+        return PdfService::render(
+            'pdf.cotizacion-ticket',
+            $data,
+            $filename,
+            'portrait',
+            [0, 0, 226.77, 841.89],
+        );
     }
 
     private function obtenerCotizacion(string $cotizacionId): Cotizacion

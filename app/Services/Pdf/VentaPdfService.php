@@ -11,13 +11,18 @@ class VentaPdfService
     /**
      * Generar PDF de una venta.
      */
-    public function generar(string $ventaId): Response
+    public function generar(string $ventaId, string $formato = 'a4'): Response
     {
         $venta = $this->obtenerVenta($ventaId);
         $empresa = $venta->user->empresa;
 
         $productos = $this->prepararProductos($venta);
         $calculos = $this->calcularTotales($productos);
+
+        if ($formato === 'ticket') {
+            return $this->generarTicket($venta, $empresa, $productos, $calculos);
+        }
+
         $codigoQr = $this->obtenerCodigoQr($venta);
 
         $data = [
@@ -39,6 +44,93 @@ class VentaPdfService
         return PdfService::render('pdf.venta', $data, $filename);
     }
 
+    private function generarTicket($venta, $empresa, array $productos, array $calculos): Response
+    {
+        $cliente = $venta->cliente;
+        $clienteNombre = $cliente?->razon_social
+            ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
+            ?: 'CLIENTES VARIOS';
+
+        $formaPago = $venta->forma_de_pago->value ?? '';
+        $esCredito = stripos($formaPago, 'Credito') !== false || stripos($formaPago, 'Crédito') !== false;
+
+        // Metodos de pago
+        $metodosPago = [];
+        foreach ($venta->despliegueDePagoVentas as $dp) {
+            $metodosPago[] = [
+                'nombre' => $dp->despliegueDePago->name ?? '',
+                'monto' => (float) $dp->monto,
+            ];
+        }
+
+        // Vales aplicados
+        $vales = [];
+        foreach ($venta->valesAplicados as $va) {
+            if (!$va->genera_vale_futuro || !$va->codigo_vale_generado) {
+                continue;
+            }
+            $valeCompra = $va->valeCompra;
+            $tipoLabel = match ($valeCompra?->tipo_promocion) {
+                'descuento_porcentaje' => 'DESCUENTO %',
+                'descuento_fijo' => 'DESCUENTO FIJO',
+                'producto_gratis' => 'PRODUCTO GRATIS',
+                default => strtoupper($valeCompra?->tipo_promocion ?? ''),
+            };
+            $beneficio = match ($valeCompra?->descuento_tipo) {
+                '%' => ($valeCompra?->descuento_valor ?? 0) . '% DESCUENTO',
+                default => 'S/ ' . number_format($valeCompra?->descuento_valor ?? 0, 2) . ' DESCUENTO',
+            };
+
+            $vales[] = [
+                'tipo_label' => $tipoLabel,
+                'nombre' => $valeCompra?->nombre ?? '',
+                'beneficio' => $beneficio,
+                'codigo' => $va->codigo_vale_generado,
+                'fecha_validez' => $va->fecha_validez_generado
+                    ? \Carbon\Carbon::parse($va->fecha_validez_generado)->format('d/m/Y')
+                    : null,
+            ];
+        }
+
+        $fecha = $venta->fecha;
+
+        $data = [
+            'titulo' => "Ticket {$this->formatNumeroDocumento($venta)}",
+            'empresa' => $empresa,
+            'logoPath' => PdfService::getLogoPath($empresa->logo),
+            'tipoDocumentoTitulo' => $this->getTituloDocumento($venta->tipo_documento->value),
+            'numeroDocumento' => $this->formatNumeroDocumento($venta),
+            'formaPago' => $formaPago,
+            'esCredito' => $esCredito,
+            'fechaEmision' => PdfService::formatFecha($fecha),
+            'hora' => PdfService::formatFecha($fecha, 'H:i:s'),
+            'fechaVencimiento' => $venta->fecha_vencimiento
+                ? PdfService::formatFecha($venta->fecha_vencimiento)
+                : '',
+            'numeroGuia' => $venta->numero_guia ?? '',
+            'vendedor' => $venta->user->name,
+            'clienteNombre' => $clienteNombre,
+            'clienteDocumento' => $cliente?->numero_documento ?? '99999999',
+            'clienteDireccion' => $cliente?->direccion ?? '',
+            'metodosPago' => $metodosPago,
+            'productos' => $productos,
+            'calculos' => $calculos,
+            'son' => PdfService::numeroALetras($calculos['total']),
+            'observaciones' => $venta->descripcion ?: '- NINGUNA',
+            'vales' => $vales,
+        ];
+
+        $filename = "TICKET-{$venta->serie}-{$venta->numero}.pdf";
+
+        return PdfService::render(
+            'pdf.venta-ticket',
+            $data,
+            $filename,
+            'portrait',
+            [0, 0, 226.77, 841.89],
+        );
+    }
+
     /**
      * Obtener la venta con todas sus relaciones necesarias.
      */
@@ -51,6 +143,8 @@ class VentaPdfService
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+            'despliegueDePagoVentas.despliegueDePago',
+            'valesAplicados.valeCompra',
         ])->findOrFail($ventaId);
     }
 
@@ -168,9 +262,9 @@ class VentaPdfService
     private function getTituloDocumento(string $tipo): string
     {
         return match ($tipo) {
-            'Factura' => 'FACTURA ELECTRONICA',
-            'Boleta' => 'BOLETA DE VENTA',
-            'NotaDeVenta' => 'NOTA DE VENTA',
+            '01' => 'FACTURA ELECTRONICA',
+            '03' => 'BOLETA DE VENTA',
+            'nv' => 'NOTA DE VENTA',
             default => strtoupper($tipo),
         };
     }

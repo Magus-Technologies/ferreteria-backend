@@ -7,7 +7,7 @@ use Illuminate\Http\Response;
 
 class PrestamoPdfService
 {
-    public function generar(string $prestamoId): Response
+    public function generar(string $prestamoId, string $formato = 'a4'): Response
     {
         $prestamo = $this->obtenerPrestamo($prestamoId);
         $empresa = $prestamo->user->empresa;
@@ -21,6 +21,10 @@ class PrestamoPdfService
 
         $monedaSymbol = $prestamo->tipo_moneda === 'd' ? '$' : 'S/.';
         $monedaNombre = $prestamo->tipo_moneda === 'd' ? 'USD' : 'SOL';
+
+        if ($formato === 'ticket') {
+            return $this->generarTicket($prestamo, $empresa, $productos, $total, $tipoOperacion, $monedaSymbol, $monedaNombre);
+        }
 
         $data = [
             'prestamo' => $prestamo,
@@ -44,6 +48,54 @@ class PrestamoPdfService
         $filename = "PRESTAMO-{$prestamo->numero}.pdf";
 
         return PdfService::render('pdf.prestamo', $data, $filename);
+    }
+
+    private function generarTicket($prestamo, $empresa, array $productos, float $total, string $tipoOperacion, string $monedaSymbol, string $monedaNombre): Response
+    {
+        $esCliente = $prestamo->tipo_entidad === 'CLIENTE';
+        $entidad = $esCliente ? $prestamo->cliente : $prestamo->proveedor;
+
+        $entidadNombre = $entidad?->razon_social
+            ?: trim(($entidad?->nombres ?? '') . ' ' . ($entidad?->apellidos ?? ''))
+            ?: 'ENTIDAD GENERAL';
+
+        $data = [
+            'titulo' => "Ticket {$prestamo->numero}",
+            'empresa' => $empresa,
+            'logoPath' => PdfService::getLogoPath($empresa->logo),
+            'tipoOperacion' => $tipoOperacion,
+            'numeroDocumento' => $prestamo->numero,
+            'fechaEmision' => PdfService::formatFecha($prestamo->fecha),
+            'hora' => PdfService::formatFecha($prestamo->fecha, 'H:i:s'),
+            'fechaVencimiento' => PdfService::formatFecha($prestamo->fecha_vencimiento),
+            'vendedor' => $prestamo->vendedor ?: $prestamo->user->name ?? '',
+            'estado' => strtoupper($prestamo->estado_prestamo ?? ''),
+            'monedaNombre' => $monedaNombre,
+            'monedaSymbol' => $monedaSymbol,
+            'tasaInteres' => $prestamo->tasa_interes
+                ? $prestamo->tasa_interes . '% ' . ($prestamo->tipo_interes ?? '')
+                : null,
+            'esCliente' => $esCliente,
+            'entidadNombre' => $entidadNombre,
+            'entidadDocumento' => $prestamo->ruc_dni ?: $entidad?->numero_documento ?? '',
+            'entidadDireccion' => $prestamo->direccion ?: $entidad?->direccion ?? '',
+            'productos' => $productos,
+            'montoTotal' => $total,
+            'montoPagado' => (float) ($prestamo->monto_pagado ?? 0),
+            'montoPendiente' => (float) ($prestamo->monto_pendiente ?? 0),
+            'observaciones' => $prestamo->observaciones ?: '- NINGUNA',
+            'garantia' => $prestamo->garantia,
+        ];
+
+        $filename = "TICKET-PRESTAMO-{$prestamo->numero}.pdf";
+
+        return PdfService::render(
+            'pdf.prestamo-ticket',
+            $data,
+            $filename,
+            'portrait',
+            [0, 0, 226.77, 841.89],
+        );
     }
 
     private function obtenerPrestamo(string $prestamoId): Prestamo

@@ -91,9 +91,10 @@ class PdfService
         array $data,
         string $filename,
         string $orientation = 'portrait',
+        ?array $paperSize = null,
     ): Response {
         $pdf = Pdf::loadView($view, $data)
-            ->setPaper('a4', $orientation);
+            ->setPaper($paperSize ?? 'a4', $orientation);
 
         return $pdf->stream($filename);
     }

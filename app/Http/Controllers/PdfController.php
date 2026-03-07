@@ -4,15 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Services\Pdf\CompraPdfService;
 use App\Services\Pdf\CotizacionPdfService;
+use App\Services\Pdf\GuiaPdfService;
 use App\Services\Pdf\PrestamoPdfService;
 use App\Services\Pdf\VentaPdfService;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 class PdfController extends Controller
 {
-    public function venta(string $id, VentaPdfService $service): Response
+    public function venta(string $id, Request $request, VentaPdfService $service): Response
     {
-        return $service->generar($id);
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
     }
 
     public function compra(string $id, CompraPdfService $service): Response
@@ -20,13 +23,21 @@ class PdfController extends Controller
         return $service->generar($id);
     }
 
-    public function cotizacion(string $id, CotizacionPdfService $service): Response
+    public function cotizacion(string $id, Request $request, CotizacionPdfService $service): Response
     {
-        return $service->generar($id);
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
     }
 
-    public function prestamo(string $id, PrestamoPdfService $service): Response
+    public function prestamo(string $id, Request $request, PrestamoPdfService $service): Response
     {
-        return $service->generar($id);
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
+    }
+
+    public function guia(string $id, Request $request, GuiaPdfService $service): Response
+    {
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
     }
 }
