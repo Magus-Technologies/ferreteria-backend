@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use phpseclib3\Crypt\RSA;
 
 class QzTrayController extends Controller
 {
@@ -61,18 +60,19 @@ class QzTrayController extends Controller
             
             // Leer llave privada
             $privateKeyContent = file_get_contents($privateKeyPath);
-            
-            // Cargar llave privada con phpseclib
-            $privateKey = RSA::loadPrivateKey($privateKeyContent);
-            
-            // Configurar padding y hash para SHA512
-            $privateKey = $privateKey
-                ->withPadding(RSA::SIGNATURE_PKCS1)
-                ->withHash('sha512');
-            
-            // Firmar los datos
-            $signature = $privateKey->sign($dataToSign);
-            
+
+            // Cargar llave privada con OpenSSL nativo
+            $privateKey = openssl_pkey_get_private($privateKeyContent);
+            if (!$privateKey) {
+                throw new \RuntimeException('No se pudo cargar la llave privada: ' . openssl_error_string());
+            }
+
+            // Firmar con SHA512 + PKCS1
+            $signature = '';
+            if (!openssl_sign($dataToSign, $signature, $privateKey, OPENSSL_ALGO_SHA512)) {
+                throw new \RuntimeException('Error al firmar: ' . openssl_error_string());
+            }
+
             // Convertir a Base64
             $signatureBase64 = base64_encode($signature);
             
