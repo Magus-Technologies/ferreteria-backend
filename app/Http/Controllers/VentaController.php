@@ -22,6 +22,7 @@ use App\Models\TransaccionCaja;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\Venta;
+use App\Models\ValeCompra;
 use App\Models\VentaHistorial;
 use App\Services\Interfaces\FacturaServiceInterface;
 use App\Services\ValeCompraService;
@@ -451,44 +452,63 @@ class VentaController extends Controller
             $validated['id'] = $venta->id;
             $this->procesoPostVenta($validated);
 
-            // APLICAR VALES DE COMPRA AUTOMÁTICAMENTE
-            try {
-                $detallesVenta = $this->prepararDetallesVentaParaVales($validated);
-                $valesAplicados = $this->valeCompraService->aplicarValesAutomaticos($venta, $detallesVenta);
-                
-                if ($valesAplicados->isNotEmpty()) {
-                    Log::info('Vales aplicados a la venta', [
-                        'venta_id' => $venta->id,
-                        'cantidad_vales' => $valesAplicados->count(),
-                    ]);
-                }
-            } catch (\Exception $e) {
-                // No fallar la venta si hay error al aplicar vales
-                Log::error('Error al aplicar vales a la venta', [
-                    'venta_id' => $venta->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-
-            // CANJEAR VALE GENERADO (código de próxima compra)
+            // APLICAR VALE DE COMPRA (solo el que el vendedor ingresó manualmente)
             if (!empty($validated['codigo_vale'])) {
                 try {
-                    $canjeado = $this->valeCompraService->aplicarValeGenerado(
-                        $validated['codigo_vale'],
-                        $venta
-                    );
-                    if ($canjeado) {
-                        Log::info('Vale generado canjeado en la venta', [
-                            'venta_id' => $venta->id,
-                            'codigo_vale' => $validated['codigo_vale'],
-                        ]);
+                    $codigoVale = $validated['codigo_vale'];
+                    $detallesVenta = $this->prepararDetallesVentaParaVales($validated);
+                    $cantidadTotal = collect($detallesVenta)->sum('cantidad');
+
+                    // Buscar el vale por código
+                    $vale = ValeCompra::with(['categorias', 'productos', 'productoGratis'])
+                        ->where('codigo', $codigoVale)
+                        ->activos()
+                        ->vigentes()
+                        ->first();
+
+                    if ($vale && $cantidadTotal >= $vale->cantidad_minima) {
+                        // Validar modalidad
+                        $categorias = collect($detallesVenta)->pluck('categoria_id')->filter()->unique()->values()->toArray();
+                        $productos = collect($detallesVenta)->pluck('producto_id')->filter()->unique()->values()->toArray();
+
+                        $esValido = $this->valeCompraService->validarValePublic($vale, $categorias, $productos, $venta->cliente_id);
+
+                        if ($esValido) {
+                            $aplicado = $this->valeCompraService->aplicarValeUnico($vale, $venta, $cantidadTotal);
+                            if ($aplicado) {
+                                Log::info('Vale manual aplicado a la venta', [
+                                    'venta_id' => $venta->id,
+                                    'codigo_vale' => $codigoVale,
+                                ]);
+                            }
+                        } else {
+                            Log::warning('Vale manual no cumple condiciones de modalidad', [
+                                'codigo_vale' => $codigoVale,
+                                'modalidad' => $vale->modalidad,
+                            ]);
+                        }
+                    } else if (!$vale) {
+                        // Intentar como vale generado (código de próxima compra)
+                        $canjeado = $this->valeCompraService->aplicarValeGenerado($codigoVale, $venta);
+                        if ($canjeado) {
+                            Log::info('Vale generado canjeado en la venta', [
+                                'venta_id' => $venta->id,
+                                'codigo_vale' => $codigoVale,
+                            ]);
+                        } else {
+                            Log::warning('Vale no encontrado o no válido', [
+                                'codigo_vale' => $codigoVale,
+                            ]);
+                        }
                     } else {
-                        Log::warning('Vale generado no válido o ya usado', [
-                            'codigo_vale' => $validated['codigo_vale'],
+                        Log::warning('Vale no cumple cantidad mínima', [
+                            'codigo_vale' => $codigoVale,
+                            'cantidad_total' => $cantidadTotal,
+                            'cantidad_minima' => $vale->cantidad_minima,
                         ]);
                     }
                 } catch (\Exception $e) {
-                    Log::error('Error al canjear vale generado', [
+                    Log::error('Error al aplicar vale a la venta', [
                         'venta_id' => $venta->id,
                         'codigo_vale' => $validated['codigo_vale'],
                         'error' => $e->getMessage(),
@@ -580,6 +600,7 @@ class VentaController extends Controller
             'user:id,name',
             'almacen:id,name',
             'entregasProductos',
+            'valesAplicados.valeCompra',
             'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
         ])
             ->withCount('entregasProductos as entregas_productos_count')
@@ -1573,29 +1594,43 @@ class VentaController extends Controller
     {
         $detalles = [];
 
-        foreach ($venta['productos_por_almacen'] as $producto) {
-            // Obtener el producto_almacen para extraer el producto_id y categoria_id
+        foreach ($venta['productos_por_almacen'] ?? [] as $producto) {
+            // Calcular cantidad total en unidad base
+            $cantidadTotal = 0;
+            foreach ($producto['unidades_derivadas'] ?? [] as $unidad) {
+                $cantidad = (float) ($unidad['cantidad'] ?? 0);
+                $factor = (float) ($unidad['factor'] ?? 1);
+                $cantidadTotal += $cantidad * $factor;
+            }
+
+            // Intentar obtener producto_id y categoria_id
+            $productoId = null;
+            $categoriaId = null;
+
+            // Opción 1: producto_almacen_id viene en el request
             $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
-            
             if ($productoAlmacenId) {
                 $productoAlmacen = ProductoAlmacen::with('producto.categoria')
                     ->find($productoAlmacenId);
-                
                 if ($productoAlmacen && $productoAlmacen->producto) {
-                    // Calcular cantidad total en unidad base
-                    $cantidadTotal = 0;
-                    foreach ($producto['unidades_derivadas'] as $unidad) {
-                        $cantidad = (float) ($unidad['cantidad'] ?? 0);
-                        $factor = (float) ($unidad['factor'] ?? 1);
-                        $cantidadTotal += $cantidad * $factor;
-                    }
-
-                    $detalles[] = [
-                        'producto_id' => $productoAlmacen->producto->id,
-                        'categoria_id' => $productoAlmacen->producto->categoria_id ?? null,
-                        'cantidad' => $cantidadTotal,
-                    ];
+                    $productoId = $productoAlmacen->producto->id;
+                    $categoriaId = $productoAlmacen->producto->categoria_id ?? null;
                 }
+            }
+
+            // Opción 2: producto_id viene directo en el request (frontend envía esto)
+            if (!$productoId && isset($producto['producto_id'])) {
+                $productoId = $producto['producto_id'];
+                $productoModel = \App\Models\Producto::find($productoId);
+                $categoriaId = $productoModel?->categoria_id ?? null;
+            }
+
+            if ($productoId) {
+                $detalles[] = [
+                    'producto_id' => $productoId,
+                    'categoria_id' => $categoriaId,
+                    'cantidad' => $cantidadTotal,
+                ];
             }
         }
 

@@ -471,23 +471,56 @@ class ValeCompraController extends Controller
             'codigo' => 'required|string|max:50',
         ]);
 
-        $valeAplicado = ValeCompraAplicado::where('codigo_vale_generado', $validated['codigo'])
-            ->where('genera_vale_futuro', true)
-            ->where('usado', false)
-            ->where('fecha_validez_generado', '>=', now())
-            ->with(['valeCompra:id,codigo,nombre,tipo_promocion,descuento_tipo,descuento_valor'])
+        $vale = ValeCompra::where('codigo', $validated['codigo'])
+            ->where('estado', 'ACTIVO')
             ->first();
 
-        if (!$valeAplicado) {
+        if (!$vale) {
             return response()->json([
                 'valido' => false,
-                'message' => 'El código de vale no es válido, ya fue usado o ha expirado.',
+                'message' => 'El código de vale no existe o no está activo.',
             ]);
         }
 
+        if (!$vale->esVigente()) {
+            return response()->json([
+                'valido' => false,
+                'message' => 'El vale ha expirado o aún no está vigente.',
+            ]);
+        }
+
+        if (!$vale->tieneStockDisponible()) {
+            return response()->json([
+                'valido' => false,
+                'message' => 'El vale ya no tiene stock disponible.',
+            ]);
+        }
+
+        // Cargar productos y categorías para mostrar info descriptiva
+        $vale->load(['productos:id,cod_producto,name', 'categorias:id,name']);
+
+        $valeData = $vale->only([
+            'id', 'codigo', 'nombre', 'tipo_promocion',
+            'descuento_tipo', 'descuento_valor', 'modalidad',
+            'cantidad_minima', 'fecha_inicio', 'fecha_fin',
+        ]);
+
+        // Agregar nombres de productos y categorías
+        $valeData['productos'] = $vale->productos->map(fn($p) => [
+            'id' => $p->id,
+            'nombre' => $p->name,
+        ])->values();
+
+        $valeData['categorias'] = $vale->categorias->map(fn($c) => [
+            'id' => $c->id,
+            'nombre' => $c->name,
+        ])->values();
+
         return response()->json([
             'valido' => true,
-            'data' => $valeAplicado,
+            'data' => [
+                'vale_compra' => $valeData,
+            ],
             'message' => 'Vale válido.',
         ]);
     }

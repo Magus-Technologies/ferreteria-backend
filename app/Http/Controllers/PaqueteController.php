@@ -37,7 +37,8 @@ class PaqueteController extends Controller
 
         $query = Paquete::query()
             ->with([
-                'productos.producto:id,name,cod_producto',
+                'productos.producto:id,name,cod_producto,categoria_id',
+                'productos.producto.productoEnAlmacenes:id,producto_id,costo',
                 'productos.producto.marca:id,name',
                 'productos.unidadDerivada:id,name',
             ])

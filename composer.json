@@ -17,6 +17,7 @@
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.2",
         "laravel/tinker": "^2.10.1",
+        "phpseclib/phpseclib": "3.0",
         "spatie/laravel-permission": "^6.24"
     },
     "require-dev": {

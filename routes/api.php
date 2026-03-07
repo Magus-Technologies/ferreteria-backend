@@ -6,6 +6,7 @@ use App\Http\Controllers\ConfiguracionNotificacionController;
 use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\GuiaRemisionController;
 use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\QzTrayController;
 use App\Http\Controllers\RestrictionController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\MotivoTrasladoController;
@@ -48,6 +49,16 @@ Route::prefix('catalogos')->group(function () {
 Route::get('/roles', [CatalogoController::class, 'roles']);
 
 // Datos públicos de la empresa (para PDFs)
+
+// ============================================
+// QZ TRAY - CERTIFICADOS Y FIRMA DIGITAL
+// ============================================
+// Endpoints públicos para QZ Tray (certificado y firma)
+Route::prefix('qz')->group(function () {
+    Route::get('/certificate', [QzTrayController::class, 'getCertificate']);
+    Route::post('/sign', [QzTrayController::class, 'signRequest']);
+    Route::get('/status', [QzTrayController::class, 'status']); // Para diagnóstico
+});
 Route::get('/empresa/datos-publicos', [
     EmpresaController::class,
     'getDatosPublicos',
