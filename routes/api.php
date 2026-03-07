@@ -12,6 +12,7 @@ use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\MotivoTrasladoController;
 use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\CumpleanosController;
+use App\Http\Controllers\PdfController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -73,6 +74,16 @@ Route::get('prestamos/{id}', [
     App\Http\Controllers\PrestamoController::class,
     'show',
 ]);
+
+// ============================================
+// PDF (público - para compartir con clientes)
+// ============================================
+Route::prefix('pdf')->group(function () {
+    Route::get('/venta/{id}', [PdfController::class, 'venta']);
+    Route::get('/compra/{id}', [PdfController::class, 'compra']);
+    Route::get('/cotizacion/{id}', [PdfController::class, 'cotizacion']);
+    Route::get('/prestamo/{id}', [PdfController::class, 'prestamo']);
+});
 
 // Ruta pública para ver XML de comprobantes electrónicos (sin autenticación)
 Route::get('facturas/comprobante/{comprobanteId}/xml', [
