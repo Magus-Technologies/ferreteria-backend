@@ -72,9 +72,11 @@ class AperturaCajaController extends Controller
                     $montoTotal = collect($vendedores)->sum('monto');
                 }
 
-                // 4. Verificar si ya hay una apertura activa
+                // 4. Verificar si ya hay una apertura activa DEL DÍA ACTUAL
+                $hoy = now()->startOfDay();
                 $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
                     ->where('estado', 'abierta')
+                    ->whereDate('fecha_apertura', $hoy)
                     ->first();
 
                 if ($aperturaActiva) {
@@ -265,7 +267,7 @@ class AperturaCajaController extends Controller
                     'user_id' => $userId,
                     'monto_apertura' => $montoTotal,
                     'conteo_apertura_billetes_monedas' => $conteoBilletes,
-                    'fecha_apertura' => now(),
+                    'fecha_apertura' => now()->startOfDay(), // Guardar al inicio del día (00:00:00)
                     'estado' => 'abierta',
                 ]);
 
@@ -402,20 +404,22 @@ class AperturaCajaController extends Controller
     }
 
     /**
-     * Consultar si una caja tiene apertura activa
+     * Consultar si una caja tiene apertura activa DEL DÍA ACTUAL
      */
     public function consultaApertura(int $cajaPrincipalId): JsonResponse
     {
         try {
+            $hoy = now()->startOfDay();
             $apertura = AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
                 ->where('estado', 'abierta')
+                ->whereDate('fecha_apertura', $hoy)
                 ->with(['cajaPrincipal', 'subCaja', 'user'])
                 ->first();
 
             if (!$apertura) {
                 return response()->json([
                     'success' => true,
-                    'message' => 'No hay apertura activa',
+                    'message' => 'No hay apertura activa para hoy',
                     'data' => null,
                 ]);
             }

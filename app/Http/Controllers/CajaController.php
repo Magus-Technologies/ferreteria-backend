@@ -138,7 +138,7 @@ class CajaController extends Controller
 
     /**
      * GET /api/cajas/activa
-     * Obtiene la caja activa del usuario autenticado
+     * Obtiene la caja activa del usuario autenticado (apertura del día actual)
      */
     public function cajaActiva(Request $request): JsonResponse
     {
@@ -152,9 +152,12 @@ class CajaController extends Controller
             ], 401);
         }
 
-        $cajaActiva = AperturaYCierreCaja::where('user_id', $user->id)
-            ->whereNull('fecha_cierre')
-            ->with('user')
+        // Usar el nuevo modelo AperturaCierreCaja
+        $hoy = now()->startOfDay();
+        $cajaActiva = \App\Models\AperturaCierreCaja::where('user_id', $user->id)
+            ->where('estado', 'abierta')
+            ->whereDate('fecha_apertura', $hoy)
+            ->with(['cajaPrincipal', 'subCaja', 'user'])
             ->first();
 
         if (!$cajaActiva) {
