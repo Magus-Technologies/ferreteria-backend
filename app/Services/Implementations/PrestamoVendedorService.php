@@ -217,26 +217,13 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         ]);
 
         try {
-            // Intentar obtener la apertura de la tabla nueva primero
             $apertura = \App\Models\AperturaCierreCaja::find($aperturaId);
-            
-            // Si no existe, buscar en la tabla legacy
+
             if (!$apertura) {
-                $aperturaLegacy = \App\Models\AperturaYCierreCaja::find($aperturaId);
-                if (!$aperturaLegacy) {
-                    throw new \Exception('Apertura de caja no encontrada');
-                }
-                
-                // Para la tabla legacy, necesitamos obtener la caja principal del usuario
-                $cajaPrincipal = \App\Models\CajaPrincipal::where('user_id', $aperturaLegacy->user_id)->first();
-                if (!$cajaPrincipal) {
-                    throw new \Exception('No se encontró caja principal para el usuario');
-                }
-                
-                $cajaPrincipalId = $cajaPrincipal->id;
-            } else {
-                $cajaPrincipalId = $apertura->caja_principal_id;
+                throw new \Exception('Apertura de caja no encontrada');
             }
+
+            $cajaPrincipalId = $apertura->caja_principal_id;
             
             Log::info('✅ Apertura encontrada', [
                 'caja_principal_id' => $cajaPrincipalId,
@@ -437,25 +424,13 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 
     public function calcularEfectivoDisponible(string $aperturaId, int|string $vendedorId): float
     {
-        // Obtener la apertura para saber la caja principal
         $apertura = \App\Models\AperturaCierreCaja::find($aperturaId);
-        
+
         if (!$apertura) {
-            // Intentar con tabla legacy
-            $aperturaLegacy = \App\Models\AperturaYCierreCaja::find($aperturaId);
-            if (!$aperturaLegacy) {
-                return 0;
-            }
-            
-            $cajaPrincipal = \App\Models\CajaPrincipal::where('user_id', $aperturaLegacy->user_id)->first();
-            if (!$cajaPrincipal) {
-                return 0;
-            }
-            
-            $cajaPrincipalId = $cajaPrincipal->id;
-        } else {
-            $cajaPrincipalId = $apertura->caja_principal_id;
+            return 0;
         }
+
+        $cajaPrincipalId = $apertura->caja_principal_id;
 
         // Verificar que el vendedor tenga distribución
         $distribucion = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaId)

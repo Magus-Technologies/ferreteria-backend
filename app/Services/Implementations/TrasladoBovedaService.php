@@ -24,24 +24,14 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
     {
         DB::beginTransaction();
         try {
-            // Intentar encontrar la apertura en la tabla nueva (apertura_cierre_caja)
             $aperturaCierre = AperturaCierreCaja::find($data['apertura_cierre_caja_id']);
 
-            if ($aperturaCierre) {
-                // Verificar que la caja esté activa (tabla nueva tiene campo estado)
-                if (isset($aperturaCierre->estado) && $aperturaCierre->estado !== 'activa' && $aperturaCierre->estado !== 'abierta') {
-                    throw new Exception('La caja no está activa. No se pueden realizar traslados.');
-                }
-            } else {
-                // Buscar en la tabla legacy (aperturaycierrecaja)
-                $aperturaCierre = \App\Models\AperturaYCierreCaja::find($data['apertura_cierre_caja_id']);
-                if (!$aperturaCierre) {
-                    throw new Exception('No se encontró la apertura de caja.');
-                }
-                // En la tabla legacy, verificar que no tenga fecha_cierre
-                if ($aperturaCierre->fecha_cierre !== null) {
-                    throw new Exception('La caja ya está cerrada. No se pueden realizar traslados.');
-                }
+            if (!$aperturaCierre) {
+                throw new Exception('No se encontró la apertura de caja.');
+            }
+
+            if (isset($aperturaCierre->estado) && $aperturaCierre->estado !== 'activa' && $aperturaCierre->estado !== 'abierta') {
+                throw new Exception('La caja no está activa. No se pueden realizar traslados.');
             }
 
             // Validar que el supervisor sea válido (solo si se provee)

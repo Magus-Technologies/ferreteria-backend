@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\CajaController;
 use App\Http\Controllers\DespliegueDePagoController;
 use App\Http\Controllers\Cajas\AperturaCajaController;
 use App\Http\Controllers\Cajas\CajaPrincipalController;
@@ -24,17 +23,6 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware('auth:sanctum')->group(function () {
-
-    // ============================================
-    // CAJA LEGACY (Compatibilidad)
-    // ============================================
-    Route::prefix('cajas')->group(function () {
-        Route::get('/consulta-apertura', [CajaController::class, 'consultaApertura']);
-        Route::post('/aperturar', [CajaController::class, 'aperturar']);
-        Route::post('/{id}/cerrar', [CajaController::class, 'cerrar']);
-        Route::get('/activa', [CajaController::class, 'cajaActiva']);
-        Route::get('/historial', [CajaController::class, 'historial']);
-    });
 
     // ============================================
     // DESPLIEGUE DE PAGO (Legacy)
