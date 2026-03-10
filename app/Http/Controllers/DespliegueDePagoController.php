@@ -30,25 +30,19 @@ class DespliegueDePagoController extends Controller
             $query->where('metodo_de_pago_id', $request->input('metodo_de_pago_id'));
         }
 
-        // Excluir métodos ya usados por sub-cajas de una caja principal específica
+        // Excluir métodos ya usados por sub-cajas de OTRAS cajas principales
         if ($request->has('exclude_used_by_caja_principal_id')) {
             $cajaPrincipalId = $request->input('exclude_used_by_caja_principal_id');
 
-            // Obtener todos los despliegue_pago_ids ya asignados a sub-cajas de esta caja principal
-            $usedConfigs = \App\Models\SubCaja::where('caja_principal_id', $cajaPrincipalId)
+            // Obtener despliegues asignados en sub-cajas de OTRAS cajas principales
+            $usedConfigs = \App\Models\SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
                 ->where('estado', true)
                 ->get()
                 ->pluck('despliegues_pago_ids');
 
-            $usedIds = $usedConfigs->flatten()->filter()->unique()->toArray();
-            $hasWildcard = $usedConfigs->map(fn($ids) => in_array('*', (array)$ids))->contains(true);
+            $usedIds = $usedConfigs->flatten()->filter(fn($id) => $id !== '*')->unique()->toArray();
 
-            // Validar exclusividad de métodos de pago
-            if ($hasWildcard) {
-                // Si ya hay una caja que acepta TODO (*), no permitir ningún método adicional
-                $query->whereRaw('1 = 0');
-            } elseif (!empty($usedIds)) {
-                // Excluir todos los métodos ya usados, incluyendo efectivo (sin excepciones)
+            if (!empty($usedIds)) {
                 $query->whereNotIn('id', $usedIds);
             }
         }

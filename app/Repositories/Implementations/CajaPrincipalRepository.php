@@ -54,14 +54,11 @@ class CajaPrincipalRepository implements CajaPrincipalRepositoryInterface
 
     public function generarSiguienteCodigo(): string
     {
-        $ultimaCaja = CajaPrincipal::orderBy('id', 'desc')->first();
+        $maxNumero = CajaPrincipal::whereRaw("codigo REGEXP '^V[0-9]+$'")
+            ->selectRaw('MAX(CAST(SUBSTRING(codigo, 2) AS UNSIGNED)) as max_num')
+            ->value('max_num');
 
-        if (! $ultimaCaja) {
-            return 'V01';
-        }
-
-        $ultimoNumero = (int) substr($ultimaCaja->codigo, 1);
-        $nuevoNumero = $ultimoNumero + 1;
+        $nuevoNumero = ($maxNumero ?? 0) + 1;
 
         return 'V'.str_pad($nuevoNumero, 2, '0', STR_PAD_LEFT);
     }

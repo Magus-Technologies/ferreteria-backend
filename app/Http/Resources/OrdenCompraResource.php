@@ -51,6 +51,7 @@ class OrdenCompraResource extends JsonResource
                 ];
             }),
             'almacen_id' => $this->almacen_id,
+            'compra_id' => \App\Models\Compra::where('orden_compra_id', $this->id)->value('id'),
             'productos' => $this->whenLoaded('productos', function () {
                 return $this->productos->map(function ($prod) {
                     return [
@@ -61,6 +62,7 @@ class OrdenCompraResource extends JsonResource
                         'marca' => $prod->marca,
                         'unidad' => $prod->unidad,
                         'cantidad' => (float) $prod->cantidad,
+                        'cantidad_pendiente' => (float) $prod->cantidad_pendiente,
                         'precio' => (float) $prod->precio,
                         'subtotal' => (float) $prod->subtotal,
                         'flete' => (float) $prod->flete,

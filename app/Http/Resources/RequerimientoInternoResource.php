@@ -39,7 +39,9 @@ class RequerimientoInternoResource extends JsonResource
                     return [
                         'id' => $prod->id,
                         'producto_id' => $prod->producto_id,
+                        'nombre_adicional' => $prod->nombre_adicional,
                         'cantidad' => (float) $prod->cantidad,
+                        'cantidad_pendiente' => (float) ($prod->cantidad_pendiente ?? $prod->cantidad),
                         'unidad' => $prod->unidad,
                         'producto' => $prod->producto ? [
                             'id' => $prod->producto->id,

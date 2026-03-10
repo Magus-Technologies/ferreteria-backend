@@ -163,50 +163,79 @@ class SubCajaRepository implements SubCajaRepositoryInterface
         array $desplieguePagoIds,
         ?string $excludeId = null
     ): void {
-        // ACTUALIZADO: Validar exclusividad de métodos de pago
-        // EXCEPCIÓN: El efectivo puede ser compartido entre múltiples sub-cajas
-        
-        $metodosRestringidos = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
+        // EXCEPCIÓN: El efectivo siempre puede ser compartido
+        if (in_array('*', $desplieguePagoIds)) {
+            // Si elige "*", validar que NINGUNA OTRA Caja Principal tenga métodos asignados (excepto efectivo)
+            $otrasSubCajasConMetodos = SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
+                ->where('estado', 1)
+                ->get();
+            
+            foreach ($otrasSubCajasConMetodos as $osc) {
+                $ids = $osc->despliegues_pago_ids ?? [];
+                if (empty($ids)) continue;
+                
+                if (in_array('*', $ids)) {
+                    throw new \Exception("No puede asignar 'TODOS' los métodos porque la Caja Principal '{$osc->cajaPrincipal->nombre}' ya tiene asignados 'TODOS' los métodos.");
+                }
+                
+                // Verificar si tiene algo que no sea efectivo
+                $tieneNoEfectivo = \App\Models\DespliegueDePago::whereIn('id', $ids)
+                    ->where('name', 'not like', '%efectivo%')
+                    ->exists();
+                
+                if ($tieneNoEfectivo) {
+                    throw new \Exception("No puede asignar 'TODOS' los métodos porque la Caja Principal '{$osc->cajaPrincipal->nombre}' ya tiene métodos de pago específicos asignados.");
+                }
+            }
+            return;
+        }
+
+        $metodosSolicitados = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
             ->with('metodoDePago')
             ->get();
 
-        if ($metodosRestringidos->isEmpty()) {
-            return; // No hay métodos para validar
-        }
+        foreach ($metodosSolicitados as $ds) {
+            $nombreMetodoSolicitado = strtolower($ds->name ?? '');
+            if (str_contains($nombreMetodoSolicitado, 'efectivo')) continue;
 
-        // Consultamos todas las Sub-Cajas de esta caja principal
-        $query = SubCaja::where('caja_principal_id', $cajaPrincipalId);
+            $mpId = $ds->metodo_de_pago_id;
 
-        if ($excludeId) {
-            $query->where('id', '!=', $excludeId);
-        }
+            // 1. Validar contra OTRAS Cajas Principales
+            $otrasSubCajas = SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
+                ->where('estado', 1)
+                ->get();
 
-        $subCajasExistentes = $query->get();
-
-        foreach ($metodosRestringidos as $despliegueSolicitado) {
-            // EXCEPCIÓN: Permitir que el efectivo sea compartido
-            $nombreMetodo = strtolower($despliegueSolicitado->name ?? '');
-            $esEfectivo = str_contains($nombreMetodo, 'efectivo');
-            
-            if ($esEfectivo) {
-                continue; // El efectivo puede ser usado por múltiples sub-cajas
-            }
-
-            foreach ($subCajasExistentes as $subCaja) {
-                // Verificamos si la Sub-Caja tiene este despliegue dentro de su array JSON ids
-                $idsExistentes = $subCaja->despliegues_pago_ids ?? [];
-
-                // Si la sub-caja tiene "*" (todos los métodos), significa que usa TODOS
-                if (in_array('*', $idsExistentes)) {
-                    $nombreMetodoDisplay = $despliegueSolicitado->metodoDePago->name ?? 'Desconocido';
-                    $nombreSubCaja = $subCaja->nombre;
-                    throw new \Exception("El método de pago '{$nombreMetodoDisplay}' ya está siendo usado por la caja '{$nombreSubCaja}' que acepta TODOS los métodos. No se puede asignar a otra sub-caja.");
+            foreach ($otrasSubCajas as $osc) {
+                if (in_array('*', $osc->despliegues_pago_ids)) {
+                    throw new \Exception("El método '{$ds->name}' ya está reservado por la Caja Principal '{$osc->cajaPrincipal->nombre}' (que tiene todos los métodos).");
                 }
 
-                if (in_array($despliegueSolicitado->id, $idsExistentes)) {
-                    $nombreMetodoDisplay = $despliegueSolicitado->metodoDePago->name ?? 'Desconocido';
-                    $nombreSubCaja = $subCaja->nombre;
-                    throw new \Exception("El método de pago '{$nombreMetodoDisplay}' ya está siendo usado exclusivamente por la caja '{$nombreSubCaja}'. Cada método de pago solo puede ser asignado a una sub-caja.");
+                if (in_array($ds->id, $osc->despliegues_pago_ids ?? [])) {
+                    throw new \Exception("El método de pago '{$ds->name}' ya está siendo usado por la Caja Principal '{$osc->cajaPrincipal->nombre}'.");
+                }
+                
+                // También verificar si la otra caja usa OTRO despliegue pero del MISMO MetodoDePago
+                $mismoMetodoEnOtraCaja = \App\Models\DespliegueDePago::whereIn('id', $osc->despliegues_pago_ids ?? [])
+                    ->where('metodo_de_pago_id', $mpId)
+                    ->exists();
+                
+                if ($mismoMetodoEnOtraCaja) {
+                    throw new \Exception("El banco/método '{$ds->metodoDePago->name}' ya está vinculado a la Caja Principal '{$osc->cajaPrincipal->nombre}'. Un método de pago debe ser exclusivo de una sola Caja Principal.");
+                }
+            }
+
+            // 2. Validar contra la MISMA Caja Principal (Exclusividad interna entre sub-cajas)
+            $mismaCajaSubCajas = SubCaja::where('caja_principal_id', $cajaPrincipalId)
+                ->where('id', '!=', $excludeId)
+                ->get();
+
+            foreach ($mismaCajaSubCajas as $msc) {
+                if (in_array('*', $msc->despliegues_pago_ids ?? [])) {
+                    throw new \Exception("El método '{$ds->name}' ya está en uso por la sub-caja '{$msc->nombre}' de esta misma Caja Principal.");
+                }
+
+                if (in_array($ds->id, $msc->despliegues_pago_ids ?? [])) {
+                    throw new \Exception("El método '{$ds->name}' ya está asignado a la sub-caja '{$msc->nombre}'.");
                 }
             }
         }

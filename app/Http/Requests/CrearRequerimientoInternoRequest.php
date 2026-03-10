@@ -13,6 +13,8 @@ class CrearRequerimientoInternoRequest extends FormRequest
 
     public function rules(): array
     {
+        $tipoSolicitud = $this->input('tipo_solicitud');
+
         return [
             'titulo' => ['required', 'string', 'max:255'],
             'area' => ['required', 'string', 'max:100'],
@@ -22,13 +24,21 @@ class CrearRequerimientoInternoRequest extends FormRequest
             'observaciones' => ['nullable', 'string'],
             'proveedor_sugerido_id' => ['nullable', 'integer', 'exists:proveedor,id'],
             // OC - Productos
-            'productos' => ['required_if:tipo_solicitud,OC', 'array'],
-            'productos.*.producto_id' => ['required_with:productos', 'integer', 'exists:producto,id'],
+            'productos' => [
+                $tipoSolicitud === 'OC' ? 'required' : 'nullable',
+                'array',
+                $tipoSolicitud === 'OC' ? 'min:1' : 'nullable',
+            ],
+            'productos.*.producto_id' => ['nullable', 'integer', 'exists:producto,id'],
+            'productos.*.nombre_adicional' => ['nullable', 'string', 'max:255'],
             'productos.*.cantidad' => ['required_with:productos', 'numeric', 'min:0.001'],
             'productos.*.unidad' => ['nullable', 'string', 'max:50'],
             // OS - Servicio
-            'servicio' => ['required_if:tipo_solicitud,OS', 'array'],
-            'servicio.descripcion_servicio' => ['required_with:servicio', 'string'],
+            'servicio' => [
+                $tipoSolicitud === 'OS' ? 'required' : 'nullable',
+                'array',
+            ],
+            'servicio.descripcion_servicio' => [$tipoSolicitud === 'OS' ? 'required' : 'nullable', 'string'],
             'servicio.tipo_servicio' => ['nullable', 'string', 'max:100'],
             'servicio.lugar_ejecucion' => ['nullable', 'string', 'max:255'],
             'servicio.fecha_inicio_estimada' => ['nullable', 'date'],
@@ -47,11 +57,12 @@ class CrearRequerimientoInternoRequest extends FormRequest
             'tipo_solicitud.required' => 'El tipo de solicitud es requerido',
             'tipo_solicitud.in' => 'El tipo de solicitud debe ser OC u OS',
             'prioridad.in' => 'La prioridad debe ser BAJA, MEDIA, ALTA o URGENTE',
-            'productos.required_if' => 'Los productos son requeridos para solicitudes de tipo OC',
+            'productos.required' => 'Los productos son requeridos para solicitudes de tipo OC',
+            'productos.min' => 'Debe agregar al menos un producto',
             'productos.*.producto_id.exists' => 'El producto seleccionado no existe',
             'productos.*.cantidad.min' => 'La cantidad debe ser mayor a 0',
-            'servicio.required_if' => 'Los datos del servicio son requeridos para solicitudes de tipo OS',
-            'servicio.descripcion_servicio.required_with' => 'La descripción del servicio es obligatoria',
+            'servicio.required' => 'Los datos del servicio son requeridos para solicitudes de tipo OS',
+            'servicio.descripcion_servicio.required' => 'La descripción del servicio es obligatoria',
         ];
     }
 }

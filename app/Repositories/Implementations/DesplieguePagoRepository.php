@@ -3,6 +3,7 @@
 namespace App\Repositories\Implementations;
 
 use App\Models\DespliegueDePago;
+use App\Models\SubCaja;
 use App\Repositories\Interfaces\DesplieguePagoRepositoryInterface;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -13,19 +14,43 @@ class DesplieguePagoRepository implements DesplieguePagoRepositoryInterface
         return DespliegueDePago::with('metodoDePago')->find($id);
     }
 
-    public function getAll(): Collection
+    public function getAll(?int $cajaPrincipalId = null): Collection
     {
-        return DespliegueDePago::with('metodoDePago')
-            ->orderBy('name', 'asc')
-            ->get();
+        $query = DespliegueDePago::with('metodoDePago')->orderBy('name', 'asc');
+        $this->aplicarFiltroDisponibles($query, $cajaPrincipalId);
+        return $query->get();
     }
 
-    public function getAllMostrar(): Collection
+    public function getAllMostrar(?int $cajaPrincipalId = null): Collection
     {
-        return DespliegueDePago::with('metodoDePago')
+        $query = DespliegueDePago::with('metodoDePago')
             ->where('mostrar', 1)
-            ->orderBy('name', 'asc')
-            ->get();
+            ->orderBy('name', 'asc');
+        $this->aplicarFiltroDisponibles($query, $cajaPrincipalId);
+        return $query->get();
+    }
+
+    /**
+     * Si se recibe caja_principal_id, excluye despliegues ya asignados a
+     * sub-cajas de OTRAS cajas principales.
+     */
+    private function aplicarFiltroDisponibles($query, ?int $cajaPrincipalId): void
+    {
+        if (!$cajaPrincipalId) {
+            return;
+        }
+
+        // IDs de despliegues usados por sub-cajas de OTRAS cajas principales
+        $usados = SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
+            ->get()
+            ->flatMap(fn($sc) => $sc->despliegues_pago_ids ?? [])
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (!empty($usados)) {
+            $query->whereNotIn('id', $usados);
+        }
     }
 
     public function create(array $data): DespliegueDePago

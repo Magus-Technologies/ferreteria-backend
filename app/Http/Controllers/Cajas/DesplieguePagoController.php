@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Cajas\DesplieguePagoResource;
 use App\Repositories\Interfaces\DesplieguePagoRepositoryInterface;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class DesplieguePagoController extends Controller
 {
@@ -14,12 +15,14 @@ class DesplieguePagoController extends Controller
     ) {}
 
     /**
-     * Listar todos los métodos de pago
+     * Listar todos los métodos de pago.
+     * Acepta ?caja_principal_id=X para excluir despliegues ya usados por otras cajas.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
-            $metodosPago = $this->desplieguePagoRepository->getAll();
+            $cajaPrincipalId = $request->query('caja_principal_id') ? (int) $request->query('caja_principal_id') : null;
+            $metodosPago = $this->desplieguePagoRepository->getAll($cajaPrincipalId);
 
             return response()->json([
                 'success' => true,
@@ -35,12 +38,14 @@ class DesplieguePagoController extends Controller
     }
 
     /**
-     * Listar métodos de pago visibles (mostrar = 1)
+     * Listar métodos de pago visibles (mostrar = 1).
+     * Acepta ?caja_principal_id=X para excluir despliegues ya usados por otras cajas.
      */
-    public function mostrar(): JsonResponse
+    public function mostrar(Request $request): JsonResponse
     {
         try {
-            $metodosPago = $this->desplieguePagoRepository->getAllMostrar();
+            $cajaPrincipalId = $request->query('caja_principal_id') ? (int) $request->query('caja_principal_id') : null;
+            $metodosPago = $this->desplieguePagoRepository->getAllMostrar($cajaPrincipalId);
 
             return response()->json([
                 'success' => true,

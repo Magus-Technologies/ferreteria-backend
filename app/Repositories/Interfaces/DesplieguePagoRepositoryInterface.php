@@ -9,9 +9,9 @@ interface DesplieguePagoRepositoryInterface
 {
     public function findById(string $id): ?DespliegueDePago;
     
-    public function getAll(): Collection;
-    
-    public function getAllMostrar(): Collection;
+    public function getAll(?int $cajaPrincipalId = null): Collection;
+
+    public function getAllMostrar(?int $cajaPrincipalId = null): Collection;
     
     public function create(array $data): DespliegueDePago;
     

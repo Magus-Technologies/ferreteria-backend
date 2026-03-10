@@ -13,11 +13,13 @@ class OrdenCompraProducto extends Model
     protected $fillable = [
         'orden_compra_id',
         'producto_id',
+        'requerimiento_interno_producto_id',
         'codigo',
         'nombre',
         'marca',
         'unidad',
         'cantidad',
+        'cantidad_pendiente',
         'precio',
         'subtotal',
         'flete',
@@ -29,6 +31,7 @@ class OrdenCompraProducto extends Model
     {
         return [
             'cantidad' => 'decimal:3',
+            'cantidad_pendiente' => 'decimal:3',
             'precio' => 'decimal:4',
             'subtotal' => 'decimal:2',
             'flete' => 'decimal:2',
@@ -44,5 +47,10 @@ class OrdenCompraProducto extends Model
     public function producto(): BelongsTo
     {
         return $this->belongsTo(Producto::class);
+    }
+
+    public function requerimientoInternoProducto(): BelongsTo
+    {
+        return $this->belongsTo(RequerimientoInternoProducto::class, 'requerimiento_interno_producto_id');
     }
 }

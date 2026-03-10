@@ -85,6 +85,11 @@ class OrdenCompra extends Model
         return $this->belongsTo(EgresoDinero::class, 'egreso_dinero_id');
     }
 
+    public function compras(): HasMany
+    {
+        return $this->hasMany(Compra::class, 'orden_compra_id');
+    }
+
     // ============= HELPERS =============
 
     /**
