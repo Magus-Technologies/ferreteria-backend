@@ -6,6 +6,7 @@ use App\Services\Pdf\CompraPdfService;
 use App\Services\Pdf\CotizacionPdfService;
 use App\Services\Pdf\GuiaPdfService;
 use App\Services\Pdf\PrestamoPdfService;
+use App\Services\Pdf\ValeCompraPdfService;
 use App\Services\Pdf\VentaPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -39,5 +40,10 @@ class PdfController extends Controller
     {
         $formato = $request->query('formato', 'a4');
         return $service->generar($id, $formato);
+    }
+
+    public function vale(int $id, ValeCompraPdfService $service): Response
+    {
+        return $service->generar($id);
     }
 }
