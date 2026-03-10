@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\EstadoDeCompra;
 use App\Enums\EstadoDeCompraDefinitiva;
 use App\Enums\FormaDePago;
 use App\Enums\TipoMoneda;
@@ -313,7 +314,7 @@ class CompraController extends Controller
                 $orden = OrdenCompra::find($validated['orden_compra_id']);
                 
                 if ($orden->estado->value === 'pendiente') {
-                    $orden->update(['estado' => EstadoDeCompra::EN_PROCESO]);
+                    $orden->update(['estado' => EstadoDeCompra::Procesado]);
                 }
             }
 
