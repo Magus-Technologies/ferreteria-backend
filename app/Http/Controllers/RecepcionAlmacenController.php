@@ -10,6 +10,8 @@ use App\Models\UnidadDerivadaInmutableCompra;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenCompra;
+use App\Enums\EstadoDeCompra;
+use App\Enums\EstadoDeCompraDefinitiva;
 use App\Services\Cache\ProductoCacheService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -61,6 +63,7 @@ class RecepcionAlmacenController extends Controller
         $query = RecepcionAlmacen::with([
             'compra.proveedor',
             'compra.almacen',
+            'compra.ordenCompra:id,codigo,estado',
             'ordenCompra.proveedor',
             'ordenCompra.almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
@@ -106,13 +109,18 @@ class RecepcionAlmacenController extends Controller
         // Filtrar solo órdenes de compra aprobadas (en_proceso o completada)
         // Soporta tanto Compra antigua como OrdenCompra nueva
         $query->where(function ($q) {
-            // Recepciones vinculadas a Compra antigua
             $q->whereHas('compra', function ($subQ) {
-                $subQ->whereIn('estado_de_compra', ['en_proceso', 'completada']);
+                $subQ->whereIn('estado_de_compra', [
+                    EstadoDeCompraDefinitiva::Creado,
+                    EstadoDeCompraDefinitiva::EnEspera,
+                    EstadoDeCompraDefinitiva::Procesado
+                ]);
             })
-            // O recepciones vinculadas a OrdenCompra nueva
             ->orWhereHas('ordenCompra', function ($subQ) {
-                $subQ->whereIn('estado', ['en_proceso', 'completada']);
+                $subQ->whereIn('estado', [
+                    EstadoDeCompra::EnProceso,
+                    EstadoDeCompra::Completada
+                ]);
             });
         });
 
@@ -132,6 +140,8 @@ class RecepcionAlmacenController extends Controller
         $recepcion = RecepcionAlmacen::with([
             'compra.proveedor',
             'compra.almacen',
+            'ordenCompra.proveedor',
+            'ordenCompra.almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
@@ -165,7 +175,8 @@ class RecepcionAlmacenController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'compra_id' => 'required|string|exists:compra,id',
+            'compra_id' => 'required_without:orden_compra_id|nullable|string|exists:compra,id',
+            'orden_compra_id' => 'required_without:compra_id|nullable|integer|exists:ordenes_compra,id',
             'user_id' => 'required|string|exists:user,id',
             'fecha' => 'required|date',
             'observaciones' => 'nullable|string',
@@ -189,8 +200,9 @@ class RecepcionAlmacenController extends Controller
             'productos_por_almacen.*.unidades_derivadas.*.flete' => 'nullable|numeric',
             'productos_por_almacen.*.unidades_derivadas.*.bonificacion' => 'nullable|boolean',
         ], [
-            'compra_id.required' => 'La compra es requerida',
-            'compra_id.exists' => 'La compra no existe',
+            'compra_id.required_without' => 'Debe proporcionar una Compra o una Orden de Compra',
+            'orden_compra_id.required_without' => 'Debe proporcionar una Compra o una Orden de Compra',
+            'user_id.required' => 'El usuario es requerido',
             'productos_por_almacen.required' => 'Debe incluir al menos un producto',
         ]);
 
@@ -213,6 +225,7 @@ class RecepcionAlmacenController extends Controller
                 $recepcion = RecepcionAlmacen::create([
                     'numero' => $numero,
                     'compra_id' => $request->compra_id,
+                    'orden_compra_id' => $request->orden_compra_id,
                     'user_id' => $request->user_id,
                     'fecha' => $request->fecha,
                     'observaciones' => $request->observaciones,
@@ -233,7 +246,7 @@ class RecepcionAlmacenController extends Controller
                     $costo = $productoData['costo'];
 
                     // Obtener producto_almacen_id
-                    $productoAlmacen = ProductoAlmacen::where('producto_id', $productoId)
+                    $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $productoId)
                         ->where('almacen_id', $almacenId)
                         ->first();
 
@@ -242,19 +255,22 @@ class RecepcionAlmacenController extends Controller
                     }
 
                     // Crear ProductoAlmacenRecepcion
-                    $productoRecepcion = ProductoAlmacenRecepcion::create([
+                    $productoRecepcion = \App\Models\ProductoAlmacenRecepcion::create([
                         'recepcion_id' => $recepcion->id,
                         'costo' => $costo,
                         'producto_almacen_id' => $productoAlmacen->id,
                     ]);
 
-                    // Obtener ProductoAlmacenCompra para decrementar cantidad_pendiente
-                    $productoCompra = ProductoAlmacenCompra::where('compra_id', $request->compra_id)
-                        ->where('producto_almacen_id', $productoAlmacen->id)
-                        ->first();
-
-                    if (!$productoCompra) {
-                        throw new \Exception("No se encontró el producto de la compra");
+                    // Referencia para decrementar cantidad_pendiente (Compra o OrdenCompra)
+                    $refProductoDoc = null;
+                    if ($request->compra_id) {
+                        $refProductoDoc = \App\Models\ProductoAlmacenCompra::where('compra_id', $request->compra_id)
+                            ->where('producto_almacen_id', $productoAlmacen->id)
+                            ->first();
+                    } else if ($request->orden_compra_id) {
+                        $refProductoDoc = \App\Models\OrdenCompraProducto::where('orden_compra_id', $request->orden_compra_id)
+                            ->where('producto_id', $productoId)
+                            ->first();
                     }
 
                     // Stock actual antes de procesar
@@ -263,8 +279,7 @@ class RecepcionAlmacenController extends Controller
 
                     // 4. Procesar cada unidad derivada
                     foreach ($productoData['unidades_derivadas'] as $udData) {
-                        // connectOrCreate: buscar o crear UnidadDerivadaInmutable
-                        $unidadInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                        $unidadInmutable = \App\Models\UnidadDerivadaInmutable::firstOrCreate(
                             ['name' => $udData['unidad_derivada_name']],
                             ['name' => $udData['unidad_derivada_name']]
                         );
@@ -277,7 +292,7 @@ class RecepcionAlmacenController extends Controller
                         $vencimiento = $udData['vencimiento'] ?? null;
 
                         // Crear UnidadDerivadaInmutableRecepcion
-                        $udRecepcion = UnidadDerivadaInmutableRecepcion::create([
+                        $udRecepcion = \App\Models\UnidadDerivadaInmutableRecepcion::create([
                             'unidad_derivada_inmutable_id' => $unidadInmutable->id,
                             'producto_almacen_recepcion_id' => $productoRecepcion->id,
                             'factor' => $factor,
@@ -289,17 +304,33 @@ class RecepcionAlmacenController extends Controller
                             'bonificacion' => $bonificacion,
                         ]);
 
-                        // Decrementar cantidad_pendiente en la compra
-                        UnidadDerivadaInmutableCompra::where('producto_almacen_compra_id', $productoCompra->id)
-                            ->where('unidad_derivada_inmutable_id', $unidadInmutable->id)
-                            ->where('bonificacion', $bonificacion)
-                            ->decrement('cantidad_pendiente', $cantidad);
+                        // DECREMENTAR cantidad_pendiente
+                        if ($request->compra_id && $refProductoDoc) {
+                            \App\Models\UnidadDerivadaInmutableCompra::where('producto_almacen_compra_id', $refProductoDoc->id)
+                                ->where('unidad_derivada_inmutable_id', $unidadInmutable->id)
+                                ->where('bonificacion', $bonificacion)
+                                ->decrement('cantidad_pendiente', $cantidad);
+
+                            // Si la compra viene de una OC, buscar el producto de la OC y actualizar su pendiente
+                            $compraActual = DB::table('compra')->where('id', $request->compra_id)->first();
+                            if ($compraActual && $compraActual->orden_compra_id) {
+                                \App\Models\OrdenCompraProducto::where('orden_compra_id', $compraActual->orden_compra_id)
+                                    ->where('producto_id', $productoId)
+                                    ->decrement('cantidad_pendiente', $cantidad);
+                            }
+                        } else if ($request->orden_compra_id && $refProductoDoc) {
+                            // En OrdenCompraProducto, cantidad_pendiente está en la misma tabla del producto
+                            // Validar que la unidad coincida (Orden de Compra simplificada asume una unidad principal)
+                            if ($refProductoDoc->unidad === $udData['unidad_derivada_name']) {
+                                $refProductoDoc->decrement('cantidad_pendiente', $cantidad);
+                            }
+                        }
 
                         // Crear historial de stock
                         $stockInicial = $stockBase + $acumulado;
                         $cantidadTotal = $cantidad * $factor;
 
-                        HistorialUnidadDerivadaInmutableRecepcion::create([
+                        \App\Models\HistorialUnidadDerivadaInmutableRecepcion::create([
                             'unidad_derivada_inmutable_recepcion_id' => $udRecepcion->id,
                             'stock_anterior' => $stockInicial,
                             'stock_nuevo' => $stockInicial + $cantidadTotal,
@@ -311,10 +342,8 @@ class RecepcionAlmacenController extends Controller
                     // 5. Actualizar stock y costo del producto
                     $cantidadTotalProducto = $acumulado;
 
-                    // manejoDeCosto: si stock <= 0, actualizar costo
                     $nuevoCosto = null;
                     if ($stockBase <= 0) {
-                        // Si todas las unidades son bonificación, costo = 0
                         $todasBonificacion = collect($productoData['unidades_derivadas'])
                             ->every(fn($ud) => $ud['bonificacion'] ?? false);
                         $nuevoCosto = $todasBonificacion ? 0 : $costo;
@@ -327,31 +356,46 @@ class RecepcionAlmacenController extends Controller
                         $updateData['costo'] = $nuevoCosto;
                     }
 
-                    ProductoAlmacen::where('id', $productoAlmacen->id)
+                    \App\Models\ProductoAlmacen::where('id', $productoAlmacen->id)
                         ->update($updateData);
 
-                    // Invalidar cache de productos
-                    app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+                    app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
                 }
 
-                // 6. Verificar si quedan productos pendientes en la compra
-                $existePendiente = UnidadDerivadaInmutableCompra::whereHas('productoAlmacenCompra', function ($q) use ($request) {
-                    $q->where('compra_id', $request->compra_id);
-                })->where('cantidad_pendiente', '>', 0)->exists();
+                // 6. Verificar si quedan productos pendientes
+                $existePendiente = false;
+                if ($request->compra_id) {
+                    $existePendiente = \App\Models\UnidadDerivadaInmutableCompra::whereHas('productoAlmacenCompra', function ($q) use ($request) {
+                        $q->where('compra_id', $request->compra_id);
+                    })->where('cantidad_pendiente', '>', 0)->exists();
 
-                // 7. Si no hay pendientes, marcar compra como Procesada
-                if (!$existePendiente) {
-                    DB::table('compra')
-                        ->where('id', $request->compra_id)
-                        ->update(['estado_de_compra' => 'completada']);
+                    if (!$existePendiente) {
+                        DB::table('compra')->where('id', $request->compra_id)->update(['estado_de_compra' => EstadoDeCompraDefinitiva::Procesado]);
+                        
+                        // Si la compra tiene una orden_compra_id, actualizar también la orden
+                        $compraActual = DB::table('compra')->where('id', $request->compra_id)->first();
+                        if ($compraActual && $compraActual->orden_compra_id) {
+                            \App\Models\OrdenCompra::where('id', $compraActual->orden_compra_id)
+                                ->update(['estado' => EstadoDeCompra::Completada]);
+                        }
+                    }
+                } else if ($request->orden_compra_id) {
+                    $existePendiente = \App\Models\OrdenCompraProducto::where('orden_compra_id', $request->orden_compra_id)
+                        ->where('cantidad_pendiente', '>', 0)
+                        ->exists();
+
+                    if (!$existePendiente) {
+                        \App\Models\OrdenCompra::where('id', $request->orden_compra_id)->update(['estado' => EstadoDeCompra::Completada]);
+                    }
                 }
 
                 return $recepcion;
             });
 
-            // Cargar relaciones para la respuesta
             $result->load([
                 'compra.proveedor',
+                'compra.ordenCompra:id,codigo,estado',
+                'ordenCompra.proveedor',
                 'productosPorAlmacen.productoAlmacen.producto',
                 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                 'user',

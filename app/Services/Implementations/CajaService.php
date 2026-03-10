@@ -12,7 +12,9 @@ use App\Repositories\Interfaces\CajaPrincipalRepositoryInterface;
 use App\Repositories\Interfaces\SubCajaRepositoryInterface;
 use App\Services\Interfaces\CajaServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class CajaService implements CajaServiceInterface
@@ -56,36 +58,10 @@ class CajaService implements CajaServiceInterface
 
     private function crearCajaChicaAutomatica(int $cajaPrincipalId, string $codigoCajaPrincipal): SubCaja
     {
-        // Buscar el despliegue de pago "Efectivo"
-        $desplieguePagoEfectivo = DespliegueDePago::where('name', 'Efectivo')
-            ->where('activo', true)
-            ->where('mostrar', true)
-            ->first();
+        $desplieguePagoEfectivo = $this->encontrarDespliegueEfectivoDisponible();
 
         if (!$desplieguePagoEfectivo) {
-            // Si no existe, intentar crear el método de pago y despliegue automáticamente
-            \Log::warning('No se encontró despliegue de pago Efectivo, creando automáticamente...');
-            
-            // Crear método de pago Efectivo
-            $metodoPagoEfectivo = \App\Models\MetodoDePago::firstOrCreate(
-                ['name' => 'Efectivo'],
-                [
-                    'id' => (string) \Illuminate\Support\Str::ulid(),
-                    'cuenta_bancaria' => null,
-                    'monto' => 0.00,
-                    'activo' => true,
-                ]
-            );
-
-            // Crear despliegue de pago Efectivo
-            $desplieguePagoEfectivo = DespliegueDePago::create([
-                'id' => (string) \Illuminate\Support\Str::ulid(),
-                'name' => 'Efectivo',
-                'metodo_de_pago_id' => $metodoPagoEfectivo->id,
-                'adicional' => 0.00,
-                'activo' => true,
-                'mostrar' => true,
-            ]);
+            $desplieguePagoEfectivo = $this->crearNuevoDespliegueEfectivo();
         }
 
         $codigo = $codigoCajaPrincipal . '-001';
@@ -103,6 +79,58 @@ class CajaService implements CajaServiceInterface
         ]);
     }
 
+    /**
+     * Busca un despliegue de tipo efectivo que no esté ya asignado a ninguna caja chica existente.
+     */
+    private function encontrarDespliegueEfectivoDisponible(): ?DespliegueDePago
+    {
+        // IDs de despliegues ya consumidos por cajas chicas existentes
+        $usados = SubCaja::where('tipo_caja', 'CC')
+            ->get()
+            ->flatMap(fn($sc) => $sc->despliegues_pago_ids ?? [])
+            ->unique()
+            ->values()
+            ->toArray();
+
+        return DespliegueDePago::where('activo', true)
+            ->where('mostrar', true)
+            ->where(function ($q) {
+                $q->where('name', 'like', '%Efectivo%')
+                  ->orWhereHas('metodoDePago', fn($mq) => $mq->where('name', 'like', '%Efectivo%'));
+            })
+            ->whereNotIn('id', $usados)
+            ->first();
+    }
+
+    /**
+     * Crea un nuevo MetodoDePago y DespliegueDePago de tipo efectivo con nombre incremental.
+     */
+    private function crearNuevoDespliegueEfectivo(): DespliegueDePago
+    {
+        $count = \App\Models\MetodoDePago::where('name', 'like', '%Efectivo%')->count();
+        $nuevoNombre = $count > 0 ? 'Efectivo' . ($count + 1) : 'Efectivo';
+
+        Log::info("Creando nuevo método de pago efectivo: {$nuevoNombre}");
+
+        $metodoPago = \App\Models\MetodoDePago::create([
+            'id'           => (string) Str::ulid(),
+            'name'         => $nuevoNombre,
+            'cuenta_bancaria' => null,
+            'monto'        => 0.00,
+            'monto_inicial' => 0.00,
+            'activo'       => true,
+        ]);
+
+        return DespliegueDePago::create([
+            'id'               => (string) Str::ulid(),
+            'name'             => $nuevoNombre,
+            'metodo_de_pago_id' => $metodoPago->id,
+            'adicional'        => 0.00,
+            'activo'           => true,
+            'mostrar'          => true,
+        ]);
+    }
+
     public function crearSubCaja(int $cajaPrincipalId, array $data): SubCaja
     {
         return DB::transaction(function () use ($cajaPrincipalId, $data) {
@@ -113,7 +141,13 @@ class CajaService implements CajaServiceInterface
             }
 
             // NUEVO: Validar exclusividad de métodos de pago
-            // Caso 1: Si se intenta crear con "*" (todos), verificar que NO haya sub-cajas existentes
+            // Validar contra otras cajas principales y sub-cajas
+            $this->subCajaRepository->validarExclusividadMetodosPago(
+                $cajaPrincipalId,
+                $data['despliegues_pago_ids']
+            );
+
+            // Caso específico para "*": no permitir si ya hay otras sub-cajas manuales en la MISMA caja
             if (in_array('*', $data['despliegues_pago_ids'])) {
                 $subCajasExistentes = $this->subCajaRepository->findByCajaPrincipalId($cajaPrincipalId);
                 
@@ -123,15 +157,8 @@ class CajaService implements CajaServiceInterface
                 });
                 
                 if ($subCajasManuales->isNotEmpty()) {
-                    throw new \Exception('No se puede crear una sub-caja con TODOS los métodos de pago porque ya existen otras sub-cajas con métodos específicos. Elimine las sub-cajas existentes primero.');
+                    throw new \Exception('No se puede crear una sub-caja con TODOS los métodos de pago porque ya existen otras sub-cajas con métodos específicos en esta Caja Principal.');
                 }
-            }
-            // Caso 2: Si se intenta crear con métodos específicos, validar que ningún método esté en uso
-            else {
-                $this->subCajaRepository->validarExclusividadMetodosPago(
-                    $cajaPrincipalId,
-                    $data['despliegues_pago_ids']
-                );
             }
 
             // Validar configuración duplicada
@@ -202,7 +229,7 @@ class CajaService implements CajaServiceInterface
             $esEfectivo = $this->esMetodoEfectivo($metodoPago);
             
             if ($esEfectivo) {
-                \Log::info('Saltando monto_inicial para método efectivo', [
+                Log::info('Saltando monto_inicial para método efectivo', [
                     'metodo_pago_id' => $metodoPago->id,
                     'name' => $metodoPago->name,
                 ]);
@@ -223,7 +250,7 @@ class CajaService implements CajaServiceInterface
                 ->exists();
 
             if ($yaRegistrado) {
-                \Log::info('Monto inicial ya registrado para este banco en otra sub-caja', [
+                Log::info('Monto inicial ya registrado para este banco en otra sub-caja', [
                     'caja_principal_id' => $subCaja->caja_principal_id,
                     'metodo_pago_id' => $metodoPago->id,
                 ]);
@@ -249,7 +276,7 @@ class CajaService implements CajaServiceInterface
                 $transaccion = \App\Models\TransaccionCaja::create([
                     'id' => (string) Str::ulid(),
                     'sub_caja_id' => $subCaja->id,
-                    'user_id' => auth()->id() ?? $subCaja->cajaPrincipal->user_id,
+                    'user_id' => Auth::id() ?? $subCaja->cajaPrincipal->user_id,
                     'tipo_transaccion' => 'ingreso',
                     'monto' => $info['monto'],
                     'saldo_anterior' => $saldoAnterior,
@@ -266,14 +293,14 @@ class CajaService implements CajaServiceInterface
                 $subCaja->saldo_actual = $saldoNuevo;
                 $subCaja->save();
 
-                \Log::info('Monto inicial registrado exitosamente', [
+                Log::info('Monto inicial registrado exitosamente', [
                     'sub_caja_id' => $subCaja->id,
                     'metodo_pago_id' => $metodoPagoId,
                     'monto' => $info['monto'],
                     'transaccion_id' => $transaccion->id,
                 ]);
             } catch (\Exception $e) {
-                \Log::error('Error al registrar monto inicial', [
+                Log::error('Error al registrar monto inicial', [
                     'sub_caja_id' => $subCaja->id,
                     'metodo_pago_id' => $metodoPagoId,
                     'error' => $e->getMessage(),
@@ -320,6 +347,28 @@ class CajaService implements CajaServiceInterface
             // No permitir modificar Caja Chica
             if ($subCaja->tipo_caja === 'CC') {
                 throw new \Exception('No se puede modificar la Caja Chica');
+            }
+
+            // NUEVO: Validar exclusividad de métodos de pago en actualización
+            if (isset($data['despliegues_pago_ids'])) {
+                // Caso 1: Si se intenta actualizar a "*" (todos)
+                if (in_array('*', $data['despliegues_pago_ids'])) {
+                    $subCajasExistentes = $this->subCajaRepository->findByCajaPrincipalId($subCaja->caja_principal_id);
+                    $otrasSubCajasManuales = $subCajasExistentes->filter(function($sc) use ($subCajaId) {
+                        return $sc->tipo_caja === 'SC' && $sc->id != $subCajaId;
+                    });
+                    
+                    if ($otrasSubCajasManuales->isNotEmpty()) {
+                        throw new \Exception('No se puede configurar esta sub-caja con TODOS los métodos de pago porque ya existen otras sub-cajas con métodos específicos en esta Caja Principal.');
+                    }
+                }
+                
+                // Validar contra otras cajas principales y otras sub-cajas de la misma caja
+                $this->subCajaRepository->validarExclusividadMetodosPago(
+                    $subCaja->caja_principal_id,
+                    $data['despliegues_pago_ids'],
+                    $subCajaId
+                );
             }
 
             // Validar configuración duplicada (excluyendo la actual)

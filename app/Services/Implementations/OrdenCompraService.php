@@ -18,6 +18,13 @@ use App\Services\Interfaces\OrdenCompraServiceInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use App\Models\Compra;
+use App\Models\ProductoAlmacenCompra;
+use App\Models\UnidadDerivadaInmutableCompra;
+use App\Enums\TipoDocumento;
+use App\Enums\EstadoDeCompra;
+use App\Enums\EstadoDeCompraDefinitiva;
 
 class OrdenCompraService implements OrdenCompraServiceInterface
 {
@@ -92,17 +99,27 @@ class OrdenCompraService implements OrdenCompraServiceInterface
                 OrdenCompraProducto::create([
                     'orden_compra_id' => $orden->id,
                     'producto_id' => $prod['producto_id'],
+                    'requerimiento_interno_producto_id' => $prod['requerimiento_interno_producto_id'] ?? null,
                     'codigo' => $prod['codigo'] ?? null,
                     'nombre' => $prod['nombre'] ?? null,
                     'marca' => $prod['marca'] ?? null,
                     'unidad' => $prod['unidad'] ?? null,
                     'cantidad' => $prod['cantidad'],
+                    'cantidad_pendiente' => $prod['cantidad'],
                     'precio' => $prod['precio'],
                     'subtotal' => $prod['subtotal'],
                     'flete' => $prod['flete'] ?? 0,
                     'vencimiento' => $prod['vencimiento'] ?? null,
                     'lote' => $prod['lote'] ?? null,
                 ]);
+
+                // Actualizar cantidad_pendiente en el requerimiento si corresponde
+                if (!empty($prod['requerimiento_interno_producto_id'])) {
+                    $riProd = \App\Models\RequerimientoInternoProducto::find($prod['requerimiento_interno_producto_id']);
+                    if ($riProd) {
+                        $riProd->decrement('cantidad_pendiente', $prod['cantidad']);
+                    }
+                }
             }
 
             DB::commit();
@@ -144,7 +161,21 @@ class OrdenCompraService implements OrdenCompraServiceInterface
                 throw OrdenCompraException::noAnulable($orden->estado?->value);
             }
 
+            DB::beginTransaction();
+
+            // Devolver cantidades a Requerimiento Interno si corresponde
+            foreach ($orden->productos as $prod) {
+                if ($prod->requerimiento_interno_producto_id) {
+                    $riProd = \App\Models\RequerimientoInternoProducto::find($prod->requerimiento_interno_producto_id);
+                    if ($riProd) {
+                        $riProd->increment('cantidad_pendiente', $prod->cantidad);
+                    }
+                }
+            }
+
             $this->repository->cambiarEstado($id, 'anulada');
+
+            DB::commit();
 
             Log::info('Orden de compra anulada', [
                 'orden_id' => $id,
@@ -179,16 +210,83 @@ class OrdenCompraService implements OrdenCompraServiceInterface
 
             DB::beginTransaction();
 
+            // 1. Cambiar estado de la Orden de Compra
             $this->repository->cambiarEstado($id, 'en_proceso');
 
-            // Crear recepción automáticamente
-            $this->crearRecepcionAutomatica($id, $orden);
+            // 2. Generar registro de Compra definitivo
+            $compraId = (string) Str::ulid();
+            
+            // Mapear TipoDocumento enum
+            $tipoDoc = TipoDocumento::from($orden->tipo_documento ?? '01');
+
+            $compra = Compra::create([
+                'id' => $compraId,
+                'tipo_documento' => $tipoDoc,
+                'serie' => $orden->serie,
+                'numero' => $orden->numero,
+                'descripcion' => "Generado desde Orden de Compra {$orden->codigo}",
+                'forma_de_pago' => $orden->forma_de_pago,
+                'tipo_moneda' => $orden->tipo_moneda,
+                'tipo_de_cambio' => $orden->tipo_de_cambio,
+                'percepcion' => $orden->percepcion,
+                'numero_dias' => $orden->numero_dias,
+                'fecha_vencimiento' => $orden->fecha_vencimiento,
+                'fecha' => $orden->fecha,
+                'guia' => $orden->guia,
+                'estado_de_compra' => EstadoDeCompraDefinitiva::Creado,
+                'user_id' => $orden->user_id,
+                'almacen_id' => $orden->almacen_id,
+                'proveedor_id' => $orden->proveedor_id,
+                'orden_compra_id' => $orden->id,
+            ]);
+
+            // 3. Copiar productos de la Orden de Compra a la Compra
+            foreach ($orden->productos as $pOC) {
+                // Buscar o crear ProductoAlmacen
+                $productoAlmacen = ProductoAlmacen::firstOrCreate([
+                    'producto_id' => $pOC->producto_id,
+                    'almacen_id' => $orden->almacen_id,
+                ], [
+                    'stock_fraccion' => 0,
+                    'costo' => $pOC->precio,
+                ]);
+
+                $pac = ProductoAlmacenCompra::create([
+                    'compra_id' => $compra->id,
+                    'costo' => $pOC->precio,
+                    'producto_almacen_id' => $productoAlmacen->id,
+                ]);
+
+                // Crear UnidadDerivadaInmutableCompra
+                // Buscamos la unidad inmutable por nombre
+                $udInmutable = UnidadDerivadaInmutable::firstOrCreate(['name' => $pOC->unidad ?? 'UND']);
+
+                // Buscamos el factor desde la configuración del producto si existe
+                $udConfig = ProductoAlmacenUnidadDerivada::where('producto_almacen_id', $productoAlmacen->id)
+                    ->whereHas('unidadDerivada', fn($q) => $q->where('name', $pOC->unidad ?? 'UND'))
+                    ->first();
+                
+                $factor = $udConfig ? (float) $udConfig->factor : 1.0;
+
+                UnidadDerivadaInmutableCompra::create([
+                    'unidad_derivada_inmutable_id' => $udInmutable->id,
+                    'producto_almacen_compra_id' => $pac->id,
+                    'factor' => $factor,
+                    'cantidad' => $pOC->cantidad,
+                    'cantidad_pendiente' => $pOC->cantidad,
+                    'lote' => $pOC->lote,
+                    'vencimiento' => $pOC->vencimiento,
+                    'flete' => $pOC->flete,
+                    'bonificacion' => false,
+                ]);
+            }
 
             DB::commit();
 
-            Log::info('Orden de compra aprobada', [
+            Log::info('Orden de compra autorizada y convertida a Compra', [
                 'orden_id' => $id,
                 'codigo' => $orden->codigo,
+                'compra_id' => $compra->id,
             ]);
 
             return $this->repository->findById($id);
@@ -198,11 +296,12 @@ class OrdenCompraService implements OrdenCompraServiceInterface
             throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error al aprobar orden de compra', [
+            Log::error('Error al aprobar/autorizar orden de compra', [
                 'orden_id' => $id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
-            throw new OrdenCompraException("Error al aprobar la orden: " . $e->getMessage());
+            throw new \Exception("Error al autorizar la orden: " . $e->getMessage());
         }
     }
 

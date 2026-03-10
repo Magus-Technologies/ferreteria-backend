@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Enums\EstadoDeCompra;
+use App\Enums\EstadoDeCompraDefinitiva;
 use App\Enums\FormaDePago;
 use App\Enums\TipoDocumento;
 use App\Enums\TipoMoneda;
@@ -40,6 +40,7 @@ class Compra extends Model
         'user_id',
         'almacen_id',
         'proveedor_id',
+        'orden_compra_id',
     ];
 
     protected function casts(): array
@@ -48,7 +49,7 @@ class Compra extends Model
             'tipo_documento' => TipoDocumento::class,
             'forma_de_pago' => FormaDePago::class,
             'tipo_moneda' => TipoMoneda::class,
-            'estado_de_compra' => EstadoDeCompra::class,
+            'estado_de_compra' => EstadoDeCompraDefinitiva::class,
             'tipo_de_cambio' => 'decimal:4',
             'percepcion' => 'decimal:4',
             'fecha' => 'datetime',
@@ -56,6 +57,7 @@ class Compra extends Model
             'numero_dias' => 'integer',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
+            'orden_compra_id' => 'integer',
         ];
     }
 
@@ -97,5 +99,10 @@ class Compra extends Model
     public function egresoDinero(): BelongsTo
     {
         return $this->belongsTo(EgresoDinero::class);
+    }
+
+    public function ordenCompra(): BelongsTo
+    {
+        return $this->belongsTo(OrdenCompra::class, 'orden_compra_id');
     }
 }

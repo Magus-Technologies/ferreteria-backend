@@ -67,10 +67,18 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                 }
 
                 foreach ($data['productos'] as $prod) {
+                    // Validar que al menos tenga producto_id o nombre_adicional
+                    if (empty($prod['producto_id']) && empty($prod['nombre_adicional'])) {
+                        throw new \InvalidArgumentException('Cada producto debe tener un ID o nombre adicional');
+                    }
+
+                    $cantidad = $prod['cantidad'];
                     RequerimientoInternoProducto::create([
                         'requerimiento_id' => $requerimiento->id,
-                        'producto_id' => $prod['producto_id'],
-                        'cantidad' => $prod['cantidad'],
+                        'producto_id' => $prod['producto_id'] ?? null,
+                        'nombre_adicional' => $prod['nombre_adicional'] ?? null,
+                        'cantidad' => $cantidad,
+                        'cantidad_pendiente' => $cantidad, // Inicializar con la cantidad total
                         'unidad' => $prod['unidad'] ?? null,
                     ]);
                 }
@@ -83,6 +91,11 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                 }
 
                 $srv = $data['servicio'];
+                
+                if (empty($srv['descripcion_servicio'])) {
+                    throw new \InvalidArgumentException('La descripción del servicio es requerida');
+                }
+
                 RequerimientoInternoServicio::create([
                     'requerimiento_id' => $requerimiento->id,
                     'tipo_servicio' => $srv['tipo_servicio'] ?? null,
@@ -107,6 +120,12 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
         } catch (RequerimientoInternoException $e) {
             DB::rollBack();
             throw $e;
+        } catch (\InvalidArgumentException $e) {
+            DB::rollBack();
+            Log::warning('Validación fallida al crear requerimiento', [
+                'error' => $e->getMessage(),
+            ]);
+            throw RequerimientoInternoException::errorAlCrear($e->getMessage());
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Error al crear requerimiento interno', [

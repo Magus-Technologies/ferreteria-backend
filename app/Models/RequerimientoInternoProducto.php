@@ -13,7 +13,9 @@ class RequerimientoInternoProducto extends Model
     protected $fillable = [
         'requerimiento_id',
         'producto_id',
+        'nombre_adicional',
         'cantidad',
+        'cantidad_pendiente',
         'unidad',
     ];
 
@@ -21,6 +23,7 @@ class RequerimientoInternoProducto extends Model
     {
         return [
             'cantidad' => 'decimal:3',
+            'cantidad_pendiente' => 'decimal:3',
         ];
     }
 

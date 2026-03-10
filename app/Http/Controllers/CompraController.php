@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\EstadoDeCompra;
+use App\Enums\EstadoDeCompraDefinitiva;
 use App\Enums\FormaDePago;
 use App\Enums\TipoMoneda;
 use App\Models\Compra;
@@ -45,6 +45,7 @@ class CompraController extends Controller
                 'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                 'user:id,name',
+                'ordenCompra:id,codigo,estado',
             ])
             ->withCount([
                 'recepcionesAlmacen as recepciones_almacen_count' => function ($query) {
@@ -162,6 +163,7 @@ class CompraController extends Controller
             'user_id' => 'required|string',
             'almacen_id' => 'required|integer',
             'proveedor_id' => 'required|integer',
+            'orden_compra_id' => 'nullable|integer|exists:ordenes_compra,id',
             'productos_por_almacen' => 'required|array',
             'productos_por_almacen.*.costo' => 'required|numeric',
             'productos_por_almacen.*.producto_almacen_id' => 'sometimes|integer',
@@ -183,6 +185,21 @@ class CompraController extends Controller
             if (isset($validated['despliegue_de_pago_id']) && str_contains($validated['despliegue_de_pago_id'], '-')) {
                 $parts = explode('-', $validated['despliegue_de_pago_id']);
                 $validated['despliegue_de_pago_id'] = $parts[1] ?? $validated['despliegue_de_pago_id'];
+            }
+
+            // Validar orden_compra_id si se proporciona
+            if (isset($validated['orden_compra_id']) && $validated['orden_compra_id']) {
+                $orden = OrdenCompra::findOrFail($validated['orden_compra_id']);
+                
+                // Validar almacén
+                if ($orden->almacen_id !== $validated['almacen_id']) {
+                    throw new \Exception('El almacén de la orden no coincide con el almacén de la compra');
+                }
+                
+                // Validar estado
+                if (!in_array($orden->estado->value, ['pendiente', 'en_proceso'])) {
+                    throw new \Exception('La orden debe estar en estado pendiente o en_proceso');
+                }
             }
 
             // Validar nueva compra
@@ -214,7 +231,17 @@ class CompraController extends Controller
                 'user_id' => $validated['user_id'],
                 'almacen_id' => $validated['almacen_id'],
                 'proveedor_id' => $validated['proveedor_id'],
+                'orden_compra_id' => $validated['orden_compra_id'] ?? null,
             ]);
+
+            // Cambiar estado de orden a en_proceso si es primera compra
+            if (isset($validated['orden_compra_id']) && $validated['orden_compra_id']) {
+                $orden = OrdenCompra::find($validated['orden_compra_id']);
+                
+                if ($orden->estado->value === 'pendiente') {
+                    $orden->update(['estado' => EstadoDeCompra::EN_PROCESO]);
+                }
+            }
 
             // Create productos_por_almacen and unidades_derivadas
             foreach ($validated['productos_por_almacen'] as $producto) {
@@ -276,6 +303,7 @@ class CompraController extends Controller
                     'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                     'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                     'user:id,name',
+                    'ordenCompra:id,codigo,estado',
                 ]),
             ], 201);
         });
@@ -492,8 +520,8 @@ class CompraController extends Controller
                 ->findOrFail($id);
 
             if (
-                $compra->estado_de_compra === EstadoDeCompra::Procesado ||
-                $compra->estado_de_compra === EstadoDeCompra::Anulado
+                $compra->estado_de_compra === EstadoDeCompraDefinitiva::Procesado ||
+                $compra->estado_de_compra === EstadoDeCompraDefinitiva::Anulado
             ) {
                 return response()->json([
                     'error' => ['message' => 'La compra no se puede anular'],
@@ -523,7 +551,7 @@ class CompraController extends Controller
 
             // Update compra to Anulado
             $compra->update([
-                'estado_de_compra' => EstadoDeCompra::Anulado,
+                'estado_de_compra' => EstadoDeCompraDefinitiva::Anulado,
                 'egreso_dinero_id' => null,
             ]);
 
@@ -765,7 +793,7 @@ class CompraController extends Controller
             // Only credit purchases
             ->where('forma_de_pago', FormaDePago::Credito)
             // Only active purchases (not cancelled)
-            ->where('estado_de_compra', '!=', EstadoDeCompra::Anulado);
+            ->where('estado_de_compra', '!=', EstadoDeCompraDefinitiva::Anulado);
 
         // Filter by almacen_id
         if ($request->has('almacen_id')) {
