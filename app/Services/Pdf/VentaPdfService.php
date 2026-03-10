@@ -150,6 +150,8 @@ class VentaPdfService
 
     /**
      * Preparar la lista de productos para la tabla.
+     * Los productos se ordenan para que los que pertenecen a un paquete
+     * aparezcan agrupados bajo el nombre del paquete.
      */
     private function prepararProductos(Venta $venta): array
     {
@@ -174,9 +176,20 @@ class VentaPdfService
                     'precio' => $precio,
                     'descuento' => $descuento,
                     'subtotal' => $subtotal,
+                    'paquete_id' => $pa->paquete_id,
+                    'paquete_nombre' => $pa->paquete_nombre,
                 ];
             }
         }
+
+        // Ordenar: primero productos sueltos, luego agrupados por paquete
+        usort($productos, function ($a, $b) {
+            $aPaq = $a['paquete_id'] ?? 0;
+            $bPaq = $b['paquete_id'] ?? 0;
+            if ($aPaq === 0 && $bPaq !== 0) return -1;
+            if ($aPaq !== 0 && $bPaq === 0) return 1;
+            return $aPaq <=> $bPaq;
+        });
 
         return $productos;
     }

@@ -77,6 +77,9 @@ class PaqueteController extends Controller
         $paquete = Paquete::with([
             'productos.producto:id,name,cod_producto',
             'productos.producto.marca:id,name',
+            'productos.producto.productoEnAlmacenes:id,producto_id,costo',
+            'productos.producto.productoEnAlmacenes.unidadesDerivadas',
+            'productos.producto.productoEnAlmacenes.unidadesDerivadas.unidadDerivada:id,name',
             'productos.unidadDerivada:id,name',
         ])->find($id);
 

@@ -210,6 +210,8 @@ class VentaController extends Controller
             'productos_por_almacen.*.costo' => 'required|numeric',
             'productos_por_almacen.*.producto_almacen_id' => 'sometimes|integer',
             'productos_por_almacen.*.producto_id' => 'sometimes|integer',
+            'productos_por_almacen.*.paquete_id' => 'nullable|integer',
+            'productos_por_almacen.*.paquete_nombre' => 'nullable|string|max:255',
             'productos_por_almacen.*.unidades_derivadas' => 'required|array',
             'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_id' => 'sometimes|integer',
             'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_name' => 'sometimes|string',
@@ -340,6 +342,8 @@ class VentaController extends Controller
                     'venta_id' => $venta->id,
                     'costo' => $producto['costo'],
                     'producto_almacen_id' => $productoAlmacenId,
+                    'paquete_id' => $producto['paquete_id'] ?? null,
+                    'paquete_nombre' => $producto['paquete_nombre'] ?? null,
                 ]);
 
                 foreach ($producto['unidades_derivadas'] as $unidad) {
@@ -636,6 +640,8 @@ class VentaController extends Controller
             'productos_por_almacen.*.costo' => 'required|numeric',
             'productos_por_almacen.*.producto_almacen_id' => 'sometimes|integer',
             'productos_por_almacen.*.producto_id' => 'sometimes|integer',
+            'productos_por_almacen.*.paquete_id' => 'nullable|integer',
+            'productos_por_almacen.*.paquete_nombre' => 'nullable|string|max:255',
             'productos_por_almacen.*.unidades_derivadas' => 'required|array',
             'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_id' => 'sometimes|integer',
             'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_name' => 'sometimes|string',

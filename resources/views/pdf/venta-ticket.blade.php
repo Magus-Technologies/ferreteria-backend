@@ -135,9 +135,21 @@
                 </tr>
             </thead>
             <tbody>
+                @php $paqueteActual = null; @endphp
                 @foreach($productos as $i => $p)
+                    @if(!empty($p['paquete_id']) && $p['paquete_id'] !== $paqueteActual)
+                        @php $paqueteActual = $p['paquete_id']; @endphp
+                        <tr>
+                            <td colspan="5" style="font-size: 6pt; padding: 3px 0; font-weight: bold; background-color: #e8e8e8;">
+                                [COMBO] {{ $p['paquete_nombre'] ?? 'COMBO' }}
+                            </td>
+                        </tr>
+                    @endif
+                    @if(empty($p['paquete_id']) && $paqueteActual !== null)
+                        @php $paqueteActual = null; @endphp
+                    @endif
                 <tr style="border-bottom: 1px solid #000;{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ $p['nombre'] }}</td>
+                    <td style="font-size: 6pt; padding: 3px 0;{{ !empty($p['paquete_id']) ? ' padding-left: 6px;' : '' }}">{{ $p['nombre'] }}</td>
                     <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($p['cantidad'], 0) }}</td>
                     <td style="font-size: 6pt; padding: 3px 0;">{{ $p['unidad'] }}</td>
                     <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($p['precio'], 2) }}</td>

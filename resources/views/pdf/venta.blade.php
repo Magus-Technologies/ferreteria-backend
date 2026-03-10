@@ -13,6 +13,33 @@
     @include('pdf.layout.info-grid', ['filas' => $filas])
 
     {{-- Tabla de productos --}}
+    @php
+        $filasProductos = [];
+        $paqueteActual = null;
+        $itemNum = 1;
+        foreach ($productos as $p) {
+            // Insertar fila de encabezado de paquete si cambia
+            if (!empty($p['paquete_id']) && $p['paquete_id'] !== $paqueteActual) {
+                $paqueteActual = $p['paquete_id'];
+                $filasProductos[] = [
+                    '', '', '', '', '', '[COMBO] ' . ($p['paquete_nombre'] ?? 'COMBO'), '', '', '',
+                ];
+            } elseif (empty($p['paquete_id']) && $paqueteActual !== null) {
+                $paqueteActual = null;
+            }
+            $filasProductos[] = [
+                $itemNum++,
+                'A1',
+                $p['codigo'],
+                number_format($p['cantidad'], 0),
+                $p['unidad'],
+                (!empty($p['paquete_id']) ? '  ' : '') . $p['nombre'],
+                number_format($p['precio'], 2),
+                number_format($p['descuento'], 2),
+                number_format($p['subtotal'], 2),
+            ];
+        }
+    @endphp
     @include('pdf.layout.table', [
         'columnas' => [
             ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
@@ -25,19 +52,7 @@
             ['label' => 'DESC.', 'width' => '7%', 'align' => 'right'],
             ['label' => 'IMPORTE', 'width' => '8%', 'align' => 'right'],
         ],
-        'filas' => collect($productos)->map(function ($p, $i) {
-            return [
-                $i + 1,
-                'A1',
-                $p['codigo'],
-                number_format($p['cantidad'], 0),
-                $p['unidad'],
-                $p['nombre'],
-                number_format($p['precio'], 2),
-                number_format($p['descuento'], 2),
-                number_format($p['subtotal'], 2),
-            ];
-        })->toArray(),
+        'filas' => $filasProductos,
         'minFilas' => 10,
     ])
 

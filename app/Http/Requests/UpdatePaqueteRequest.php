@@ -30,6 +30,8 @@ class UpdatePaqueteRequest extends FormRequest
             'productos.*.unidad_derivada_id' => 'required_with:productos|integer|exists:unidadderivada,id',
             'productos.*.cantidad' => 'required_with:productos|numeric|min:0.001',
             'productos.*.precio_sugerido' => 'nullable|numeric|min:0',
+            'productos.*.tipo_precio' => 'sometimes|string|in:publico,especial,minimo,ultimo',
+            'productos.*.descuento' => 'nullable|numeric|min:0',
         ];
     }
 

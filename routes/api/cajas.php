@@ -84,6 +84,9 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/{id}', [TransaccionController::class, 'show']);
         });
 
+        // Caja activa (alias directo para compatibilidad con frontend)
+        Route::get('/activa', [CierreCajaController::class, 'obtenerCajaActiva']);
+
         // Apertura y Cierre
         Route::post('/aperturar', [AperturaCajaController::class, 'aperturar']);
         Route::get('/consulta-apertura/{cajaPrincipalId}', [AperturaCajaController::class, 'consultaApertura']);
