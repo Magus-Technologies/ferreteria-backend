@@ -6,6 +6,7 @@ use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\PrestamoController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\ClienteReporteController;
+use App\Http\Controllers\ClienteCalificacionController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\EntregaProductoController;
@@ -99,6 +100,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/frecuentes', [ClienteReporteController::class, 'clientesFrecuentes']);
         Route::get('/recientes', [ClienteReporteController::class, 'clientesRecientes']);
     });
+
+    // ============================================
+    // CALIFICACIONES DE CLIENTES
+    // ============================================
+    Route::get('clientes/{clienteId}/calificaciones', [ClienteCalificacionController::class, 'index']);
+    Route::get('clientes/{clienteId}/calificaciones/ultima', [ClienteCalificacionController::class, 'ultimaCalificacion']);
+    Route::post('clientes/{clienteId}/calificaciones', [ClienteCalificacionController::class, 'store']);
+    Route::put('calificaciones/{calificacionId}', [ClienteCalificacionController::class, 'update']);
+    Route::delete('calificaciones/{calificacionId}', [ClienteCalificacionController::class, 'destroy']);
+    Route::get('calificaciones/estados', [ClienteCalificacionController::class, 'estados']);
 
     // ============================================
     // PROVEEDORES
