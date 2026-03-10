@@ -7,6 +7,7 @@ use App\Enums\EstadoDeCompraDefinitiva;
 use App\Enums\FormaDePago;
 use App\Enums\TipoMoneda;
 use App\Models\Compra;
+use App\Models\OrdenCompra;
 use App\Models\DespliegueDePago;
 use App\Models\EgresoDinero;
 use App\Models\MetodoDePago;
@@ -143,7 +144,7 @@ class CompraController extends Controller
 
         // Filter by estado_de_compra
         if ($request->has('estado_de_compra')) {
-            $estadoEnum = EstadoDeCompra::tryFrom($request->estado_de_compra);
+            $estadoEnum = EstadoDeCompraDefinitiva::tryFrom($request->estado_de_compra);
             if ($estadoEnum) {
                 $query->where('estado_de_compra', $estadoEnum->value);
             }
@@ -281,7 +282,7 @@ class CompraController extends Controller
             $this->validarNuevaCompra($validated);
 
             // Convert enums
-            $estadoEnum = EstadoDeCompra::from($validated['estado_de_compra']);
+            $estadoEnum = EstadoDeCompraDefinitiva::from($validated['estado_de_compra']);
             $formaDePagoEnum = FormaDePago::from($validated['forma_de_pago']);
             $tipoMonedaEnum = TipoMoneda::from($validated['tipo_moneda']);
 
@@ -491,7 +492,7 @@ class CompraController extends Controller
             $updateData = [];
             foreach ($validated as $key => $value) {
                 if ($key === 'estado_de_compra') {
-                    $updateData[$key] = EstadoDeCompra::from($value);
+                    $updateData[$key] = EstadoDeCompraDefinitiva::from($value);
                 } elseif ($key === 'forma_de_pago') {
                     $updateData[$key] = FormaDePago::from($value);
                 } elseif ($key === 'tipo_moneda') {
@@ -688,11 +689,11 @@ class CompraController extends Controller
      */
     private function validarNuevaCompra($compra)
     {
-        $estadoEnum = EstadoDeCompra::from($compra['estado_de_compra']);
+        $estadoEnum = EstadoDeCompraDefinitiva::from($compra['estado_de_compra']);
         $formaDePagoEnum = FormaDePago::from($compra['forma_de_pago']);
 
         if (
-            $estadoEnum === EstadoDeCompra::Creado &&
+            $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             $formaDePagoEnum === FormaDePago::Contado &&
             !isset($compra['egreso_dinero_id']) &&
             !isset($compra['despliegue_de_pago_id'])
@@ -701,7 +702,7 @@ class CompraController extends Controller
         }
 
         if (
-            $estadoEnum === EstadoDeCompra::Creado &&
+            $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             $formaDePagoEnum === FormaDePago::Credito &&
             (isset($compra['egreso_dinero_id']) || isset($compra['despliegue_de_pago_id']))
         ) {
@@ -709,7 +710,7 @@ class CompraController extends Controller
         }
 
         if (
-            $estadoEnum === EstadoDeCompra::Creado &&
+            $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             isset($compra['egreso_dinero_id']) &&
             isset($compra['despliegue_de_pago_id'])
         ) {
@@ -717,8 +718,8 @@ class CompraController extends Controller
         }
 
         if (
-            $estadoEnum === EstadoDeCompra::Creado ||
-            ($estadoEnum === EstadoDeCompra::EnEspera &&
+            $estadoEnum === EstadoDeCompraDefinitiva::Creado ||
+            ($estadoEnum === EstadoDeCompraDefinitiva::EnEspera &&
                 isset($compra['serie']) &&
                 isset($compra['numero']) &&
                 isset($compra['proveedor_id']))
@@ -742,9 +743,9 @@ class CompraController extends Controller
      */
     private function procesoPostCompra($compra)
     {
-        $estadoEnum = EstadoDeCompra::from($compra['estado_de_compra']);
+        $estadoEnum = EstadoDeCompraDefinitiva::from($compra['estado_de_compra']);
 
-        if ($estadoEnum === EstadoDeCompra::Creado) {
+        if ($estadoEnum === EstadoDeCompraDefinitiva::Creado) {
             $compraModel = Compra::with([
                 'productosPorAlmacen.unidadesDerivadas',
             ])->findOrFail($compra['id']);
@@ -789,7 +790,7 @@ class CompraController extends Controller
      */
     private function devolverDineroDeCompra($compra)
     {
-        if ($compra->estado_de_compra === EstadoDeCompra::Creado) {
+        if ($compra->estado_de_compra === EstadoDeCompraDefinitiva::Creado) {
             $totalSoles = $this->getTotalCompra($compra);
 
             if ($compra->despliegue_de_pago_id) {
