@@ -314,8 +314,8 @@ class CompraController extends Controller
             if (isset($validated['orden_compra_id']) && $validated['orden_compra_id']) {
                 $orden = OrdenCompra::find($validated['orden_compra_id']);
                 
-                if ($orden->estado->value === 'pendiente') {
-                    $orden->update(['estado' => EstadoDeCompra::Procesado]);
+                if ($orden->estado === EstadoDeCompra::Pendiente) {
+                    $orden->update(['estado' => EstadoDeCompra::EnProceso]);
                 }
             }
 
