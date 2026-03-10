@@ -456,63 +456,37 @@ class VentaController extends Controller
             $validated['id'] = $venta->id;
             $this->procesoPostVenta($validated);
 
-            // APLICAR VALE DE COMPRA (solo el que el vendedor ingresó manualmente)
+            // APLICAR VALES DE COMPRA AUTOMÁTICAMENTE
+            try {
+                $detallesVenta = $this->prepararDetallesVentaParaVales($validated);
+                $valesAplicados = $this->valeCompraService->aplicarValesAutomaticos($venta, $detallesVenta);
+
+                if ($valesAplicados->isNotEmpty()) {
+                    Log::info('Vales aplicados automáticamente', [
+                        'venta_id' => $venta->id,
+                        'vales_count' => $valesAplicados->count(),
+                        'vales' => $valesAplicados->pluck('vale_compra_id'),
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error('Error al aplicar vales automáticos', [
+                    'venta_id' => $venta->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            // CANJEAR VALE GENERADO (código de próxima compra)
             if (!empty($validated['codigo_vale'])) {
                 try {
-                    $codigoVale = $validated['codigo_vale'];
-                    $detallesVenta = $this->prepararDetallesVentaParaVales($validated);
-                    $cantidadTotal = collect($detallesVenta)->sum('cantidad');
-
-                    // Buscar el vale por código
-                    $vale = ValeCompra::with(['categorias', 'productos', 'productoGratis'])
-                        ->where('codigo', $codigoVale)
-                        ->activos()
-                        ->vigentes()
-                        ->first();
-
-                    if ($vale && $cantidadTotal >= $vale->cantidad_minima) {
-                        // Validar modalidad
-                        $categorias = collect($detallesVenta)->pluck('categoria_id')->filter()->unique()->values()->toArray();
-                        $productos = collect($detallesVenta)->pluck('producto_id')->filter()->unique()->values()->toArray();
-
-                        $esValido = $this->valeCompraService->validarValePublic($vale, $categorias, $productos, $venta->cliente_id);
-
-                        if ($esValido) {
-                            $aplicado = $this->valeCompraService->aplicarValeUnico($vale, $venta, $cantidadTotal);
-                            if ($aplicado) {
-                                Log::info('Vale manual aplicado a la venta', [
-                                    'venta_id' => $venta->id,
-                                    'codigo_vale' => $codigoVale,
-                                ]);
-                            }
-                        } else {
-                            Log::warning('Vale manual no cumple condiciones de modalidad', [
-                                'codigo_vale' => $codigoVale,
-                                'modalidad' => $vale->modalidad,
-                            ]);
-                        }
-                    } else if (!$vale) {
-                        // Intentar como vale generado (código de próxima compra)
-                        $canjeado = $this->valeCompraService->aplicarValeGenerado($codigoVale, $venta);
-                        if ($canjeado) {
-                            Log::info('Vale generado canjeado en la venta', [
-                                'venta_id' => $venta->id,
-                                'codigo_vale' => $codigoVale,
-                            ]);
-                        } else {
-                            Log::warning('Vale no encontrado o no válido', [
-                                'codigo_vale' => $codigoVale,
-                            ]);
-                        }
-                    } else {
-                        Log::warning('Vale no cumple cantidad mínima', [
-                            'codigo_vale' => $codigoVale,
-                            'cantidad_total' => $cantidadTotal,
-                            'cantidad_minima' => $vale->cantidad_minima,
+                    $canjeado = $this->valeCompraService->aplicarValeGenerado($validated['codigo_vale'], $venta);
+                    if ($canjeado) {
+                        Log::info('Vale generado canjeado en la venta', [
+                            'venta_id' => $venta->id,
+                            'codigo_vale' => $validated['codigo_vale'],
                         ]);
                     }
                 } catch (\Exception $e) {
-                    Log::error('Error al aplicar vale a la venta', [
+                    Log::error('Error al canjear vale generado', [
                         'venta_id' => $venta->id,
                         'codigo_vale' => $validated['codigo_vale'],
                         'error' => $e->getMessage(),
