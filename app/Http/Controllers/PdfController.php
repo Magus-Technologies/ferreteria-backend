@@ -25,7 +25,13 @@ class PdfController extends Controller
     public function venta(string $id, Request $request, VentaPdfService $service): Response
     {
         $formato = $request->query('formato', 'a4');
-        return $service->generar($id, $formato);
+        $sinVales = $request->boolean('sin_vales', false);
+        return $service->generar($id, $formato, $sinVales);
+    }
+
+    public function ventaValeGenerado(string $id, int $index, VentaPdfService $service): Response
+    {
+        return $service->generarValeIndividual($id, $index);
     }
 
     public function compra(string $id, CompraPdfService $service): Response

@@ -11,7 +11,7 @@ class VentaPdfService
     /**
      * Generar PDF de una venta.
      */
-    public function generar(string $ventaId, string $formato = 'a4'): Response
+    public function generar(string $ventaId, string $formato = 'a4', bool $sinVales = false): Response
     {
         $venta = $this->obtenerVenta($ventaId);
         $empresa = $venta->user->empresa;
@@ -20,7 +20,7 @@ class VentaPdfService
         $calculos = $this->calcularTotales($productos);
 
         if ($formato === 'ticket') {
-            return $this->generarTicket($venta, $empresa, $productos, $calculos);
+            return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales);
         }
 
         $codigoQr = $this->obtenerCodigoQr($venta);
@@ -44,7 +44,68 @@ class VentaPdfService
         return PdfService::render('pdf.venta', $data, $filename);
     }
 
-    private function generarTicket($venta, $empresa, array $productos, array $calculos): Response
+    /**
+     * Generar un vale individual de una venta (para impresión separada).
+     */
+    public function generarValeIndividual(string $ventaId, int $index): Response
+    {
+        $venta = $this->obtenerVenta($ventaId);
+        $empresa = $venta->user->empresa;
+
+        // Obtener los vales generados (misma lógica que generarTicket)
+        $vales = [];
+        foreach ($venta->valesAplicados as $va) {
+            if (!$va->genera_vale_futuro || !$va->codigo_vale_generado) {
+                continue;
+            }
+            $valeCompra = $va->valeCompra;
+            $tipoLabel = match ($valeCompra?->tipo_promocion) {
+                'descuento_porcentaje' => 'DESCUENTO %',
+                'descuento_fijo' => 'DESCUENTO FIJO',
+                'producto_gratis' => 'PRODUCTO GRATIS',
+                default => strtoupper($valeCompra?->tipo_promocion ?? ''),
+            };
+            $beneficio = match ($valeCompra?->descuento_tipo) {
+                '%' => ($valeCompra?->descuento_valor ?? 0) . '% DESCUENTO',
+                default => 'S/ ' . number_format($valeCompra?->descuento_valor ?? 0, 2) . ' DESCUENTO',
+            };
+
+            $vales[] = [
+                'tipo_label' => $tipoLabel,
+                'nombre' => $valeCompra?->nombre ?? '',
+                'beneficio' => $beneficio,
+                'codigo' => $va->codigo_vale_generado,
+                'fecha_validez' => $va->fecha_validez_generado
+                    ? \Carbon\Carbon::parse($va->fecha_validez_generado)->format('d/m/Y')
+                    : null,
+            ];
+        }
+
+        if (!isset($vales[$index])) {
+            abort(404, 'Vale no encontrado');
+        }
+
+        $vale = $vales[$index];
+        $data = [
+            'empresa' => $empresa,
+            'logoPath' => PdfService::getLogoPath($empresa->logo),
+            'vale' => $vale,
+            'numeroDocumento' => $this->formatNumeroDocumento($venta),
+            'fechaEmision' => PdfService::formatFecha($venta->fecha),
+        ];
+
+        $filename = "VALE-{$vale['codigo']}.pdf";
+
+        return PdfService::render(
+            'pdf.vale-generado-ticket',
+            $data,
+            $filename,
+            'portrait',
+            [0, 0, 226.77, 841.89],
+        );
+    }
+
+    private function generarTicket($venta, $empresa, array $productos, array $calculos, bool $sinVales = false): Response
     {
         $cliente = $venta->cliente;
         $clienteNombre = $cliente?->razon_social
@@ -117,7 +178,7 @@ class VentaPdfService
             'calculos' => $calculos,
             'son' => PdfService::numeroALetras($calculos['total']),
             'observaciones' => $venta->descripcion ?: '- NINGUNA',
-            'vales' => $vales,
+            'vales' => $sinVales ? [] : $vales,
         ];
 
         $filename = "TICKET-{$venta->serie}-{$venta->numero}.pdf";
