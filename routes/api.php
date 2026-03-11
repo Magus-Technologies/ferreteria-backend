@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AutorizacionController;
 use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\ConfiguracionImpresionController;
 use App\Http\Controllers\ConfiguracionNotificacionController;
@@ -216,6 +217,35 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('users')->group(function () {
             Route::post('/{userId}/check-access', [RestrictionController::class, 'checkAccess']);
         });
+    });
+
+    // ============================================
+    // AUTORIZACIONES (sistema de aprobación por acción)
+    // ============================================
+    Route::prefix('autorizaciones')->group(function () {
+        // Configuración (admin)
+        Route::get('/config', [AutorizacionController::class, 'configIndex']);
+        Route::get('/config/{roleId}', [AutorizacionController::class, 'configPorRol']);
+        Route::post('/config', [AutorizacionController::class, 'configStore']);
+        Route::delete('/config/{id}', [AutorizacionController::class, 'configDestroy']);
+
+        // Verificación
+        Route::post('/verificar', [AutorizacionController::class, 'verificar']);
+
+        // Solicitudes
+        Route::post('/solicitar', [AutorizacionController::class, 'solicitar']);
+        Route::get('/mis-solicitudes', [AutorizacionController::class, 'misSolicitudes']);
+        Route::get('/pendientes', [AutorizacionController::class, 'pendientes']);
+        Route::get('/pendientes/count', [AutorizacionController::class, 'pendientesCount']);
+        Route::post('/solicitudes/{id}/aprobar', [AutorizacionController::class, 'aprobar']);
+        Route::post('/solicitudes/{id}/rechazar', [AutorizacionController::class, 'rechazar']);
+
+        // Autorizaciones otorgadas
+        Route::get('/otorgadas/{userId}', [AutorizacionController::class, 'otorgadas']);
+        Route::delete('/otorgadas/{id}', [AutorizacionController::class, 'revocar']);
+
+        // Usuarios disponibles como autorizadores
+        Route::get('/usuarios', [AutorizacionController::class, 'usuarios']);
     });
 
     // ============================================
