@@ -23,8 +23,8 @@
                 number_format($p['cantidad'], 0),
                 $p['unidad'],
                 $p['nombre'],
-                number_format($p['stock_anterior'], 0),
-                number_format($p['stock_nuevo'], 0),
+                $p['stock_anterior_f'],
+                $p['stock_nuevo_f'],
                 'S/ ' . number_format($p['costo'], 2),
             ];
         }

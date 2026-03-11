@@ -35,8 +35,8 @@
                 ($p['bonificacion'] ? '* ' : '') . $p['nombre'],
                 $p['unidad'],
                 number_format($p['cantidad'], 0),
-                number_format($p['stock_anterior'], 0),
-                number_format($p['stock_nuevo'], 0),
+                $p['stock_anterior_f'],
+                $p['stock_nuevo_f'],
             ];
         }
     @endphp

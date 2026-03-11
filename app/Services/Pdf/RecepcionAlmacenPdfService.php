@@ -94,6 +94,8 @@ class RecepcionAlmacenPdfService
                 // Historial
                 $historial = $this->getHistorial($ud->historial, $recepcion->estado);
 
+                $unidadesContenidas = (float) ($producto->unidades_contenidas ?? 1);
+
                 $productos[] = [
                     'codigo' => $producto->cod_producto ?? '',
                     'nombre' => $producto->name ?? '',
@@ -102,10 +104,12 @@ class RecepcionAlmacenPdfService
                     'cantidad' => (float) $ud->cantidad,
                     'stock_anterior' => (float) ($historial['stock_anterior'] ?? 0),
                     'stock_nuevo' => (float) ($historial['stock_nuevo'] ?? 0),
+                    'stock_anterior_f' => IngresoSalidaPdfService::formatStockF((float) ($historial['stock_anterior'] ?? 0), $unidadesContenidas),
+                    'stock_nuevo_f' => IngresoSalidaPdfService::formatStockF((float) ($historial['stock_nuevo'] ?? 0), $unidadesContenidas),
                     'bonificacion' => (bool) ($ud->bonificacion ?? false),
                     'vencimiento' => $ud->vencimiento ?? '',
                     'lote' => $ud->lote ?? '',
-                    'unidades_contenidas' => (float) ($producto->unidades_contenidas ?? 1),
+                    'unidades_contenidas' => $unidadesContenidas,
                 ];
             }
         }

@@ -63,32 +63,58 @@
 
     <div class="separator"></div>
 
-    {{-- Info --}}
+    {{-- Info en 2 columnas --}}
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label" style="width: 30%;">F. EMISIÓN:</td>
-                <td class="value">{{ \App\Services\Pdf\PdfService::formatFecha($ingreso->fecha) }}</td>
-            </tr>
-            <tr>
-                <td class="label">ALMACÉN:</td>
-                <td class="value">{{ $ingreso->almacen->name ?? '-' }}</td>
-            </tr>
-            <tr>
-                <td class="label">USUARIO:</td>
-                <td class="value">{{ $ingreso->user->name ?? '-' }}</td>
-            </tr>
-            <tr>
-                <td class="label">PROVEEDOR:</td>
-                <td class="value">{{ $ingreso->proveedor->razon_social ?? '-' }}</td>
-            </tr>
-            <tr>
-                <td class="label">TIPO:</td>
-                <td class="value">{{ $ingreso->tipoIngreso->name ?? '-' }}</td>
-            </tr>
-            <tr>
-                <td class="label">OBSERVACIONES:</td>
-                <td class="value">{{ $ingreso->descripcion ?? '-' }}</td>
+                <td style="width: 50%; vertical-align: top; padding-right: 4px;">
+                    <table>
+                        <tr>
+                            <td class="label">FECHA DE EMISIÓN:</td>
+                        </tr>
+                        <tr>
+                            <td class="value">{{ \App\Services\Pdf\PdfService::formatFecha($ingreso->fecha) }}</td>
+                        </tr>
+                        <tr><td style="height: 3px;"></td></tr>
+                        <tr>
+                            <td class="label">ALMACÉN:</td>
+                        </tr>
+                        <tr>
+                            <td class="value">{{ $ingreso->almacen->name ?? '-' }}</td>
+                        </tr>
+                        <tr><td style="height: 3px;"></td></tr>
+                        <tr>
+                            <td class="label">USUARIO:</td>
+                        </tr>
+                        <tr>
+                            <td class="value">{{ $ingreso->user->name ?? '-' }}</td>
+                        </tr>
+                    </table>
+                </td>
+                <td style="width: 50%; vertical-align: top; padding-left: 4px;">
+                    <table>
+                        <tr>
+                            <td class="label">PROVEEDOR:</td>
+                        </tr>
+                        <tr>
+                            <td class="value">{{ $ingreso->proveedor->razon_social ?? '-' }}</td>
+                        </tr>
+                        <tr><td style="height: 3px;"></td></tr>
+                        <tr>
+                            <td class="label">TIPO DE {{ str_contains($tipoDoc, 'INGRESO') ? 'INGRESO' : 'SALIDA' }}:</td>
+                        </tr>
+                        <tr>
+                            <td class="value">{{ $ingreso->tipoIngreso->name ?? '-' }}</td>
+                        </tr>
+                        <tr><td style="height: 3px;"></td></tr>
+                        <tr>
+                            <td class="label">OBSERVACIONES:</td>
+                        </tr>
+                        <tr>
+                            <td class="value">{{ $ingreso->descripcion ?? '-' }}</td>
+                        </tr>
+                    </table>
+                </td>
             </tr>
         </table>
     </div>
@@ -97,20 +123,25 @@
     <div class="section-title">PRODUCTOS</div>
     <table style="font-size: 5pt;">
         <tr style="border-bottom: 1px solid #000;">
-            <td class="text-bold" style="width: 35px;">Cód.</td>
-            <td class="text-bold" style="width: 30px;">Cant.</td>
             <td class="text-bold">Producto</td>
-            <td class="text-bold text-center" style="width: 35px;">Stk Ant.</td>
-            <td class="text-bold text-center" style="width: 35px;">Stk Nvo.</td>
+            <td class="text-bold" style="width: 35px;">Código</td>
+            <td class="text-bold" style="width: 30px;">Cantidad</td>
+            <td class="text-bold" style="width: 40px;">Unidad Derivada</td>
+            <td class="text-bold text-center" style="width: 35px;">Stock Anterior</td>
+            <td class="text-bold text-center" style="width: 35px;">Stock Nuevo</td>
             <td class="text-bold text-right" style="width: 35px;">Costo</td>
         </tr>
         @foreach($productos as $i => $p)
         <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
+            <td colspan="7" style="padding-top: 2px;">{{ $p['nombre'] }}</td>
+        </tr>
+        <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
+            <td></td>
             <td>{{ $p['codigo'] }}</td>
-            <td>{{ number_format($p['cantidad'], 0) }}</td>
-            <td>{{ $p['nombre'] }}</td>
-            <td class="text-center">{{ number_format($p['stock_anterior'], 0) }}</td>
-            <td class="text-center">{{ number_format($p['stock_nuevo'], 0) }}</td>
+            <td>{{ number_format($p['cantidad'], 3) }}</td>
+            <td>{{ $p['unidad'] }}</td>
+            <td class="text-center">{{ $p['stock_anterior_f'] }}</td>
+            <td class="text-center">{{ $p['stock_nuevo_f'] }}</td>
             <td class="text-right">{{ number_format($p['costo'], 2) }}</td>
         </tr>
         @endforeach
@@ -125,6 +156,12 @@
     </table>
     <div style="text-align: center; font-size: 6pt; margin-top: 2px;">
         {{ $son }} SOLES
+    </div>
+
+    {{-- Observaciones --}}
+    <div style="margin-top: 4px; font-size: 6pt;">
+        <span class="text-bold">Observaciones:</span><br>
+        {{ $ingreso->descripcion ?? '-' }}
     </div>
 
     {{-- Footer --}}

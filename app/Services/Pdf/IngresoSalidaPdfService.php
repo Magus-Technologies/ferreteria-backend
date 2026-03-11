@@ -97,6 +97,8 @@ class IngresoSalidaPdfService
                 // Obtener historial correcto
                 $historial = $this->getHistorial($ud->historial, $ingreso->estado, $esSalida);
 
+                $unidadesContenidas = (float) ($producto->unidades_contenidas ?? 1);
+
                 $productos[] = [
                     'codigo' => $producto->cod_producto ?? '',
                     'nombre' => $producto->name ?? '',
@@ -104,9 +106,11 @@ class IngresoSalidaPdfService
                     'unidad' => $ud->unidadDerivadaInmutable->name ?? '',
                     'stock_anterior' => (float) ($historial['stock_anterior'] ?? 0),
                     'stock_nuevo' => (float) ($historial['stock_nuevo'] ?? 0),
+                    'stock_anterior_f' => self::formatStockF((float) ($historial['stock_anterior'] ?? 0), $unidadesContenidas),
+                    'stock_nuevo_f' => self::formatStockF((float) ($historial['stock_nuevo'] ?? 0), $unidadesContenidas),
                     'costo' => $costo * $factor,
                     'costo_total' => $costoTotal,
-                    'unidades_contenidas' => (float) ($producto->unidades_contenidas ?? 1),
+                    'unidades_contenidas' => $unidadesContenidas,
                 ];
             }
         }
@@ -137,6 +141,20 @@ class IngresoSalidaPdfService
 
         $h = $historial->get($index) ?? $first;
         return ['stock_anterior' => (float) $h->stock_anterior, 'stock_nuevo' => (float) $h->stock_nuevo];
+    }
+
+    /**
+     * Formatea stock como "XFY" (ej: 5F, 5F2, 0F3)
+     */
+    public static function formatStockF(float $stockFraccion, float $unidadesContenidas): string
+    {
+        $uc = $unidadesContenidas != 0 ? $unidadesContenidas : 1;
+        $unidadesCompletas = intdiv((int) $stockFraccion, (int) $uc);
+        $fraccion = abs($stockFraccion) % (int) $uc;
+        $negative = $stockFraccion < 0 && $unidadesCompletas == 0 ? '-' : '';
+        $fraccionStr = $fraccion != 0 ? $fraccion : '';
+
+        return "{$negative}{$unidadesCompletas}F{$fraccionStr}";
     }
 
     private function calcularTotal(array $productos): float
