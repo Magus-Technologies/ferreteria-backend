@@ -1,0 +1,275 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\AutorizacionConfig;
+use App\Models\AutorizacionOtorgada;
+use App\Models\SolicitudAutorizacion;
+use App\Models\User;
+use Illuminate\Support\Facades\Log;
+
+class AutorizacionService
+{
+    protected FirebaseNotificationService $fcm;
+
+    public function __construct(FirebaseNotificationService $fcm)
+    {
+        $this->fcm = $fcm;
+    }
+
+    /**
+     * Verificar si un usuario necesita autorización y si ya la tiene.
+     */
+    public function verificar(string $userId, string $modulo, string $accion): array
+    {
+        $user = User::with('roles')->findOrFail($userId);
+        $roleIds = $user->roles->pluck('id')->toArray();
+
+        if (empty($roleIds)) {
+            return ['requiere' => false, 'tiene_autorizacion' => true];
+        }
+
+        // Buscar si algún rol del usuario tiene config de autorización para este módulo+acción
+        $config = AutorizacionConfig::where('modulo', $modulo)
+            ->where('accion', $accion)
+            ->where('requiere_autorizacion', true)
+            ->whereIn('role_id', $roleIds)
+            ->first();
+
+        if (!$config) {
+            return ['requiere' => false, 'tiene_autorizacion' => true];
+        }
+
+        // Tiene config → verificar si ya tiene autorización otorgada vigente
+        $autorizacion = AutorizacionOtorgada::where('user_id', $userId)
+            ->where('modulo', $modulo)
+            ->where('accion', $accion)
+            ->activas()
+            ->first();
+
+        return [
+            'requiere' => true,
+            'tiene_autorizacion' => $autorizacion !== null,
+            'config_id' => $config->id,
+            'autorizador_id' => $config->autorizador_id,
+        ];
+    }
+
+    /**
+     * Crear una solicitud de autorización.
+     */
+    public function crearSolicitud(
+        string $userId,
+        string $modulo,
+        string $accion,
+        string $descripcion,
+        ?array $metadata = null,
+    ): SolicitudAutorizacion {
+        $user = User::with('roles')->findOrFail($userId);
+        $roleIds = $user->roles->pluck('id')->toArray();
+
+        $config = AutorizacionConfig::where('modulo', $modulo)
+            ->where('accion', $accion)
+            ->where('requiere_autorizacion', true)
+            ->whereIn('role_id', $roleIds)
+            ->first();
+
+        if (!$config) {
+            throw new \Exception('No se requiere autorización para esta acción');
+        }
+
+        // Verificar que no tenga una solicitud pendiente para la misma acción
+        $existente = SolicitudAutorizacion::where('solicitante_id', $userId)
+            ->where('modulo', $modulo)
+            ->where('accion', $accion)
+            ->where('estado', 'pendiente')
+            ->first();
+
+        if ($existente) {
+            throw new \Exception('Ya tienes una solicitud pendiente para esta acción');
+        }
+
+        $solicitud = SolicitudAutorizacion::create([
+            'solicitante_id' => $userId,
+            'autorizador_id' => $config->autorizador_id,
+            'role_id' => $config->role_id,
+            'modulo' => $modulo,
+            'accion' => $accion,
+            'descripcion' => $descripcion,
+            'metadata' => $metadata,
+            'estado' => 'pendiente',
+        ]);
+
+        // Enviar notificación FCM al autorizador
+        $this->notificarAutorizador($solicitud, $user);
+
+        return $solicitud->load(['solicitante', 'autorizador', 'role']);
+    }
+
+    /**
+     * Aprobar una solicitud.
+     */
+    public function aprobar(
+        string $solicitudId,
+        string $aprobadorId,
+        string $tipoAprobacion,
+        ?int $duracionHoras = null,
+        ?string $comentario = null,
+    ): SolicitudAutorizacion {
+        $solicitud = SolicitudAutorizacion::findOrFail($solicitudId);
+
+        if ($solicitud->estado !== 'pendiente') {
+            throw new \Exception('La solicitud ya fue procesada');
+        }
+
+        $fechaExpiracion = null;
+        if ($tipoAprobacion === 'temporal' && $duracionHoras) {
+            $fechaExpiracion = now()->addHours($duracionHoras);
+        }
+
+        // Actualizar solicitud
+        $solicitud->update([
+            'estado' => 'aprobada',
+            'tipo_aprobacion' => $tipoAprobacion,
+            'duracion_horas' => $duracionHoras,
+            'respondido_por' => $aprobadorId,
+            'respondido_at' => now(),
+            'comentario_respuesta' => $comentario,
+        ]);
+
+        // Crear o actualizar autorización otorgada
+        AutorizacionOtorgada::updateOrCreate(
+            [
+                'user_id' => $solicitud->solicitante_id,
+                'modulo' => $solicitud->modulo,
+                'accion' => $solicitud->accion,
+            ],
+            [
+                'role_id' => $solicitud->role_id,
+                'tipo' => $tipoAprobacion,
+                'fecha_expiracion' => $fechaExpiracion,
+                'otorgada_por' => $aprobadorId,
+                'solicitud_id' => $solicitud->id,
+                'activa' => true,
+            ]
+        );
+
+        // Notificar al solicitante
+        $this->notificarSolicitante($solicitud, 'aprobada');
+
+        return $solicitud->load(['solicitante', 'respondidoPor']);
+    }
+
+    /**
+     * Rechazar una solicitud.
+     */
+    public function rechazar(
+        string $solicitudId,
+        string $aprobadorId,
+        ?string $comentario = null,
+    ): SolicitudAutorizacion {
+        $solicitud = SolicitudAutorizacion::findOrFail($solicitudId);
+
+        if ($solicitud->estado !== 'pendiente') {
+            throw new \Exception('La solicitud ya fue procesada');
+        }
+
+        $solicitud->update([
+            'estado' => 'rechazada',
+            'respondido_por' => $aprobadorId,
+            'respondido_at' => now(),
+            'comentario_respuesta' => $comentario,
+        ]);
+
+        // Notificar al solicitante
+        $this->notificarSolicitante($solicitud, 'rechazada');
+
+        return $solicitud->load(['solicitante', 'respondidoPor']);
+    }
+
+    /**
+     * Revocar una autorización otorgada.
+     */
+    public function revocar(string $autorizacionId): void
+    {
+        $autorizacion = AutorizacionOtorgada::findOrFail($autorizacionId);
+        $autorizacion->update(['activa' => false]);
+    }
+
+    /**
+     * Limpiar autorizaciones temporales expiradas.
+     */
+    public function limpiarExpiradas(): int
+    {
+        return AutorizacionOtorgada::where('tipo', 'temporal')
+            ->where('activa', true)
+            ->where('fecha_expiracion', '<', now())
+            ->update(['activa' => false]);
+    }
+
+    /**
+     * Enviar notificación al autorizador.
+     */
+    private function notificarAutorizador(SolicitudAutorizacion $solicitud, User $solicitante): void
+    {
+        try {
+            $accionLabel = ['crear' => 'crear', 'editar' => 'editar', 'eliminar' => 'eliminar'];
+            $titulo = 'Nueva solicitud de autorización';
+            $body = "{$solicitante->name} solicita permiso para {$accionLabel[$solicitud->accion]} en {$solicitud->modulo}";
+            $data = [
+                'type' => 'autorizacion',
+                'solicitud_id' => $solicitud->id,
+                'modulo' => $solicitud->modulo,
+                'accion' => $solicitud->accion,
+            ];
+
+            if ($solicitud->autorizador_id) {
+                // Enviar al autorizador específico
+                $autorizador = User::find($solicitud->autorizador_id);
+                if ($autorizador?->fcm_token) {
+                    $this->fcm->sendNotification($autorizador->fcm_token, $titulo, $body, $data);
+                }
+            } else {
+                // Enviar a todos los admins
+                $this->fcm->sendToRole('ADMINISTRADOR', $titulo, $body, $data);
+            }
+        } catch (\Exception $e) {
+            Log::warning('Error enviando notificación de autorización: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Notificar al solicitante sobre la resolución.
+     */
+    private function notificarSolicitante(SolicitudAutorizacion $solicitud, string $resultado): void
+    {
+        try {
+            $solicitante = User::find($solicitud->solicitante_id);
+            if (!$solicitante?->fcm_token) {
+                return;
+            }
+
+            $titulo = $resultado === 'aprobada'
+                ? 'Solicitud aprobada'
+                : 'Solicitud rechazada';
+
+            $body = "Tu solicitud para {$solicitud->accion} en {$solicitud->modulo} fue {$resultado}";
+
+            if ($resultado === 'aprobada' && $solicitud->tipo_aprobacion === 'temporal') {
+                $body .= " (por {$solicitud->duracion_horas}h)";
+            }
+
+            $data = [
+                'type' => 'autorizacion_respuesta',
+                'solicitud_id' => $solicitud->id,
+                'resultado' => $resultado,
+                'modulo' => $solicitud->modulo,
+                'accion' => $solicitud->accion,
+            ];
+
+            $this->fcm->sendNotification($solicitante->fcm_token, $titulo, $body, $data);
+        } catch (\Exception $e) {
+            Log::warning('Error notificando solicitante: ' . $e->getMessage());
+        }
+    }
+}

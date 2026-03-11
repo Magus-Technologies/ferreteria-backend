@@ -38,7 +38,7 @@ class GuiaRemisionController extends Controller
             'fecha_traslado_desde' => 'sometimes|date',
             'fecha_traslado_hasta' => 'sometimes|date',
             'search' => 'sometimes|string',
-            'per_page' => 'sometimes|integer|min:1|max:100',
+            'per_page' => 'sometimes|integer|min:-1|max:100',
             'page' => 'sometimes|integer|min:1',
         ]);
 
@@ -47,7 +47,7 @@ class GuiaRemisionController extends Controller
             ->applyFilters($request)
             ->orderByCreatedDesc();
 
-        $perPage = $request->input('per_page', 50);
+        $perPage = (int) $request->input('per_page', 50);
 
         // Si per_page es -1, retornar todos (limitado a 100)
         if ($perPage === -1) {
@@ -96,12 +96,14 @@ class GuiaRemisionController extends Controller
     {
         $guia = GuiaRemision::with([
             'venta:id,serie,numero,cliente_id,almacen_id',
-            'venta.cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,telefono',
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,telefono,email',
+            'venta.cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono',
+            'venta.cliente.direcciones',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+            'cliente.direcciones',
             'motivoTraslado:id,codigo,descripcion',
-            'chofer:id,dni,nombres,apellidos,telefono',
-            'almacenOrigen:id,name,direccion',
-            'almacenDestino:id,name,direccion',
+            'chofer:id,dni,name,licencia',
+            'almacenOrigen:id,name',
+            'almacenDestino:id,name',
             'user:id,name,email',
             'detalles.producto.marca',
             'detalles.producto.unidadMedida',
@@ -173,6 +175,62 @@ class GuiaRemisionController extends Controller
                 'message' => $e->getMessage(),
             ], 422);
         }
+    }
+
+    /**
+     * Enviar guía de remisión a SUNAT.
+     */
+    public function enviarSunat(string $id)
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+            $resultado = $this->guiaRemisionService->enviarASunat($guia);
+
+            return response()->json([
+                'data' => $resultado,
+                'message' => $resultado['mensaje'],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Obtener datos de la guía para generar PDF (incluye QR y datos empresa).
+     */
+    public function getPdfData(string $id)
+    {
+        $guia = GuiaRemision::with([
+            'venta:id,serie,numero',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+            'cliente.direcciones',
+            'motivoTraslado:id,codigo,descripcion',
+            'chofer:id,dni,name,licencia',
+            'almacenOrigen:id,name',
+            'almacenDestino:id,name',
+            'user:id,name,email',
+            'detalles.producto.marca',
+            'detalles.producto.unidadMedida',
+            'detalles.unidadDerivadaInmutable',
+        ])->findOrFail($id);
+
+        return response()->json([
+            'data' => [
+                'guia' => $guia,
+                'empresa' => [
+                    'ruc' => config('greenter.ruc'),
+                    'razon_social' => config('greenter.razon_social'),
+                    'nombre_comercial' => config('greenter.nombre_comercial'),
+                    'direccion' => config('greenter.direccion'),
+                    'ubigeo' => config('greenter.ubigeo'),
+                    'departamento' => config('greenter.departamento'),
+                    'provincia' => config('greenter.provincia'),
+                    'distrito' => config('greenter.distrito'),
+                ],
+            ],
+        ]);
     }
 
     /**

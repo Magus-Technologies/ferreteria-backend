@@ -3,18 +3,25 @@
 namespace App\Http\Controllers;
 
 use App\Models\Cliente;
+use App\Services\DireccionClienteService;
+use App\Http\Requests\DireccionCliente\StoreDireccionClienteRequest;
+use App\Http\Requests\DireccionCliente\UpdateDireccionClienteRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ClienteController extends Controller
 {
+    public function __construct(
+        private DireccionClienteService $direccionService
+    ) {}
     /**
      * Listar todos los clientes
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Cliente::query();
+        $query = Cliente::query()->with('direcciones');
 
         // Excluir "CLIENTE VARIOS" (DNI: 99999999) de las búsquedas
         $query->where('numero_documento', '!=', '99999999');
@@ -86,10 +93,6 @@ class ClienteController extends Controller
                 'max:11',
                 'unique:cliente,numero_documento'
             ],
-            'direccion' => 'nullable|string|max:500',
-            'direccion_2' => 'nullable|string|max:500',
-            'direccion_3' => 'nullable|string|max:500',
-            'direccion_4' => 'nullable|string|max:500',
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
             'estado' => 'nullable|boolean',
@@ -155,10 +158,6 @@ class ClienteController extends Controller
                 'max:11',
                 Rule::unique('cliente', 'numero_documento')->ignore($cliente->id)
             ],
-            'direccion' => 'nullable|string|max:500',
-            'direccion_2' => 'nullable|string|max:500',
-            'direccion_3' => 'nullable|string|max:500',
-            'direccion_4' => 'nullable|string|max:500',
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
             'estado' => 'nullable|boolean',
@@ -291,6 +290,132 @@ class ClienteController extends Controller
             return response()->json([
                 'message' => 'No se puede eliminar el cliente porque está en uso'
             ], 422);
+        }
+    }
+
+    // ============================================
+    // MÉTODOS DE DIRECCIONES
+    // ============================================
+
+    /**
+     * Listar todas las direcciones de un cliente
+     */
+    public function listarDirecciones(int $clienteId): JsonResponse
+    {
+        try {
+            $cliente = Cliente::findOrFail($clienteId);
+            $direcciones = $this->direccionService->listarDirecciones($clienteId);
+
+            return response()->json([
+                'data' => $direcciones
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Cliente no encontrado'
+            ], 404);
+        }
+    }
+
+    /**
+     * Crear una nueva dirección para un cliente
+     */
+    public function crearDireccion(int $clienteId, StoreDireccionClienteRequest $request): JsonResponse
+    {
+        try {
+            $cliente = Cliente::findOrFail($clienteId);
+            
+            $direccion = $this->direccionService->crearDireccion(
+                $clienteId,
+                $request->validated()
+            );
+
+            return response()->json([
+                'data' => $direccion,
+                'message' => 'Dirección creada exitosamente'
+            ], 201);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => 'Error de validación',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Cliente no encontrado'
+            ], 404);
+        }
+    }
+
+    /**
+     * Actualizar una dirección existente
+     */
+    public function actualizarDireccion(int $id, UpdateDireccionClienteRequest $request): JsonResponse
+    {
+        try {
+            $direccion = $this->direccionService->actualizarDireccion(
+                $id,
+                $request->validated()
+            );
+
+            return response()->json([
+                'data' => $direccion,
+                'message' => 'Dirección actualizada exitosamente'
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => 'Error de validación',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Dirección no encontrada'
+            ], 404);
+        }
+    }
+
+    /**
+     * Eliminar una dirección
+     */
+    public function eliminarDireccion(int $id): JsonResponse
+    {
+        try {
+            $this->direccionService->eliminarDireccion($id);
+
+            return response()->json([
+                'message' => 'Dirección eliminada exitosamente'
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => $e->errors()['direccion'][0] ?? 'Error al eliminar dirección',
+                'errors' => $e->errors()
+            ], 400);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Dirección no encontrada'
+            ], 404);
+        }
+    }
+
+    /**
+     * Marcar una dirección como principal
+     */
+    public function marcarDireccionPrincipal(int $id): JsonResponse
+    {
+        try {
+            $direccion = $this->direccionService->marcarComoPrincipal($id);
+
+            return response()->json([
+                'data' => $direccion,
+                'message' => 'Dirección marcada como principal'
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => 'Error de validación',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Dirección no encontrada'
+            ], 404);
         }
     }
 }

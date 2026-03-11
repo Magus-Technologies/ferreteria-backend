@@ -35,6 +35,16 @@ interface GreenterServiceInterface
     public function generarXmlFactura(array $data): string;
 
     /**
+     * Generar XML y enviar guía de remisión a SUNAT
+     */
+    public function generarYEnviarGuiaRemision(array $data): array;
+
+    /**
+     * Generar solo el XML de la guía de remisión (sin enviar)
+     */
+    public function generarXmlGuiaRemision(array $data): string;
+
+    /**
      * Consultar estado de comprobante en SUNAT
      */
     public function consultarEstado(string $ruc, string $tipoDoc, string $serie, string $numero): array;

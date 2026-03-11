@@ -1,14 +1,19 @@
 <?php
 
+use App\Http\Controllers\AutorizacionController;
 use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\ConfiguracionImpresionController;
+use App\Http\Controllers\ConfiguracionNotificacionController;
 use App\Http\Controllers\EmpresaController;
 use App\Http\Controllers\GuiaRemisionController;
 use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\QzTrayController;
 use App\Http\Controllers\RestrictionController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\MotivoTrasladoController;
 use App\Http\Controllers\NotificacionController;
+use App\Http\Controllers\CumpleanosController;
+use App\Http\Controllers\PdfController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -46,6 +51,16 @@ Route::prefix('catalogos')->group(function () {
 Route::get('/roles', [CatalogoController::class, 'roles']);
 
 // Datos públicos de la empresa (para PDFs)
+
+// ============================================
+// QZ TRAY - CERTIFICADOS Y FIRMA DIGITAL
+// ============================================
+// Endpoints públicos para QZ Tray (certificado y firma)
+Route::prefix('qz')->group(function () {
+    Route::get('/certificate', [QzTrayController::class, 'getCertificate']);
+    Route::post('/sign', [QzTrayController::class, 'signRequest']);
+    Route::get('/status', [QzTrayController::class, 'status']); // Para diagnóstico
+});
 Route::get('/empresa/datos-publicos', [
     EmpresaController::class,
     'getDatosPublicos',
@@ -60,6 +75,26 @@ Route::get('prestamos/{id}', [
     App\Http\Controllers\PrestamoController::class,
     'show',
 ]);
+
+// ============================================
+// PDF (público - para compartir con clientes)
+// ============================================
+Route::prefix('pdf')->group(function () {
+    Route::get('/venta/{id}', [PdfController::class, 'venta']);
+    Route::get('/compra/{id}', [PdfController::class, 'compra']);
+    Route::get('/cotizacion/{id}', [PdfController::class, 'cotizacion']);
+    Route::get('/prestamo/{id}', [PdfController::class, 'prestamo']);
+    Route::get('/guia/{id}', [PdfController::class, 'guia']);
+    Route::get('/vale/{id}', [PdfController::class, 'vale']);
+    Route::get('/nota-credito/{id}', [PdfController::class, 'notaCredito']);
+    Route::get('/nota-debito/{id}', [PdfController::class, 'notaDebito']);
+    Route::get('/cierre-caja/{id}', [PdfController::class, 'cierreCaja']);
+    Route::get('/apertura-caja/{id}', [PdfController::class, 'aperturaCaja']);
+    Route::get('/orden-compra/{id}', [PdfController::class, 'ordenCompra']);
+    Route::get('/ingreso-salida/{id}', [PdfController::class, 'ingresoSalida']);
+    Route::get('/recepcion-almacen/{id}', [PdfController::class, 'recepcionAlmacen']);
+    Route::get('/requerimiento-interno/{id}', [PdfController::class, 'requerimientoInterno']);
+});
 
 // Ruta pública para ver XML de comprobantes electrónicos (sin autenticación)
 Route::get('facturas/comprobante/{comprobanteId}/xml', [
@@ -84,6 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/api/ganancias.php';    // Gestión contable y financiera - Mis Ganancias
     require __DIR__ . '/api/ingresos.php';     // Gestión contable y financiera - Mis Ingresos
     require __DIR__ . '/api/gastos.php';       // Gestión contable y financiera - Mis Gastos
+    require __DIR__ . '/api/servicios.php';    // Servicios (catálogo de servicios para ventas)
     require __DIR__ . '/api/ordenes-compra.php'; // Requerimientos internos y Órdenes de compra
 
     // ============================================
@@ -103,6 +139,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/send', [NotificacionController::class, 'sendNotification']);
         Route::post('/entrega-programada', [NotificacionController::class, 'notifyEntregaProgramada']);
         Route::post('/test', [NotificacionController::class, 'testNotification']); // Endpoint de prueba
+    });
+
+    // ============================================
+    // CUMPLEAÑOS
+    // ============================================
+    Route::get('/cumpleanos/proximos', [CumpleanosController::class, 'proximos']);
+
+    // ============================================
+    // CONFIGURACIÓN DE NOTIFICACIONES
+    // ============================================
+    Route::prefix('configuracion-notificaciones')->group(function () {
+        Route::get('/', [ConfiguracionNotificacionController::class, 'index']);
+        Route::post('/', [ConfiguracionNotificacionController::class, 'store']);
+        Route::get('/cumpleanos', [ConfiguracionNotificacionController::class, 'getCumpleanos']);
     });
 
     // ============================================
@@ -133,6 +183,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('guias-remision')->group(function () {
         Route::post('/{id}/emitir', [GuiaRemisionController::class, 'emitir']);
         Route::post('/{id}/anular', [GuiaRemisionController::class, 'anular']);
+        Route::post('/{id}/enviar-sunat', [GuiaRemisionController::class, 'enviarSunat']);
+        Route::get('/{id}/pdf-data', [GuiaRemisionController::class, 'getPdfData']);
     });
     Route::apiResource('guias-remision', GuiaRemisionController::class);
 
@@ -141,6 +193,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::prefix('vales-compra')->group(function () {
         Route::post('/vales-aplicables', [\App\Http\Controllers\ValeCompraController::class, 'valesAplicables']);
+        Route::post('/verificar-codigo', [\App\Http\Controllers\ValeCompraController::class, 'verificarCodigoVale']);
         Route::post('/{id}/cambiar-estado', [\App\Http\Controllers\ValeCompraController::class, 'cambiarEstado']);
         Route::get('/{id}/historial-aplicaciones', [\App\Http\Controllers\ValeCompraController::class, 'historialAplicaciones']);
         Route::get('/venta/{ventaId}/vales-aplicados', [\App\Http\Controllers\ValeCompraController::class, 'valesAplicadosVenta']);
@@ -172,6 +225,35 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('users')->group(function () {
             Route::post('/{userId}/check-access', [RestrictionController::class, 'checkAccess']);
         });
+    });
+
+    // ============================================
+    // AUTORIZACIONES (sistema de aprobación por acción)
+    // ============================================
+    Route::prefix('autorizaciones')->group(function () {
+        // Configuración (admin)
+        Route::get('/config', [AutorizacionController::class, 'configIndex']);
+        Route::get('/config/{roleId}', [AutorizacionController::class, 'configPorRol']);
+        Route::post('/config', [AutorizacionController::class, 'configStore']);
+        Route::delete('/config/{id}', [AutorizacionController::class, 'configDestroy']);
+
+        // Verificación
+        Route::post('/verificar', [AutorizacionController::class, 'verificar']);
+
+        // Solicitudes
+        Route::post('/solicitar', [AutorizacionController::class, 'solicitar']);
+        Route::get('/mis-solicitudes', [AutorizacionController::class, 'misSolicitudes']);
+        Route::get('/pendientes', [AutorizacionController::class, 'pendientes']);
+        Route::get('/pendientes/count', [AutorizacionController::class, 'pendientesCount']);
+        Route::post('/solicitudes/{id}/aprobar', [AutorizacionController::class, 'aprobar']);
+        Route::post('/solicitudes/{id}/rechazar', [AutorizacionController::class, 'rechazar']);
+
+        // Autorizaciones otorgadas
+        Route::get('/otorgadas/{userId}', [AutorizacionController::class, 'otorgadas']);
+        Route::delete('/otorgadas/{id}', [AutorizacionController::class, 'revocar']);
+
+        // Usuarios disponibles como autorizadores
+        Route::get('/usuarios', [AutorizacionController::class, 'usuarios']);
     });
 
     // ============================================

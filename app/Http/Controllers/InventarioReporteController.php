@@ -1,0 +1,104 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Services\Interfaces\InventarioReporteServiceInterface;
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+
+class InventarioReporteController extends Controller
+{
+    private InventarioReporteServiceInterface $reporteService;
+
+    public function __construct(InventarioReporteServiceInterface $reporteService)
+    {
+        $this->reporteService = $reporteService;
+    }
+
+    public function topProductos(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'tipo' => 'sometimes|string|in:ventas,utilidad,recurrencia',
+            'limit' => 'sometimes|integer|min:1|max:50',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta']);
+        $tipo = $request->get('tipo', 'ventas');
+        $limit = $request->get('limit', 20);
+
+        $datos = $this->reporteService->obtenerTopProductos($filtros, $tipo, $limit);
+
+        return response()->json(['data' => $datos]);
+    }
+
+    public function resumen(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+        ]);
+
+        $filtros = $request->only(['almacen_id']);
+        $resumen = $this->reporteService->obtenerResumenInventario($filtros);
+
+        return response()->json(['data' => $resumen]);
+    }
+
+    public function stockValorizado(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'categoria_id' => 'sometimes|integer',
+            'marca_id' => 'sometimes|integer',
+            'con_stock' => 'sometimes|boolean',
+            'per_page' => 'sometimes|integer|min:1|max:10000',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'categoria_id', 'marca_id', 'con_stock']);
+        $perPage = $request->get('per_page', 50);
+        $page = $request->get('page', 1);
+
+        $resultado = $this->reporteService->obtenerStockValorizado($filtros, $perPage, $page);
+
+        return response()->json($resultado);
+    }
+
+    public function stockBajo(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'per_page' => 'sometimes|integer|min:1|max:10000',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $filtros = $request->only(['almacen_id']);
+        $perPage = $request->get('per_page', 50);
+        $page = $request->get('page', 1);
+
+        $resultado = $this->reporteService->obtenerProductosStockBajo($filtros, $perPage, $page);
+
+        return response()->json($resultado);
+    }
+
+    public function cantidadesVendidas(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'per_page' => 'sometimes|integer|min:1|max:10000',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta']);
+        $perPage = $request->get('per_page', 50);
+        $page = $request->get('page', 1);
+
+        $resultado = $this->reporteService->obtenerCantidadesVendidas($filtros, $perPage, $page);
+
+        return response()->json($resultado);
+    }
+}

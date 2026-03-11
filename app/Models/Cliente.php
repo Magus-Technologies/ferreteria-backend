@@ -17,10 +17,6 @@ class Cliente extends Model
         'nombres',
         'apellidos',
         'razon_social',
-        'direccion',
-        'direccion_2',
-        'direccion_3',
-        'direccion_4',
         'telefono',
         'celular',
         'horario_atencion',
@@ -56,5 +52,15 @@ class Cliente extends Model
     public function cotizaciones(): HasMany
     {
         return $this->hasMany(Cotizacion::class);
+    }
+
+    public function direcciones(): HasMany
+    {
+        return $this->hasMany(DireccionCliente::class);
+    }
+
+    public function direccionPrincipal(): HasMany
+    {
+        return $this->hasMany(DireccionCliente::class)->where('es_principal', true);
     }
 }

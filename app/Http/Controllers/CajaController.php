@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AperturaYCierreCaja;
+use App\Models\CajaPrincipal;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -26,7 +26,7 @@ class CajaController extends Controller
             ], 401);
         }
 
-        $existeApertura = AperturaYCierreCaja::where('user_id', $user->id)
+        $existeApertura = CajaPrincipal::where('user_id', $user->id)
             ->whereNull('fecha_cierre')
             ->exists();
 
@@ -64,7 +64,7 @@ class CajaController extends Controller
         ]);
 
         // Verificar que no exista una caja abierta
-        $existeApertura = AperturaYCierreCaja::where('user_id', $user->id)
+        $existeApertura = CajaPrincipal::where('user_id', $user->id)
             ->whereNull('fecha_cierre')
             ->first();
 
@@ -77,7 +77,7 @@ class CajaController extends Controller
         }
 
         // Crear apertura de caja con CUID
-        $apertura = AperturaYCierreCaja::create([
+        $apertura = CajaPrincipal::create([
             'id' => (string) Str::uuid(), // Generar CUID/UUID
             'user_id' => $user->id,
             'monto_apertura' => $validated['monto_apertura'],
@@ -112,7 +112,7 @@ class CajaController extends Controller
             'monto_cierre' => 'required|numeric|min:0',
         ]);
 
-        $apertura = AperturaYCierreCaja::where('id', $id)
+        $apertura = CajaPrincipal::where('id', $id)
             ->where('user_id', $user->id)
             ->whereNull('fecha_cierre')
             ->first();
@@ -187,7 +187,7 @@ class CajaController extends Controller
             ], 401);
         }
 
-        $query = AperturaYCierreCaja::where('user_id', $user->id)
+        $query = CajaPrincipal::where('user_id', $user->id)
             ->with('user')
             ->orderBy('fecha_apertura', 'desc');
 

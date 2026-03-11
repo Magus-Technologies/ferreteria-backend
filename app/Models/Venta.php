@@ -28,6 +28,8 @@ class Venta extends Model
         'numero',
         'descripcion',
         'forma_de_pago',
+        'numero_dias',
+        'fecha_vencimiento',
         'tipo_moneda',
         'tipo_de_cambio',
         'fecha',
@@ -47,6 +49,8 @@ class Venta extends Model
             'tipo_moneda' => TipoMoneda::class,
             'estado_de_venta' => EstadoDeVenta::class,
             'tipo_de_cambio' => 'decimal:4',
+            'numero_dias' => 'integer',
+            'fecha_vencimiento' => 'datetime',
             'fecha' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
@@ -83,6 +87,11 @@ class Venta extends Model
         return $this->hasMany(ProductoAlmacenVenta::class);
     }
 
+    public function serviciosVenta(): HasMany
+    {
+        return $this->hasMany(ServicioVenta::class);
+    }
+
     public function despliegueDePagoVentas(): HasMany
     {
         return $this->hasMany(DespliegueDePagoVenta::class);
@@ -111,5 +120,20 @@ class Venta extends Model
     public function notasCredito(): HasMany
     {
         return $this->hasMany(NotaCredito::class);
+    }
+
+    public function historial(): HasMany
+    {
+        return $this->hasMany(VentaHistorial::class);
+    }
+
+    public function cobrosVenta(): HasMany
+    {
+        return $this->hasMany(CobroVenta::class);
+    }
+
+    public function valesAplicados(): HasMany
+    {
+        return $this->hasMany(ValeCompraAplicado::class);
     }
 }

@@ -9,12 +9,14 @@ use App\Repositories\Interfaces\ProductoRepositoryInterface;
 use App\Repositories\Interfaces\ProductoAlmacenRepositoryInterface;
 use App\Repositories\Interfaces\ProductoPrecioRepositoryInterface;
 use App\Repositories\Interfaces\CatalogRepositoryInterface;
+use App\Repositories\Interfaces\DireccionClienteRepositoryInterface;
 
 // Implementations
 use App\Repositories\Implementations\ProductoRepository;
 use App\Repositories\Implementations\ProductoAlmacenRepository;
 use App\Repositories\Implementations\ProductoPrecioRepository;
 use App\Repositories\Implementations\CatalogRepository;
+use App\Repositories\Implementations\DireccionClienteRepository;
 
 class RepositoryServiceProvider extends ServiceProvider
 {
@@ -28,6 +30,7 @@ class RepositoryServiceProvider extends ServiceProvider
         ProductoAlmacenRepositoryInterface::class => ProductoAlmacenRepository::class,
         ProductoPrecioRepositoryInterface::class => ProductoPrecioRepository::class,
         CatalogRepositoryInterface::class => CatalogRepository::class,
+        DireccionClienteRepositoryInterface::class => DireccionClienteRepository::class,
     ];
 
     /**
@@ -57,6 +60,12 @@ class RepositoryServiceProvider extends ServiceProvider
         $this->app->bind(
             CatalogRepositoryInterface::class,
             CatalogRepository::class
+        );
+
+        // Bind DireccionClienteRepository
+        $this->app->bind(
+            DireccionClienteRepositoryInterface::class,
+            DireccionClienteRepository::class
         );
     }
 

@@ -19,6 +19,7 @@
 /storage/*.key
 /storage/pail
 /storage/firebase-credentials.json
+/storage/certificates/*.pem
 /vendor
 Homestead.json
 Homestead.yaml

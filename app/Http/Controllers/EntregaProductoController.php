@@ -59,15 +59,28 @@ class EntregaProductoController extends Controller
             $query->where('estado_entrega', $request->estado_entrega);
         }
 
-        // Filter by fecha range (buscar en fecha_programada O fecha_entrega)
-        if ($request->has('fecha_desde')) {
+        // Filter by fecha range usando fecha_programada (para entregas programadas)
+        // o fecha_entrega si no hay fecha_programada
+        if ($request->has('fecha_desde') && $request->has('fecha_hasta')) {
+            $query->where(function ($q) use ($request) {
+                $q->where(function ($q2) use ($request) {
+                    // Tiene fecha_programada y está en rango
+                    $q2->whereNotNull('fecha_programada')
+                       ->whereDate('fecha_programada', '>=', $request->fecha_desde)
+                       ->whereDate('fecha_programada', '<=', $request->fecha_hasta);
+                })->orWhere(function ($q2) use ($request) {
+                    // No tiene fecha_programada, usar fecha_entrega
+                    $q2->whereNull('fecha_programada')
+                       ->whereDate('fecha_entrega', '>=', $request->fecha_desde)
+                       ->whereDate('fecha_entrega', '<=', $request->fecha_hasta);
+                });
+            });
+        } elseif ($request->has('fecha_desde')) {
             $query->where(function ($q) use ($request) {
                 $q->whereDate('fecha_programada', '>=', $request->fecha_desde)
                   ->orWhereDate('fecha_entrega', '>=', $request->fecha_desde);
             });
-        }
-
-        if ($request->has('fecha_hasta')) {
+        } elseif ($request->has('fecha_hasta')) {
             $query->where(function ($q) use ($request) {
                 $q->whereDate('fecha_programada', '<=', $request->fecha_hasta)
                   ->orWhereDate('fecha_entrega', '<=', $request->fecha_hasta);

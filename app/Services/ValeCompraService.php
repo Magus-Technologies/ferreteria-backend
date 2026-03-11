@@ -119,6 +119,29 @@ class ValeCompraService
     }
 
     /**
+     * Validar si un vale es aplicable según modalidad y restricciones (público)
+     */
+    public function validarValePublic(
+        ValeCompra $vale,
+        array $categoriasVenta,
+        array $productosVenta,
+        ?int $clienteId
+    ): bool {
+        return $this->validarVale($vale, $categoriasVenta, $productosVenta, $clienteId);
+    }
+
+    /**
+     * Aplicar un vale único (el que el vendedor eligió manualmente)
+     */
+    public function aplicarValeUnico(
+        ValeCompra $vale,
+        Venta $venta,
+        float $cantidadProductos
+    ): ?ValeCompraAplicado {
+        return $this->aplicarVale($vale, $venta, $cantidadProductos);
+    }
+
+    /**
      * Validar si un vale es aplicable según modalidad y restricciones
      */
     private function validarVale(

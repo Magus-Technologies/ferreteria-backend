@@ -25,6 +25,8 @@ class ProductoAlmacenVenta extends Model
         'venta_id',
         'costo',
         'producto_almacen_id',
+        'paquete_id',
+        'paquete_nombre',
         'cantidad',
         'precio_unitario',
     ];

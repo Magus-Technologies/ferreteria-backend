@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\EstadoDeCompra;
 use App\Enums\EstadoDeCompraDefinitiva;
 use App\Enums\FormaDePago;
 use App\Enums\TipoMoneda;
 use App\Models\Compra;
+use App\Models\OrdenCompra;
 use App\Models\DespliegueDePago;
 use App\Models\EgresoDinero;
 use App\Models\MetodoDePago;
@@ -15,10 +17,84 @@ use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableCompra;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use App\Services\Interfaces\CompraReporteServiceInterface;
 
 class CompraController extends Controller
 {
+    private ?CompraReporteServiceInterface $reporteService;
+
+    public function __construct(CompraReporteServiceInterface $reporteService)
+    {
+        $this->reporteService = $reporteService;
+    }
+
+    /**
+     * Resumen mensual de compras (para gráfico)
+     */
+    public function resumenMensual(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'proveedor_id' => 'sometimes|integer',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta', 'proveedor_id']);
+        $datos = $this->reporteService->obtenerResumenMensual($filtros);
+
+        return response()->json(['data' => $datos]);
+    }
+
+    /**
+     * Resumen de compras (para cards KPI)
+     */
+    public function resumenCompras(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'proveedor_id' => 'sometimes|integer',
+            'forma_de_pago' => 'sometimes|string',
+            'tipo_documento' => 'sometimes|string',
+            'user_id' => 'sometimes|string',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta', 'proveedor_id', 'forma_de_pago', 'tipo_documento', 'user_id']);
+        $resumen = $this->reporteService->obtenerResumenCompras($filtros);
+
+        return response()->json(['data' => $resumen]);
+    }
+
+    /**
+     * Reporte detallado de compras (para tabla/exportación)
+     */
+    public function reporteCompras(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'proveedor_id' => 'sometimes|integer',
+            'forma_de_pago' => 'sometimes|string',
+            'tipo_documento' => 'sometimes|string',
+            'user_id' => 'sometimes|string',
+            'per_page' => 'sometimes|integer|min:1|max:10000',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta', 'proveedor_id', 'forma_de_pago', 'tipo_documento', 'user_id']);
+        $perPage = $request->get('per_page', 50);
+        $page = $request->get('page', 1);
+
+        $resultado = $this->reporteService->obtenerReporteCompras($filtros, $perPage, $page);
+
+        return response()->json($resultado);
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -68,7 +144,7 @@ class CompraController extends Controller
 
         // Filter by estado_de_compra
         if ($request->has('estado_de_compra')) {
-            $estadoEnum = EstadoDeCompra::tryFrom($request->estado_de_compra);
+            $estadoEnum = EstadoDeCompraDefinitiva::tryFrom($request->estado_de_compra);
             if ($estadoEnum) {
                 $query->where('estado_de_compra', $estadoEnum->value);
             }
@@ -206,7 +282,7 @@ class CompraController extends Controller
             $this->validarNuevaCompra($validated);
 
             // Convert enums
-            $estadoEnum = EstadoDeCompra::from($validated['estado_de_compra']);
+            $estadoEnum = EstadoDeCompraDefinitiva::from($validated['estado_de_compra']);
             $formaDePagoEnum = FormaDePago::from($validated['forma_de_pago']);
             $tipoMonedaEnum = TipoMoneda::from($validated['tipo_moneda']);
 
@@ -238,8 +314,8 @@ class CompraController extends Controller
             if (isset($validated['orden_compra_id']) && $validated['orden_compra_id']) {
                 $orden = OrdenCompra::find($validated['orden_compra_id']);
                 
-                if ($orden->estado->value === 'pendiente') {
-                    $orden->update(['estado' => EstadoDeCompra::EN_PROCESO]);
+                if ($orden->estado === EstadoDeCompra::Pendiente) {
+                    $orden->update(['estado' => EstadoDeCompra::EnProceso]);
                 }
             }
 
@@ -416,7 +492,7 @@ class CompraController extends Controller
             $updateData = [];
             foreach ($validated as $key => $value) {
                 if ($key === 'estado_de_compra') {
-                    $updateData[$key] = EstadoDeCompra::from($value);
+                    $updateData[$key] = EstadoDeCompraDefinitiva::from($value);
                 } elseif ($key === 'forma_de_pago') {
                     $updateData[$key] = FormaDePago::from($value);
                 } elseif ($key === 'tipo_moneda') {
@@ -613,11 +689,11 @@ class CompraController extends Controller
      */
     private function validarNuevaCompra($compra)
     {
-        $estadoEnum = EstadoDeCompra::from($compra['estado_de_compra']);
+        $estadoEnum = EstadoDeCompraDefinitiva::from($compra['estado_de_compra']);
         $formaDePagoEnum = FormaDePago::from($compra['forma_de_pago']);
 
         if (
-            $estadoEnum === EstadoDeCompra::Creado &&
+            $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             $formaDePagoEnum === FormaDePago::Contado &&
             !isset($compra['egreso_dinero_id']) &&
             !isset($compra['despliegue_de_pago_id'])
@@ -626,7 +702,7 @@ class CompraController extends Controller
         }
 
         if (
-            $estadoEnum === EstadoDeCompra::Creado &&
+            $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             $formaDePagoEnum === FormaDePago::Credito &&
             (isset($compra['egreso_dinero_id']) || isset($compra['despliegue_de_pago_id']))
         ) {
@@ -634,7 +710,7 @@ class CompraController extends Controller
         }
 
         if (
-            $estadoEnum === EstadoDeCompra::Creado &&
+            $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             isset($compra['egreso_dinero_id']) &&
             isset($compra['despliegue_de_pago_id'])
         ) {
@@ -642,8 +718,8 @@ class CompraController extends Controller
         }
 
         if (
-            $estadoEnum === EstadoDeCompra::Creado ||
-            ($estadoEnum === EstadoDeCompra::EnEspera &&
+            $estadoEnum === EstadoDeCompraDefinitiva::Creado ||
+            ($estadoEnum === EstadoDeCompraDefinitiva::EnEspera &&
                 isset($compra['serie']) &&
                 isset($compra['numero']) &&
                 isset($compra['proveedor_id']))
@@ -667,9 +743,9 @@ class CompraController extends Controller
      */
     private function procesoPostCompra($compra)
     {
-        $estadoEnum = EstadoDeCompra::from($compra['estado_de_compra']);
+        $estadoEnum = EstadoDeCompraDefinitiva::from($compra['estado_de_compra']);
 
-        if ($estadoEnum === EstadoDeCompra::Creado) {
+        if ($estadoEnum === EstadoDeCompraDefinitiva::Creado) {
             $compraModel = Compra::with([
                 'productosPorAlmacen.unidadesDerivadas',
             ])->findOrFail($compra['id']);
@@ -714,7 +790,7 @@ class CompraController extends Controller
      */
     private function devolverDineroDeCompra($compra)
     {
-        if ($compra->estado_de_compra === EstadoDeCompra::Creado) {
+        if ($compra->estado_de_compra === EstadoDeCompraDefinitiva::Creado) {
             $totalSoles = $this->getTotalCompra($compra);
 
             if ($compra->despliegue_de_pago_id) {

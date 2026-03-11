@@ -7,6 +7,13 @@ use App\Services\Interfaces\GreenterServiceInterface;
 use Greenter\Model\Client\Client;
 use Greenter\Model\Company\Company;
 use Greenter\Model\Company\Address;
+use Greenter\Model\Despatch\Despatch;
+use Greenter\Model\Despatch\DespatchDetail;
+use Greenter\Model\Despatch\Direction;
+use Greenter\Model\Despatch\Driver;
+use Greenter\Model\Despatch\Shipment;
+use Greenter\Model\Despatch\Transportist;
+use Greenter\Model\Despatch\Vehicle;
 use Greenter\Model\Sale\Note;
 use Greenter\Model\Sale\Legend;
 use Greenter\Model\Sale\SaleDetail;
@@ -940,6 +947,337 @@ class GreenterService implements GreenterServiceInterface
         
         $xml .= '</Invoice>';
         
+        return $xml;
+    }
+
+    // =========================================================================
+    // GUÍA DE REMISIÓN ELECTRÓNICA (GRE)
+    // =========================================================================
+
+    /**
+     * Obtener instancia See configurada para endpoint Despatch (GRE)
+     */
+    private function getSeeForDespatch(): See
+    {
+        $see = new See();
+
+        $isProduction = config('greenter.production', false);
+        $endpoint = $isProduction
+            ? config('greenter.endpoints.production.despatch')
+            : config('greenter.endpoints.beta.despatch');
+
+        $see->setService($endpoint);
+        $see->setClaveSOL(
+            config('greenter.ruc'),
+            config('greenter.sol_user'),
+            config('greenter.sol_pass')
+        );
+
+        // Cargar certificado digital
+        $certificatePath = config('greenter.certificate_path');
+        $password = config('greenter.certificate_password', '');
+        $certContent = file_get_contents($certificatePath);
+
+        if (!empty($password)) {
+            $see->setCertificate($certContent, $password);
+        } else {
+            $see->setCertificate($certContent);
+        }
+
+        return $see;
+    }
+
+    /**
+     * Construir objeto Despatch de Greenter a partir de datos
+     */
+    private function construirGuiaRemision(array $data): Despatch
+    {
+        $company = $this->crearEmpresa();
+
+        // Destinatario
+        $destinatario = new Client();
+        $destinatario
+            ->setTipoDoc($data['destinatario']['tipo_doc'])
+            ->setNumDoc($data['destinatario']['num_doc'])
+            ->setRznSocial($data['destinatario']['razon_social']);
+
+        // Dirección de partida
+        $partida = new Direction(
+            $data['ubigeo_partida'] ?? config('greenter.ubigeo'),
+            $data['direccion_partida']
+        );
+        $partida->setCodLocal(config('greenter.codigo_establecimiento', '0000'));
+        $partida->setRuc(config('greenter.ruc'));
+
+        // Dirección de llegada
+        $llegada = new Direction(
+            $data['ubigeo_llegada'] ?? config('greenter.ubigeo'),
+            $data['direccion_llegada']
+        );
+
+        // Vehículo
+        $vehiculo = null;
+        if (!empty($data['vehiculo_placa'])) {
+            $vehiculo = new Vehicle();
+            $vehiculo->setPlaca($data['vehiculo_placa']);
+        }
+
+        // Choferes
+        $choferes = [];
+        if (!empty($data['choferes'])) {
+            foreach ($data['choferes'] as $choferData) {
+                $driver = new Driver();
+                $driver
+                    ->setTipo($choferData['tipo'] ?? 'Principal')
+                    ->setTipoDoc($choferData['tipo_doc'] ?? '1') // 1 = DNI
+                    ->setNroDoc($choferData['nro_doc'])
+                    ->setNombres($choferData['nombres'])
+                    ->setApellidos($choferData['apellidos'])
+                    ->setLicencia($choferData['licencia'] ?? null);
+                $choferes[] = $driver;
+            }
+        }
+
+        // Envío (Shipment)
+        $shipment = new Shipment();
+        $shipment
+            ->setCodTraslado($data['cod_traslado'])
+            ->setDesTraslado($data['des_traslado'] ?? null)
+            ->setModTraslado($data['mod_traslado']) // '01' = público, '02' = privado
+            ->setFecTraslado(new \DateTime($data['fecha_traslado']))
+            ->setPesoTotal($data['peso_total'] ?? 0.01)
+            ->setUndPesoTotal('KGM')
+            ->setPartida($partida)
+            ->setLlegada($llegada);
+
+        if ($vehiculo) {
+            $shipment->setVehiculo($vehiculo);
+        }
+        if (!empty($choferes)) {
+            $shipment->setChoferes($choferes);
+        }
+
+        // Si modalidad pública, agregar transportista
+        if ($data['mod_traslado'] === '01' && !empty($data['transportista'])) {
+            $transportista = new Transportist();
+            $transportista
+                ->setTipoDoc($data['transportista']['tipo_doc'] ?? '6')
+                ->setNumDoc($data['transportista']['num_doc'])
+                ->setRznSocial($data['transportista']['razon_social'] ?? null)
+                ->setNroMtc($data['transportista']['nro_mtc'] ?? null);
+            $shipment->setTransportista($transportista);
+        }
+
+        // Detalles
+        $details = [];
+        foreach ($data['items'] as $item) {
+            $detail = new DespatchDetail();
+            $detail
+                ->setCodigo($item['codigo'])
+                ->setDescripcion($item['descripcion'])
+                ->setUnidad($item['unidad'] ?? 'NIU')
+                ->setCantidad($item['cantidad']);
+            $details[] = $detail;
+        }
+
+        // Construir Despatch
+        $despatch = new Despatch();
+        $despatch
+            ->setTipoDoc('09') // 09 = Guía de Remisión
+            ->setSerie($data['serie'])
+            ->setCorrelativo($data['correlativo'])
+            ->setFechaEmision(new \DateTime($data['fecha_emision']))
+            ->setCompany($company)
+            ->setDestinatario($destinatario)
+            ->setEnvio($shipment)
+            ->setDetails($details);
+
+        if (!empty($data['observacion'])) {
+            $despatch->setObservacion($data['observacion']);
+        }
+
+        return $despatch;
+    }
+
+    /**
+     * Generar solo el XML de la guía de remisión (sin enviar)
+     */
+    public function generarXmlGuiaRemision(array $data): string
+    {
+        try {
+            if ($this->modoSimulacion) {
+                return $this->generarXmlGuiaRemisionSimulado($data);
+            }
+
+            $despatch = $this->construirGuiaRemision($data);
+            $see = $this->getSeeForDespatch();
+            return $see->getXmlSigned($despatch);
+        } catch (\Exception $e) {
+            throw GreenterException::errorGenerandoXml($e->getMessage());
+        }
+    }
+
+    /**
+     * Generar XML y enviar guía de remisión a SUNAT
+     */
+    public function generarYEnviarGuiaRemision(array $data): array
+    {
+        try {
+            // MODO SIMULACIÓN
+            if ($this->modoSimulacion) {
+                return $this->simularGuiaRemision($data);
+            }
+
+            // MODO REAL
+            $despatch = $this->construirGuiaRemision($data);
+            $see = $this->getSeeForDespatch();
+            $result = $see->send($despatch);
+
+            if (!$result->isSuccess()) {
+                $error = $result->getError();
+                throw GreenterException::errorEnviandoSunat(
+                    $error ? $error->getMessage() : 'Error desconocido al enviar GRE'
+                );
+            }
+
+            return [
+                'success' => true,
+                'xml' => $see->getFactory()->getLastXml(),
+                'cdr' => $result->getCdrZip(),
+                'hash_cpe' => hash('sha256', $see->getFactory()->getLastXml()),
+                'hash_cdr' => $result->getCdrZip() ? hash('sha256', $result->getCdrZip()) : null,
+                'codigo_sunat' => $result->getCdrResponse() ? $result->getCdrResponse()->getCode() : null,
+                'mensaje_sunat' => $result->getCdrResponse() ? $result->getCdrResponse()->getDescription() : null,
+                'modo' => 'PRODUCCION',
+            ];
+        } catch (GreenterException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            throw GreenterException::errorGenerandoXml($e->getMessage());
+        }
+    }
+
+    /**
+     * Simular guía de remisión (sin certificado)
+     */
+    private function simularGuiaRemision(array $data): array
+    {
+        $xml = $this->generarXmlGuiaRemisionSimulado($data);
+        $hashCpe = hash('sha256', $xml);
+        $cdr = $this->generarCdrSimulado(
+            ['serie' => $data['serie'], 'numero' => $data['correlativo']],
+            'Guía de Remisión'
+        );
+
+        return [
+            'success' => true,
+            'modo' => 'SIMULACION',
+            'xml' => $xml,
+            'cdr' => base64_encode($cdr),
+            'hash_cpe' => $hashCpe,
+            'hash_cdr' => hash('sha256', $cdr),
+            'codigo_sunat' => '0',
+            'mensaje_sunat' => 'La Guía de Remisión ha sido aceptada (SIMULADO)',
+        ];
+    }
+
+    /**
+     * Generar XML simulado para Guía de Remisión
+     */
+    private function generarXmlGuiaRemisionSimulado(array $data): string
+    {
+        $ruc = config('greenter.ruc');
+        $razonSocial = config('greenter.razon_social');
+        $ubigeo = config('greenter.ubigeo');
+        $direccion = config('greenter.direccion');
+
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+        $xml .= '<DespatchAdvice xmlns="urn:oasis:names:specification:ubl:schema:xsd:DespatchAdvice-2" ';
+        $xml .= 'xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" ';
+        $xml .= 'xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">' . "\n";
+
+        $xml .= "  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>\n";
+        $xml .= "  <cbc:CustomizationID>2.0</cbc:CustomizationID>\n";
+        $xml .= "  <cbc:ID>{$data['serie']}-{$data['correlativo']}</cbc:ID>\n";
+        $xml .= "  <cbc:IssueDate>{$data['fecha_emision']}</cbc:IssueDate>\n";
+        $xml .= "  <cbc:IssueTime>" . date('H:i:s') . "</cbc:IssueTime>\n";
+        $xml .= "  <cbc:DespatchAdviceTypeCode>09</cbc:DespatchAdviceTypeCode>\n";
+
+        if (!empty($data['observacion'])) {
+            $xml .= "  <cbc:Note><![CDATA[{$data['observacion']}]]></cbc:Note>\n";
+        }
+
+        // Emisor
+        $xml .= "  <cac:DespatchSupplierParty>\n";
+        $xml .= "    <cbc:CustomerAssignedAccountID schemeID=\"6\">{$ruc}</cbc:CustomerAssignedAccountID>\n";
+        $xml .= "    <cac:Party>\n";
+        $xml .= "      <cac:PartyLegalEntity>\n";
+        $xml .= "        <cbc:RegistrationName><![CDATA[{$razonSocial}]]></cbc:RegistrationName>\n";
+        $xml .= "      </cac:PartyLegalEntity>\n";
+        $xml .= "    </cac:Party>\n";
+        $xml .= "  </cac:DespatchSupplierParty>\n";
+
+        // Destinatario
+        $destTipoDoc = $data['destinatario']['tipo_doc'] ?? '1';
+        $destNumDoc = $data['destinatario']['num_doc'] ?? '';
+        $destRazonSocial = htmlspecialchars($data['destinatario']['razon_social'] ?? '', ENT_XML1, 'UTF-8');
+        $xml .= "  <cac:DeliveryCustomerParty>\n";
+        $xml .= "    <cbc:CustomerAssignedAccountID schemeID=\"{$destTipoDoc}\">{$destNumDoc}</cbc:CustomerAssignedAccountID>\n";
+        $xml .= "    <cac:Party>\n";
+        $xml .= "      <cac:PartyLegalEntity>\n";
+        $xml .= "        <cbc:RegistrationName><![CDATA[{$destRazonSocial}]]></cbc:RegistrationName>\n";
+        $xml .= "      </cac:PartyLegalEntity>\n";
+        $xml .= "    </cac:Party>\n";
+        $xml .= "  </cac:DeliveryCustomerParty>\n";
+
+        // Shipment
+        $xml .= "  <cac:Shipment>\n";
+        $xml .= "    <cbc:ID>SUNAT_Envio</cbc:ID>\n";
+        $xml .= "    <cbc:HandlingCode>{$data['cod_traslado']}</cbc:HandlingCode>\n";
+        $xml .= "    <cbc:GrossWeightMeasure unitCode=\"KGM\">" . number_format($data['peso_total'] ?? 0.01, 2, '.', '') . "</cbc:GrossWeightMeasure>\n";
+
+        // Partida
+        $ubiPartida = $data['ubigeo_partida'] ?? $ubigeo;
+        $dirPartida = htmlspecialchars($data['direccion_partida'] ?? '', ENT_XML1, 'UTF-8');
+        $xml .= "    <cac:ShipmentStage>\n";
+        $xml .= "      <cbc:TransportModeCode>{$data['mod_traslado']}</cbc:TransportModeCode>\n";
+        $xml .= "      <cac:TransitPeriod>\n";
+        $xml .= "        <cbc:StartDate>{$data['fecha_traslado']}</cbc:StartDate>\n";
+        $xml .= "      </cac:TransitPeriod>\n";
+        $xml .= "    </cac:ShipmentStage>\n";
+
+        $ubiLlegada = $data['ubigeo_llegada'] ?? $ubigeo;
+        $dirLlegada = htmlspecialchars($data['direccion_llegada'] ?? '', ENT_XML1, 'UTF-8');
+        $xml .= "    <cac:Delivery>\n";
+        $xml .= "      <cac:DeliveryAddress>\n";
+        $xml .= "        <cbc:ID>{$ubiLlegada}</cbc:ID>\n";
+        $xml .= "        <cac:AddressLine><cbc:Line><![CDATA[{$dirLlegada}]]></cbc:Line></cac:AddressLine>\n";
+        $xml .= "      </cac:DeliveryAddress>\n";
+        $xml .= "    </cac:Delivery>\n";
+
+        $xml .= "    <cac:OriginAddress>\n";
+        $xml .= "      <cbc:ID>{$ubiPartida}</cbc:ID>\n";
+        $xml .= "      <cac:AddressLine><cbc:Line><![CDATA[{$dirPartida}]]></cbc:Line></cac:AddressLine>\n";
+        $xml .= "    </cac:OriginAddress>\n";
+
+        $xml .= "  </cac:Shipment>\n";
+
+        // Items
+        foreach ($data['items'] as $i => $item) {
+            $num = $i + 1;
+            $desc = htmlspecialchars($item['descripcion'] ?? '', ENT_XML1, 'UTF-8');
+            $xml .= "  <cac:DespatchLine>\n";
+            $xml .= "    <cbc:ID>{$num}</cbc:ID>\n";
+            $xml .= "    <cbc:DeliveredQuantity unitCode=\"" . ($item['unidad'] ?? 'NIU') . "\">" . number_format($item['cantidad'], 4, '.', '') . "</cbc:DeliveredQuantity>\n";
+            $xml .= "    <cac:Item>\n";
+            $xml .= "      <cbc:Name><![CDATA[{$desc}]]></cbc:Name>\n";
+            $xml .= "      <cac:SellersItemIdentification><cbc:ID>" . ($item['codigo'] ?? '') . "</cbc:ID></cac:SellersItemIdentification>\n";
+            $xml .= "    </cac:Item>\n";
+            $xml .= "  </cac:DespatchLine>\n";
+        }
+
+        $xml .= '</DespatchAdvice>';
+
         return $xml;
     }
 

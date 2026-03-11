@@ -185,9 +185,7 @@ class PrestamoVendedorController extends Controller
         ]);
 
         try {
-            // Verificar si existe en la tabla nueva o legacy
-            $aperturaExiste = \App\Models\AperturaCierreCaja::where('id', $request->apertura_id)->exists() ||
-                             \App\Models\AperturaYCierreCaja::where('id', $request->apertura_id)->exists();
+            $aperturaExiste = \App\Models\AperturaCierreCaja::where('id', $request->apertura_id)->exists();
             
             if (!$aperturaExiste) {
                 return response()->json([

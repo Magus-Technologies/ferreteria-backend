@@ -6,6 +6,7 @@ use App\Http\Controllers\Producto\ProductoFileController;
 use App\Http\Controllers\Producto\ProductoPriceController;
 use App\Http\Controllers\Producto\ProductoValidationController;
 use App\Http\Controllers\DetallePreciosController;
+use App\Http\Controllers\InventarioReporteController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -66,6 +67,17 @@ Route::middleware('auth:sanctum')->group(function () {
     // CRUD (apiResource)
     // ============================================
     Route::apiResource('productos', ProductoController::class);
+
+    // ============================================
+    // REPORTES DE INVENTARIO
+    // ============================================
+    Route::prefix('inventario-reportes')->group(function () {
+        Route::get('/top-productos', [InventarioReporteController::class, 'topProductos']);
+        Route::get('/resumen', [InventarioReporteController::class, 'resumen']);
+        Route::get('/stock-valorizado', [InventarioReporteController::class, 'stockValorizado']);
+        Route::get('/stock-bajo', [InventarioReporteController::class, 'stockBajo']);
+        Route::get('/cantidades-vendidas', [InventarioReporteController::class, 'cantidadesVendidas']);
+    });
 
     // ============================================
     // DETALLE DE PRECIOS (Legacy - Unidades Derivadas)

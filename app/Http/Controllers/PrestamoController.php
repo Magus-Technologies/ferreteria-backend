@@ -22,7 +22,8 @@ class PrestamoController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Prestamo::with([
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,telefono,email',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+            'cliente.direcciones',
             'proveedor:id,razon_social,numero_documento,direccion,telefono,email',
             'user:id,name',
             'almacen:id,name',

@@ -18,6 +18,8 @@ class PaqueteProducto extends Model
         'unidad_derivada_id',
         'cantidad',
         'precio_sugerido',
+        'tipo_precio',
+        'descuento',
     ];
 
     protected function casts(): array
@@ -25,6 +27,7 @@ class PaqueteProducto extends Model
         return [
             'cantidad' => 'decimal:3',
             'precio_sugerido' => 'decimal:4',
+            'descuento' => 'decimal:4',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

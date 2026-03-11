@@ -112,6 +112,8 @@ class PaqueteService
                 'unidad_derivada_id' => $productoData['unidad_derivada_id'],
                 'cantidad' => $productoData['cantidad'],
                 'precio_sugerido' => $productoData['precio_sugerido'] ?? null,
+                'tipo_precio' => $productoData['tipo_precio'] ?? 'publico',
+                'descuento' => $productoData['descuento'] ?? 0,
             ]);
         }
     }

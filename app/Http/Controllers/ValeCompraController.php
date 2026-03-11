@@ -110,14 +110,14 @@ class ValeCompraController extends Controller
             'descripcion' => 'nullable|string',
             'tipo_promocion' => [
                 'required',
-                Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS'])
+                Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS', 'DOS_POR_UNO'])
             ],
             'modalidad' => [
                 'required',
                 Rule::in(['CANTIDAD_MINIMA', 'POR_CATEGORIA', 'POR_PRODUCTOS', 'MIXTO'])
             ],
             'cantidad_minima' => 'required|numeric|min:0.001',
-            
+
             // Para descuentos
             'descuento_tipo' => [
                 'nullable',
@@ -130,7 +130,7 @@ class ValeCompraController extends Controller
                 'numeric',
                 'min:0'
             ],
-            
+
             // Para producto gratis
             'producto_gratis_id' => [
                 'nullable',
@@ -239,7 +239,7 @@ class ValeCompraController extends Controller
             'descripcion' => 'nullable|string',
             'tipo_promocion' => [
                 'sometimes',
-                Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS'])
+                Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS', 'DOS_POR_UNO'])
             ],
             'modalidad' => [
                 'sometimes',
@@ -462,6 +462,69 @@ class ValeCompraController extends Controller
     /**
      * Obtener vales aplicados a una venta específica
      */
+    /**
+     * Verificar si un código de vale generado es válido
+     */
+    public function verificarCodigoVale(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'codigo' => 'required|string|max:50',
+        ]);
+
+        $vale = ValeCompra::where('codigo', $validated['codigo'])
+            ->where('estado', 'ACTIVO')
+            ->first();
+
+        if (!$vale) {
+            return response()->json([
+                'valido' => false,
+                'message' => 'El código de vale no existe o no está activo.',
+            ]);
+        }
+
+        if (!$vale->esVigente()) {
+            return response()->json([
+                'valido' => false,
+                'message' => 'El vale ha expirado o aún no está vigente.',
+            ]);
+        }
+
+        if (!$vale->tieneStockDisponible()) {
+            return response()->json([
+                'valido' => false,
+                'message' => 'El vale ya no tiene stock disponible.',
+            ]);
+        }
+
+        // Cargar productos y categorías para mostrar info descriptiva
+        $vale->load(['productos:id,cod_producto,name', 'categorias:id,name']);
+
+        $valeData = $vale->only([
+            'id', 'codigo', 'nombre', 'tipo_promocion',
+            'descuento_tipo', 'descuento_valor', 'modalidad',
+            'cantidad_minima', 'fecha_inicio', 'fecha_fin',
+        ]);
+
+        // Agregar nombres de productos y categorías
+        $valeData['productos'] = $vale->productos->map(fn($p) => [
+            'id' => $p->id,
+            'nombre' => $p->name,
+        ])->values();
+
+        $valeData['categorias'] = $vale->categorias->map(fn($c) => [
+            'id' => $c->id,
+            'nombre' => $c->name,
+        ])->values();
+
+        return response()->json([
+            'valido' => true,
+            'data' => [
+                'vale_compra' => $valeData,
+            ],
+            'message' => 'Vale válido.',
+        ]);
+    }
+
     public function valesAplicadosVenta(string $ventaId): JsonResponse
     {
         $valesAplicados = ValeCompraAplicado::where('venta_id', $ventaId)

@@ -8,6 +8,7 @@ use App\Enums\FormaDePago;
 use App\Enums\TipoDocumento;
 use App\Enums\TipoMoneda;
 use App\Models\AperturaCierreCaja;
+use App\Models\DetalleEntregaProducto;
 use App\Models\DespliegueDePago;
 use App\Models\DespliegueDePagoVenta;
 use App\Models\IngresoDinero;
@@ -15,11 +16,14 @@ use App\Models\MetodoDePago;
 use App\Models\MovimientoCaja;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenVenta;
+use App\Models\ServicioVenta;
 use App\Models\SubCaja;
 use App\Models\TransaccionCaja;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\Venta;
+use App\Models\ValeCompra;
+use App\Models\VentaHistorial;
 use App\Services\Interfaces\FacturaServiceInterface;
 use App\Services\ValeCompraService;
 use Illuminate\Http\Request;
@@ -58,12 +62,14 @@ class VentaController extends Controller
 
         $query = Venta::query()
             ->with([
-                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,direccion_2,direccion_3,direccion_4,telefono,email',
+                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+                'cliente.direcciones',
                 'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                 'productosPorAlmacen.productoAlmacen.producto.marca',
                 'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                 'despliegueDePagoVentas.despliegueDePago',
+                'serviciosVenta.servicio',
                 'user:id,name',
                 'almacen:id,name',
                 'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
@@ -189,6 +195,8 @@ class VentaController extends Controller
             'numero' => 'nullable|integer', // Opcional: Se genera automáticamente
             'descripcion' => 'nullable|string',
             'forma_de_pago' => 'required|string',
+            'numero_dias' => 'nullable|integer',
+            'fecha_vencimiento' => 'nullable|date',
             'tipo_moneda' => 'required|string',
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'required|date',
@@ -198,10 +206,12 @@ class VentaController extends Controller
             'recomendado_por_id' => 'nullable|integer',
             'user_id' => 'required|string',
             'almacen_id' => 'required|integer',
-            'productos_por_almacen' => 'required|array',
+            'productos_por_almacen' => 'required_without:servicios_venta|array',
             'productos_por_almacen.*.costo' => 'required|numeric',
             'productos_por_almacen.*.producto_almacen_id' => 'sometimes|integer',
             'productos_por_almacen.*.producto_id' => 'sometimes|integer',
+            'productos_por_almacen.*.paquete_id' => 'nullable|integer',
+            'productos_por_almacen.*.paquete_nombre' => 'nullable|string|max:255',
             'productos_por_almacen.*.unidades_derivadas' => 'required|array',
             'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_id' => 'sometimes|integer',
             'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_name' => 'sometimes|string',
@@ -221,6 +231,15 @@ class VentaController extends Controller
             'despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
             'despliegue_de_pago_ventas.*.recibe_efectivo' => 'nullable|numeric',
             'ingreso_dinero_id' => 'nullable|string',
+            // Servicios
+            'servicios_venta' => 'sometimes|array',
+            'servicios_venta.*.servicio_id' => 'required|integer|exists:servicio,id',
+            'servicios_venta.*.cantidad' => 'required|numeric|min:0.001',
+            'servicios_venta.*.precio_unitario' => 'required|numeric|min:0',
+            'servicios_venta.*.subtotal' => 'required|numeric|min:0',
+            'servicios_venta.*.referencia' => 'nullable|string|max:200',
+            // Vale de compra (código de vale generado para canjear)
+            'codigo_vale' => 'nullable|string|max:50',
         ]);
 
         return DB::transaction(function () use ($validated) {
@@ -289,6 +308,8 @@ class VentaController extends Controller
                 'numero' => $validated['numero'],
                 'descripcion' => $validated['descripcion'] ?? null,
                 'forma_de_pago' => $formaDePagoEnum,
+                'numero_dias' => $validated['numero_dias'] ?? null,
+                'fecha_vencimiento' => $validated['fecha_vencimiento'] ?? null,
                 'tipo_moneda' => $tipoMonedaEnum,
                 'tipo_de_cambio' => $validated['tipo_de_cambio'] ?? 1,
                 'fecha' => $validated['fecha'],
@@ -301,7 +322,7 @@ class VentaController extends Controller
             ]);
 
             // Create productos_por_almacen and unidades_derivadas
-            foreach ($validated['productos_por_almacen'] as $producto) {
+            foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                 // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
                 $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
 
@@ -321,6 +342,8 @@ class VentaController extends Controller
                     'venta_id' => $venta->id,
                     'costo' => $producto['costo'],
                     'producto_almacen_id' => $productoAlmacenId,
+                    'paquete_id' => $producto['paquete_id'] ?? null,
+                    'paquete_nombre' => $producto['paquete_nombre'] ?? null,
                 ]);
 
                 foreach ($producto['unidades_derivadas'] as $unidad) {
@@ -415,6 +438,20 @@ class VentaController extends Controller
                 }
             }
 
+            // Crear servicios de la venta si se proporcionan
+            if (isset($validated['servicios_venta']) && !empty($validated['servicios_venta'])) {
+                foreach ($validated['servicios_venta'] as $srv) {
+                    ServicioVenta::create([
+                        'venta_id' => $venta->id,
+                        'servicio_id' => $srv['servicio_id'],
+                        'cantidad' => $srv['cantidad'],
+                        'precio_unitario' => $srv['precio_unitario'],
+                        'subtotal' => $srv['subtotal'],
+                        'referencia' => $srv['referencia'] ?? null,
+                    ]);
+                }
+            }
+
             // Proceso post venta
             $validated['id'] = $venta->id;
             $this->procesoPostVenta($validated);
@@ -423,19 +460,38 @@ class VentaController extends Controller
             try {
                 $detallesVenta = $this->prepararDetallesVentaParaVales($validated);
                 $valesAplicados = $this->valeCompraService->aplicarValesAutomaticos($venta, $detallesVenta);
-                
+
                 if ($valesAplicados->isNotEmpty()) {
-                    Log::info('Vales aplicados a la venta', [
+                    Log::info('Vales aplicados automáticamente', [
                         'venta_id' => $venta->id,
-                        'cantidad_vales' => $valesAplicados->count(),
+                        'vales_count' => $valesAplicados->count(),
+                        'vales' => $valesAplicados->pluck('vale_compra_id'),
                     ]);
                 }
             } catch (\Exception $e) {
-                // No fallar la venta si hay error al aplicar vales
-                Log::error('Error al aplicar vales a la venta', [
+                Log::error('Error al aplicar vales automáticos', [
                     'venta_id' => $venta->id,
                     'error' => $e->getMessage(),
                 ]);
+            }
+
+            // CANJEAR VALE GENERADO (código de próxima compra)
+            if (!empty($validated['codigo_vale'])) {
+                try {
+                    $canjeado = $this->valeCompraService->aplicarValeGenerado($validated['codigo_vale'], $venta);
+                    if ($canjeado) {
+                        Log::info('Vale generado canjeado en la venta', [
+                            'venta_id' => $venta->id,
+                            'codigo_vale' => $validated['codigo_vale'],
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Error al canjear vale generado', [
+                        'venta_id' => $venta->id,
+                        'codigo_vale' => $validated['codigo_vale'],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
 
             // GENERAR COMPROBANTE ELECTRÓNICO AUTOMÁTICAMENTE
@@ -494,8 +550,10 @@ class VentaController extends Controller
                     'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                     'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                     'despliegueDePagoVentas.despliegueDePago',
+                    'serviciosVenta.servicio',
                     'user:id,name',
                     'almacen:id,name',
+                    'valesAplicados.valeCompra',
                 ]),
                 'message' => 'Venta creada exitosamente',
             ], 201);
@@ -508,16 +566,19 @@ class VentaController extends Controller
     public function show(string $id)
     {
         $venta = Venta::with([
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,direccion_2,direccion_3,direccion_4,telefono,email',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+            'cliente.direcciones',
             'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
             'productosPorAlmacen.unidadesDerivadas.detallesEntrega',
             'despliegueDePagoVentas.despliegueDePago.metodoDePago',
+            'serviciosVenta.servicio',
             'user:id,name',
             'almacen:id,name',
             'entregasProductos',
+            'valesAplicados.valeCompra',
             'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
         ])
             ->withCount('entregasProductos as entregas_productos_count')
@@ -538,6 +599,8 @@ class VentaController extends Controller
             'numero' => 'sometimes|integer',
             'descripcion' => 'nullable|string',
             'forma_de_pago' => 'sometimes|string',
+            'numero_dias' => 'nullable|integer',
+            'fecha_vencimiento' => 'nullable|date',
             'tipo_moneda' => 'sometimes|string',
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'sometimes|date',
@@ -551,6 +614,8 @@ class VentaController extends Controller
             'productos_por_almacen.*.costo' => 'required|numeric',
             'productos_por_almacen.*.producto_almacen_id' => 'sometimes|integer',
             'productos_por_almacen.*.producto_id' => 'sometimes|integer',
+            'productos_por_almacen.*.paquete_id' => 'nullable|integer',
+            'productos_por_almacen.*.paquete_nombre' => 'nullable|string|max:255',
             'productos_por_almacen.*.unidades_derivadas' => 'required|array',
             'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_id' => 'sometimes|integer',
             'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_name' => 'sometimes|string',
@@ -565,6 +630,13 @@ class VentaController extends Controller
             'despliegue_de_pago_ventas' => 'sometimes|array',
             'despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required|string',
             'despliegue_de_pago_ventas.*.monto' => 'required|numeric',
+            // Servicios
+            'servicios_venta' => 'sometimes|array',
+            'servicios_venta.*.servicio_id' => 'required|integer|exists:servicio,id',
+            'servicios_venta.*.cantidad' => 'required|numeric|min:0.001',
+            'servicios_venta.*.precio_unitario' => 'required|numeric|min:0',
+            'servicios_venta.*.subtotal' => 'required|numeric|min:0',
+            'servicios_venta.*.referencia' => 'nullable|string|max:200',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
@@ -614,17 +686,56 @@ class VentaController extends Controller
                     $updateData[$key] = TipoDocumento::from($value);
                 } elseif ($key === 'tipo_moneda') {
                     $updateData[$key] = TipoMoneda::from($value);
-                } elseif ($key !== 'productos_por_almacen' && $key !== 'despliegue_de_pago_ventas' && $key !== 'id') {
+                } elseif ($key !== 'productos_por_almacen' && $key !== 'despliegue_de_pago_ventas' && $key !== 'servicios_venta' && $key !== 'id') {
                     $updateData[$key] = $value;
                 }
             }
+
+            // Capturar datos anteriores para historial (incluye detalle de productos)
+            $venta->load(['productosPorAlmacen.productoAlmacen.producto', 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable']);
+            $datosAnteriores = [
+                'tipo_documento' => $venta->tipo_documento instanceof \BackedEnum ? $venta->tipo_documento->value : $venta->tipo_documento,
+                'serie' => $venta->serie,
+                'numero' => $venta->numero,
+                'forma_de_pago' => $venta->forma_de_pago instanceof \BackedEnum ? $venta->forma_de_pago->value : $venta->forma_de_pago,
+                'estado_de_venta' => $venta->estado_de_venta instanceof \BackedEnum ? $venta->estado_de_venta->value : $venta->estado_de_venta,
+                'cliente_id' => $venta->cliente_id,
+                'fecha' => $venta->fecha?->toDateTimeString(),
+                'tipo_moneda' => $venta->tipo_moneda instanceof \BackedEnum ? $venta->tipo_moneda->value : $venta->tipo_moneda,
+                'numero_dias' => $venta->numero_dias,
+                'fecha_vencimiento' => $venta->fecha_vencimiento?->toDateTimeString(),
+                'descripcion' => $venta->descripcion,
+                'productos_count' => $venta->productosPorAlmacen->count(),
+                'productos' => $venta->productosPorAlmacen->map(function ($pav) {
+                    return [
+                        'nombre' => $pav->productoAlmacen?->producto?->name,
+                        'codigo' => $pav->productoAlmacen?->producto?->cod_producto,
+                        'costo' => $pav->costo,
+                        'unidades' => $pav->unidadesDerivadas->map(function ($ud) {
+                            return [
+                                'unidad' => $ud->unidadDerivadaInmutable?->name,
+                                'cantidad' => $ud->cantidad,
+                                'precio' => $ud->precio,
+                                'descuento' => $ud->descuento,
+                                'descuento_tipo' => $ud->descuento_tipo,
+                                'recargo' => $ud->recargo,
+                            ];
+                        })->toArray(),
+                    ];
+                })->toArray(),
+            ];
 
             // Update venta
             $venta->update($updateData);
 
             // If productos_por_almacen is provided, update them
             if (isset($validated['productos_por_almacen'])) {
-                // Delete existing productos_por_almacen
+                // Eliminar registros hijos en orden correcto para evitar FK constraint
+                $productoAlmacenVentaIds = ProductoAlmacenVenta::where('venta_id', $id)->pluck('id');
+                $unidadDerivadaVentaIds = UnidadDerivadaInmutableVenta::whereIn('producto_almacen_venta_id', $productoAlmacenVentaIds)->pluck('id');
+                DetalleEntregaProducto::whereIn('unidad_derivada_venta_id', $unidadDerivadaVentaIds)->delete();
+
+                // Delete existing productos_por_almacen (cascades to unidadderivadainmutableventa)
                 ProductoAlmacenVenta::where('venta_id', $id)->delete();
 
                 // Create new productos_por_almacen
@@ -695,6 +806,22 @@ class VentaController extends Controller
                 }
             }
 
+            // If servicios_venta is provided, update them
+            if (isset($validated['servicios_venta'])) {
+                ServicioVenta::where('venta_id', $id)->delete();
+
+                foreach ($validated['servicios_venta'] as $srv) {
+                    ServicioVenta::create([
+                        'venta_id' => $venta->id,
+                        'servicio_id' => $srv['servicio_id'],
+                        'cantidad' => $srv['cantidad'],
+                        'precio_unitario' => $srv['precio_unitario'],
+                        'subtotal' => $srv['subtotal'],
+                        'referencia' => $srv['referencia'] ?? null,
+                    ]);
+                }
+            }
+
             // Proceso post venta
             $validated['id'] = $id;
             $this->procesoPostVenta($validated);
@@ -747,14 +874,58 @@ class VentaController extends Controller
                 }
             }
 
+            // Registrar historial de edición (con detalle de productos nuevos)
+            $ventaFresh = $venta->fresh(['productosPorAlmacen.productoAlmacen.producto', 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable']);
+            $datosNuevos = [
+                'tipo_documento' => $ventaFresh->tipo_documento instanceof \BackedEnum ? $ventaFresh->tipo_documento->value : $ventaFresh->tipo_documento,
+                'serie' => $ventaFresh->serie,
+                'numero' => $ventaFresh->numero,
+                'forma_de_pago' => $ventaFresh->forma_de_pago instanceof \BackedEnum ? $ventaFresh->forma_de_pago->value : $ventaFresh->forma_de_pago,
+                'estado_de_venta' => $ventaFresh->estado_de_venta instanceof \BackedEnum ? $ventaFresh->estado_de_venta->value : $ventaFresh->estado_de_venta,
+                'cliente_id' => $ventaFresh->cliente_id,
+                'fecha' => $ventaFresh->fecha?->toDateTimeString(),
+                'tipo_moneda' => $ventaFresh->tipo_moneda instanceof \BackedEnum ? $ventaFresh->tipo_moneda->value : $ventaFresh->tipo_moneda,
+                'numero_dias' => $ventaFresh->numero_dias,
+                'fecha_vencimiento' => $ventaFresh->fecha_vencimiento?->toDateTimeString(),
+                'descripcion' => $ventaFresh->descripcion,
+                'productos_count' => $ventaFresh->productosPorAlmacen->count(),
+                'productos' => $ventaFresh->productosPorAlmacen->map(function ($pav) {
+                    return [
+                        'nombre' => $pav->productoAlmacen?->producto?->name,
+                        'codigo' => $pav->productoAlmacen?->producto?->cod_producto,
+                        'costo' => $pav->costo,
+                        'unidades' => $pav->unidadesDerivadas->map(function ($ud) {
+                            return [
+                                'unidad' => $ud->unidadDerivadaInmutable?->name,
+                                'cantidad' => $ud->cantidad,
+                                'precio' => $ud->precio,
+                                'descuento' => $ud->descuento,
+                                'descuento_tipo' => $ud->descuento_tipo,
+                                'recargo' => $ud->recargo,
+                            ];
+                        })->toArray(),
+                    ];
+                })->toArray(),
+            ];
+
+            VentaHistorial::registrar(
+                ventaId: $id,
+                accion: 'edicion',
+                descripcion: "Venta {$ventaFresh->serie}-{$ventaFresh->numero} editada",
+                datosAnteriores: $datosAnteriores,
+                datosNuevos: $datosNuevos,
+                userId: $validated['user_id'] ?? auth()->id(),
+            );
+
             return response()->json([
-                'data' => $venta->fresh([
+                'data' => $ventaFresh->load([
                     'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                     'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                     'productosPorAlmacen.productoAlmacen.producto.marca',
                     'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                     'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                     'despliegueDePagoVentas.despliegueDePago',
+                    'serviciosVenta.servicio',
                     'user:id,name',
                     'almacen:id,name',
                 ]),
@@ -888,10 +1059,9 @@ class VentaController extends Controller
 
         // Validar que no exista otra venta con la misma serie y número
         if (
-            $estadoEnum === EstadoDeVenta::Creado ||
-            ($estadoEnum === EstadoDeVenta::EnEspera &&
-                isset($venta['serie']) &&
-                isset($venta['numero']))
+            isset($venta['serie']) &&
+            isset($venta['numero']) &&
+            ($estadoEnum === EstadoDeVenta::Creado || $estadoEnum === EstadoDeVenta::EnEspera)
         ) {
             $existingVenta = Venta::where('serie', $venta['serie'])
                 ->where('numero', $venta['numero']);
@@ -1324,6 +1494,79 @@ class VentaController extends Controller
         }
     }
 
+    // ventasPorCobrar() movido al final del archivo (usa cobrosVenta)
+
+
+    /**
+     * Historial de ediciones de una venta específica
+     */
+    public function getHistorial(string $id)
+    {
+        $venta = Venta::findOrFail($id);
+
+        $historial = $venta->historial()
+            ->with('usuario:id,name')
+            ->orderBy('fecha', 'desc')
+            ->get();
+
+        return response()->json(['data' => $historial]);
+    }
+
+    /**
+     * Historial general de ediciones de todas las ventas
+     */
+    public function historialGeneral(Request $request)
+    {
+        $request->validate([
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'user_id' => 'sometimes|string',
+            'accion' => 'sometimes|string',
+            'search' => 'sometimes|string',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $query = VentaHistorial::query()
+            ->with([
+                'usuario:id,name',
+                'venta:id,tipo_documento,serie,numero,cliente_id,fecha',
+                'venta.cliente:id,numero_documento,razon_social,nombres,apellidos',
+            ])
+            ->orderBy('fecha', 'desc');
+
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
+        }
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+        if ($request->has('accion')) {
+            $query->where('accion', $request->accion);
+        }
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            $query->whereHas('venta', function ($q) use ($search) {
+                $q->where('serie', 'LIKE', "%{$search}%")
+                    ->orWhere('numero', 'LIKE', "%{$search}%");
+            });
+        }
+
+        $perPage = $request->input('per_page', 50);
+        $historial = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $historial->items(),
+            'total' => $historial->total(),
+            'current_page' => $historial->currentPage(),
+            'per_page' => $historial->perPage(),
+            'last_page' => $historial->lastPage(),
+        ]);
+    }
+
     /**
      * Preparar detalles de venta para el servicio de vales
      */
@@ -1331,32 +1574,259 @@ class VentaController extends Controller
     {
         $detalles = [];
 
-        foreach ($venta['productos_por_almacen'] as $producto) {
-            // Obtener el producto_almacen para extraer el producto_id y categoria_id
+        foreach ($venta['productos_por_almacen'] ?? [] as $producto) {
+            // Calcular cantidad total en unidad base
+            $cantidadTotal = 0;
+            foreach ($producto['unidades_derivadas'] ?? [] as $unidad) {
+                $cantidad = (float) ($unidad['cantidad'] ?? 0);
+                $factor = (float) ($unidad['factor'] ?? 1);
+                $cantidadTotal += $cantidad * $factor;
+            }
+
+            // Intentar obtener producto_id y categoria_id
+            $productoId = null;
+            $categoriaId = null;
+
+            // Opción 1: producto_almacen_id viene en el request
             $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
-            
             if ($productoAlmacenId) {
                 $productoAlmacen = ProductoAlmacen::with('producto.categoria')
                     ->find($productoAlmacenId);
-                
                 if ($productoAlmacen && $productoAlmacen->producto) {
-                    // Calcular cantidad total en unidad base
-                    $cantidadTotal = 0;
-                    foreach ($producto['unidades_derivadas'] as $unidad) {
-                        $cantidad = (float) ($unidad['cantidad'] ?? 0);
-                        $factor = (float) ($unidad['factor'] ?? 1);
-                        $cantidadTotal += $cantidad * $factor;
-                    }
-
-                    $detalles[] = [
-                        'producto_id' => $productoAlmacen->producto->id,
-                        'categoria_id' => $productoAlmacen->producto->categoria_id ?? null,
-                        'cantidad' => $cantidadTotal,
-                    ];
+                    $productoId = $productoAlmacen->producto->id;
+                    $categoriaId = $productoAlmacen->producto->categoria_id ?? null;
                 }
+            }
+
+            // Opción 2: producto_id viene directo en el request (frontend envía esto)
+            if (!$productoId && isset($producto['producto_id'])) {
+                $productoId = $producto['producto_id'];
+                $productoModel = \App\Models\Producto::find($productoId);
+                $categoriaId = $productoModel?->categoria_id ?? null;
+            }
+
+            if ($productoId) {
+                $detalles[] = [
+                    'producto_id' => $productoId,
+                    'categoria_id' => $categoriaId,
+                    'cantidad' => $cantidadTotal,
+                ];
             }
         }
 
         return $detalles;
+    }
+
+    /**
+     * Listar ventas a crédito con saldo pendiente (para módulo "Ventas por Cobrar")
+     */
+    public function ventasPorCobrar(Request $request)
+    {
+        $request->validate([
+            'almacen_id'  => 'sometimes|integer',
+            'cliente_id'  => 'sometimes|integer',
+            'user_id'     => 'sometimes|string',
+            'desde'       => 'sometimes|date',
+            'hasta'       => 'sometimes|date',
+            'search'      => 'sometimes|string',
+            'dias'        => 'sometimes|integer|min:1', // Ventas que vencen en X días
+            'per_page'    => 'sometimes|integer|min:-1|max:200',
+            'page'        => 'sometimes|integer|min:1',
+        ]);
+
+        $query = Venta::query()
+            ->with([
+                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+                'productosPorAlmacen.productoAlmacen.producto.marca',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                'user:id,name',
+                'almacen:id,name',
+            ])
+            ->withSum([
+                'cobrosVenta as total_cobrado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto')
+            // Solo ventas a crédito
+            ->where('forma_de_pago', FormaDePago::Credito)
+            // Solo activas (no anuladas)
+            ->where('estado_de_venta', '!=', EstadoDeVenta::Anulado);
+
+        // Filtros opcionales
+        if ($request->has('almacen_id')) {
+            $query->where('almacen_id', $request->almacen_id);
+        }
+
+        if ($request->has('cliente_id')) {
+            $query->where('cliente_id', $request->cliente_id);
+        }
+
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
+        }
+
+        // Filtro por días a vencer (ej: ventas que vencen en 15 días desde hoy)
+        if ($request->has('dias')) {
+            $fechaLimite = now()->addDays($request->dias)->toDateString();
+            $query->whereNotNull('fecha_vencimiento')
+                ->whereDate('fecha_vencimiento', '<=', $fechaLimite);
+        }
+
+        // Búsqueda por serie, número o cliente
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('serie', 'LIKE', "%{$search}%")
+                    ->orWhere('numero', 'LIKE', "%{$search}%")
+                    ->orWhereHas('cliente', function ($q2) use ($search) {
+                        $q2->where('razon_social', 'LIKE', "%{$search}%")
+                            ->orWhere('nombres', 'LIKE', "%{$search}%")
+                            ->orWhere('apellidos', 'LIKE', "%{$search}%")
+                            ->orWhere('numero_documento', 'LIKE', "%{$search}%");
+                    });
+            });
+        }
+
+        $perPage = (int) $request->input('per_page', 50);
+
+        if ($perPage === -1) {
+            $ventas = $query->orderBy('fecha', 'asc')->limit(200)->get();
+
+            // Filtrar solo las que tienen saldo > 0
+            $ventasConSaldo = $ventas->filter(function ($venta) {
+                $total        = $this->getTotalVenta($venta);
+                $totalCobrado = (float) ($venta->total_cobrado ?? 0);
+                return ($total - $totalCobrado) > 0.01;
+            });
+
+            return response()->json([
+                'data'  => $ventasConSaldo->values(),
+                'total' => $ventasConSaldo->count(),
+            ]);
+        }
+
+        $ventas = $query->orderBy('fecha', 'asc')->paginate($perPage);
+
+        // Filtrar solo las que tienen saldo pendiente
+        $ventasConSaldo = $ventas->getCollection()->filter(function ($venta) {
+            $total        = $this->getTotalVenta($venta);
+            $totalCobrado = (float) ($venta->total_cobrado ?? 0);
+            return ($total - $totalCobrado) > 0.01;
+        });
+
+        $ventas->setCollection($ventasConSaldo);
+
+        return response()->json([
+            'data'         => $ventas->items(),
+            'total'        => $ventasConSaldo->count(),
+            'current_page' => $ventas->currentPage(),
+            'per_page'     => $ventas->perPage(),
+            'last_page'    => $ventas->lastPage(),
+        ]);
+    }
+
+    /**
+     * Listar cobros de una venta específica
+     */
+    public function getCobros(string $id)
+    {
+        $venta = Venta::findOrFail($id);
+
+        $cobros = $venta->cobrosVenta()
+            ->with('despliegueDePago.metodoDePago', 'user:id,name')
+            ->orderBy('fecha', 'desc')
+            ->get();
+
+        return response()->json(['data' => $cobros]);
+    }
+
+    /**
+     * Registrar un cobro para una venta a crédito
+     */
+    public function storeCobro(Request $request, string $id)
+    {
+        $validated = $request->validate([
+            'despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
+            'monto'                 => 'required|numeric|min:0.01',
+            'fecha'                 => 'required|date',
+            'observacion'           => 'nullable|string|max:500',
+            'numero_letra'          => 'nullable|string|max:100',
+            'numero_operacion'      => 'nullable|string|max:100',
+            'user_id'               => 'required|string|exists:user,id',
+        ]);
+
+        return DB::transaction(function () use ($id, $validated) {
+            $venta = Venta::with([
+                'productosPorAlmacen.unidadesDerivadas',
+                'cobrosVenta' => function ($query) {
+                    $query->where('estado', true);
+                },
+            ])->findOrFail($id);
+
+            // Validar que la venta es a crédito
+            if ($venta->forma_de_pago !== FormaDePago::Credito) {
+                return response()->json([
+                    'error' => ['message' => 'Solo se pueden registrar cobros en ventas a crédito'],
+                ], 422);
+            }
+
+            // Validar que la venta no está anulada
+            if ($venta->estado_de_venta === EstadoDeVenta::Anulado) {
+                return response()->json([
+                    'error' => ['message' => 'No se puede registrar un cobro en una venta anulada'],
+                ], 422);
+            }
+
+            // Calcular total de la venta
+            $totalVenta = $this->getTotalVenta($venta);
+
+            // Calcular total cobrado hasta ahora
+            $totalCobrado = $venta->cobrosVenta->sum('monto');
+
+            // Calcular saldo pendiente
+            $saldoPendiente = $totalVenta - $totalCobrado;
+
+            // Validar que el monto no exceda el saldo
+            if ($validated['monto'] > $saldoPendiente + 0.01) {
+                return response()->json([
+                    'error' => ['message' => 'El monto del cobro (S/ ' . number_format($validated['monto'], 2) . ') no puede exceder el saldo pendiente de S/ ' . number_format($saldoPendiente, 2)],
+                ], 422);
+            }
+
+            // Crear el cobro
+            $cobro = $venta->cobrosVenta()->create([
+                'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
+                'monto'                 => $validated['monto'],
+                'fecha'                 => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
+                'observacion'           => $validated['observacion'] ?? null,
+                'numero_letra'          => $validated['numero_letra'] ?? null,
+                'numero_operacion'      => $validated['numero_operacion'] ?? null,
+                'estado'                => true,
+                'user_id'               => $validated['user_id'],
+            ]);
+
+            // Actualizar estado de la venta si quedó completamente pagada
+            $nuevoTotalCobrado = $totalCobrado + $validated['monto'];
+            if ($nuevoTotalCobrado >= ($totalVenta - 0.01)) {
+                $venta->update(['estado_de_venta' => EstadoDeVenta::Procesado]);
+            }
+
+            // Cargar relaciones para la respuesta
+            $cobro->load('despliegueDePago.metodoDePago', 'user:id,name');
+
+            return response()->json([
+                'data'    => $cobro,
+                'message' => 'Cobro registrado correctamente',
+                'saldo_pendiente' => max(0, $saldoPendiente - $validated['monto']),
+            ], 201);
+        });
     }
 }

@@ -22,9 +22,9 @@ class GuiaRemisionQueryBuilder
     {
         $this->query->with([
             'venta:id,serie,numero,cliente_id',
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,direccion,telefono',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono',
             'motivoTraslado:id,codigo,descripcion',
-            'chofer:id,dni,nombres,apellidos',
+            'chofer:id,dni,name,licencia',
             'almacenOrigen:id,name',
             'almacenDestino:id,name',
             'user:id,name',

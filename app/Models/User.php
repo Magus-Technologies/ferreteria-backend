@@ -116,7 +116,7 @@ class User extends Authenticatable
 
     public function cajas(): HasMany
     {
-        return $this->hasMany(AperturaYCierreCaja::class);
+        return $this->hasMany(AperturaCierreCaja::class);
     }
 
     public function egresosDinero(): HasMany
