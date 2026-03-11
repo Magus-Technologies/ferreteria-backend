@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Pdf\AperturaCajaPdfService;
+use App\Services\Pdf\CierreCajaPdfService;
 use App\Services\Pdf\CompraPdfService;
 use App\Services\Pdf\CotizacionPdfService;
 use App\Services\Pdf\GuiaPdfService;
+use App\Services\Pdf\NotaCreditoPdfService;
+use App\Services\Pdf\NotaDebitoPdfService;
 use App\Services\Pdf\PrestamoPdfService;
 use App\Services\Pdf\ValeCompraPdfService;
 use App\Services\Pdf\VentaPdfService;
@@ -45,5 +49,27 @@ class PdfController extends Controller
     public function vale(int $id, ValeCompraPdfService $service): Response
     {
         return $service->generar($id);
+    }
+
+    public function notaCredito(string $id, NotaCreditoPdfService $service): Response
+    {
+        return $service->generar($id);
+    }
+
+    public function notaDebito(string $id, NotaDebitoPdfService $service): Response
+    {
+        return $service->generar($id);
+    }
+
+    public function cierreCaja(string $id, Request $request, CierreCajaPdfService $service): Response
+    {
+        $formato = $request->query('formato', 'ticket');
+        return $service->generar($id, $formato);
+    }
+
+    public function aperturaCaja(string $id, Request $request, AperturaCajaPdfService $service): Response
+    {
+        $formato = $request->query('formato', 'ticket');
+        return $service->generar($id, $formato);
     }
 }
