@@ -32,11 +32,12 @@ class EntregaProductoController extends Controller
         $query = EntregaProducto::query()
             ->with([
                 'venta:id,serie,numero,cliente_id',
-                'venta.cliente:id,nombres,apellidos,razon_social',
+                'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono',
                 'almacenSalida:id,name',
                 'despachador:id,name', // Usar 'despachador' en lugar de 'chofer'
                 'user:id,name',
-                'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
+                'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
+                'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
             ]);
 
         // Filter by venta_id
@@ -49,14 +50,22 @@ class EntregaProductoController extends Controller
             $query->where('almacen_salida_id', $request->almacen_salida_id);
         }
 
-        // Filter by chofer_id
+        // Filter by chofer_id (incluye entregas sin despachador asignado)
         if ($request->has('chofer_id')) {
-            $query->where('chofer_id', $request->chofer_id);
+            $query->where(function ($q) use ($request) {
+                $q->where('chofer_id', $request->chofer_id)
+                  ->orWhereNull('chofer_id');
+            });
         }
 
-        // Filter by estado_entrega
+        // Filter by estado_entrega (soporta múltiples valores separados por coma)
         if ($request->has('estado_entrega')) {
-            $query->where('estado_entrega', $request->estado_entrega);
+            $estados = explode(',', $request->estado_entrega);
+            if (count($estados) === 1) {
+                $query->where('estado_entrega', $estados[0]);
+            } else {
+                $query->whereIn('estado_entrega', $estados);
+            }
         }
 
         // Filter by fecha range usando fecha_programada (para entregas programadas)
@@ -268,11 +277,12 @@ class EntregaProductoController extends Controller
             return response()->json([
                 'data' => $entrega->fresh([
                     'venta:id,serie,numero,cliente_id',
-                    'venta.cliente:id,nombres,apellidos,razon_social',
+                    'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono',
                     'almacenSalida:id,name',
                     'despachador:id,name', // Usar 'despachador'
                     'user:id,name',
-                    'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
+                    'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
+                    'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
                 ]),
                 'message' => 'Entrega de producto actualizada exitosamente',
             ]);

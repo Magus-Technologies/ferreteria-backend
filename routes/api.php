@@ -94,6 +94,7 @@ Route::prefix('pdf')->group(function () {
     Route::get('/ingreso-salida/{id}', [PdfController::class, 'ingresoSalida']);
     Route::get('/recepcion-almacen/{id}', [PdfController::class, 'recepcionAlmacen']);
     Route::get('/requerimiento-interno/{id}', [PdfController::class, 'requerimientoInterno']);
+    Route::get('/entrega-producto/{id}', [PdfController::class, 'entregaProducto']);
 });
 
 // Ruta pública para ver XML de comprobantes electrónicos (sin autenticación)

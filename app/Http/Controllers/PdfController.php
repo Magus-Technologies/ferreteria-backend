@@ -15,6 +15,7 @@ use App\Services\Pdf\PrestamoPdfService;
 use App\Services\Pdf\RecepcionAlmacenPdfService;
 use App\Services\Pdf\RequerimientoInternoPdfService;
 use App\Services\Pdf\ValeCompraPdfService;
+use App\Services\Pdf\EntregaProductoPdfService;
 use App\Services\Pdf\VentaPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -95,6 +96,11 @@ class PdfController extends Controller
     }
 
     public function requerimientoInterno(int $id, RequerimientoInternoPdfService $service): Response
+    {
+        return $service->generar($id);
+    }
+
+    public function entregaProducto(int $id, EntregaProductoPdfService $service): Response
     {
         return $service->generar($id);
     }
