@@ -31,10 +31,10 @@ class EntregaProductoController extends Controller
 
         $query = EntregaProducto::query()
             ->with([
-                'venta:id,serie,numero,cliente_id',
+                'venta:id,serie,numero,tipo_documento,cliente_id',
                 'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono',
                 'almacenSalida:id,name',
-                'despachador:id,name', // Usar 'despachador' en lugar de 'chofer'
+                'despachador:id,name',
                 'user:id,name',
                 'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
                 'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
@@ -234,10 +234,10 @@ class EntregaProductoController extends Controller
     {
         $entrega = EntregaProducto::with([
             'venta:id,serie,numero,cliente_id,almacen_id',
-            'venta.cliente:id,nombres,apellidos,razon_social,direccion,telefono',
+            'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono,email',
             'venta.almacen:id,name',
             'almacenSalida:id,name',
-            'despachador:id,name', // Usar 'despachador' en lugar de 'chofer'
+            'despachador:id,name,telefono,celular,email',
             'user:id,name',
             'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
             'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
