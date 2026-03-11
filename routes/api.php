@@ -90,6 +90,10 @@ Route::prefix('pdf')->group(function () {
     Route::get('/nota-debito/{id}', [PdfController::class, 'notaDebito']);
     Route::get('/cierre-caja/{id}', [PdfController::class, 'cierreCaja']);
     Route::get('/apertura-caja/{id}', [PdfController::class, 'aperturaCaja']);
+    Route::get('/orden-compra/{id}', [PdfController::class, 'ordenCompra']);
+    Route::get('/ingreso-salida/{id}', [PdfController::class, 'ingresoSalida']);
+    Route::get('/recepcion-almacen/{id}', [PdfController::class, 'recepcionAlmacen']);
+    Route::get('/requerimiento-interno/{id}', [PdfController::class, 'requerimientoInterno']);
 });
 
 // Ruta pública para ver XML de comprobantes electrónicos (sin autenticación)

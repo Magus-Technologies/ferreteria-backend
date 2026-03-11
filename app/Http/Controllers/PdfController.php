@@ -7,9 +7,13 @@ use App\Services\Pdf\CierreCajaPdfService;
 use App\Services\Pdf\CompraPdfService;
 use App\Services\Pdf\CotizacionPdfService;
 use App\Services\Pdf\GuiaPdfService;
+use App\Services\Pdf\IngresoSalidaPdfService;
 use App\Services\Pdf\NotaCreditoPdfService;
 use App\Services\Pdf\NotaDebitoPdfService;
+use App\Services\Pdf\OrdenCompraPdfService;
 use App\Services\Pdf\PrestamoPdfService;
+use App\Services\Pdf\RecepcionAlmacenPdfService;
+use App\Services\Pdf\RequerimientoInternoPdfService;
 use App\Services\Pdf\ValeCompraPdfService;
 use App\Services\Pdf\VentaPdfService;
 use Illuminate\Http\Request;
@@ -71,5 +75,27 @@ class PdfController extends Controller
     {
         $formato = $request->query('formato', 'ticket');
         return $service->generar($id, $formato);
+    }
+
+    public function ordenCompra(int $id, OrdenCompraPdfService $service): Response
+    {
+        return $service->generar($id);
+    }
+
+    public function ingresoSalida(int $id, Request $request, IngresoSalidaPdfService $service): Response
+    {
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
+    }
+
+    public function recepcionAlmacen(int $id, Request $request, RecepcionAlmacenPdfService $service): Response
+    {
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
+    }
+
+    public function requerimientoInterno(int $id, RequerimientoInternoPdfService $service): Response
+    {
+        return $service->generar($id);
     }
 }
