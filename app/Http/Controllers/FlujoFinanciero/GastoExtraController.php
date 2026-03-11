@@ -5,6 +5,7 @@ namespace App\Http\Controllers\FlujoFinanciero;
 use App\Http\Controllers\Controller;
 use App\Models\GastoExtra;
 use App\Models\User;
+use App\Models\AperturaCierreCaja;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
@@ -103,6 +104,15 @@ class GastoExtraController extends Controller
                             'success' => false,
                             'message' => 'Credenciales de supervisor inválidas'
                         ], 403);
+                    }
+
+                    // Validar que exista apertura de hoy antes de aprobar
+                    $aperturaDiaria = $this->validarAperturaDiaria();
+                    if (!$aperturaDiaria) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'No hay apertura de caja para hoy. No se puede aprobar el gasto.'
+                        ], 422);
                     }
 
                     $estado = 'aprobado';
@@ -244,6 +254,15 @@ class GastoExtraController extends Controller
                     return response()->json(['success' => false, 'message' => 'Gasto no encontrado'], 404);
                 }
 
+                // Validar que exista apertura de hoy antes de aprobar
+                $aperturaDiaria = $this->validarAperturaDiaria();
+                if (!$aperturaDiaria) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No hay apertura de caja para hoy. No se puede aprobar el gasto.'
+                    ], 422);
+                }
+
                 // Validar supervisor
                 $supervisor = $this->validarSupervisor($request->supervisor_id, $request->supervisor_password);
 
@@ -297,5 +316,19 @@ class GastoExtraController extends Controller
         }
 
         return $supervisor;
+    }
+
+    /**
+     * Validar que exista apertura de caja para hoy
+     */
+    private function validarAperturaDiaria(): ?AperturaCierreCaja
+    {
+        $hoy = now()->toDateString();
+
+        $apertura = AperturaCierreCaja::where('estado', 'abierta')
+            ->whereDate('fecha_apertura', $hoy)
+            ->first();
+
+        return $apertura;
     }
 }
