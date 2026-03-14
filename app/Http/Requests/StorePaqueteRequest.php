@@ -27,9 +27,10 @@ class StorePaqueteRequest extends FormRequest
             'productos.*.producto_id' => 'required|integer|exists:producto,id',
             'productos.*.unidad_derivada_id' => 'required|integer|exists:unidadderivada,id',
             'productos.*.cantidad' => 'required|numeric|min:0.001',
-            'productos.*.precio_sugerido' => 'nullable|numeric|min:0',
-            'productos.*.tipo_precio' => 'sometimes|string|in:publico,especial,minimo,ultimo',
-            'productos.*.descuento' => 'nullable|numeric|min:0',
+            'productos.*.precio_publico' => 'nullable|numeric|min:0',
+            'productos.*.precio_especial' => 'nullable|numeric|min:0',
+            'productos.*.precio_minimo' => 'nullable|numeric|min:0',
+            'productos.*.precio_ultimo' => 'nullable|numeric|min:0',
         ];
     }
 

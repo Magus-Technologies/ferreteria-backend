@@ -17,17 +17,20 @@ class PaqueteProducto extends Model
         'producto_id',
         'unidad_derivada_id',
         'cantidad',
-        'precio_sugerido',
-        'tipo_precio',
-        'descuento',
+        'precio_publico',
+        'precio_especial',
+        'precio_minimo',
+        'precio_ultimo',
     ];
 
     protected function casts(): array
     {
         return [
             'cantidad' => 'decimal:3',
-            'precio_sugerido' => 'decimal:4',
-            'descuento' => 'decimal:4',
+            'precio_publico' => 'decimal:4',
+            'precio_especial' => 'decimal:4',
+            'precio_minimo' => 'decimal:4',
+            'precio_ultimo' => 'decimal:4',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

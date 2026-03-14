@@ -111,9 +111,10 @@ class PaqueteService
                 'producto_id' => $productoData['producto_id'],
                 'unidad_derivada_id' => $productoData['unidad_derivada_id'],
                 'cantidad' => $productoData['cantidad'],
-                'precio_sugerido' => $productoData['precio_sugerido'] ?? null,
-                'tipo_precio' => $productoData['tipo_precio'] ?? 'publico',
-                'descuento' => $productoData['descuento'] ?? 0,
+                'precio_publico' => $productoData['precio_publico'] ?? null,
+                'precio_especial' => $productoData['precio_especial'] ?? null,
+                'precio_minimo' => $productoData['precio_minimo'] ?? null,
+                'precio_ultimo' => $productoData['precio_ultimo'] ?? null,
             ]);
         }
     }
