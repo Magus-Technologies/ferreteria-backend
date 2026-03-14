@@ -247,12 +247,14 @@ class EntregaProductoController extends Controller
                 'venta_numero' => $venta->numero ?? '',
                 'direccion' => $validated['direccion_entrega'] ?? '',
             ];
+            $direccionEntrega = $validated['direccion_entrega'] ?? null;
             $notifBody = "Venta {$venta->serie}-{$venta->numero}" .
-                ($validated['direccion_entrega'] ? " a {$validated['direccion_entrega']}" : '');
+                ($direccionEntrega ? " a {$direccionEntrega}" : '');
 
-            if ($tipoPedido === 'externo' && !empty($validated['cargo_destino'])) {
+            $cargoDestino = $validated['cargo_destino'] ?? null;
+            if ($tipoPedido === 'externo' && !empty($cargoDestino)) {
                 $this->firebaseService->sendToCargo(
-                    $validated['cargo_destino'],
+                    $cargoDestino,
                     'Nueva Entrega Disponible',
                     $notifBody,
                     $notifData
