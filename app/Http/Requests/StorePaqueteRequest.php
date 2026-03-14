@@ -31,6 +31,10 @@ class StorePaqueteRequest extends FormRequest
             'productos.*.precio_especial' => 'nullable|numeric|min:0',
             'productos.*.precio_minimo' => 'nullable|numeric|min:0',
             'productos.*.precio_ultimo' => 'nullable|numeric|min:0',
+            'productos.*.descuento_publico' => 'nullable|numeric|min:0',
+            'productos.*.descuento_especial' => 'nullable|numeric|min:0',
+            'productos.*.descuento_minimo' => 'nullable|numeric|min:0',
+            'productos.*.descuento_ultimo' => 'nullable|numeric|min:0',
         ];
     }
 

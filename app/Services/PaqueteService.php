@@ -115,6 +115,10 @@ class PaqueteService
                 'precio_especial' => $productoData['precio_especial'] ?? null,
                 'precio_minimo' => $productoData['precio_minimo'] ?? null,
                 'precio_ultimo' => $productoData['precio_ultimo'] ?? null,
+                'descuento_publico' => $productoData['descuento_publico'] ?? 0,
+                'descuento_especial' => $productoData['descuento_especial'] ?? 0,
+                'descuento_minimo' => $productoData['descuento_minimo'] ?? 0,
+                'descuento_ultimo' => $productoData['descuento_ultimo'] ?? 0,
             ]);
         }
     }

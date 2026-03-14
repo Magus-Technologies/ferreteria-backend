@@ -21,6 +21,10 @@ class PaqueteProducto extends Model
         'precio_especial',
         'precio_minimo',
         'precio_ultimo',
+        'descuento_publico',
+        'descuento_especial',
+        'descuento_minimo',
+        'descuento_ultimo',
     ];
 
     protected function casts(): array
@@ -31,6 +35,10 @@ class PaqueteProducto extends Model
             'precio_especial' => 'decimal:4',
             'precio_minimo' => 'decimal:4',
             'precio_ultimo' => 'decimal:4',
+            'descuento_publico' => 'decimal:4',
+            'descuento_especial' => 'decimal:4',
+            'descuento_minimo' => 'decimal:4',
+            'descuento_ultimo' => 'decimal:4',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
