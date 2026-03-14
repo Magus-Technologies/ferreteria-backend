@@ -24,9 +24,9 @@ class CajaService implements CajaServiceInterface
         private SubCajaRepositoryInterface $subCajaRepository
     ) {}
 
-    public function crearCajaPrincipal(string $userId, string $nombre): CajaPrincipal
+    public function crearCajaPrincipal(string $userId, string $nombre, ?string $metodoPagoId = null, ?string $nombreMetodoPago = null): CajaPrincipal
     {
-        return DB::transaction(function () use ($userId, $nombre) {
+        return DB::transaction(function () use ($userId, $nombre, $metodoPagoId, $nombreMetodoPago) {
             // Generar código
             $codigo = $this->cajaPrincipalRepository->generarSiguienteCodigo();
 
@@ -39,7 +39,7 @@ class CajaService implements CajaServiceInterface
             ]);
 
             // Crear automáticamente la Caja Chica
-            $cajaChica = $this->crearCajaChicaAutomatica($cajaPrincipal->id, $codigo);
+            $cajaChica = $this->crearCajaChicaAutomatica($cajaPrincipal->id, $codigo, $metodoPagoId, $nombreMetodoPago);
             
             // NUEVO: Crear apertura automática con monto 0
             AperturaCierreCaja::create([
@@ -56,12 +56,44 @@ class CajaService implements CajaServiceInterface
         });
     }
 
-    private function crearCajaChicaAutomatica(int $cajaPrincipalId, string $codigoCajaPrincipal): SubCaja
+    private function crearCajaChicaAutomatica(int $cajaPrincipalId, string $codigoCajaPrincipal, ?string $metodoPagoId = null, ?string $nombreMetodoPago = null): SubCaja
     {
-        $desplieguePagoEfectivo = $this->encontrarDespliegueEfectivoDisponible();
+        Log::info('=== crearCajaChicaAutomatica ===', [
+            'cajaPrincipalId' => $cajaPrincipalId,
+            'codigoCajaPrincipal' => $codigoCajaPrincipal,
+            'desplieguePagoId' => $metodoPagoId,
+            'nombreMetodoPago' => $nombreMetodoPago,
+        ]);
+
+        // Si se proporciona un nombre personalizado, siempre crear uno nuevo con ese nombre
+        if ($nombreMetodoPago) {
+            Log::info("Creando método de pago con nombre personalizado: {$nombreMetodoPago}");
+            $desplieguePagoEfectivo = $this->crearNuevoDespliegueEfectivo($nombreMetodoPago);
+        } elseif ($metodoPagoId) {
+            // Si se proporciona un desplieguePagoId existente, usarlo directamente
+            Log::info('Buscando despliegue de pago con ID: ' . $metodoPagoId);
+            $desplieguePagoEfectivo = DespliegueDePago::where('id', $metodoPagoId)
+                ->where('activo', true)
+                ->first();
+
+            Log::info('Despliegue encontrado:', [
+                'id' => $desplieguePagoEfectivo?->id,
+                'name' => $desplieguePagoEfectivo?->name,
+            ]);
+        } else {
+            Log::info('No se proporcionó desplieguePagoId ni nombre, buscando uno disponible');
+            $desplieguePagoEfectivo = $this->encontrarDespliegueEfectivoDisponible();
+        }
+
+        // Solo crear uno nuevo autogenerado si no se obtuvo ninguno aún
+        if (!$desplieguePagoEfectivo) {
+            Log::info('Creando nuevo despliegue de pago por defecto (nombre incremental)');
+            $desplieguePagoEfectivo = $this->crearNuevoDespliegueEfectivo();
+        }
 
         if (!$desplieguePagoEfectivo) {
-            $desplieguePagoEfectivo = $this->crearNuevoDespliegueEfectivo();
+            Log::error('No se encontró un método de pago válido para la Caja Chica');
+            throw new \Exception('No se encontró un método de pago válido para la Caja Chica');
         }
 
         $codigo = $codigoCajaPrincipal . '-001';
@@ -103,12 +135,17 @@ class CajaService implements CajaServiceInterface
     }
 
     /**
-     * Crea un nuevo MetodoDePago y DespliegueDePago de tipo efectivo con nombre incremental.
+     * Crea un nuevo MetodoDePago y DespliegueDePago de tipo efectivo.
+     * Si se proporciona $nombre, lo usa; de lo contrario genera uno incremental.
      */
-    private function crearNuevoDespliegueEfectivo(): DespliegueDePago
+    private function crearNuevoDespliegueEfectivo(?string $nombre = null): DespliegueDePago
     {
-        $count = \App\Models\MetodoDePago::where('name', 'like', '%Efectivo%')->count();
-        $nuevoNombre = $count > 0 ? 'Efectivo' . ($count + 1) : 'Efectivo';
+        if ($nombre) {
+            $nuevoNombre = $nombre;
+        } else {
+            $count = \App\Models\MetodoDePago::where('name', 'like', '%Efectivo%')->count();
+            $nuevoNombre = $count > 0 ? 'Efectivo' . ($count + 1) : 'Efectivo';
+        }
 
         Log::info("Creando nuevo método de pago efectivo: {$nuevoNombre}");
 

@@ -16,6 +16,7 @@ class CrearCajaPrincipalRequest extends FormRequest
         return [
             'user_id' => 'required|string|exists:user,id',
             'nombre' => 'required|string|max:255',
+            'nombre_metodo_pago' => 'nullable|string|max:191',
         ];
     }
 

@@ -14,20 +14,21 @@ class CrearRequerimientoInternoRequest extends FormRequest
     public function rules(): array
     {
         $tipoSolicitud = $this->input('tipo_solicitud');
+        $esOCOSOC = in_array($tipoSolicitud, ['OC', 'SOC']);
 
         return [
             'titulo' => ['required', 'string', 'max:255'],
             'area' => ['required', 'string', 'max:100'],
             'fecha_requerida' => ['required', 'date'],
             'prioridad' => ['required', 'in:BAJA,MEDIA,ALTA,URGENTE'],
-            'tipo_solicitud' => ['required', 'in:OC,OS'],
+            'tipo_solicitud' => ['required', 'in:OC,OS,SOC'],
             'observaciones' => ['nullable', 'string'],
             'proveedor_sugerido_id' => ['nullable', 'integer', 'exists:proveedor,id'],
-            // OC - Productos
+            // OC/SOC - Productos
             'productos' => [
-                $tipoSolicitud === 'OC' ? 'required' : 'nullable',
+                $esOCOSOC ? 'required' : 'nullable',
                 'array',
-                $tipoSolicitud === 'OC' ? 'min:1' : 'nullable',
+                $esOCOSOC ? 'min:1' : 'nullable',
             ],
             'productos.*.producto_id' => ['nullable', 'integer', 'exists:producto,id'],
             'productos.*.nombre_adicional' => ['nullable', 'string', 'max:255'],
@@ -55,9 +56,9 @@ class CrearRequerimientoInternoRequest extends FormRequest
             'area.required' => 'El área es requerida',
             'fecha_requerida.required' => 'La fecha requerida es obligatoria',
             'tipo_solicitud.required' => 'El tipo de solicitud es requerido',
-            'tipo_solicitud.in' => 'El tipo de solicitud debe ser OC u OS',
+            'tipo_solicitud.in' => 'El tipo de solicitud debe ser OC, OS o SOC',
             'prioridad.in' => 'La prioridad debe ser BAJA, MEDIA, ALTA o URGENTE',
-            'productos.required' => 'Los productos son requeridos para solicitudes de tipo OC',
+            'productos.required' => 'Los productos son requeridos para solicitudes de tipo OC o SOC',
             'productos.min' => 'Debe agregar al menos un producto',
             'productos.*.producto_id.exists' => 'El producto seleccionado no existe',
             'productos.*.cantidad.min' => 'La cantidad debe ser mayor a 0',

@@ -6,6 +6,8 @@ class CrearCajaPrincipalRequest
 {
     public function __construct(
         public string $userId,
-        public string $nombre
+        public string $nombre,
+        public ?string $metodoPagoId = null,
+        public ?string $nombreMetodoPago = null
     ) {}
 }

@@ -14,7 +14,7 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
         return RequerimientoInterno::with([
             'user:id,name',
             'proveedorSugerido:id,razon_social,ruc',
-            'productos.producto:id,cod_producto,name',
+            'productos.producto:id,cod_producto,name,marca_id,unidad_medida_id',
             'productos.producto.marca:id,name',
             'productos.producto.unidadMedida:id,name',
             'servicio',
@@ -26,7 +26,7 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
         $query = RequerimientoInterno::with([
             'user:id,name',
             'proveedorSugerido:id,razon_social,ruc',
-            'productos.producto:id,cod_producto,name',
+            'productos.producto:id,cod_producto,name,marca_id,unidad_medida_id',
             'productos.producto.marca:id,name',
             'productos.producto.unidadMedida:id,name',
             'servicio',
@@ -41,7 +41,7 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
     {
         return RequerimientoInterno::with([
             'user:id,name',
-            'productos.producto:id,cod_producto,name',
+            'productos.producto:id,cod_producto,name,marca_id,unidad_medida_id',
             'productos.producto.marca:id,name',
             'productos.producto.unidadMedida:id,name',
         ])

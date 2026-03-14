@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\RequerimientoInternoController;
 use App\Http\Controllers\OrdenCompraController;
+use App\Http\Controllers\TipoServicioController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -13,6 +14,11 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->group(function () {
 
     // ============================================
+    // TIPOS DE SERVICIO
+    // ============================================
+    Route::apiResource('tipos-servicio', TipoServicioController::class);
+
+    // ============================================
     // REQUERIMIENTOS INTERNOS
     // ============================================
     Route::prefix('requerimientos-internos')->group(function () {
@@ -20,6 +26,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [RequerimientoInternoController::class, 'store']);
         Route::get('/{id}', [RequerimientoInternoController::class, 'show']);
         Route::patch('/{id}/estado', [RequerimientoInternoController::class, 'updateEstado']);
+        Route::patch('/productos/{productoId}/actualizar-cantidad-ordenada', [RequerimientoInternoController::class, 'actualizarCantidadOrdenada']);
     });
 
     // ============================================

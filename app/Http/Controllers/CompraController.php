@@ -15,6 +15,7 @@ use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenCompra;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableCompra;
+use App\Http\Resources\CompraResource;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -198,7 +199,7 @@ class CompraController extends Controller
         if ($perPage === -1) {
             // Return all without pagination
             return response()->json([
-                'data' => $query->orderBy('fecha', 'desc')->limit(100)->get(),
+                'data' => CompraResource::collection($query->orderBy('fecha', 'desc')->limit(100)->get()),
                 'total' => $query->count(),
             ]);
         }
@@ -206,7 +207,7 @@ class CompraController extends Controller
         $compras = $query->orderBy('fecha', 'desc')->paginate($perPage);
 
         return response()->json([
-            'data' => $compras->items(),
+            'data' => CompraResource::collection($compras->items()),
             'total' => $compras->total(),
             'current_page' => $compras->currentPage(),
             'per_page' => $compras->perPage(),
@@ -219,6 +220,8 @@ class CompraController extends Controller
      */
     public function store(Request $request)
     {
+        \Log::info('Compra store request:', $request->all());
+        
         $validated = $request->validate([
             'id' => 'sometimes|string',
             'tipo_documento' => 'required|string',
@@ -255,6 +258,8 @@ class CompraController extends Controller
             'productos_por_almacen.*.unidades_derivadas.*.flete' => 'nullable|numeric',
             'productos_por_almacen.*.unidades_derivadas.*.bonificacion' => 'nullable|boolean',
         ]);
+        
+        \Log::info('Validated data:', $validated);
 
         return DB::transaction(function () use ($validated) {
             // Extraer el despliegue_id del formato "sub_caja_id-despliegue_id" si es necesario
@@ -315,6 +320,11 @@ class CompraController extends Controller
                 $orden = OrdenCompra::find($validated['orden_compra_id']);
                 
                 if ($orden->estado === EstadoDeCompra::Pendiente) {
+                    $orden->update(['estado' => EstadoDeCompra::EnProceso]);
+                }
+                
+                // Si el estado de la compra es "Creado", marcar la orden como aprobada
+                if ($estadoEnum === EstadoDeCompraDefinitiva::Creado) {
                     $orden->update(['estado' => EstadoDeCompra::EnProceso]);
                 }
             }
@@ -396,6 +406,7 @@ class CompraController extends Controller
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
             'user:id,name',
+            'ordenCompra:id,codigo,estado',
         ])
             ->withCount([
                 'recepcionesAlmacen as recepciones_almacen_count' => function ($query) {
@@ -412,7 +423,7 @@ class CompraController extends Controller
             ], 'monto')
             ->findOrFail($id);
 
-        return response()->json(['data' => $compra]);
+        return response()->json(['data' => new CompraResource($compra)]);
     }
 
     /**
