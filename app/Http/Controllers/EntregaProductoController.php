@@ -5,12 +5,20 @@ namespace App\Http\Controllers;
 use App\Models\DetalleEntregaProducto;
 use App\Models\EntregaProducto;
 use App\Models\UnidadDerivadaInmutableVenta;
+use App\Models\User;
 use App\Models\Venta;
+use App\Services\FirebaseNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class EntregaProductoController extends Controller
 {
+    private FirebaseNotificationService $firebaseService;
+
+    public function __construct(FirebaseNotificationService $firebaseService)
+    {
+        $this->firebaseService = $firebaseService;
+    }
     /**
      * Display a listing of the resource (todas las entregas o por venta).
      */
@@ -50,11 +58,23 @@ class EntregaProductoController extends Controller
             $query->where('almacen_salida_id', $request->almacen_salida_id);
         }
 
-        // Filter by chofer_id (incluye entregas sin despachador asignado)
+        // Filter by chofer_id (incluye entregas sin despachador + externos de su cargo)
         if ($request->has('chofer_id')) {
-            $query->where(function ($q) use ($request) {
+            $user = User::find($request->chofer_id);
+            $query->where(function ($q) use ($request, $user) {
                 $q->where('chofer_id', $request->chofer_id)
-                  ->orWhereNull('chofer_id');
+                  ->orWhere(function ($q2) {
+                      $q2->whereNull('chofer_id')->where('estado_entrega', 'pe');
+                  });
+                // También mostrar pedidos externos pendientes para el cargo del usuario
+                if ($user && $user->cargo) {
+                    $q->orWhere(function ($q2) use ($user) {
+                        $q2->where('tipo_pedido', 'externo')
+                           ->where('cargo_destino', $user->cargo)
+                           ->where('estado_entrega', 'pe')
+                           ->whereNull('chofer_id');
+                    });
+                }
             });
         }
 
@@ -156,6 +176,8 @@ class EntregaProductoController extends Controller
             'chofer_id' => 'nullable|string',
             'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
             'user_id' => 'required|string',
+            'tipo_pedido' => 'sometimes|string|in:interno,externo',
+            'cargo_destino' => 'required_if:tipo_pedido,externo|nullable|string',
             'productos_entregados' => 'required|array',
             'productos_entregados.*.unidad_derivada_venta_id' => 'required|integer',
             'productos_entregados.*.cantidad_entregada' => 'required|numeric|min:0',
@@ -184,6 +206,8 @@ class EntregaProductoController extends Controller
                 'chofer_id' => $validated['chofer_id'] ?? null,
                 'quien_entrega' => $validated['quien_entrega'] ?? null,
                 'user_id' => $validated['user_id'],
+                'tipo_pedido' => $validated['tipo_pedido'] ?? 'interno',
+                'cargo_destino' => $validated['cargo_destino'] ?? null,
             ]);
 
             // Crear detalles y actualizar cantidades pendientes
@@ -213,17 +237,126 @@ class EntregaProductoController extends Controller
                 $unidadDerivadaVenta->decrement('cantidad_pendiente', $cantidadEntregada);
             }
 
+            // Enviar notificaciones FCM según tipo de pedido
+            $tipoPedido = $validated['tipo_pedido'] ?? 'interno';
+            $notifData = [
+                'type' => 'pedido_entrega',
+                'entrega_id' => (string) $entrega->id,
+                'tipo_pedido' => $tipoPedido,
+                'venta_serie' => $venta->serie ?? '',
+                'venta_numero' => $venta->numero ?? '',
+                'direccion' => $validated['direccion_entrega'] ?? '',
+            ];
+            $notifBody = "Venta {$venta->serie}-{$venta->numero}" .
+                ($validated['direccion_entrega'] ? " a {$validated['direccion_entrega']}" : '');
+
+            if ($tipoPedido === 'externo' && !empty($validated['cargo_destino'])) {
+                $this->firebaseService->sendToCargo(
+                    $validated['cargo_destino'],
+                    'Nueva Entrega Disponible',
+                    $notifBody,
+                    $notifData
+                );
+            } elseif (!empty($validated['chofer_id'])) {
+                $despachador = User::find($validated['chofer_id']);
+                if ($despachador && $despachador->fcm_token) {
+                    $this->firebaseService->sendNotification(
+                        $despachador->fcm_token,
+                        'Nueva Entrega Programada',
+                        $notifBody,
+                        $notifData
+                    );
+                }
+            }
+
             return response()->json([
                 'data' => $entrega->load([
                     'venta:id,serie,numero,cliente_id',
                     'venta.cliente:id,nombres,apellidos,razon_social',
                     'almacenSalida:id,name',
-                    'chofer:id,dni,nombres,apellidos',
+                    'despachador:id,name',
                     'user:id,name',
                     'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
                 ]),
                 'message' => 'Entrega de producto creada exitosamente',
             ], 201);
+        });
+    }
+
+    /**
+     * Aceptar un pedido externo (first-come-first-served con lock)
+     */
+    public function aceptar(Request $request, string $id)
+    {
+        $user = $request->user();
+
+        return DB::transaction(function () use ($id, $user) {
+            // Lock para evitar race condition
+            $entrega = EntregaProducto::where('id', $id)
+                ->where('tipo_pedido', 'externo')
+                ->where('estado_entrega', 'pe')
+                ->whereNull('chofer_id')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$entrega) {
+                return response()->json([
+                    'message' => 'Esta entrega ya fue aceptada por otro usuario',
+                ], 409);
+            }
+
+            // Verificar que el usuario tiene el cargo correcto
+            if ($user->cargo !== $entrega->cargo_destino) {
+                return response()->json([
+                    'message' => 'No tienes el cargo requerido para aceptar esta entrega',
+                ], 403);
+            }
+
+            $entrega->update([
+                'chofer_id' => $user->id,
+                'aceptado_at' => now(),
+            ]);
+
+            // Notificar al creador que alguien aceptó
+            $creador = User::find($entrega->user_id);
+            if ($creador && $creador->fcm_token) {
+                $entrega->load('venta:id,serie,numero');
+                $this->firebaseService->sendNotification(
+                    $creador->fcm_token,
+                    'Entrega Aceptada',
+                    "{$user->name} aceptó la entrega de Venta {$entrega->venta->serie}-{$entrega->venta->numero}",
+                    [
+                        'type' => 'pedido_entrega_aceptado',
+                        'entrega_id' => (string) $entrega->id,
+                    ]
+                );
+            }
+
+            // Notificar a los demás del mismo cargo que ya fue tomada
+            $entrega->load('venta:id,serie,numero');
+            $this->firebaseService->sendToCargo(
+                $entrega->cargo_destino,
+                'Entrega ya tomada',
+                "{$user->name} aceptó la entrega de Venta {$entrega->venta->serie}-{$entrega->venta->numero}",
+                [
+                    'type' => 'pedido_entrega_tomado',
+                    'entrega_id' => (string) $entrega->id,
+                ],
+                $user->id // excluir al que aceptó
+            );
+
+            return response()->json([
+                'data' => $entrega->fresh([
+                    'venta:id,serie,numero,cliente_id',
+                    'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono',
+                    'almacenSalida:id,name',
+                    'despachador:id,name',
+                    'user:id,name',
+                    'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
+                    'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
+                ]),
+                'message' => 'Entrega aceptada exitosamente',
+            ]);
         });
     }
 

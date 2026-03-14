@@ -39,6 +39,9 @@ class EntregaProducto extends Model
         'chofer_id',
         'quien_entrega',
         'user_id',
+        'tipo_pedido',
+        'cargo_destino',
+        'aceptado_at',
     ];
 
     /**
@@ -49,9 +52,21 @@ class EntregaProducto extends Model
         return [
             'fecha_entrega' => 'datetime',
             'fecha_programada' => 'datetime',
+            'aceptado_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Scope: Pedidos externos pendientes por cargo (sin aceptar)
+     */
+    public function scopeExternosPendientesPorCargo($query, string $cargo)
+    {
+        return $query->where('tipo_pedido', 'externo')
+                     ->where('cargo_destino', $cargo)
+                     ->where('estado_entrega', 'pe')
+                     ->whereNull('chofer_id');
     }
 
     /**

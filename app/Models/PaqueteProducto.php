@@ -17,6 +17,7 @@ class PaqueteProducto extends Model
         'producto_id',
         'unidad_derivada_id',
         'cantidad',
+        'tipo_precio',
         'precio_publico',
         'precio_especial',
         'precio_minimo',

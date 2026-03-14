@@ -33,7 +33,7 @@ class PaqueteService
 
             // 3. Cargar relaciones para la respuesta
             return $paquete->load([
-                'productos.producto:id,name,cod_producto',
+                'productos.producto:id,name,cod_producto,marca_id',
                 'productos.producto.marca:id,name',
                 'productos.unidadDerivada:id,name',
             ]);
@@ -74,7 +74,7 @@ class PaqueteService
 
             // 3. Cargar relaciones para la respuesta
             return $paquete->load([
-                'productos.producto:id,name,cod_producto',
+                'productos.producto:id,name,cod_producto,marca_id',
                 'productos.producto.marca:id,name',
                 'productos.unidadDerivada:id,name',
             ]);
@@ -111,6 +111,7 @@ class PaqueteService
                 'producto_id' => $productoData['producto_id'],
                 'unidad_derivada_id' => $productoData['unidad_derivada_id'],
                 'cantidad' => $productoData['cantidad'],
+                'tipo_precio' => $productoData['tipo_precio'] ?? 'publico',
                 'precio_publico' => $productoData['precio_publico'] ?? null,
                 'precio_especial' => $productoData['precio_especial'] ?? null,
                 'precio_minimo' => $productoData['precio_minimo'] ?? null,

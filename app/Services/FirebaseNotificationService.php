@@ -202,6 +202,33 @@ class FirebaseNotificationService
     }
 
     /**
+     * Envía notificación a todos los usuarios con un cargo específico
+     */
+    public function sendToCargo(
+        string $cargo,
+        string $title,
+        string $body,
+        array $data = [],
+        ?string $excludeUserId = null
+    ): int {
+        $users = \App\Models\User::where('cargo', $cargo)
+            ->whereNotNull('fcm_token')
+            ->where('estado', true)
+            ->when($excludeUserId, fn($q) => $q->where('id', '!=', $excludeUserId))
+            ->get();
+
+        $successCount = 0;
+
+        foreach ($users as $user) {
+            if ($this->sendNotification($user->fcm_token, $title, $body, $data)) {
+                $successCount++;
+            }
+        }
+
+        return $successCount;
+    }
+
+    /**
      * Envía notificación a todos los usuarios con un rol específico
      */
     public function sendToRole(

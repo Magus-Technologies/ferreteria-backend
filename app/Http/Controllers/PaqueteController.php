@@ -37,7 +37,7 @@ class PaqueteController extends Controller
 
         $query = Paquete::query()
             ->with([
-                'productos.producto:id,name,cod_producto,categoria_id',
+                'productos.producto:id,name,cod_producto,categoria_id,marca_id',
                 'productos.producto.productoEnAlmacenes:id,producto_id,costo',
                 'productos.producto.marca:id,name',
                 'productos.unidadDerivada:id,name',
@@ -75,7 +75,7 @@ class PaqueteController extends Controller
     public function show($id)
     {
         $paquete = Paquete::with([
-            'productos.producto:id,name,cod_producto',
+            'productos.producto:id,name,cod_producto,marca_id',
             'productos.producto.marca:id,name',
             'productos.producto.productoEnAlmacenes:id,producto_id,costo',
             'productos.producto.productoEnAlmacenes.unidadesDerivadas',
@@ -177,7 +177,7 @@ public function byProducto($productoId)
             $query->where('producto_id', $productoId);
         })
         ->with([
-            'productos.producto:id,name,cod_producto',
+            'productos.producto:id,name,cod_producto,marca_id',
             'productos.producto.marca:id,name',
             'productos.unidadDerivada:id,name',
         ])

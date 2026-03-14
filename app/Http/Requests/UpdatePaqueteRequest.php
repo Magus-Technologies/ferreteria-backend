@@ -29,6 +29,7 @@ class UpdatePaqueteRequest extends FormRequest
             'productos.*.producto_id' => 'required_with:productos|integer|exists:producto,id',
             'productos.*.unidad_derivada_id' => 'required_with:productos|integer|exists:unidadderivada,id',
             'productos.*.cantidad' => 'required_with:productos|numeric|min:0.001',
+            'productos.*.tipo_precio' => 'nullable|string|in:publico,especial,minimo,ultimo',
             'productos.*.precio_publico' => 'nullable|numeric|min:0',
             'productos.*.precio_especial' => 'nullable|numeric|min:0',
             'productos.*.precio_minimo' => 'nullable|numeric|min:0',

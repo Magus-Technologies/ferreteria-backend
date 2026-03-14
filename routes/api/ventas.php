@@ -130,6 +130,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // ENTREGAS DE PRODUCTOS
     // ============================================
+    Route::post('entregas-productos/{id}/aceptar', [EntregaProductoController::class, 'aceptar']);
     Route::apiResource('entregas-productos', EntregaProductoController::class);
 
     // ============================================
