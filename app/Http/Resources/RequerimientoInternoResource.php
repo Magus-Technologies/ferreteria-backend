@@ -19,6 +19,7 @@ class RequerimientoInternoResource extends JsonResource
             'tipo_solicitud' => $this->tipo_solicitud,
             'observaciones' => $this->observaciones,
             'estado' => $this->estado,
+            'estado_solicitud' => $this->calcularEstadoSolicitud(),
             'proveedor_sugerido_id' => $this->proveedor_sugerido_id,
             'proveedor_sugerido' => $this->whenLoaded('proveedorSugerido', function () {
                 return [
@@ -38,10 +39,16 @@ class RequerimientoInternoResource extends JsonResource
                 return $this->productos->map(function ($prod) {
                     return [
                         'id' => $prod->id,
+                        'requerimiento_id' => $prod->requerimiento_id,
                         'producto_id' => $prod->producto_id,
                         'nombre_adicional' => $prod->nombre_adicional,
                         'cantidad' => (float) $prod->cantidad,
                         'cantidad_pendiente' => (float) ($prod->cantidad_pendiente ?? $prod->cantidad),
+                        'cantidad_ordenada' => (float) ($prod->cantidad_ordenada ?? 0),
+                        'cantidad_restante' => (float) $prod->cantidad_restante,
+                        'estado_producto' => $prod->estado_producto,
+                        'orden_compra_codigo' => $prod->orden_compra_codigo,
+                        'orden_compra_id' => $prod->orden_compra_id,
                         'unidad' => $prod->unidad,
                         'producto' => $prod->producto ? [
                             'id' => $prod->producto->id,
@@ -76,5 +83,28 @@ class RequerimientoInternoResource extends JsonResource
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
         ];
+    }
+
+    private function calcularEstadoSolicitud(): string
+    {
+        if (!$this->relationLoaded('productos') || $this->productos->isEmpty()) {
+            return 'pendiente';
+        }
+
+        $totalProductos = $this->productos->count();
+        $productosCompletos = $this->productos->filter(function ($p) {
+            $cantidadRestante = (float) ($p->cantidad_pendiente ?? $p->cantidad) - (float) ($p->cantidad_ordenada ?? 0);
+            return $cantidadRestante <= 0;
+        })->count();
+
+        if ($productosCompletos === 0) {
+            return 'pendiente';
+        }
+
+        if ($productosCompletos === $totalProductos) {
+            return 'aprobado';
+        }
+
+        return 'en_proceso';
     }
 }

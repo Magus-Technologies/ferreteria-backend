@@ -31,16 +31,29 @@ class DespliegueDePagoController extends Controller
         }
 
         // Excluir métodos ya usados por sub-cajas de OTRAS cajas principales
+        // y por la Caja Chica (CC) de la MISMA caja principal
         if ($request->has('exclude_used_by_caja_principal_id')) {
             $cajaPrincipalId = $request->input('exclude_used_by_caja_principal_id');
 
-            // Obtener despliegues asignados en sub-cajas de OTRAS cajas principales
-            $usedConfigs = \App\Models\SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
-                ->where('estado', true)
+            // Despliegues usados por sub-cajas de OTRAS cajas principales (sin importar estado)
+            $usadosPorOtras = \App\Models\SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
                 ->get()
-                ->pluck('despliegues_pago_ids');
+                ->pluck('despliegues_pago_ids')
+                ->flatten()
+                ->filter(fn($id) => $id !== '*')
+                ->unique()
+                ->toArray();
 
-            $usedIds = $usedConfigs->flatten()->filter(fn($id) => $id !== '*')->unique()->toArray();
+            // Despliegues usados por CUALQUIER sub-caja de la MISMA caja principal
+            $usadosPorMisma = \App\Models\SubCaja::where('caja_principal_id', $cajaPrincipalId)
+                ->get()
+                ->pluck('despliegues_pago_ids')
+                ->flatten()
+                ->filter(fn($id) => $id !== '*')
+                ->unique()
+                ->toArray();
+
+            $usedIds = array_values(array_unique(array_merge($usadosPorOtras, $usadosPorMisma)));
 
             if (!empty($usedIds)) {
                 $query->whereNotIn('id', $usedIds);
@@ -90,18 +103,17 @@ class DespliegueDePagoController extends Controller
             'numero_celular.regex' => 'El número de celular solo puede contener números y símbolos +, -, ( )',
         ]);
 
-        // Si no se proporciona metodo_de_pago_id, crear uno genérico
+        // Si no se proporciona metodo_de_pago_id, crear uno con el mismo nombre
         if (empty($validated['metodo_de_pago_id'])) {
-            // Buscar o crear método de pago genérico "Sin Banco"
-            $metodoGenerico = \App\Models\MetodoDePago::firstOrCreate(
-                ['name' => 'Sin Banco'],
+            $metodoPago = \App\Models\MetodoDePago::firstOrCreate(
+                ['name' => $validated['name']],
                 [
-                    'id' => (string) \Illuminate\Support\Str::ulid(),
-                    'monto' => 0,
+                    'id'     => (string) \Illuminate\Support\Str::ulid(),
+                    'monto'  => 0,
                     'activo' => true,
                 ]
             );
-            $validated['metodo_de_pago_id'] = $metodoGenerico->id;
+            $validated['metodo_de_pago_id'] = $metodoPago->id;
         }
 
         // Validar que no exista el mismo nombre para el mismo banco

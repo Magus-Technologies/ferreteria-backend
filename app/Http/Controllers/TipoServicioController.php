@@ -1,72 +1,137 @@
 <?php
+
 namespace App\Http\Controllers;
 
 use App\Models\TipoServicio;
 use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Validator;
 
 class TipoServicioController extends Controller
 {
-    public function index(): JsonResponse
+    /**
+     * Listar tipos de servicio
+     * GET /api/tipos-servicio
+     */
+    public function index(Request $request)
     {
-        $tipos = TipoServicio::where('activo', true)
-            ->orderBy('nombre')
-            ->get();
+        try {
+            $query = TipoServicio::query();
 
-        return response()->json([
-            'data' => $tipos,
-        ]);
+            if ($request->has('activo')) {
+                $query->where('activo', $request->boolean('activo'));
+            }
+
+            if ($request->filled('search')) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('nombre', 'like', "%{$search}%")
+                      ->orWhere('descripcion', 'like', "%{$search}%");
+                });
+            }
+
+            $tipos = $query->orderBy('nombre')->get();
+
+            return response()->json(['data' => $tipos]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error al obtener tipos de servicio',
+                'error'   => $e->getMessage()
+            ], 500);
+        }
     }
 
-    public function store(Request $request): JsonResponse
+    /**
+     * Crear tipo de servicio
+     * POST /api/tipos-servicio
+     */
+    public function store(Request $request)
     {
-        $validated = $request->validate([
-            'nombre' => 'required|string|max:100|unique:tipos_servicio,nombre',
-            'descripcion' => 'nullable|string|max:500',
-        ], [
-            'nombre.required' => 'El nombre es obligatorio',
-            'nombre.unique' => 'Este tipo de servicio ya existe',
-            'nombre.max' => 'El nombre no puede exceder 100 caracteres',
-            'descripcion.max' => 'La descripción no puede exceder 500 caracteres',
-        ]);
+        try {
+            $validator = Validator::make($request->all(), [
+                'nombre'      => 'required|string|max:100|unique:tipos_servicio,nombre',
+                'descripcion' => 'nullable|string',
+                'activo'      => 'boolean',
+            ]);
 
-        $tipo = TipoServicio::create($validated);
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Error de validación',
+                    'errors'  => $validator->errors()
+                ], 422);
+            }
 
-        return response()->json([
-            'data' => $tipo,
-            'message' => 'Tipo de servicio creado exitosamente',
-        ], 201);
+            $tipo = TipoServicio::create($validator->validated());
+
+            return response()->json([
+                'data'    => $tipo,
+                'message' => 'Tipo de servicio creado exitosamente'
+            ], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error al crear tipo de servicio',
+                'error'   => $e->getMessage()
+            ], 500);
+        }
     }
 
-    public function show(TipoServicio $tipoServicio): JsonResponse
+    /**
+     * Obtener tipo de servicio por ID
+     * GET /api/tipos-servicio/{id}
+     */
+    public function show($id)
     {
-        return response()->json([
-            'data' => $tipoServicio,
-        ]);
+        try {
+            $tipo = TipoServicio::findOrFail($id);
+            return response()->json(['data' => $tipo]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'No encontrado'], 404);
+        }
     }
 
-    public function update(Request $request, TipoServicio $tipoServicio): JsonResponse
+    /**
+     * Actualizar tipo de servicio
+     * PUT /api/tipos-servicio/{id}
+     */
+    public function update(Request $request, $id)
     {
-        $validated = $request->validate([
-            'nombre' => 'required|string|max:100|unique:tipos_servicio,nombre,' . $tipoServicio->id,
-            'descripcion' => 'nullable|string|max:500',
-            'activo' => 'nullable|boolean',
-        ]);
+        try {
+            $tipo = TipoServicio::findOrFail($id);
 
-        $tipoServicio->update($validated);
+            $validator = Validator::make($request->all(), [
+                'nombre'      => 'sometimes|string|max:100|unique:tipos_servicio,nombre,' . $id,
+                'descripcion' => 'nullable|string',
+                'activo'      => 'sometimes|boolean',
+            ]);
 
-        return response()->json([
-            'data' => $tipoServicio,
-            'message' => 'Tipo de servicio actualizado exitosamente',
-        ]);
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Error de validación',
+                    'errors'  => $validator->errors()
+                ], 422);
+            }
+
+            $tipo->update($validator->validated());
+
+            return response()->json([
+                'data'    => $tipo,
+                'message' => 'Tipo de servicio actualizado'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Error al actualizar'], 500);
+        }
     }
 
-    public function destroy(TipoServicio $tipoServicio): JsonResponse
+    /**
+     * Eliminar tipo de servicio
+     * DELETE /api/tipos-servicio/{id}
+     */
+    public function destroy($id)
     {
-        $tipoServicio->update(['activo' => false]);
-
-        return response()->json([
-            'message' => 'Tipo de servicio eliminado exitosamente',
-        ]);
+        try {
+            TipoServicio::findOrFail($id)->delete();
+            return response()->json(['message' => 'Tipo de servicio eliminado']);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Error al eliminar'], 500);
+        }
     }
 }

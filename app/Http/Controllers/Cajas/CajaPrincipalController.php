@@ -59,8 +59,16 @@ class CajaPrincipalController extends Controller
 
             $useCaseRequest = new CrearCajaPrincipalRequest(
                 userId: $request->validated('user_id'),
-                nombre: $request->validated('nombre')
+                nombre: $request->validated('nombre'),
+                metodoPagoId: $request->validated('metodo_pago_id'),
+                nombreMetodoPago: $request->validated('nombre_metodo_pago')
             );
+
+            \Log::info('=== CajaPrincipalController.store ===', [
+                'user_id' => $request->validated('user_id'),
+                'nombre' => $request->validated('nombre'),
+                'metodo_pago_id' => $request->validated('metodo_pago_id'),
+            ]);
 
             $response = $this->crearCajaPrincipalUseCase->execute($useCaseRequest);
 

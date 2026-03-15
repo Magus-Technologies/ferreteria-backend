@@ -66,4 +66,27 @@ class RequerimientoInternoController extends Controller
         return (new RequerimientoInternoResource($requerimiento))
             ->additional(['message' => 'Estado actualizado a ' . $request->estado]);
     }
+
+    /**
+     * Actualizar cantidad ordenada de un producto
+     */
+    public function actualizarCantidadOrdenada(Request $request, int $productoId)
+    {
+        $validated = $request->validate([
+            'cantidad_ordenada' => 'required|numeric|min:0',
+            'orden_compra_id' => 'nullable|integer',
+            'orden_compra_codigo' => 'nullable|string|max:50',
+        ]);
+
+        $this->service->actualizarCantidadOrdenada(
+            $productoId,
+            $validated['cantidad_ordenada'],
+            $validated['orden_compra_id'] ?? null,
+            $validated['orden_compra_codigo'] ?? null
+        );
+
+        return response()->json([
+            'message' => 'Cantidad ordenada actualizada exitosamente',
+        ]);
+    }
 }

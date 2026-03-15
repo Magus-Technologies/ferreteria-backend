@@ -14,7 +14,9 @@ class CrearCajaPrincipalUseCase
     {
         $cajaPrincipal = $this->cajaService->crearCajaPrincipal(
             $request->userId,
-            $request->nombre
+            $request->nombre,
+            $request->metodoPagoId,
+            $request->nombreMetodoPago
         );
 
         return new CrearCajaPrincipalResponse(

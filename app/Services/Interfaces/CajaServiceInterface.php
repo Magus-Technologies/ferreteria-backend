@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Collection;
 
 interface CajaServiceInterface
 {
-    public function crearCajaPrincipal(string $userId, string $nombre): CajaPrincipal;
+    public function crearCajaPrincipal(string $userId, string $nombre, ?string $metodoPagoId = null, ?string $nombreMetodoPago = null): CajaPrincipal;
     
     public function crearSubCaja(int $cajaPrincipalId, array $data): SubCaja;
     

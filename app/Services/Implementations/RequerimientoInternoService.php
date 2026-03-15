@@ -60,8 +60,8 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                 'user_id' => $data['user_id'],
             ]);
 
-            // Crear productos (OC)
-            if ($data['tipo_solicitud'] === 'OC') {
+            // Crear productos (OC y SOC)
+            if (in_array($data['tipo_solicitud'], ['OC', 'SOC'])) {
                 if (empty($data['productos'])) {
                     throw RequerimientoInternoException::sinProductos();
                 }
@@ -177,6 +177,35 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
         } catch (\Exception $e) {
             Log::error('Error al cambiar estado de requerimiento', [
                 'requerimiento_id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+            throw RequerimientoInternoException::errorAlActualizar($e->getMessage());
+        }
+    }
+
+    public function actualizarCantidadOrdenada(
+        int $productoId,
+        float $cantidadOrdenada,
+        ?int $ordenCompraId = null,
+        ?string $ordenCompraCodigo = null
+    ): void {
+        try {
+            RequerimientoInternoProducto::where('id', $productoId)->update([
+                'cantidad_ordenada' => $cantidadOrdenada,
+                'orden_compra_id' => $ordenCompraId,
+                'orden_compra_codigo' => $ordenCompraCodigo,
+            ]);
+
+            Log::info('Cantidad ordenada actualizada', [
+                'producto_id' => $productoId,
+                'cantidad_ordenada' => $cantidadOrdenada,
+                'orden_compra_id' => $ordenCompraId,
+                'orden_compra_codigo' => $ordenCompraCodigo,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error al actualizar cantidad ordenada', [
+                'producto_id' => $productoId,
                 'error' => $e->getMessage(),
             ]);
             throw RequerimientoInternoException::errorAlActualizar($e->getMessage());

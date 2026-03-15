@@ -31,8 +31,9 @@ class DesplieguePagoRepository implements DesplieguePagoRepositoryInterface
     }
 
     /**
-     * Si se recibe caja_principal_id, excluye despliegues ya asignados a
-     * sub-cajas de OTRAS cajas principales.
+     * Si se recibe caja_principal_id:
+     * - Excluye despliegues usados por sub-cajas de OTRAS cajas principales.
+     * - Excluye despliegues usados por la Caja Chica (CC) de la MISMA caja principal.
      */
     private function aplicarFiltroDisponibles($query, ?int $cajaPrincipalId): void
     {
@@ -40,13 +41,24 @@ class DesplieguePagoRepository implements DesplieguePagoRepositoryInterface
             return;
         }
 
-        // IDs de despliegues usados por sub-cajas de OTRAS cajas principales
-        $usados = SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
+        // IDs usados por sub-cajas de OTRAS cajas principales
+        $usadosPorOtras = SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
             ->get()
             ->flatMap(fn($sc) => $sc->despliegues_pago_ids ?? [])
             ->unique()
             ->values()
             ->toArray();
+
+        // IDs usados por CUALQUIER sub-caja de la MISMA caja principal
+        $usadosPorMisma = SubCaja::where('caja_principal_id', $cajaPrincipalId)
+            ->get()
+            ->flatMap(fn($sc) => $sc->despliegues_pago_ids ?? [])
+            ->filter(fn($id) => $id !== '*')
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $usados = array_values(array_unique(array_merge($usadosPorOtras, $usadosPorMisma)));
 
         if (!empty($usados)) {
             $query->whereNotIn('id', $usados);
