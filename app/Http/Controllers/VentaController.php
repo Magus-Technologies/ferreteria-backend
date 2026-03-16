@@ -1829,4 +1829,88 @@ class VentaController extends Controller
             ], 201);
         });
     }
+
+    /**
+     * Cobro múltiple: distribuir un pago en varias ventas de un cliente
+     */
+    public function storeCobroMultiple(Request $request)
+    {
+        $validated = $request->validate([
+            'cliente_id'            => 'required|integer|exists:cliente,id',
+            'despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
+            'monto_total'           => 'required|numeric|min:0.01',
+            'fecha'                 => 'required|date',
+            'observacion'           => 'nullable|string|max:500',
+            'numero_operacion'      => 'nullable|string|max:100',
+            'user_id'               => 'required|string|exists:user,id',
+            'distribucion'          => 'required|array|min:1',
+            'distribucion.*.venta_id' => 'required|string',
+            'distribucion.*.monto'    => 'required|numeric|min:0.01',
+        ]);
+
+        return DB::transaction(function () use ($validated) {
+            $cobrosCreados = [];
+            $ventasActualizadas = [];
+
+            foreach ($validated['distribucion'] as $item) {
+                $venta = Venta::with([
+                    'productosPorAlmacen.unidadesDerivadas',
+                    'cobrosVenta' => fn($q) => $q->where('estado', true),
+                ])->findOrFail($item['venta_id']);
+
+                // Validar que la venta pertenece al cliente
+                if ((int) $venta->cliente_id !== (int) $validated['cliente_id']) {
+                    throw new \Exception("La venta {$venta->serie}-{$venta->numero} no pertenece al cliente seleccionado");
+                }
+
+                // Validar que la venta es a crédito y no está anulada
+                if ($venta->forma_de_pago !== FormaDePago::Credito) {
+                    throw new \Exception("La venta {$venta->serie}-{$venta->numero} no es a crédito");
+                }
+                if ($venta->estado_de_venta === EstadoDeVenta::Anulado) {
+                    throw new \Exception("La venta {$venta->serie}-{$venta->numero} está anulada");
+                }
+
+                $totalVenta = $this->getTotalVenta($venta);
+                $totalCobrado = $venta->cobrosVenta->sum('monto');
+                $saldoPendiente = $totalVenta - $totalCobrado;
+
+                if ($item['monto'] > $saldoPendiente + 0.01) {
+                    throw new \Exception("El monto S/ " . number_format($item['monto'], 2) . " excede el saldo pendiente S/ " . number_format($saldoPendiente, 2) . " de la venta {$venta->serie}-{$venta->numero}");
+                }
+
+                // Crear el cobro
+                $cobro = $venta->cobrosVenta()->create([
+                    'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
+                    'monto'                 => $item['monto'],
+                    'fecha'                 => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
+                    'observacion'           => $validated['observacion'] ?? null,
+                    'numero_operacion'      => $validated['numero_operacion'] ?? null,
+                    'estado'                => true,
+                    'user_id'               => $validated['user_id'],
+                ]);
+
+                // Actualizar estado si quedó completamente pagada
+                $nuevoTotalCobrado = $totalCobrado + $item['monto'];
+                if ($nuevoTotalCobrado >= ($totalVenta - 0.01)) {
+                    $venta->update(['estado_de_venta' => EstadoDeVenta::Procesado]);
+                }
+
+                $cobrosCreados[] = $cobro;
+                $ventasActualizadas[] = [
+                    'venta_id' => $venta->id,
+                    'serie'    => $venta->serie,
+                    'numero'   => $venta->numero,
+                    'monto_cobrado' => $item['monto'],
+                    'saldo_pendiente' => max(0, $saldoPendiente - $item['monto']),
+                ];
+            }
+
+            return response()->json([
+                'data'    => $ventasActualizadas,
+                'message' => 'Cobro múltiple registrado correctamente (' . count($cobrosCreados) . ' ventas)',
+                'total_cobrado' => array_sum(array_column($validated['distribucion'], 'monto')),
+            ], 201);
+        });
+    }
 }

@@ -34,6 +34,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('ventas')->group(function () {
         Route::get('/por-cobrar', [VentaController::class, 'ventasPorCobrar']);
         Route::get('/historial', [VentaController::class, 'historialGeneral']);
+        Route::post('/cobro-multiple', [VentaController::class, 'storeCobroMultiple']); // Cobro múltiple por cliente
         Route::get('/{id}/historial', [VentaController::class, 'getHistorial']);
         Route::get('/{id}/cobros', [VentaController::class, 'getCobros']);   // Listar cobros de una venta
         Route::post('/{id}/cobros', [VentaController::class, 'storeCobro']); // Registrar un cobro
