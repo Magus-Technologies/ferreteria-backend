@@ -463,7 +463,8 @@ class ValeCompraController extends Controller
      * Obtener vales aplicados a una venta específica
      */
     /**
-     * Verificar si un código de vale generado es válido
+     * Verificar si un código de vale es válido.
+     * Busca tanto en códigos de promoción (VC-...) como en códigos generados (VCC-...).
      */
     public function verificarCodigoVale(Request $request): JsonResponse
     {
@@ -471,21 +472,73 @@ class ValeCompraController extends Controller
             'codigo' => 'required|string|max:50',
         ]);
 
-        $vale = ValeCompra::where('codigo', $validated['codigo'])
+        $codigo = $validated['codigo'];
+
+        // 1. Buscar como código generado (VCC-...) en vales_compra_aplicados
+        $valeGenerado = ValeCompraAplicado::where('codigo_vale_generado', $codigo)
+            ->where('genera_vale_futuro', true)
+            ->where('usado', false)
+            ->first();
+
+        if ($valeGenerado) {
+            // Verificar vigencia
+            if ($valeGenerado->fecha_validez_generado && $valeGenerado->fecha_validez_generado->isPast()) {
+                return response()->json([
+                    'valido' => false,
+                    'message' => 'Este vale ha expirado.',
+                ]);
+            }
+
+            $valeCompra = $valeGenerado->valeCompra;
+            $valeCompra?->load(['productos:id,cod_producto,name', 'categorias:id,name']);
+
+            $valeData = [
+                'id' => $valeCompra?->id,
+                'codigo' => $codigo,
+                'nombre' => $valeCompra?->nombre ?? 'Vale de descuento',
+                'tipo_promocion' => $valeCompra?->tipo_promocion,
+                'descuento_tipo' => $valeCompra?->descuento_tipo ?? $valeGenerado->descuento_tipo,
+                'descuento_valor' => $valeCompra?->descuento_valor ?? $valeGenerado->descuento_aplicado,
+                'modalidad' => $valeCompra?->modalidad,
+                'cantidad_minima' => $valeCompra?->cantidad_minima ?? 0,
+                'fecha_inicio' => $valeCompra?->fecha_inicio,
+                'fecha_fin' => $valeGenerado->fecha_validez_generado?->format('Y-m-d'),
+                'productos' => $valeCompra?->productos?->map(fn($p) => [
+                    'id' => $p->id,
+                    'nombre' => $p->name,
+                ])->values() ?? [],
+                'categorias' => $valeCompra?->categorias?->map(fn($c) => [
+                    'id' => $c->id,
+                    'nombre' => $c->name,
+                ])->values() ?? [],
+            ];
+
+            return response()->json([
+                'valido' => true,
+                'data' => [
+                    'vale_compra' => $valeData,
+                    'es_vale_generado' => true,
+                ],
+                'message' => 'Vale valido. Se aplicara el descuento al crear la venta.',
+            ]);
+        }
+
+        // 2. Buscar como código de promoción (VC-...) en vales_compra
+        $vale = ValeCompra::where('codigo', $codigo)
             ->where('estado', 'ACTIVO')
             ->first();
 
         if (!$vale) {
             return response()->json([
                 'valido' => false,
-                'message' => 'El código de vale no existe o no está activo.',
+                'message' => 'El codigo de vale no existe o no esta activo.',
             ]);
         }
 
         if (!$vale->esVigente()) {
             return response()->json([
                 'valido' => false,
-                'message' => 'El vale ha expirado o aún no está vigente.',
+                'message' => 'El vale ha expirado o aun no esta vigente.',
             ]);
         }
 
@@ -496,7 +549,6 @@ class ValeCompraController extends Controller
             ]);
         }
 
-        // Cargar productos y categorías para mostrar info descriptiva
         $vale->load(['productos:id,cod_producto,name', 'categorias:id,name']);
 
         $valeData = $vale->only([
@@ -505,7 +557,6 @@ class ValeCompraController extends Controller
             'cantidad_minima', 'fecha_inicio', 'fecha_fin',
         ]);
 
-        // Agregar nombres de productos y categorías
         $valeData['productos'] = $vale->productos->map(fn($p) => [
             'id' => $p->id,
             'nombre' => $p->name,
@@ -520,8 +571,9 @@ class ValeCompraController extends Controller
             'valido' => true,
             'data' => [
                 'vale_compra' => $valeData,
+                'es_vale_generado' => false,
             ],
-            'message' => 'Vale válido.',
+            'message' => 'Vale valido.',
         ]);
     }
 
