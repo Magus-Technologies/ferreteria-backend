@@ -44,12 +44,30 @@
         <div class="text-center text-bold" style="font-size: 9pt; border: 1px solid #000; padding: 3px; margin-bottom: 4px; border-radius: 2px;">
             {{ $vale['beneficio'] }}
         </div>
+
         @if($vale['codigo'])
-        <div class="text-center" style="background-color: #f0f0f0; padding: 4px; margin-bottom: 3px; border-radius: 2px;">
+        {{-- Codigo de texto --}}
+        <div class="text-center" style="background-color: #f0f0f0; padding: 4px; margin-bottom: 4px; border-radius: 2px;">
             <div style="font-size: 6pt;">C&Oacute;DIGO:</div>
             <div class="text-bold" style="font-size: 10pt; letter-spacing: 1px;">{{ $vale['codigo'] }}</div>
         </div>
+
+        {{-- Codigo de barras (Code 128) --}}
+        @if(isset($barcodeBase64))
+        <div class="text-center" style="margin-bottom: 4px;">
+            <img src="{{ $barcodeBase64 }}" style="width: 90%; max-width: 60mm; height: auto;" alt="Barcode">
+        </div>
         @endif
+
+        {{-- QR Code --}}
+        @if(isset($qrBase64))
+        <div class="text-center" style="margin-bottom: 4px;">
+            <img src="{{ $qrBase64 }}" style="width: 100px; height: 100px;" alt="QR">
+            <div style="font-size: 5pt; color: #666;">Escanea para canjear</div>
+        </div>
+        @endif
+        @endif
+
         @if($vale['fecha_validez'])
         <div class="text-center" style="font-size: 6pt; margin-bottom: 2px;">
             V&aacute;lido hasta: {{ $vale['fecha_validez'] }}

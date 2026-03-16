@@ -4,6 +4,10 @@ namespace App\Services\Pdf;
 
 use App\Models\ComprobanteElectronico;
 use App\Models\Venta;
+use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Encoding\Encoding;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\Writer\PngWriter;
 use Illuminate\Http\Response;
 
 class VentaPdfService
@@ -86,12 +90,37 @@ class VentaPdfService
         }
 
         $vale = $vales[$index];
+
+        // Generar QR Code como base64
+        $qrBase64 = null;
+        if ($vale['codigo']) {
+            $qrResult = Builder::create()
+                ->writer(new PngWriter())
+                ->data($vale['codigo'])
+                ->encoding(new Encoding('UTF-8'))
+                ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
+                ->size(200)
+                ->margin(5)
+                ->build();
+            $qrBase64 = $qrResult->getDataUri();
+        }
+
+        // Generar Código de Barras (Code 128) como base64
+        $barcodeBase64 = null;
+        if ($vale['codigo']) {
+            $generator = new \Picqer\Barcode\BarcodeGeneratorPNG();
+            $barcodePng = $generator->getBarcode($vale['codigo'], $generator::TYPE_CODE_128, 2, 50);
+            $barcodeBase64 = 'data:image/png;base64,' . base64_encode($barcodePng);
+        }
+
         $data = [
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'vale' => $vale,
             'numeroDocumento' => $this->formatNumeroDocumento($venta),
             'fechaEmision' => PdfService::formatFecha($venta->fecha),
+            'qrBase64' => $qrBase64,
+            'barcodeBase64' => $barcodeBase64,
         ];
 
         $filename = "VALE-{$vale['codigo']}.pdf";
@@ -142,14 +171,40 @@ class VentaPdfService
                 default => 'S/ ' . number_format($valeCompra?->descuento_valor ?? 0, 2) . ' DESCUENTO',
             };
 
+            $codigo = $va->codigo_vale_generado;
+
+            // Generar QR
+            $qrUri = null;
+            if ($codigo) {
+                $qrResult = Builder::create()
+                    ->writer(new PngWriter())
+                    ->data($codigo)
+                    ->encoding(new Encoding('UTF-8'))
+                    ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
+                    ->size(200)
+                    ->margin(5)
+                    ->build();
+                $qrUri = $qrResult->getDataUri();
+            }
+
+            // Generar Barcode
+            $barcodeUri = null;
+            if ($codigo) {
+                $generator = new \Picqer\Barcode\BarcodeGeneratorPNG();
+                $barcodePng = $generator->getBarcode($codigo, $generator::TYPE_CODE_128, 2, 50);
+                $barcodeUri = 'data:image/png;base64,' . base64_encode($barcodePng);
+            }
+
             $vales[] = [
                 'tipo_label' => $tipoLabel,
                 'nombre' => $valeCompra?->nombre ?? '',
                 'beneficio' => $beneficio,
-                'codigo' => $va->codigo_vale_generado,
+                'codigo' => $codigo,
                 'fecha_validez' => $va->fecha_validez_generado
                     ? \Carbon\Carbon::parse($va->fecha_validez_generado)->format('d/m/Y')
                     : null,
+                'qr_base64' => $qrUri,
+                'barcode_base64' => $barcodeUri,
             ];
         }
 
