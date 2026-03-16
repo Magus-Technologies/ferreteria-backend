@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\DetalleEntregaProducto;
 use App\Models\EntregaProducto;
+use App\Models\RequerimientoInterno;
 use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\User;
 use App\Models\Venta;
@@ -159,6 +160,12 @@ class EntregaProductoController extends Controller
      */
     public function store(Request $request)
     {
+        // Validar que el chofer asignado no esté en mantenimiento
+        if ($request->has('chofer_id') && $request->input('chofer_id')) {
+            $chofer = User::findOrFail($request->input('chofer_id'));
+            $this->validarUsuarioEnMantenimiento($chofer);
+        }
+
         $validated = $request->validate([
             'venta_id' => 'required|string',
             'tipo_entrega' => 'required|string',
@@ -449,5 +456,29 @@ class EntregaProductoController extends Controller
                 'message' => 'Entrega de producto eliminada exitosamente',
             ]);
         });
+    }
+
+    /**
+     * Validar que el usuario no esté en mantenimiento
+     * 
+     * @param User $user
+     * @throws UsuarioEnMantenimientoException
+     */
+    private function validarUsuarioEnMantenimiento(User $user): void
+    {
+        $osAprobadaHoy = RequerimientoInterno::query()
+            ->where('tipo_solicitud', 'OS')
+            ->where('estado', 'aprobado')
+            ->where('user_id', $user->id)
+            ->whereHas('servicio', function ($query) {
+                $query->whereDate('fecha_inicio_estimada', today());
+            })
+            ->exists();
+
+        if ($osAprobadaHoy) {
+            throw new \App\Exceptions\UsuarioEnMantenimientoException(
+                'No puedes hacer despachos. Tienes mantenimiento programado para hoy'
+            );
+        }
     }
 }
