@@ -123,6 +123,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('ingresos-salidas', IngresoSalidaController::class);
 
     // ============================================
+    // TRANSFERENCIAS DE STOCK (entre almacenes)
+    // ============================================
+    Route::apiResource('transferencias-stock', \App\Http\Controllers\TransferenciaStockController::class)->only(['index', 'store', 'destroy']);
+
+    // ============================================
     // RECEPCIONES DE ALMACÉN
     // ============================================
     Route::apiResource('recepciones-almacen', RecepcionAlmacenController::class)->only(['index', 'show', 'store', 'destroy']);

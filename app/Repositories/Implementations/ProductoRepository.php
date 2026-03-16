@@ -92,6 +92,11 @@ class ProductoRepository implements ProductoRepositoryInterface
             OR EXISTS (SELECT 1 FROM productoalmacencompra pac JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id WHERE pa.producto_id = producto.id)
         ) as tiene_ingresos'));
 
+        // Solo productos que existen en el almacén seleccionado
+        $query->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
+            $q->where('almacen_id', $almacenId);
+        });
+
         // Apply filters
         $this->applyFilters($query, $filters, $almacenId);
 

@@ -96,6 +96,12 @@ class PdfController extends Controller
         return $service->generar($id, $formato);
     }
 
+    public function transferenciaStock(int $id, Request $request, \App\Services\Pdf\TransferenciaStockPdfService $service): Response
+    {
+        $formato = $request->query('formato', 'ticket');
+        return $service->generar($id, $formato);
+    }
+
     public function recepcionAlmacen(int $id, Request $request, RecepcionAlmacenPdfService $service): Response
     {
         $formato = $request->query('formato', 'a4');
