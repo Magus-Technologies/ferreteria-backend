@@ -28,6 +28,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // CATÁLOGOS PRINCIPALES
     // ============================================
     Route::apiResource('almacenes', AlmacenController::class);
+    Route::patch('almacenes/{id}/toggle-activo', [AlmacenController::class, 'toggleActivo']);
     Route::apiResource('categorias', CategoriaController::class);
     Route::apiResource('marcas', MarcaController::class);
     Route::apiResource('ubicaciones', UbicacionController::class);

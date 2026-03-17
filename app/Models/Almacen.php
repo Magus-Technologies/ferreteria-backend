@@ -12,6 +12,7 @@ class Almacen extends Model
     protected $fillable = [
         'name',
         'direccion',
+        'activo',
     ];
 
     protected function casts(): array

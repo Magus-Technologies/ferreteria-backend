@@ -14,12 +14,32 @@ class AlmacenController extends Controller
      *
      * Required permission: ALMACEN_LISTADO
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $almacenes = Almacen::orderBy('name', 'asc')->get();
+        $query = Almacen::orderBy('name', 'asc');
+
+        // Por defecto solo activos, pero si piden todos (para gestión)
+        if (!$request->boolean('incluir_inactivos')) {
+            $query->where('activo', true);
+        }
+
+        $almacenes = $query->get();
 
         return response()->json([
             'data' => $almacenes,
+        ]);
+    }
+
+    /**
+     * Toggle activo status of an almacen.
+     */
+    public function toggleActivo(int $id): JsonResponse
+    {
+        $almacen = Almacen::findOrFail($id);
+        $almacen->update(['activo' => !$almacen->activo]);
+
+        return response()->json([
+            'data' => $almacen,
         ]);
     }
 
