@@ -52,6 +52,7 @@ class GuiaRemisionService
                 'fecha_traslado' => $data['fecha_traslado'],
                 'afecta_stock' => $data['afecta_stock'] ?? false,
                 'cliente_id' => $data['cliente_id'] ?? null,
+                'comprador_id' => $data['comprador_id'] ?? null,
                 'motivo_traslado_id' => $data['motivo_traslado_id'],
                 'modalidad_transporte' => $data['modalidad_transporte'],
                 'vehiculo_placa' => $data['vehiculo_placa'] ?? null,
@@ -77,6 +78,7 @@ class GuiaRemisionService
             return $guia->load([
                 'venta',
                 'cliente',
+                'comprador',
                 'motivoTraslado',
                 'chofer',
                 'almacenOrigen',
@@ -222,6 +224,7 @@ class GuiaRemisionService
     {
         $guia->loadMissing([
             'cliente',
+            'comprador',
             'motivoTraslado',
             'chofer',
             'detalles.producto',
@@ -275,12 +278,30 @@ class GuiaRemisionService
             ];
         }
 
+        // Comprador (para motivos 03 y 14: venta con entrega a terceros)
+        $comprador = null;
+        $codigoMotivo = $guia->motivoTraslado->codigo ?? '01';
+        if (in_array($codigoMotivo, ['03', '14']) && $guia->comprador) {
+            $compradorCliente = $guia->comprador;
+            $tipoDocComprador = '1'; // DNI
+            if ($compradorCliente->tipo_cliente?->value === 'e') {
+                $tipoDocComprador = '6'; // RUC
+            }
+            $comprador = [
+                'tipo_doc' => $tipoDocComprador,
+                'num_doc' => $compradorCliente->numero_documento ?? '00000000',
+                'razon_social' => $compradorCliente->razon_social
+                    ? $compradorCliente->razon_social
+                    : (trim(($compradorCliente->nombres ?? '') . ' ' . ($compradorCliente->apellidos ?? '')) ?: 'VARIOS'),
+            ];
+        }
+
         return [
             'serie' => $guia->serie ?? 'T001',
             'correlativo' => str_pad($guia->numero ?? '1', 8, '0', STR_PAD_LEFT),
             'fecha_emision' => $guia->fecha_emision->format('Y-m-d'),
             'fecha_traslado' => $guia->fecha_traslado->format('Y-m-d'),
-            'cod_traslado' => $guia->motivoTraslado->codigo ?? '01',
+            'cod_traslado' => $codigoMotivo,
             'des_traslado' => $guia->motivoTraslado->descripcion ?? 'Venta',
             'mod_traslado' => $guia->modalidad_transporte === 'PRIVADO' ? '02' : '01',
             'peso_total' => max(0.01, (float) $guia->detalles->sum('peso_total')),
@@ -290,6 +311,7 @@ class GuiaRemisionService
             'direccion_llegada' => $guia->punto_llegada,
             'vehiculo_placa' => $guia->vehiculo_placa,
             'destinatario' => $destinatario,
+            'comprador' => $comprador,
             'choferes' => $choferes,
             'items' => $items,
             'observacion' => $guia->observaciones,

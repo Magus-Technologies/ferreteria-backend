@@ -1080,6 +1080,16 @@ class GreenterService implements GreenterServiceInterface
             $details[] = $detail;
         }
 
+        // Comprador (para motivos 03 y 14: venta con entrega a terceros)
+        $comprador = null;
+        if (!empty($data['comprador'])) {
+            $comprador = new Client();
+            $comprador
+                ->setTipoDoc($data['comprador']['tipo_doc'])
+                ->setNumDoc($data['comprador']['num_doc'])
+                ->setRznSocial($data['comprador']['razon_social']);
+        }
+
         // Construir Despatch
         $despatch = new Despatch();
         $despatch
@@ -1091,6 +1101,10 @@ class GreenterService implements GreenterServiceInterface
             ->setDestinatario($destinatario)
             ->setEnvio($shipment)
             ->setDetails($details);
+
+        if ($comprador) {
+            $despatch->setComprador($comprador);
+        }
 
         if (!empty($data['observacion'])) {
             $despatch->setObservacion($data['observacion']);

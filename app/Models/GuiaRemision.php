@@ -25,6 +25,7 @@ class GuiaRemision extends Model
         'fecha_traslado',
         'afecta_stock',
         'cliente_id',
+        'comprador_id',
         'motivo_traslado_id',
         'modalidad_transporte',
         'vehiculo_placa',
@@ -80,6 +81,14 @@ class GuiaRemision extends Model
     public function cliente(): BelongsTo
     {
         return $this->belongsTo(Cliente::class);
+    }
+
+    /**
+     * Cliente comprador (para motivos 03 y 14 - venta con entrega a terceros)
+     */
+    public function comprador(): BelongsTo
+    {
+        return $this->belongsTo(Cliente::class, 'comprador_id');
     }
 
     /**

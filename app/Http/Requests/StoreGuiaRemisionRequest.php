@@ -28,6 +28,7 @@ class StoreGuiaRemisionRequest extends FormRequest
             'fecha_traslado' => 'required|date|after_or_equal:fecha_emision',
             'afecta_stock' => 'sometimes|boolean',
             'cliente_id' => 'nullable|integer|exists:cliente,id',
+            'comprador_id' => 'nullable|integer|exists:cliente,id',
             'motivo_traslado_id' => 'required|integer|exists:motivos_traslado,id',
             'modalidad_transporte' => 'required|string|in:PRIVADO,PUBLICO',
             'vehiculo_placa' => 'nullable|string|max:20',
