@@ -1057,8 +1057,10 @@ class GreenterService implements GreenterServiceInterface
             $shipment->setChoferes($choferes);
         }
 
-        // Si modalidad pública, agregar transportista
-        if ($data['mod_traslado'] === '01' && !empty($data['transportista'])) {
+        // Agregar transportista:
+        // - GRE-Transportista (31): la empresa emisora es el transportista (siempre)
+        // - GRE-Remitente con modalidad pública: datos del transportista externo
+        if (!empty($data['transportista'])) {
             $transportista = new Transportist();
             $transportista
                 ->setTipoDoc($data['transportista']['tipo_doc'] ?? '6')
@@ -1066,6 +1068,8 @@ class GreenterService implements GreenterServiceInterface
                 ->setRznSocial($data['transportista']['razon_social'] ?? null)
                 ->setNroMtc($data['transportista']['nro_mtc'] ?? null);
             $shipment->setTransportista($transportista);
+        } elseif ($data['mod_traslado'] === '01') {
+            // Modalidad pública sin transportista explícito — no agregar
         }
 
         // Detalles
@@ -1091,9 +1095,12 @@ class GreenterService implements GreenterServiceInterface
         }
 
         // Construir Despatch
+        // SUNAT: '09' = GRE-Remitente, '31' = GRE-Transportista
+        $tipoDoc = ($data['tipo_guia'] ?? '') === 'ELECTRONICA_TRANSPORTISTA' ? '31' : '09';
+
         $despatch = new Despatch();
         $despatch
-            ->setTipoDoc('09') // 09 = Guía de Remisión
+            ->setTipoDoc($tipoDoc)
             ->setSerie($data['serie'])
             ->setCorrelativo($data['correlativo'])
             ->setFechaEmision(new \DateTime($data['fecha_emision']))
@@ -1215,7 +1222,8 @@ class GreenterService implements GreenterServiceInterface
         $xml .= "  <cbc:ID>{$data['serie']}-{$data['correlativo']}</cbc:ID>\n";
         $xml .= "  <cbc:IssueDate>{$data['fecha_emision']}</cbc:IssueDate>\n";
         $xml .= "  <cbc:IssueTime>" . date('H:i:s') . "</cbc:IssueTime>\n";
-        $xml .= "  <cbc:DespatchAdviceTypeCode>09</cbc:DespatchAdviceTypeCode>\n";
+        $tipoDocSimulado = ($data['tipo_guia'] ?? '') === 'ELECTRONICA_TRANSPORTISTA' ? '31' : '09';
+        $xml .= "  <cbc:DespatchAdviceTypeCode>{$tipoDocSimulado}</cbc:DespatchAdviceTypeCode>\n";
 
         if (!empty($data['observacion'])) {
             $xml .= "  <cbc:Note><![CDATA[{$data['observacion']}]]></cbc:Note>\n";

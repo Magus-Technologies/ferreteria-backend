@@ -32,6 +32,7 @@ class AlmacenController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|unique:almacen',
+            'direccion' => 'nullable|string|max:500',
         ]);
 
         try {
@@ -76,6 +77,7 @@ class AlmacenController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|unique:almacen,name,' . $id,
+            'direccion' => 'nullable|string|max:500',
         ]);
 
         try {

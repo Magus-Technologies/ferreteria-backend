@@ -32,10 +32,12 @@ class GuiaRemisionService
 
             // Auto-generar serie y número si no se proporcionan
             if (empty($data['serie']) || empty($data['numero'])) {
-                $serie = 'T001';
-                if (($data['tipo_guia'] ?? '') === 'FISICA') {
-                    $serie = 'TF01';
-                }
+                $tipoGuia = $data['tipo_guia'] ?? 'ELECTRONICA_REMITENTE';
+                $serie = match ($tipoGuia) {
+                    'ELECTRONICA_TRANSPORTISTA' => 'V001',
+                    'FISICA' => 'TF01',
+                    default => 'T001', // ELECTRONICA_REMITENTE
+                };
                 $maxNumero = GuiaRemision::where('serie', $serie)->max('numero') ?? 0;
                 $data['serie'] = $serie;
                 $data['numero'] = $maxNumero + 1;
@@ -232,6 +234,7 @@ class GuiaRemisionService
         ]);
 
         // Destinatario
+        $codigoMotivo = $guia->motivoTraslado->codigo ?? '01';
         $cliente = $guia->cliente;
         $destinatario = [
             'tipo_doc' => '1', // DNI por defecto
@@ -239,7 +242,14 @@ class GuiaRemisionService
             'razon_social' => 'VARIOS',
         ];
 
-        if ($cliente) {
+        // Motivo 08: Traslado entre establecimientos — destinatario es la misma empresa
+        if ($codigoMotivo === '08') {
+            $destinatario = [
+                'tipo_doc' => '6', // RUC
+                'num_doc' => config('greenter.ruc'),
+                'razon_social' => config('greenter.razon_social'),
+            ];
+        } elseif ($cliente) {
             $tipoDoc = '1'; // DNI
             if ($cliente->tipo_cliente?->value === 'e') {
                 $tipoDoc = '6'; // RUC
@@ -280,7 +290,6 @@ class GuiaRemisionService
 
         // Comprador (para motivos 03 y 14: venta con entrega a terceros)
         $comprador = null;
-        $codigoMotivo = $guia->motivoTraslado->codigo ?? '01';
         if (in_array($codigoMotivo, ['03', '14']) && $guia->comprador) {
             $compradorCliente = $guia->comprador;
             $tipoDocComprador = '1'; // DNI
@@ -296,8 +305,23 @@ class GuiaRemisionService
             ];
         }
 
+        // Determinar si es GRE-Transportista
+        $esTransportista = $guia->tipo_guia === 'ELECTRONICA_TRANSPORTISTA';
+
+        // Para GRE-Transportista: la empresa emisora actúa como transportista
+        $transportista = null;
+        if ($esTransportista) {
+            $transportista = [
+                'tipo_doc' => '6', // RUC
+                'num_doc' => config('greenter.ruc'),
+                'razon_social' => config('greenter.razon_social'),
+                'nro_mtc' => config('greenter.nro_mtc', null),
+            ];
+        }
+
         return [
-            'serie' => $guia->serie ?? 'T001',
+            'tipo_guia' => $guia->tipo_guia,
+            'serie' => $guia->serie ?? ($esTransportista ? 'V001' : 'T001'),
             'correlativo' => str_pad($guia->numero ?? '1', 8, '0', STR_PAD_LEFT),
             'fecha_emision' => $guia->fecha_emision->format('Y-m-d'),
             'fecha_traslado' => $guia->fecha_traslado->format('Y-m-d'),
@@ -312,10 +336,20 @@ class GuiaRemisionService
             'vehiculo_placa' => $guia->vehiculo_placa,
             'destinatario' => $destinatario,
             'comprador' => $comprador,
+            'transportista' => $transportista,
             'choferes' => $choferes,
             'items' => $items,
             'observacion' => $guia->observaciones,
         ];
+    }
+
+    /**
+     * Obtener código SUNAT del tipo de documento según tipo_guia.
+     * '09' = GRE-Remitente, '31' = GRE-Transportista
+     */
+    private function getTipoDocSunat(GuiaRemision $guia): string
+    {
+        return $guia->tipo_guia === 'ELECTRONICA_TRANSPORTISTA' ? '31' : '09';
     }
 
     /**
@@ -324,6 +358,7 @@ class GuiaRemisionService
     public function generarXml(GuiaRemision $guia): GuiaRemision
     {
         $dataGreenter = $this->prepararDatosParaGreenter($guia);
+        $tipoDocSunat = $this->getTipoDocSunat($guia);
 
         // Generar XML
         $xml = $this->greenterService->generarXmlGuiaRemision($dataGreenter);
@@ -335,7 +370,7 @@ class GuiaRemisionService
         // Guardar XML en storage
         $ruc = config('greenter.ruc');
         $nombreXml = $this->xmlStorageService->generarNombreXml(
-            $ruc, '09', $dataGreenter['serie'], $dataGreenter['correlativo']
+            $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
         );
         $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
 
@@ -370,6 +405,7 @@ class GuiaRemisionService
             DB::beginTransaction();
 
             $dataGreenter = $this->prepararDatosParaGreenter($guia);
+            $tipoDocSunat = $this->getTipoDocSunat($guia);
             $resultado = $this->greenterService->generarYEnviarGuiaRemision($dataGreenter);
 
             if (!$resultado['success']) {
@@ -379,10 +415,10 @@ class GuiaRemisionService
             // Guardar XML y CDR
             $ruc = config('greenter.ruc');
             $nombreXml = $this->xmlStorageService->generarNombreXml(
-                $ruc, '09', $dataGreenter['serie'], $dataGreenter['correlativo']
+                $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
             );
             $nombreCdr = $this->xmlStorageService->generarNombreCdr(
-                $ruc, '09', $dataGreenter['serie'], $dataGreenter['correlativo']
+                $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
             );
 
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
@@ -431,14 +467,14 @@ class GuiaRemisionService
 
     /**
      * Generar código QR para guía de remisión
-     * Formato: RUC|09|SERIE|NUMERO|FECHA|HASH
+     * Formato: RUC|TIPO_DOC|SERIE|NUMERO|FECHA|HASH
      */
     private function generarCodigoQR(GuiaRemision $guia, string $hashCpe): ?string
     {
         try {
             $qrText = implode('|', [
                 config('greenter.ruc'),
-                '09',
+                $this->getTipoDocSunat($guia),
                 $guia->serie ?? 'T001',
                 $guia->numero ?? '0',
                 $guia->fecha_emision->format('Y-m-d'),

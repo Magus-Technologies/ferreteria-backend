@@ -28,7 +28,7 @@ class GuiaPdfService
             'guia' => $guia,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
-            'tipoDocumentoTitulo' => 'GUIA DE REMISION ELECTRONICA',
+            'tipoDocumentoTitulo' => $this->getTituloDocumento($guia),
             'numeroDocumento' => $guia->numero_completo,
             'detalles' => $detalles,
             'pesoTotal' => $pesoTotal,
@@ -44,10 +44,31 @@ class GuiaPdfService
 
     private function generarTicket($guia, $empresa, array $detalles, float $pesoTotal): Response
     {
-        $cliente = $guia->cliente;
-        $clienteNombre = $cliente?->razon_social
-            ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
-            ?: 'VARIOS';
+        $codigoMotivo = $guia->motivoTraslado?->codigo ?? '01';
+        $esEntreEstablecimientos = $codigoMotivo === '08';
+
+        // Destinatario: motivo 08 = misma empresa, otros = cliente
+        if ($esEntreEstablecimientos) {
+            $clienteNombre = $empresa->razon_social ?? config('greenter.razon_social');
+            $clienteDocumento = $empresa->ruc ?? config('greenter.ruc');
+        } else {
+            $cliente = $guia->cliente;
+            $clienteNombre = $cliente?->razon_social
+                ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
+                ?: 'VARIOS';
+            $clienteDocumento = $cliente?->numero_documento ?? '-';
+        }
+
+        // Comprador (motivos 03, 14)
+        $comprador = $guia->comprador;
+        $compradorNombre = null;
+        $compradorDocumento = null;
+        if (in_array($codigoMotivo, ['03', '14']) && $comprador) {
+            $compradorNombre = $comprador->razon_social
+                ?: trim(($comprador->nombres ?? '') . ' ' . ($comprador->apellidos ?? ''))
+                ?: '-';
+            $compradorDocumento = $comprador->numero_documento ?? '-';
+        }
 
         $chofer = $guia->chofer;
         $choferNombre = $chofer?->name
@@ -55,7 +76,8 @@ class GuiaPdfService
             ?: '-';
 
         $data = [
-            'titulo' => "GRE {$guia->numero_completo}",
+            'titulo' => $this->getTituloDocumento($guia) . "\n" . $guia->numero_completo,
+            'tipoGuiaTitulo' => $this->getTituloDocumento($guia),
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'numeroDocumento' => $guia->numero_completo,
@@ -69,7 +91,12 @@ class GuiaPdfService
             'choferNombre' => $choferNombre,
             'choferDni' => $chofer?->dni ?? '-',
             'clienteNombre' => $clienteNombre,
-            'clienteDocumento' => $cliente?->numero_documento ?? '-',
+            'clienteDocumento' => $clienteDocumento,
+            'compradorNombre' => $compradorNombre,
+            'compradorDocumento' => $compradorDocumento,
+            'esEntreEstablecimientos' => $esEntreEstablecimientos,
+            'almacenOrigen' => $esEntreEstablecimientos ? ($guia->almacenOrigen?->name ?? '-') : null,
+            'almacenDestino' => $esEntreEstablecimientos ? ($guia->almacenDestino?->name ?? '-') : null,
             'detalles' => $detalles,
             'pesoTotal' => $pesoTotal,
             'observaciones' => $guia->observaciones ?: '-',
@@ -87,11 +114,21 @@ class GuiaPdfService
         );
     }
 
+    private function getTituloDocumento(GuiaRemision $guia): string
+    {
+        return match ($guia->tipo_guia) {
+            'ELECTRONICA_TRANSPORTISTA' => 'GUIA DE REMISION TRANSPORTISTA ELECTRONICA',
+            'FISICA' => 'GUIA DE REMISION FISICA',
+            default => 'GUIA DE REMISION REMITENTE ELECTRONICA',
+        };
+    }
+
     private function obtenerGuia(string $guiaId): GuiaRemision
     {
         return GuiaRemision::with([
             'user.empresa',
             'cliente',
+            'comprador',
             'motivoTraslado',
             'chofer',
             'almacenOrigen',
@@ -121,17 +158,28 @@ class GuiaPdfService
 
     private function prepararInfoGrid(GuiaRemision $guia): array
     {
-        $cliente = $guia->cliente;
-        $clienteNombre = $cliente?->razon_social
-            ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
-            ?: 'VARIOS';
+        $codigoMotivo = $guia->motivoTraslado?->codigo ?? '01';
+        $esEntreEstablecimientos = $codigoMotivo === '08';
+        $empresa = $guia->user?->empresa;
+
+        // Destinatario según motivo
+        if ($esEntreEstablecimientos) {
+            $clienteNombre = $empresa?->razon_social ?? config('greenter.razon_social');
+            $clienteDocumento = $empresa?->ruc ?? config('greenter.ruc');
+        } else {
+            $cliente = $guia->cliente;
+            $clienteNombre = $cliente?->razon_social
+                ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
+                ?: 'VARIOS';
+            $clienteDocumento = $cliente?->numero_documento ?? '-';
+        }
 
         $chofer = $guia->chofer;
         $choferNombre = $chofer?->name
             ?: trim(($chofer?->nombres ?? '') . ' ' . ($chofer?->apellidos ?? ''))
             ?: '-';
 
-        return [
+        $filas = [
             [
                 'F. Emision' => $guia->fecha_emision ? $guia->fecha_emision->format('d/m/Y') : '-',
                 'F. Traslado' => $guia->fecha_traslado ? $guia->fecha_traslado->format('d/m/Y') : '-',
@@ -149,9 +197,31 @@ class GuiaPdfService
                 'Chofer' => "{$choferNombre} ({$chofer?->dni})",
             ],
             [
-                'RUC / DNI' => $cliente?->numero_documento ?? '-',
+                'RUC / DNI' => $clienteDocumento,
                 'Destinatario' => $clienteNombre,
             ],
         ];
+
+        // Comprador (motivos 03, 14)
+        $comprador = $guia->comprador;
+        if (in_array($codigoMotivo, ['03', '14']) && $comprador) {
+            $compradorNombre = $comprador->razon_social
+                ?: trim(($comprador->nombres ?? '') . ' ' . ($comprador->apellidos ?? ''))
+                ?: '-';
+            $filas[] = [
+                'RUC / DNI Comprador' => $comprador->numero_documento ?? '-',
+                'Comprador' => $compradorNombre,
+            ];
+        }
+
+        // Almacenes (motivo 08)
+        if ($esEntreEstablecimientos) {
+            $filas[] = [
+                'Almacen Origen' => $guia->almacenOrigen?->name ?? '-',
+                'Almacen Destino' => $guia->almacenDestino?->name ?? '-',
+            ];
+        }
+
+        return $filas;
     }
 }

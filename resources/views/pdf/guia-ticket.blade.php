@@ -46,7 +46,7 @@
 
     {{-- Tipo documento y numero --}}
     <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        GUIA DE REMISION<br>
+        {{ $tipoGuiaTitulo ?? 'GUIA DE REMISION' }}<br>
         {{ $numeroDocumento }}
     </div>
 
@@ -94,7 +94,7 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label">{{ strlen($clienteDocumento) === 11 ? 'RUC:' : 'DNI:' }}</td>
+                <td class="label">{{ strlen($clienteDocumento ?? '') === 11 ? 'RUC:' : 'DNI:' }}</td>
                 <td class="value">{{ $clienteDocumento }}</td>
             </tr>
             <tr>
@@ -103,6 +103,38 @@
             </tr>
         </table>
     </div>
+
+    {{-- Comprador (motivos 03, 14) --}}
+    @if(!empty($compradorNombre))
+    <div style="padding: 2px 0 6px;">
+        <table>
+            <tr>
+                <td class="label">{{ strlen($compradorDocumento ?? '') === 11 ? 'RUC:' : 'DNI:' }} Comprador:</td>
+                <td class="value">{{ $compradorDocumento }}</td>
+            </tr>
+            <tr>
+                <td class="label">Comprador:</td>
+                <td class="value">{{ $compradorNombre }}</td>
+            </tr>
+        </table>
+    </div>
+    @endif
+
+    {{-- Almacenes (motivo 08 - entre establecimientos) --}}
+    @if(!empty($esEntreEstablecimientos))
+    <div style="padding: 2px 0 6px;">
+        <table>
+            <tr>
+                <td class="label">Almac&eacute;n Origen:</td>
+                <td class="value">{{ $almacenOrigen ?? '-' }}</td>
+            </tr>
+            <tr>
+                <td class="label">Almac&eacute;n Destino:</td>
+                <td class="value">{{ $almacenDestino ?? '-' }}</td>
+            </tr>
+        </table>
+    </div>
+    @endif
 
     <div class="separator"></div>
 
