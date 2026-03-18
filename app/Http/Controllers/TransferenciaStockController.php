@@ -72,143 +72,141 @@ class TransferenciaStockController extends Controller
         $validated = $request->validate([
             'almacen_origen_id' => 'required|integer|exists:almacen,id',
             'almacen_destino_id' => 'required|integer|exists:almacen,id|different:almacen_origen_id',
-            'producto_id' => 'required|integer|exists:producto,id',
-            'unidad_derivada_id' => 'required|integer|exists:unidadderivada,id',
-            'cantidad' => 'required|numeric|min:0.001',
+            'productos' => 'required|array|min:1',
+            'productos.*.producto_id' => 'required|integer|exists:producto,id',
+            'productos.*.unidad_derivada_id' => 'required|integer|exists:unidadderivada,id',
+            'productos.*.cantidad' => 'required|numeric|min:0.001',
             'fecha' => 'nullable|date',
             'descripcion' => 'nullable|string|max:500',
         ]);
 
+        try {
         return DB::transaction(function () use ($validated) {
             $almacenOrigenId = $validated['almacen_origen_id'];
             $almacenDestinoId = $validated['almacen_destino_id'];
-            $productoId = $validated['producto_id'];
-            $unidadDerivadaId = $validated['unidad_derivada_id'];
-            $cantidad = (float) $validated['cantidad'];
 
-            // PASO 1: Obtener ProductoAlmacen ORIGEN con unidad derivada
-            $productoAlmacenOrigen = ProductoAlmacen::where('producto_id', $productoId)
-                ->where('almacen_id', $almacenOrigenId)
-                ->with([
-                    'unidadesDerivadas' => function ($q) use ($unidadDerivadaId) {
-                        $q->where('unidad_derivada_id', $unidadDerivadaId)
-                          ->with('unidadDerivada:id,name');
-                    },
-                ])
-                ->firstOrFail();
-
-            $unidadDerivada = $productoAlmacenOrigen->unidadesDerivadas->first();
-            if (!$unidadDerivada) {
-                return response()->json([
-                    'message' => 'Unidad derivada no encontrada para este producto en el almacén origen',
-                ], 404);
-            }
-
-            $factor = (float) $unidadDerivada->factor;
-            $cantidadFraccion = $factor * $cantidad;
-
-            // PASO 2: Validar stock suficiente en origen
-            if ((float) $productoAlmacenOrigen->stock_fraccion < $cantidadFraccion) {
-                return response()->json([
-                    'message' => 'Stock insuficiente en el almacén origen. Stock actual: ' . $productoAlmacenOrigen->stock_fraccion,
-                ], 400);
-            }
-
-            // PASO 3: Obtener o crear ProductoAlmacen DESTINO
-            // Buscar o crear ubicación "OTROS" para el almacén destino
+            // Ubicación destino compartida
             $ubicacionDestino = Ubicacion::firstOrCreate(
                 ['almacen_id' => $almacenDestinoId, 'name' => 'OTROS'],
                 ['estado' => true]
             );
 
-            $productoAlmacenDestino = ProductoAlmacen::firstOrCreate(
-                [
-                    'producto_id' => $productoId,
-                    'almacen_id' => $almacenDestinoId,
-                ],
-                [
-                    'stock_fraccion' => 0,
-                    'costo' => $productoAlmacenOrigen->costo,
-                    'ubicacion_id' => $ubicacionDestino->id,
-                ]
-            );
-
-            // Si el destino ya existe pero no tiene la unidad derivada, copiarla del origen
-            $udDestino = $productoAlmacenDestino->unidadesDerivadas()
-                ->where('unidad_derivada_id', $unidadDerivadaId)
-                ->first();
-
-            if (!$udDestino) {
-                // Copiar la unidad derivada del origen al destino
-                $productoAlmacenDestino->unidadesDerivadas()->create([
-                    'unidad_derivada_id' => $unidadDerivada->unidad_derivada_id,
-                    'factor' => $unidadDerivada->factor,
-                    'precio_publico' => $unidadDerivada->precio_publico ?? 0,
-                    'precio_especial' => $unidadDerivada->precio_especial ?? 0,
-                    'precio_minimo' => $unidadDerivada->precio_minimo ?? 0,
-                    'precio_ultimo' => $unidadDerivada->precio_ultimo ?? 0,
-                ]);
-            }
-
-            // PASO 4: Obtener número secuencial
+            // Obtener número secuencial
             $ultimaTransferencia = TransferenciaStock::orderBy('numero', 'desc')->first();
             $numero = $ultimaTransferencia ? $ultimaTransferencia->numero + 1 : 1;
 
-            $userId = Auth::id();
-
-            // PASO 5: Crear cabecera TransferenciaStock
+            // Crear cabecera TransferenciaStock
             $transferencia = TransferenciaStock::create([
                 'serie' => 1,
                 'numero' => $numero,
                 'fecha' => $validated['fecha'] ?? now(),
                 'almacen_origen_id' => $almacenOrigenId,
                 'almacen_destino_id' => $almacenDestinoId,
-                'user_id' => $userId,
+                'user_id' => Auth::id(),
                 'descripcion' => $validated['descripcion'] ?? null,
                 'estado' => true,
             ]);
 
-            // PASO 6: Registrar stock anterior
-            $stockAnteriorOrigen = (float) $productoAlmacenOrigen->stock_fraccion;
-            $stockAnteriorDestino = (float) $productoAlmacenDestino->stock_fraccion;
+            // Procesar cada producto
+            foreach ($validated['productos'] as $item) {
+                $productoId = $item['producto_id'];
+                $unidadDerivadaId = $item['unidad_derivada_id'];
+                $cantidad = (float) $item['cantidad'];
 
-            $stockNuevoOrigen = $stockAnteriorOrigen - $cantidadFraccion;
-            $stockNuevoDestino = $stockAnteriorDestino + $cantidadFraccion;
+                // Obtener ProductoAlmacen ORIGEN con unidad derivada
+                $productoAlmacenOrigen = ProductoAlmacen::where('producto_id', $productoId)
+                    ->where('almacen_id', $almacenOrigenId)
+                    ->with([
+                        'unidadesDerivadas' => function ($q) use ($unidadDerivadaId) {
+                            $q->where('unidad_derivada_id', $unidadDerivadaId)
+                              ->with('unidadDerivada:id,name');
+                        },
+                    ])
+                    ->firstOrFail();
 
-            // PASO 7: Crear UnidadDerivadaInmutable
-            $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
-                ['name' => $unidadDerivada->unidadDerivada->name],
-                ['estado' => true],
-            );
+                $unidadDerivada = $productoAlmacenOrigen->unidadesDerivadas->first();
+                if (!$unidadDerivada) {
+                    throw new \Exception('Unidad derivada no encontrada para el producto en el almacén origen');
+                }
 
-            // PASO 8: Crear detalle ProductoTransferenciaStock
-            ProductoTransferenciaStock::create([
-                'transferencia_stock_id' => $transferencia->id,
-                'producto_almacen_origen_id' => $productoAlmacenOrigen->id,
-                'producto_almacen_destino_id' => $productoAlmacenDestino->id,
-                'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
-                'factor' => $factor,
-                'cantidad' => $cantidad,
-                'costo' => $productoAlmacenOrigen->costo,
-                'stock_anterior_origen' => $stockAnteriorOrigen,
-                'stock_nuevo_origen' => $stockNuevoOrigen,
-                'stock_anterior_destino' => $stockAnteriorDestino,
-                'stock_nuevo_destino' => $stockNuevoDestino,
-            ]);
+                $factor = (float) $unidadDerivada->factor;
+                $cantidadFraccion = $factor * $cantidad;
 
-            // PASO 9: Actualizar stocks
-            $productoAlmacenOrigen->update(['stock_fraccion' => $stockNuevoOrigen]);
-            $productoAlmacenDestino->update([
-                'stock_fraccion' => $stockNuevoDestino,
-                'costo' => $productoAlmacenOrigen->costo,
-            ]);
+                // Validar stock suficiente en origen
+                if ((float) $productoAlmacenOrigen->stock_fraccion < $cantidadFraccion) {
+                    throw new \Exception('Stock insuficiente para el producto: ' . ($productoAlmacenOrigen->producto->name ?? $productoId) . '. Stock actual: ' . $productoAlmacenOrigen->stock_fraccion);
+                }
 
-            // PASO 10: Invalidar cache de ambos almacenes
+                // Obtener o crear ProductoAlmacen DESTINO
+                $productoAlmacenDestino = ProductoAlmacen::firstOrCreate(
+                    [
+                        'producto_id' => $productoId,
+                        'almacen_id' => $almacenDestinoId,
+                    ],
+                    [
+                        'stock_fraccion' => 0,
+                        'costo' => $productoAlmacenOrigen->costo,
+                        'ubicacion_id' => $ubicacionDestino->id,
+                    ]
+                );
+
+                // Copiar unidad derivada al destino si no existe
+                $udDestino = $productoAlmacenDestino->unidadesDerivadas()
+                    ->where('unidad_derivada_id', $unidadDerivadaId)
+                    ->first();
+
+                if (!$udDestino) {
+                    $productoAlmacenDestino->unidadesDerivadas()->create([
+                        'unidad_derivada_id' => $unidadDerivada->unidad_derivada_id,
+                        'factor' => $unidadDerivada->factor,
+                        'precio_publico' => $unidadDerivada->precio_publico ?? 0,
+                        'precio_especial' => $unidadDerivada->precio_especial ?? 0,
+                        'precio_minimo' => $unidadDerivada->precio_minimo ?? 0,
+                        'precio_ultimo' => $unidadDerivada->precio_ultimo ?? 0,
+                    ]);
+                }
+
+                // Registrar stock anterior/nuevo
+                $stockAnteriorOrigen = (float) $productoAlmacenOrigen->stock_fraccion;
+                $stockAnteriorDestino = (float) $productoAlmacenDestino->stock_fraccion;
+                $stockNuevoOrigen = $stockAnteriorOrigen - $cantidadFraccion;
+                $stockNuevoDestino = $stockAnteriorDestino + $cantidadFraccion;
+
+                // Crear UnidadDerivadaInmutable
+                $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                    ['name' => $unidadDerivada->unidadDerivada->name],
+                    ['estado' => true],
+                );
+
+                // Crear detalle
+                ProductoTransferenciaStock::create([
+                    'transferencia_stock_id' => $transferencia->id,
+                    'producto_almacen_origen_id' => $productoAlmacenOrigen->id,
+                    'producto_almacen_destino_id' => $productoAlmacenDestino->id,
+                    'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
+                    'factor' => $factor,
+                    'cantidad' => $cantidad,
+                    'costo' => $productoAlmacenOrigen->costo,
+                    'stock_anterior_origen' => $stockAnteriorOrigen,
+                    'stock_nuevo_origen' => $stockNuevoOrigen,
+                    'stock_anterior_destino' => $stockAnteriorDestino,
+                    'stock_nuevo_destino' => $stockNuevoDestino,
+                ]);
+
+                // Actualizar stocks
+                $productoAlmacenOrigen->update(['stock_fraccion' => $stockNuevoOrigen]);
+                $productoAlmacenDestino->update([
+                    'stock_fraccion' => $stockNuevoDestino,
+                    'costo' => $productoAlmacenOrigen->costo,
+                ]);
+            }
+
+            // Invalidar cache de ambos almacenes
             $cacheService = app(ProductoCacheService::class);
             $cacheService->invalidateProductosAlmacen($almacenOrigenId);
             $cacheService->invalidateProductosAlmacen($almacenDestinoId);
 
-            // PASO 11: Retornar con relaciones
+            // Retornar con relaciones
             $result = TransferenciaStock::with([
                 'almacenOrigen:id,name',
                 'almacenDestino:id,name',
@@ -223,6 +221,9 @@ class TransferenciaStockController extends Controller
 
             return response()->json(['data' => $result], 201);
         }, 5);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 400);
+        }
     }
 
     /**
