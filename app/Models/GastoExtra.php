@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
 class GastoExtra extends Model
@@ -52,5 +53,10 @@ class GastoExtra extends Model
     public function desplieguePago(): BelongsTo
     {
         return $this->belongsTo(DespliegueDePago::class, 'despliegue_pago_id');
+    }
+
+    public function compra(): HasOne
+    {
+        return $this->hasOne(Compra::class, 'gasto_extra_id');
     }
 }
