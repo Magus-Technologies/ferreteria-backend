@@ -10,6 +10,7 @@ use App\Models\Compra;
 use App\Models\OrdenCompra;
 use App\Models\DespliegueDePago;
 use App\Models\EgresoDinero;
+use App\Models\GastoExtra;
 use App\Models\MetodoDePago;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenCompra;
@@ -238,6 +239,7 @@ class CompraController extends Controller
             'guia' => 'nullable|string',
             'estado_de_compra' => 'required|string',
             'egreso_dinero_id' => 'nullable|string',
+            'gasto_extra_id' => 'nullable|string|exists:gastos_extras,id',
             'despliegue_de_pago_id' => 'nullable|string',
             'user_id' => 'required|string',
             'almacen_id' => 'required|integer',
@@ -308,6 +310,7 @@ class CompraController extends Controller
                 'guia' => $validated['guia'],
                 'estado_de_compra' => $estadoEnum,
                 'egreso_dinero_id' => $validated['egreso_dinero_id'],
+                'gasto_extra_id' => $validated['gasto_extra_id'] ?? null,
                 'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
                 'user_id' => $validated['user_id'],
                 'almacen_id' => $validated['almacen_id'],
@@ -446,6 +449,7 @@ class CompraController extends Controller
             'guia' => 'nullable|string',
             'estado_de_compra' => 'sometimes|string',
             'egreso_dinero_id' => 'nullable|string',
+            'gasto_extra_id' => 'nullable|string|exists:gastos_extras,id',
             'despliegue_de_pago_id' => 'nullable|string',
             'user_id' => 'sometimes|string',
             'almacen_id' => 'sometimes|integer',
@@ -490,6 +494,7 @@ class CompraController extends Controller
                 'numero' => $compra->numero,
                 'proveedor_id' => $compra->proveedor_id,
                 'egreso_dinero_id' => $compra->egreso_dinero_id,
+                'gasto_extra_id' => $compra->gasto_extra_id,
                 'despliegue_de_pago_id' => $compra->despliegue_de_pago_id,
             ], $validated);
 
@@ -640,6 +645,7 @@ class CompraController extends Controller
             $compra->update([
                 'estado_de_compra' => EstadoDeCompraDefinitiva::Anulado,
                 'egreso_dinero_id' => null,
+                'gasto_extra_id' => null,
             ]);
 
             return response()->json(['data' => 'ok']);
@@ -703,11 +709,14 @@ class CompraController extends Controller
         $estadoEnum = EstadoDeCompraDefinitiva::from($compra['estado_de_compra']);
         $formaDePagoEnum = FormaDePago::from($compra['forma_de_pago']);
 
+        $tieneEgreso = !empty($compra['egreso_dinero_id']) || !empty($compra['gasto_extra_id']);
+        $tieneDespliegue = !empty($compra['despliegue_de_pago_id']);
+
         if (
             $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             $formaDePagoEnum === FormaDePago::Contado &&
-            !isset($compra['egreso_dinero_id']) &&
-            !isset($compra['despliegue_de_pago_id'])
+            !$tieneEgreso &&
+            !$tieneDespliegue
         ) {
             throw new \Exception('En compras al contado debes seleccionar Egreso asociado o Despliegue de Pago');
         }
@@ -715,17 +724,18 @@ class CompraController extends Controller
         if (
             $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             $formaDePagoEnum === FormaDePago::Credito &&
-            (isset($compra['egreso_dinero_id']) || isset($compra['despliegue_de_pago_id']))
+            ($tieneEgreso || $tieneDespliegue)
         ) {
             throw new \Exception('En compras a crédito no debes seleccionar Egreso asociado ni Despliegue de Pago');
         }
 
+        // egreso_dinero_id (legado) no puede combinarse con despliegue
         if (
             $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
-            isset($compra['egreso_dinero_id']) &&
-            isset($compra['despliegue_de_pago_id'])
+            !empty($compra['egreso_dinero_id']) &&
+            $tieneDespliegue
         ) {
-            throw new \Exception('No puedes seleccionar Egreso asociado y Despliegue de Pago al mismo tiempo');
+            throw new \Exception('No puedes seleccionar Egreso asociado (legado) y Despliegue de Pago al mismo tiempo');
         }
 
         if (

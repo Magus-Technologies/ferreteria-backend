@@ -302,6 +302,32 @@ class GastoExtraController extends Controller
     }
 
     /**
+     * Obtener gastos extras disponibles para asociar a una compra:
+     * - Estado pendiente o aprobado (no anulados)
+     * - Sin compra asociada (gasto_extra_id no usado en ninguna compra)
+     * - Opcionalmente excluir el gasto ya asociado a la compra que se edita
+     */
+    public function disponibles(Request $request)
+    {
+        $excluirCompraId = $request->get('excluir_compra_id');
+
+        $gastos = GastoExtra::with(['user', 'desplieguePago.metodoDePago'])
+            ->whereIn('estado', ['pendiente', 'aprobado'])
+            ->whereDoesntHave('compra', function ($query) use ($excluirCompraId) {
+                if ($excluirCompraId) {
+                    $query->where('id', '!=', $excluirCompraId);
+                }
+            })
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $gastos,
+        ]);
+    }
+
+    /**
      * Lógica compartida para validar un supervisor
      */
     private function validarSupervisor(string $supervisorId, string $password): ?User

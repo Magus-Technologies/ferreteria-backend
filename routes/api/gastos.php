@@ -45,6 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Rutas para los gastos extras
     Route::prefix('gastos-extras')->group(function () {
         Route::get('/resumen', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'resumen']);
+        Route::get('/disponibles', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'disponibles']);
         Route::get('/', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'index']);
         Route::post('/', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'store']);
         Route::put('/{id}', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'update']);
