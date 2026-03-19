@@ -62,6 +62,8 @@ class CreateProductoRequest extends FormRequest
             'unidades_derivadas.*.comision_ultimo' => 'nullable|numeric',
             'unidades_derivadas.*.activador_ultimo' => 'nullable|numeric',
             'unidades_derivadas.*.costo' => 'required|numeric|min:0',
+            'unidades_derivadas.*.producto_complementario_id' => 'nullable|integer|exists:producto,id',
+            'unidades_derivadas.*.producto_complementario_cantidad' => 'nullable|numeric|min:0.001|required_with:unidades_derivadas.*.producto_complementario_id',
 
             // Purchase (Initial stock)
             'compra' => 'nullable|array',

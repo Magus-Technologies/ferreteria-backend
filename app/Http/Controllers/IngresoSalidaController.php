@@ -10,6 +10,7 @@ use App\Models\UnidadDerivadaInmutableIngresoSalida;
 use App\Models\HistorialUnidadDerivadaInmutableIngresoSalida;
 use App\Models\UnidadDerivadaInmutable;
 use App\Services\Cache\ProductoCacheService;
+use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -307,6 +308,15 @@ class IngresoSalidaController extends Controller
                 "costo" => $nuevoCosto,
             ]);
 
+            // Descontar/incrementar producto complementario si existe
+            ComplementarioStockService::procesarComplementario(
+                $productoAlmacen->id,
+                $unidadDerivada->unidad_derivada_id,
+                $cantidad,
+                $almacenId,
+                $esIngreso
+            );
+
             // Invalidar cache de productos del almacén
             app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
 
@@ -399,6 +409,15 @@ class IngresoSalidaController extends Controller
                         "stock_anterior" => $stockAnterior,
                         "stock_nuevo" => $stockNuevo,
                     ]);
+
+                    // Revertir producto complementario (inverso al original)
+                    ComplementarioStockService::procesarComplementarioPorFactor(
+                        $productoAlmacen->id,
+                        $factor,
+                        $cantidad,
+                        $productoAlmacen->almacen_id,
+                        !$esIngreso // Invertir: si era ingreso (se sumó compl.), ahora restar
+                    );
                 }
 
                 // Invalida cache de productos del almacén

@@ -35,6 +35,8 @@ class ProductoAlmacenUnidadDerivada extends Model
         'precio_ultimo',
         'comision_ultimo',
         'activador_ultimo',
+        'producto_complementario_id',
+        'producto_complementario_cantidad',
     ];
 
     /**
@@ -55,6 +57,7 @@ class ProductoAlmacenUnidadDerivada extends Model
             'precio_ultimo' => 'decimal:3',
             'comision_ultimo' => 'decimal:3',
             'activador_ultimo' => 'decimal:3',
+            'producto_complementario_cantidad' => 'decimal:3',
         ];
     }
 
@@ -72,5 +75,13 @@ class ProductoAlmacenUnidadDerivada extends Model
     public function unidadDerivada(): BelongsTo
     {
         return $this->belongsTo(UnidadDerivada::class);
+    }
+
+    /**
+     * Relación: Producto complementario que se descuenta junto con esta unidad derivada
+     */
+    public function productoComplementario(): BelongsTo
+    {
+        return $this->belongsTo(Producto::class, 'producto_complementario_id');
     }
 }

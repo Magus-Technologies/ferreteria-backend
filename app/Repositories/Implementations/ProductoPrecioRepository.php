@@ -74,6 +74,8 @@ class ProductoPrecioRepository implements ProductoPrecioRepositoryInterface
                 'precio_ultimo' => $item['precio_ultimo'] ?? null,
                 'comision_ultimo' => $item['comision_ultimo'] ?? 0,
                 'activador_ultimo' => $item['activador_ultimo'] ?? null,
+                'producto_complementario_id' => $item['producto_complementario_id'] ?? null,
+                'producto_complementario_cantidad' => $item['producto_complementario_cantidad'] ?? null,
             ];
         }, $prices);
 
