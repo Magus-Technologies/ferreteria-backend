@@ -77,8 +77,11 @@ class ProductoRepository implements ProductoRepositoryInterface
                         ->with([
                             'ubicacion:id,name',
                             'unidadesDerivadas' => function ($udq) {
-                                $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'precio_especial', 'precio_minimo', 'precio_ultimo')
-                                    ->with('unidadDerivada:id,name')
+                                $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'precio_especial', 'precio_minimo', 'precio_ultimo', 'producto_complementario_id', 'producto_complementario_cantidad')
+                                    ->with([
+                                        'unidadDerivada:id,name',
+                                        'productoComplementario:id,name,cod_producto',
+                                    ])
                                     ->orderBy('factor', 'desc');
                             },
                         ]);

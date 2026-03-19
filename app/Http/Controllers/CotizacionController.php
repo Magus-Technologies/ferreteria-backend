@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Services\Producto\ComplementarioStockService;
 
 class CotizacionController extends Controller
 {
@@ -228,6 +229,15 @@ class CotizacionController extends Controller
             if ($reservarStock) {
                 $cantidadEnFraccion = $productoData['cantidad'] * $productoData['unidad_derivada_factor'];
                 $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+
+                // Descontar stock del producto complementario
+                ComplementarioStockService::procesarComplementarioPorFactor(
+                    $productoAlmacen->id,
+                    $productoData['unidad_derivada_factor'],
+                    $productoData['cantidad'],
+                    $almacenId,
+                    false // salida
+                );
             }
         }
     }
@@ -339,6 +349,15 @@ class CotizacionController extends Controller
                         foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
                             $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
                             $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+
+                            // Devolver stock del producto complementario
+                            ComplementarioStockService::procesarComplementarioPorFactor(
+                                $productoAlmacen->id,
+                                $unidad->factor,
+                                $unidad->cantidad,
+                                $productoAlmacen->almacen_id,
+                                true // ingreso (devolver)
+                            );
                         }
                     }
                 }
@@ -353,6 +372,15 @@ class CotizacionController extends Controller
                         foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
                             $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
                             $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+
+                            // Reservar stock del producto complementario
+                            ComplementarioStockService::procesarComplementarioPorFactor(
+                                $productoAlmacen->id,
+                                $unidad->factor,
+                                $unidad->cantidad,
+                                $productoAlmacen->almacen_id,
+                                false // salida
+                            );
                         }
                     }
                 }
@@ -474,6 +502,15 @@ class CotizacionController extends Controller
                     foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidadDerivada) {
                         $cantidadEnFraccion = $unidadDerivada->cantidad * $unidadDerivada->factor;
                         $productoAlmacenCotizacion->productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+
+                        // Devolver stock del producto complementario
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $productoAlmacenCotizacion->producto_almacen_id,
+                            $unidadDerivada->factor,
+                            $unidadDerivada->cantidad,
+                            $productoAlmacenCotizacion->productoAlmacen->almacen_id,
+                            true // ingreso (devolver)
+                        );
                     }
                 }
             }
@@ -570,6 +607,15 @@ class CotizacionController extends Controller
                     if (!$cotizacion->reservar_stock) {
                         $cantidadEnFraccion = $unidadDerivada->cantidad * $unidadDerivada->factor;
                         $productoAlmacenCotizacion->productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+
+                        // Descontar stock del producto complementario
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $productoAlmacenCotizacion->producto_almacen_id,
+                            $unidadDerivada->factor,
+                            $unidadDerivada->cantidad,
+                            $cotizacion->almacen_id,
+                            false // salida
+                        );
                     }
                 }
             }
