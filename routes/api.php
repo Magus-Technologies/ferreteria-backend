@@ -201,6 +201,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/cambiar-estado', [\App\Http\Controllers\ValeCompraController::class, 'cambiarEstado']);
         Route::get('/{id}/historial-aplicaciones', [\App\Http\Controllers\ValeCompraController::class, 'historialAplicaciones']);
         Route::get('/venta/{ventaId}/vales-aplicados', [\App\Http\Controllers\ValeCompraController::class, 'valesAplicadosVenta']);
+        Route::get('/cliente/{clienteId}/pendientes', [\App\Http\Controllers\ValeCompraController::class, 'valesPendientesCliente']);
     });
     Route::apiResource('vales-compra', \App\Http\Controllers\ValeCompraController::class);
 

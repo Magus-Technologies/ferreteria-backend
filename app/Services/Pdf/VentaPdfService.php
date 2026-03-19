@@ -225,6 +225,7 @@ class VentaPdfService
                 : '',
             'numeroGuia' => $venta->numero_guia ?? '',
             'vendedor' => $venta->user->name,
+            'recomendadoPor' => $this->getNombreRecomendado($venta),
             'clienteNombre' => $clienteNombre,
             'clienteDocumento' => $cliente?->numero_documento ?? '99999999',
             'clienteDireccion' => $cliente?->direccion ?? '',
@@ -255,6 +256,7 @@ class VentaPdfService
         return Venta::with([
             'user.empresa',
             'cliente',
+            'recomendadoPor',
             'almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
@@ -278,10 +280,9 @@ class VentaPdfService
 
             foreach ($pa->unidadesDerivadas as $ud) {
                 $cantidad = (float) $ud->cantidad;
-                $factor = (float) $ud->factor;
                 $precio = (float) $ud->precio;
                 $descuento = (float) ($ud->descuento ?? 0);
-                $subtotal = $cantidad * $factor * $precio;
+                $subtotal = $cantidad * $precio;
 
                 $productos[] = [
                     'codigo' => $producto->cod_producto ?? '',
@@ -382,7 +383,24 @@ class VentaPdfService
                 'Cajero' => $venta->user->name,
                 'Estado' => $venta->estado_de_venta->value ?? '',
             ],
+            ...($this->getNombreRecomendado($venta) ? [[
+                'Recomendado por' => $this->getNombreRecomendado($venta),
+                '' => '',
+            ]] : []),
         ];
+    }
+
+    /**
+     * Obtener el nombre del cliente que recomendó la venta.
+     */
+    private function getNombreRecomendado(Venta $venta): ?string
+    {
+        $recomendado = $venta->recomendadoPor;
+        if (!$recomendado) return null;
+
+        return $recomendado->razon_social
+            ?: trim(($recomendado->nombres ?? '') . ' ' . ($recomendado->apellidos ?? ''))
+            ?: null;
     }
 
     /**

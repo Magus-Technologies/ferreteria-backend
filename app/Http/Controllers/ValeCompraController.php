@@ -592,4 +592,38 @@ class ValeCompraController extends Controller
             'count' => $valesAplicados->count()
         ]);
     }
+
+    /**
+     * Obtener vales generados pendientes de un cliente.
+     * Son vales de tipo DESCUENTO_PROXIMA_COMPRA que aún no han sido canjeados.
+     */
+    public function valesPendientesCliente(int $clienteId): JsonResponse
+    {
+        $valesPendientes = ValeCompraAplicado::where('cliente_id', $clienteId)
+            ->valesPendientes()
+            ->with(['valeCompra:id,codigo,nombre,tipo_promocion,descuento_tipo,descuento_valor'])
+            ->get()
+            ->map(function ($aplicado) {
+                return [
+                    'id' => $aplicado->id,
+                    'codigo_vale_generado' => $aplicado->codigo_vale_generado,
+                    'fecha_validez' => $aplicado->fecha_validez_generado?->format('Y-m-d'),
+                    'descuento_tipo' => $aplicado->descuento_tipo ?? $aplicado->valeCompra?->descuento_tipo,
+                    'descuento_aplicado' => $aplicado->descuento_aplicado ?? $aplicado->valeCompra?->descuento_valor,
+                    'vale_compra' => $aplicado->valeCompra ? [
+                        'id' => $aplicado->valeCompra->id,
+                        'codigo' => $aplicado->valeCompra->codigo,
+                        'nombre' => $aplicado->valeCompra->nombre,
+                        'tipo_promocion' => $aplicado->valeCompra->tipo_promocion,
+                        'descuento_tipo' => $aplicado->valeCompra->descuento_tipo,
+                        'descuento_valor' => $aplicado->valeCompra->descuento_valor,
+                    ] : null,
+                ];
+            });
+
+        return response()->json([
+            'data' => $valesPendientes,
+            'count' => $valesPendientes->count(),
+        ]);
+    }
 }

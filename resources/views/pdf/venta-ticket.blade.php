@@ -79,6 +79,12 @@
                 <td class="label">Vendedor:</td>
                 <td class="value">{{ $vendedor }}</td>
             </tr>
+            @if($recomendadoPor)
+            <tr>
+                <td class="label">Recomendado por:</td>
+                <td class="value">{{ $recomendadoPor }}</td>
+            </tr>
+            @endif
         </table>
     </div>
 
