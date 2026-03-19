@@ -544,7 +544,7 @@ class VentaController extends Controller
 
             return response()->json([
                 'data' => $venta->load([
-                    'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
+                    'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono',
                     'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                     'productosPorAlmacen.productoAlmacen.producto.marca',
                     'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
