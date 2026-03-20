@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Services\Cache\ProductoCacheService;
 
 class ProductoFileService implements ProductoFileServiceInterface
 {
@@ -220,6 +221,20 @@ class ProductoFileService implements ProductoFileServiceInterface
                         array_merge($params, $ids)
                     );
                 });
+            }
+
+            // Invalidar caché de productos para los almacenes afectados
+            if (!empty($updatesData)) {
+                $productoIds = array_column($updatesData, 'id');
+                $almacenIds = DB::table('productoalmacen')
+                    ->whereIn('producto_id', $productoIds)
+                    ->distinct()
+                    ->pluck('almacen_id');
+
+                $cacheService = app(ProductoCacheService::class);
+                foreach ($almacenIds as $almacenId) {
+                    $cacheService->invalidateProductosAlmacen($almacenId);
+                }
             }
 
             // OPTIMIZACIÓN 6: Eliminar archivos antiguos DESPUÉS de la transacción
