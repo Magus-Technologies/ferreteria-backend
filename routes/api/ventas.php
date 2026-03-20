@@ -50,6 +50,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/resumen', [CompraController::class, 'resumenCompras']);
         Route::get('/por-pagar', [CompraController::class, 'comprasPorPagar']);
         Route::get('/{id}/pagos', [CompraController::class, 'getPagos']);
+        Route::get('/{id}/detalle-completo', [CompraController::class, 'detalleCompleto']);
         Route::post('/{id}/pagos', [CompraController::class, 'storePago']);
         Route::put('/{id}/lotes-vencimientos', [CompraController::class, 'updateLotesVencimientos']);
     });

@@ -8,12 +8,8 @@ use Illuminate\Support\Facades\DB;
 class KardexController extends Controller
 {
     /**
-     * Obtener el kardex de movimientos de un producto.
-     * Solo movimientos del modulo facturacion-electronica:
-     * - Ventas (SALIDA)
-     * - Cotizaciones (REFERENCIA - no afecta stock)
-     * - Prestamos (SALIDA)
-     * - Guias de Remision (SALIDA si afecta stock)
+     * Kardex de facturación (ventas, cotizaciones, préstamos, guías).
+     * Optimizado: UNION ALL en SQL + paginación real en DB.
      */
     public function index(Request $request)
     {
@@ -32,259 +28,20 @@ class KardexController extends Controller
         $hasta = $request->hasta;
         $tipo = $request->tipo;
         $perPage = $request->per_page ?? 50;
-
-        $movimientos = collect();
-
-        // 1. VENTAS (SALIDA)
-        if (!$tipo || $tipo === 'venta') {
-            $ventas = DB::table('productoalmacenventa as pav')
-                ->join('venta as v', 'v.id', '=', 'pav.venta_id')
-                ->join('productoalmacen as pa', 'pa.id', '=', 'pav.producto_almacen_id')
-                ->join('unidadderivadainmutableventa as udv', 'udv.producto_almacen_venta_id', '=', 'pav.id')
-                ->join('unidadderivadainmutable as udi', 'udi.id', '=', 'udv.unidad_derivada_inmutable_id')
-                ->where('pa.producto_id', $productoId)
-                ->where('v.estado_de_venta', '!=', 'an')
-                ->when($almacenId, fn($q) => $q->where('v.almacen_id', $almacenId))
-                ->when($desde, fn($q) => $q->whereDate('v.fecha', '>=', $desde))
-                ->when($hasta, fn($q) => $q->whereDate('v.fecha', '<=', $hasta))
-                ->select([
-                    DB::raw("'venta' as tipo"),
-                    'v.fecha',
-                    DB::raw("CONCAT(COALESCE(v.serie, ''), '-', LPAD(v.numero, 4, '0')) as documento"),
-                    DB::raw("CASE v.tipo_documento
-                        WHEN '01' THEN 'Factura'
-                        WHEN '03' THEN 'Boleta'
-                        WHEN 'nv' THEN 'Nota de Venta'
-                        ELSE v.tipo_documento
-                    END as tipo_doc"),
-                    'udi.name as unidad',
-                    'udv.cantidad',
-                    'udv.factor',
-                    'udv.precio',
-                    'pav.costo',
-                    'v.id as referencia_id',
-                    DB::raw("'SALIDA' as movimiento"),
-                ])
-                ->get();
-
-            foreach ($ventas as $venta) {
-                $cantidadFraccion = $venta->cantidad * $venta->factor;
-                $movimientos->push([
-                    'tipo' => 'venta',
-                    'movimiento' => 'SALIDA',
-                    'fecha' => $venta->fecha,
-                    'documento' => $venta->tipo_doc . ' ' . $venta->documento,
-                    'unidad' => $venta->unidad,
-                    'cantidad' => (float) $venta->cantidad,
-                    'cantidad_fraccion' => (float) $cantidadFraccion,
-                    'precio' => (float) $venta->precio,
-                    'costo' => (float) $venta->costo,
-                    'entrada' => 0,
-                    'salida' => (float) $cantidadFraccion,
-                    'referencia_id' => $venta->referencia_id,
-                ]);
-            }
-        }
-
-        // 2. COTIZACIONES (REFERENCIA - no afecta stock)
-        if (!$tipo || $tipo === 'cotizacion') {
-            $cotizaciones = DB::table('productoalmacencotizacion as pac')
-                ->join('cotizacion as c', 'c.id', '=', 'pac.cotizacion_id')
-                ->join('productoalmacen as pa', 'pa.id', '=', 'pac.producto_almacen_id')
-                ->join('unidadderivadainmutablecotizacion as udc', 'udc.producto_almacen_cotizacion_id', '=', 'pac.id')
-                ->join('unidadderivadainmutable as udi', 'udi.id', '=', 'udc.unidad_derivada_inmutable_id')
-                ->where('pa.producto_id', $productoId)
-                ->where('c.estado_cotizacion', '!=', 'ca')
-                ->when($almacenId, fn($q) => $q->whereExists(function ($sub) use ($almacenId) {
-                    $sub->select(DB::raw(1))
-                        ->from('productoalmacen as pa2')
-                        ->whereColumn('pa2.id', 'pac.producto_almacen_id')
-                        ->where('pa2.almacen_id', $almacenId);
-                }))
-                ->when($desde, fn($q) => $q->whereDate('c.fecha', '>=', $desde))
-                ->when($hasta, fn($q) => $q->whereDate('c.fecha', '<=', $hasta))
-                ->select([
-                    'c.fecha',
-                    DB::raw("c.numero as documento"),
-                    'udi.name as unidad',
-                    'udc.cantidad',
-                    'udc.factor',
-                    'udc.precio',
-                    'pac.costo',
-                    'c.id as referencia_id',
-                    'c.estado_cotizacion',
-                ])
-                ->get();
-
-            foreach ($cotizaciones as $cot) {
-                $cantidadFraccion = $cot->cantidad * $cot->factor;
-                $estado = match ($cot->estado_cotizacion) {
-                    'pe' => 'Pendiente',
-                    'co' => 'Convertida',
-                    've' => 'Vencida',
-                    default => $cot->estado_cotizacion,
-                };
-                $movimientos->push([
-                    'tipo' => 'cotizacion',
-                    'movimiento' => 'REFERENCIA',
-                    'fecha' => $cot->fecha,
-                    'documento' => 'Cotizacion ' . $cot->documento . ' (' . $estado . ')',
-                    'unidad' => $cot->unidad,
-                    'cantidad' => (float) $cot->cantidad,
-                    'cantidad_fraccion' => (float) $cantidadFraccion,
-                    'precio' => (float) $cot->precio,
-                    'costo' => (float) $cot->costo,
-                    'entrada' => 0,
-                    'salida' => 0,
-                    'referencia_id' => $cot->referencia_id,
-                ]);
-            }
-        }
-
-        // 3. PRESTAMOS (SALIDA)
-        if (!$tipo || $tipo === 'prestamo') {
-            $prestamos = DB::table('productoalmacenprestamo as pap')
-                ->join('prestamos as p', 'p.id', '=', 'pap.prestamo_id')
-                ->join('productoalmacen as pa', 'pa.id', '=', 'pap.producto_almacen_id')
-                ->join('unidadderivadainmutableprestamo as udp', 'udp.producto_almacen_prestamo_id', '=', 'pap.id')
-                ->where('pa.producto_id', $productoId)
-                ->where('p.tipo_operacion', 'PRESTAR')
-                ->when($almacenId, fn($q) => $q->whereExists(function ($sub) use ($almacenId) {
-                    $sub->select(DB::raw(1))
-                        ->from('productoalmacen as pa2')
-                        ->whereColumn('pa2.id', 'pap.producto_almacen_id')
-                        ->where('pa2.almacen_id', $almacenId);
-                }))
-                ->when($desde, fn($q) => $q->whereDate('p.fecha', '>=', $desde))
-                ->when($hasta, fn($q) => $q->whereDate('p.fecha', '<=', $hasta))
-                ->select([
-                    'p.fecha',
-                    DB::raw("CONCAT('PREST-', p.numero) as documento"),
-                    'udp.name as unidad',
-                    'udp.cantidad',
-                    'udp.factor',
-                    'pap.costo',
-                    'p.id as referencia_id',
-                ])
-                ->get();
-
-            foreach ($prestamos as $prest) {
-                $cantidadFraccion = $prest->cantidad * $prest->factor;
-                $movimientos->push([
-                    'tipo' => 'prestamo',
-                    'movimiento' => 'SALIDA',
-                    'fecha' => $prest->fecha,
-                    'documento' => 'Prestamo ' . $prest->documento,
-                    'unidad' => $prest->unidad,
-                    'cantidad' => (float) $prest->cantidad,
-                    'cantidad_fraccion' => (float) $cantidadFraccion,
-                    'precio' => 0,
-                    'costo' => (float) $prest->costo,
-                    'entrada' => 0,
-                    'salida' => (float) $cantidadFraccion,
-                    'referencia_id' => $prest->referencia_id,
-                ]);
-            }
-        }
-
-        // 4. GUIAS DE REMISION (SALIDA si afecta stock)
-        if (!$tipo || $tipo === 'guia') {
-            $guias = DB::table('detalle_guia_remision as dgr')
-                ->join('guia_remision as gr', 'gr.id', '=', 'dgr.guia_remision_id')
-                ->where('dgr.producto_id', $productoId)
-                ->where('gr.afecta_stock', true)
-                ->when($almacenId, fn($q) => $q->where('gr.almacen_origen_id', $almacenId))
-                ->when($desde, fn($q) => $q->whereDate('gr.fecha_emision', '>=', $desde))
-                ->when($hasta, fn($q) => $q->whereDate('gr.fecha_emision', '<=', $hasta))
-                ->select([
-                    'gr.fecha_emision as fecha',
-                    DB::raw("CONCAT(COALESCE(gr.serie, ''), '-', LPAD(gr.numero, 4, '0')) as documento"),
-                    'dgr.unidad_derivada_inmutable_name as unidad',
-                    'dgr.cantidad',
-                    'dgr.factor',
-                    'gr.id as referencia_id',
-                ])
-                ->get();
-
-            foreach ($guias as $guia) {
-                $cantidadFraccion = $guia->cantidad * $guia->factor;
-                $movimientos->push([
-                    'tipo' => 'guia',
-                    'movimiento' => 'SALIDA',
-                    'fecha' => $guia->fecha,
-                    'documento' => 'Guia ' . $guia->documento,
-                    'unidad' => $guia->unidad,
-                    'cantidad' => (float) $guia->cantidad,
-                    'cantidad_fraccion' => (float) $cantidadFraccion,
-                    'precio' => 0,
-                    'costo' => 0,
-                    'entrada' => 0,
-                    'salida' => (float) $cantidadFraccion,
-                    'referencia_id' => $guia->referencia_id,
-                ]);
-            }
-        }
-
-        // Ordenar por fecha ascendente y calcular saldo
-        $movimientos = $movimientos->sortBy('fecha')->values();
-
-        // Obtener stock actual para calcular saldo retroactivo
-        $stockActual = DB::table('productoalmacen')
-            ->where('producto_id', $productoId)
-            ->when($almacenId, fn($q) => $q->where('almacen_id', $almacenId))
-            ->sum('stock_fraccion');
-
-        // Calcular saldo acumulado
-        // Saldo final = stock actual
-        // Recorremos de atras hacia adelante para calcular
-        $saldo = (float) $stockActual;
-        $movimientosArray = $movimientos->toArray();
-
-        // Primero calculamos el saldo total de los movimientos mostrados
-        $totalEntradas = 0;
-        $totalSalidas = 0;
-        foreach ($movimientosArray as $m) {
-            $totalEntradas += $m['entrada'];
-            $totalSalidas += $m['salida'];
-        }
-
-        // El saldo antes de todos estos movimientos
-        $saldoInicial = $saldo + $totalSalidas - $totalEntradas;
-        $saldoActual = $saldoInicial;
-
-        for ($i = 0; $i < count($movimientosArray); $i++) {
-            $saldoActual += $movimientosArray[$i]['entrada'] - $movimientosArray[$i]['salida'];
-            $movimientosArray[$i]['saldo'] = round($saldoActual, 4);
-        }
-
-        // Paginar manualmente
-        $total = count($movimientosArray);
         $page = $request->page ?? 1;
 
-        if ($perPage == -1) {
-            $data = $movimientosArray;
-        } else {
-            $offset = ($page - 1) * $perPage;
-            $data = array_slice($movimientosArray, $offset, $perPage);
+        $union = $this->buildFacturacionUnion($productoId, $almacenId, $desde, $hasta, $tipo);
+
+        if (!$union) {
+            return $this->emptyKardexResponse($productoId, $almacenId, $perPage);
         }
 
-        return response()->json([
-            'data' => array_values($data),
-            'total' => $total,
-            'current_page' => (int) $page,
-            'per_page' => $perPage,
-            'last_page' => $perPage == -1 ? 1 : (int) ceil($total / $perPage),
-            'stock_actual' => (float) $stockActual,
-            'saldo_inicial' => round($saldoInicial, 4),
-        ]);
+        return $this->paginateKardex($union['sql'], $union['bindings'], $productoId, $almacenId, $perPage, $page);
     }
 
     /**
-     * Kardex de inventario (gestion-comercial-e-inventario):
-     * - Compras (ENTRADA)
-     * - Recepciones (ENTRADA)
-     * - Ingresos (ENTRADA)
-     * - Salidas (SALIDA)
+     * Kardex de inventario (compras, recepciones, ingresos, salidas).
+     * Optimizado: UNION ALL en SQL + paginación real en DB.
      */
     public function inventario(Request $request)
     {
@@ -303,236 +60,498 @@ class KardexController extends Controller
         $hasta = $request->hasta;
         $tipo = $request->tipo;
         $perPage = $request->per_page ?? 50;
+        $page = $request->page ?? 1;
 
-        $movimientos = collect();
+        $union = $this->buildInventarioUnion($productoId, $almacenId, $desde, $hasta, $tipo);
 
-        // 1. COMPRAS (ENTRADA)
-        if (!$tipo || $tipo === 'compra') {
-            $compras = DB::table('productoalmacencompra as pac')
-                ->join('compra as c', 'c.id', '=', 'pac.compra_id')
-                ->join('productoalmacen as pa', 'pa.id', '=', 'pac.producto_almacen_id')
-                ->join('unidadderivadainmutablecompra as udc', 'udc.producto_almacen_compra_id', '=', 'pac.id')
-                ->join('unidadderivadainmutable as udi', 'udi.id', '=', 'udc.unidad_derivada_inmutable_id')
-                ->where('pa.producto_id', $productoId)
-                ->where('c.estado_de_compra', '!=', 'an')
-                ->when($almacenId, fn($q) => $q->where('c.almacen_id', $almacenId))
-                ->when($desde, fn($q) => $q->whereDate('c.fecha', '>=', $desde))
-                ->when($hasta, fn($q) => $q->whereDate('c.fecha', '<=', $hasta))
-                ->select([
-                    'c.fecha',
-                    DB::raw("CONCAT(COALESCE(c.serie, ''), '-', COALESCE(c.numero, 0)) as documento"),
-                    DB::raw("CASE c.tipo_documento
-                        WHEN '01' THEN 'Factura'
-                        WHEN '03' THEN 'Boleta'
-                        WHEN 'nv' THEN 'Nota de Venta'
-                        ELSE c.tipo_documento
-                    END as tipo_doc"),
-                    'udi.name as unidad',
-                    'udc.cantidad',
-                    'udc.factor',
-                    'pac.costo',
-                    'c.id as referencia_id',
-                ])
-                ->get();
-
-            foreach ($compras as $compra) {
-                $cantidadFraccion = $compra->cantidad * $compra->factor;
-                $movimientos->push([
-                    'tipo' => 'compra',
-                    'movimiento' => 'ENTRADA',
-                    'fecha' => $compra->fecha,
-                    'documento' => 'Compra ' . $compra->tipo_doc . ' ' . $compra->documento,
-                    'unidad' => $compra->unidad,
-                    'cantidad' => (float) $compra->cantidad,
-                    'cantidad_fraccion' => (float) $cantidadFraccion,
-                    'precio' => 0,
-                    'costo' => (float) $compra->costo,
-                    'entrada' => (float) $cantidadFraccion,
-                    'salida' => 0,
-                    'referencia_id' => $compra->referencia_id,
-                ]);
-            }
+        if (!$union) {
+            return $this->emptyKardexResponse($productoId, $almacenId, $perPage);
         }
 
-        // 2. RECEPCIONES (ENTRADA)
-        if (!$tipo || $tipo === 'recepcion') {
-            $recepciones = DB::table('productoalmacenrecepcion as par')
-                ->join('recepcionalmacen as r', 'r.id', '=', 'par.recepcion_id')
-                ->join('productoalmacen as pa', 'pa.id', '=', 'par.producto_almacen_id')
-                ->join('unidadderivadainmutablerecepcion as udr', 'udr.producto_almacen_recepcion_id', '=', 'par.id')
-                ->join('unidadderivadainmutable as udi', 'udi.id', '=', 'udr.unidad_derivada_inmutable_id')
-                ->where('pa.producto_id', $productoId)
-                ->where('r.estado', true)
-                ->when($almacenId, fn($q) => $q->whereExists(function ($sub) use ($almacenId) {
-                    $sub->select(DB::raw(1))
-                        ->from('productoalmacen as pa2')
-                        ->whereColumn('pa2.id', 'par.producto_almacen_id')
-                        ->where('pa2.almacen_id', $almacenId);
-                }))
-                ->when($desde, fn($q) => $q->whereDate('r.fecha', '>=', $desde))
-                ->when($hasta, fn($q) => $q->whereDate('r.fecha', '<=', $hasta))
-                ->select([
-                    'r.fecha',
-                    DB::raw("CONCAT('REC-', r.numero) as documento"),
-                    'udi.name as unidad',
-                    'udr.cantidad',
-                    'udr.factor',
-                    'par.costo',
-                    'r.id as referencia_id',
-                ])
-                ->get();
+        return $this->paginateKardex($union['sql'], $union['bindings'], $productoId, $almacenId, $perPage, $page);
+    }
 
-            foreach ($recepciones as $rec) {
-                $cantidadFraccion = $rec->cantidad * $rec->factor;
-                $movimientos->push([
-                    'tipo' => 'recepcion',
-                    'movimiento' => 'ENTRADA',
-                    'fecha' => $rec->fecha,
-                    'documento' => 'Recepcion ' . $rec->documento,
-                    'unidad' => $rec->unidad,
-                    'cantidad' => (float) $rec->cantidad,
-                    'cantidad_fraccion' => (float) $cantidadFraccion,
-                    'precio' => 0,
-                    'costo' => (float) $rec->costo,
-                    'entrada' => (float) $cantidadFraccion,
-                    'salida' => 0,
-                    'referencia_id' => $rec->referencia_id,
-                ]);
-            }
-        }
+    /**
+     * Ejecuta el UNION ALL con paginación real en DB y calcula saldos.
+     * En vez de cargar todos los registros en memoria, usa:
+     * 1. COUNT + SUM en la DB para totales
+     * 2. SUM parcial para el saldo acumulado hasta el offset
+     * 3. LIMIT/OFFSET para la página actual
+     */
+    private function paginateKardex(string $unionSql, array $bindings, int $productoId, ?int $almacenId, int $perPage, int $page)
+    {
+        $wrappedSql = "SELECT * FROM ({$unionSql}) as movimientos";
 
-        // 3. INGRESOS (ENTRADA)
-        if (!$tipo || $tipo === 'ingreso') {
-            $ingresos = DB::table('productoalmaceningresosalida as pais')
-                ->join('ingresosalida as is_t', 'is_t.id', '=', 'pais.ingreso_id')
-                ->join('productoalmacen as pa', 'pa.id', '=', 'pais.producto_almacen_id')
-                ->join('unidadderivadainmutableingresosalida as udis', 'udis.producto_almacen_ingreso_salida_id', '=', 'pais.id')
-                ->join('unidadderivadainmutable as udi', 'udi.id', '=', 'udis.unidad_derivada_inmutable_id')
-                ->where('pa.producto_id', $productoId)
-                ->where('is_t.tipo_documento', 'in')
-                ->where('is_t.estado', true)
-                ->when($almacenId, fn($q) => $q->where('is_t.almacen_id', $almacenId))
-                ->when($desde, fn($q) => $q->whereDate('is_t.fecha', '>=', $desde))
-                ->when($hasta, fn($q) => $q->whereDate('is_t.fecha', '<=', $hasta))
-                ->select([
-                    'is_t.fecha',
-                    DB::raw("CONCAT('ING-', is_t.serie, '-', is_t.numero) as documento"),
-                    'udi.name as unidad',
-                    'udis.cantidad',
-                    'udis.factor',
-                    'pais.costo',
-                    'is_t.id as referencia_id',
-                ])
-                ->get();
+        // 1. Totales: COUNT + SUM entradas/salidas (1 query)
+        $totals = DB::selectOne(
+            "SELECT COUNT(*) as total, COALESCE(SUM(entrada), 0) as total_entradas, COALESCE(SUM(salida), 0) as total_salidas FROM ({$unionSql}) as t",
+            $bindings
+        );
 
-            foreach ($ingresos as $ing) {
-                $cantidadFraccion = $ing->cantidad * $ing->factor;
-                $movimientos->push([
-                    'tipo' => 'ingreso',
-                    'movimiento' => 'ENTRADA',
-                    'fecha' => $ing->fecha,
-                    'documento' => 'Ingreso ' . $ing->documento,
-                    'unidad' => $ing->unidad,
-                    'cantidad' => (float) $ing->cantidad,
-                    'cantidad_fraccion' => (float) $cantidadFraccion,
-                    'precio' => 0,
-                    'costo' => (float) $ing->costo,
-                    'entrada' => (float) $cantidadFraccion,
-                    'salida' => 0,
-                    'referencia_id' => $ing->referencia_id,
-                ]);
-            }
-        }
+        $total = (int) $totals->total;
+        $totalEntradas = (float) $totals->total_entradas;
+        $totalSalidas = (float) $totals->total_salidas;
 
-        // 4. SALIDAS (SALIDA)
-        if (!$tipo || $tipo === 'salida') {
-            $salidas = DB::table('productoalmaceningresosalida as pais')
-                ->join('ingresosalida as is_t', 'is_t.id', '=', 'pais.ingreso_id')
-                ->join('productoalmacen as pa', 'pa.id', '=', 'pais.producto_almacen_id')
-                ->join('unidadderivadainmutableingresosalida as udis', 'udis.producto_almacen_ingreso_salida_id', '=', 'pais.id')
-                ->join('unidadderivadainmutable as udi', 'udi.id', '=', 'udis.unidad_derivada_inmutable_id')
-                ->where('pa.producto_id', $productoId)
-                ->where('is_t.tipo_documento', 'sa')
-                ->where('is_t.estado', true)
-                ->when($almacenId, fn($q) => $q->where('is_t.almacen_id', $almacenId))
-                ->when($desde, fn($q) => $q->whereDate('is_t.fecha', '>=', $desde))
-                ->when($hasta, fn($q) => $q->whereDate('is_t.fecha', '<=', $hasta))
-                ->select([
-                    'is_t.fecha',
-                    DB::raw("CONCAT('SAL-', is_t.serie, '-', is_t.numero) as documento"),
-                    'udi.name as unidad',
-                    'udis.cantidad',
-                    'udis.factor',
-                    'pais.costo',
-                    'is_t.id as referencia_id',
-                ])
-                ->get();
-
-            foreach ($salidas as $sal) {
-                $cantidadFraccion = $sal->cantidad * $sal->factor;
-                $movimientos->push([
-                    'tipo' => 'salida',
-                    'movimiento' => 'SALIDA',
-                    'fecha' => $sal->fecha,
-                    'documento' => 'Salida ' . $sal->documento,
-                    'unidad' => $sal->unidad,
-                    'cantidad' => (float) $sal->cantidad,
-                    'cantidad_fraccion' => (float) $cantidadFraccion,
-                    'precio' => 0,
-                    'costo' => (float) $sal->costo,
-                    'entrada' => 0,
-                    'salida' => (float) $cantidadFraccion,
-                    'referencia_id' => $sal->referencia_id,
-                ]);
-            }
-        }
-
-        // Ordenar por fecha ascendente y calcular saldo
-        $movimientos = $movimientos->sortBy('fecha')->values();
-
-        // Obtener stock actual
-        $stockActual = DB::table('productoalmacen')
+        // Stock actual
+        $stockActual = (float) DB::table('productoalmacen')
             ->where('producto_id', $productoId)
             ->when($almacenId, fn($q) => $q->where('almacen_id', $almacenId))
             ->sum('stock_fraccion');
 
-        $saldo = (float) $stockActual;
-        $movimientosArray = $movimientos->toArray();
+        $saldoInicial = $stockActual + $totalSalidas - $totalEntradas;
 
-        $totalEntradas = 0;
-        $totalSalidas = 0;
-        foreach ($movimientosArray as $m) {
-            $totalEntradas += $m['entrada'];
-            $totalSalidas += $m['salida'];
+        if ($total === 0) {
+            return response()->json([
+                'data' => [],
+                'total' => 0,
+                'current_page' => (int) $page,
+                'per_page' => $perPage,
+                'last_page' => 1,
+                'stock_actual' => $stockActual,
+                'saldo_inicial' => round($saldoInicial, 4),
+            ]);
         }
-
-        $saldoInicial = $saldo + $totalSalidas - $totalEntradas;
-        $saldoActual = $saldoInicial;
-
-        for ($i = 0; $i < count($movimientosArray); $i++) {
-            $saldoActual += $movimientosArray[$i]['entrada'] - $movimientosArray[$i]['salida'];
-            $movimientosArray[$i]['saldo'] = round($saldoActual, 4);
-        }
-
-        // Paginar manualmente
-        $total = count($movimientosArray);
-        $page = $request->page ?? 1;
 
         if ($perPage == -1) {
-            $data = $movimientosArray;
-        } else {
-            $offset = ($page - 1) * $perPage;
-            $data = array_slice($movimientosArray, $offset, $perPage);
+            // Sin paginación: traer todo ordenado
+            $rows = DB::select("{$wrappedSql} ORDER BY fecha ASC", $bindings);
+            $saldoActual = $saldoInicial;
+            $data = [];
+            foreach ($rows as $row) {
+                $saldoActual += $row->entrada - $row->salida;
+                $row->saldo = round($saldoActual, 4);
+                $data[] = $row;
+            }
+
+            return response()->json([
+                'data' => $data,
+                'total' => $total,
+                'current_page' => 1,
+                'per_page' => -1,
+                'last_page' => 1,
+                'stock_actual' => $stockActual,
+                'saldo_inicial' => round($saldoInicial, 4),
+            ]);
+        }
+
+        $offset = ($page - 1) * $perPage;
+
+        // 2. Saldo acumulado hasta el offset (suma de entrada-salida de filas anteriores)
+        $saldoAtOffset = $saldoInicial;
+        if ($offset > 0) {
+            $prePage = DB::selectOne(
+                "SELECT COALESCE(SUM(entrada), 0) as sum_entradas, COALESCE(SUM(salida), 0) as sum_salidas FROM (SELECT entrada, salida FROM ({$unionSql}) as t ORDER BY fecha ASC LIMIT ?) as pre",
+                array_merge($bindings, [$offset])
+            );
+            $saldoAtOffset = $saldoInicial + (float) $prePage->sum_entradas - (float) $prePage->sum_salidas;
+        }
+
+        // 3. Página actual
+        $rows = DB::select(
+            "{$wrappedSql} ORDER BY fecha ASC LIMIT ? OFFSET ?",
+            array_merge($bindings, [$perPage, $offset])
+        );
+
+        // 4. Calcular saldo running solo para la página
+        $saldoActual = $saldoAtOffset;
+        $data = [];
+        foreach ($rows as $row) {
+            $saldoActual += $row->entrada - $row->salida;
+            $row->saldo = round($saldoActual, 4);
+            $data[] = $row;
         }
 
         return response()->json([
-            'data' => array_values($data),
+            'data' => $data,
             'total' => $total,
             'current_page' => (int) $page,
             'per_page' => $perPage,
-            'last_page' => $perPage == -1 ? 1 : (int) ceil($total / $perPage),
-            'stock_actual' => (float) $stockActual,
+            'last_page' => (int) ceil($total / $perPage),
+            'stock_actual' => $stockActual,
             'saldo_inicial' => round($saldoInicial, 4),
         ]);
+    }
+
+    /**
+     * Respuesta vacía para cuando no hay subqueries que ejecutar.
+     */
+    private function emptyKardexResponse(int $productoId, ?int $almacenId, int $perPage)
+    {
+        $stockActual = (float) DB::table('productoalmacen')
+            ->where('producto_id', $productoId)
+            ->when($almacenId, fn($q) => $q->where('almacen_id', $almacenId))
+            ->sum('stock_fraccion');
+
+        return response()->json([
+            'data' => [],
+            'total' => 0,
+            'current_page' => 1,
+            'per_page' => $perPage,
+            'last_page' => 1,
+            'stock_actual' => $stockActual,
+            'saldo_inicial' => round($stockActual, 4),
+        ]);
+    }
+
+    /**
+     * Construye UNION ALL para kardex de facturación.
+     * Retorna ['sql' => string, 'bindings' => array] o null si no hay queries.
+     */
+    private function buildFacturacionUnion(int $productoId, ?int $almacenId, ?string $desde, ?string $hasta, ?string $tipo): ?array
+    {
+        $queries = [];
+        $bindings = [];
+
+        // VENTAS (SALIDA)
+        if (!$tipo || $tipo === 'venta') {
+            $where = "pa.producto_id = ? AND v.estado_de_venta != 'an'";
+            $params = [$productoId];
+
+            if ($almacenId) {
+                $where .= " AND v.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(v.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(v.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'venta' as tipo,
+                'SALIDA' as movimiento,
+                v.fecha,
+                CONCAT(
+                    CASE v.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE v.tipo_documento END,
+                    ' ', COALESCE(v.serie, ''), '-', LPAD(v.numero, 4, '0')
+                ) as documento,
+                udi.name as unidad,
+                CAST(udv.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udv.cantidad * udv.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(udv.precio AS DECIMAL(16,4)) as precio,
+                CAST(pav.costo AS DECIMAL(16,4)) as costo,
+                CAST(0 AS DECIMAL(16,4)) as entrada,
+                CAST(udv.cantidad * udv.factor AS DECIMAL(16,4)) as salida,
+                v.id as referencia_id
+            FROM productoalmacenventa pav
+            JOIN venta v ON v.id = pav.venta_id
+            JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id
+            JOIN unidadderivadainmutableventa udv ON udv.producto_almacen_venta_id = pav.id
+            JOIN unidadderivadainmutable udi ON udi.id = udv.unidad_derivada_inmutable_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        // COTIZACIONES (REFERENCIA - no afecta stock)
+        if (!$tipo || $tipo === 'cotizacion') {
+            $where = "pa.producto_id = ? AND c.estado_cotizacion != 'ca'";
+            $params = [$productoId];
+
+            if ($almacenId) {
+                $where .= " AND pa.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(c.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(c.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'cotizacion' as tipo,
+                'REFERENCIA' as movimiento,
+                c.fecha,
+                CONCAT('Cotizacion ', c.numero, ' (',
+                    CASE c.estado_cotizacion WHEN 'pe' THEN 'Pendiente' WHEN 'co' THEN 'Convertida' WHEN 've' THEN 'Vencida' ELSE c.estado_cotizacion END,
+                ')') as documento,
+                udi.name as unidad,
+                CAST(udc.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(udc.precio AS DECIMAL(16,4)) as precio,
+                CAST(pac.costo AS DECIMAL(16,4)) as costo,
+                CAST(0 AS DECIMAL(16,4)) as entrada,
+                CAST(0 AS DECIMAL(16,4)) as salida,
+                c.id as referencia_id
+            FROM productoalmacencotizacion pac
+            JOIN cotizacion c ON c.id = pac.cotizacion_id
+            JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id
+            JOIN unidadderivadainmutablecotizacion udc ON udc.producto_almacen_cotizacion_id = pac.id
+            JOIN unidadderivadainmutable udi ON udi.id = udc.unidad_derivada_inmutable_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        // PRESTAMOS (SALIDA)
+        if (!$tipo || $tipo === 'prestamo') {
+            $where = "pa.producto_id = ? AND p.tipo_operacion = 'PRESTAR'";
+            $params = [$productoId];
+
+            if ($almacenId) {
+                $where .= " AND pa.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(p.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(p.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'prestamo' as tipo,
+                'SALIDA' as movimiento,
+                p.fecha,
+                CONCAT('Prestamo PREST-', p.numero) as documento,
+                udp.name as unidad,
+                CAST(udp.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udp.cantidad * udp.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(0 AS DECIMAL(16,4)) as precio,
+                CAST(pap.costo AS DECIMAL(16,4)) as costo,
+                CAST(0 AS DECIMAL(16,4)) as entrada,
+                CAST(udp.cantidad * udp.factor AS DECIMAL(16,4)) as salida,
+                p.id as referencia_id
+            FROM productoalmacenprestamo pap
+            JOIN prestamos p ON p.id = pap.prestamo_id
+            JOIN productoalmacen pa ON pa.id = pap.producto_almacen_id
+            JOIN unidadderivadainmutableprestamo udp ON udp.producto_almacen_prestamo_id = pap.id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        // GUIAS DE REMISION (SALIDA)
+        if (!$tipo || $tipo === 'guia') {
+            $where = "dgr.producto_id = ? AND gr.afecta_stock = 1";
+            $params = [$productoId];
+
+            if ($almacenId) {
+                $where .= " AND gr.almacen_origen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(gr.fecha_emision) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(gr.fecha_emision) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'guia' as tipo,
+                'SALIDA' as movimiento,
+                gr.fecha_emision as fecha,
+                CONCAT('Guia ', COALESCE(gr.serie, ''), '-', LPAD(gr.numero, 4, '0')) as documento,
+                dgr.unidad_derivada_inmutable_name as unidad,
+                CAST(dgr.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(dgr.cantidad * dgr.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(0 AS DECIMAL(16,4)) as precio,
+                CAST(0 AS DECIMAL(16,4)) as costo,
+                CAST(0 AS DECIMAL(16,4)) as entrada,
+                CAST(dgr.cantidad * dgr.factor AS DECIMAL(16,4)) as salida,
+                gr.id as referencia_id
+            FROM detalle_guia_remision dgr
+            JOIN guia_remision gr ON gr.id = dgr.guia_remision_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        if (empty($queries)) {
+            return null;
+        }
+
+        return [
+            'sql' => implode(' UNION ALL ', $queries),
+            'bindings' => $bindings,
+        ];
+    }
+
+    /**
+     * Construye UNION ALL para kardex de inventario.
+     * Retorna ['sql' => string, 'bindings' => array] o null si no hay queries.
+     */
+    private function buildInventarioUnion(int $productoId, ?int $almacenId, ?string $desde, ?string $hasta, ?string $tipo): ?array
+    {
+        $queries = [];
+        $bindings = [];
+
+        // COMPRAS (ENTRADA)
+        if (!$tipo || $tipo === 'compra') {
+            $where = "pa.producto_id = ? AND c.estado_de_compra != 'an'";
+            $params = [$productoId];
+
+            if ($almacenId) {
+                $where .= " AND c.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(c.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(c.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'compra' as tipo,
+                'ENTRADA' as movimiento,
+                c.fecha,
+                CONCAT('Compra ',
+                    CASE c.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE c.tipo_documento END,
+                    ' ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, 0)
+                ) as documento,
+                udi.name as unidad,
+                CAST(udc.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(0 AS DECIMAL(16,4)) as precio,
+                CAST(pac.costo AS DECIMAL(16,4)) as costo,
+                CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as entrada,
+                CAST(0 AS DECIMAL(16,4)) as salida,
+                c.id as referencia_id
+            FROM productoalmacencompra pac
+            JOIN compra c ON c.id = pac.compra_id
+            JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id
+            JOIN unidadderivadainmutablecompra udc ON udc.producto_almacen_compra_id = pac.id
+            JOIN unidadderivadainmutable udi ON udi.id = udc.unidad_derivada_inmutable_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        // RECEPCIONES (ENTRADA)
+        if (!$tipo || $tipo === 'recepcion') {
+            $where = "pa.producto_id = ? AND r.estado = 1";
+            $params = [$productoId];
+
+            if ($almacenId) {
+                $where .= " AND pa.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(r.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(r.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'recepcion' as tipo,
+                'ENTRADA' as movimiento,
+                r.fecha,
+                CONCAT('Recepcion REC-', r.numero) as documento,
+                udi.name as unidad,
+                CAST(udr.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udr.cantidad * udr.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(0 AS DECIMAL(16,4)) as precio,
+                CAST(par.costo AS DECIMAL(16,4)) as costo,
+                CAST(udr.cantidad * udr.factor AS DECIMAL(16,4)) as entrada,
+                CAST(0 AS DECIMAL(16,4)) as salida,
+                r.id as referencia_id
+            FROM productoalmacenrecepcion par
+            JOIN recepcionalmacen r ON r.id = par.recepcion_id
+            JOIN productoalmacen pa ON pa.id = par.producto_almacen_id
+            JOIN unidadderivadainmutablerecepcion udr ON udr.producto_almacen_recepcion_id = par.id
+            JOIN unidadderivadainmutable udi ON udi.id = udr.unidad_derivada_inmutable_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        // INGRESOS (ENTRADA)
+        if (!$tipo || $tipo === 'ingreso') {
+            $where = "pa.producto_id = ? AND is_t.tipo_documento = 'in' AND is_t.estado = 1";
+            $params = [$productoId];
+
+            if ($almacenId) {
+                $where .= " AND is_t.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(is_t.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(is_t.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'ingreso' as tipo,
+                'ENTRADA' as movimiento,
+                is_t.fecha,
+                CONCAT('Ingreso ING-', is_t.serie, '-', is_t.numero) as documento,
+                udi.name as unidad,
+                CAST(udis.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udis.cantidad * udis.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(0 AS DECIMAL(16,4)) as precio,
+                CAST(pais.costo AS DECIMAL(16,4)) as costo,
+                CAST(udis.cantidad * udis.factor AS DECIMAL(16,4)) as entrada,
+                CAST(0 AS DECIMAL(16,4)) as salida,
+                is_t.id as referencia_id
+            FROM productoalmaceningresosalida pais
+            JOIN ingresosalida is_t ON is_t.id = pais.ingreso_id
+            JOIN productoalmacen pa ON pa.id = pais.producto_almacen_id
+            JOIN unidadderivadainmutableingresosalida udis ON udis.producto_almacen_ingreso_salida_id = pais.id
+            JOIN unidadderivadainmutable udi ON udi.id = udis.unidad_derivada_inmutable_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        // SALIDAS (SALIDA)
+        if (!$tipo || $tipo === 'salida') {
+            $where = "pa.producto_id = ? AND is_t.tipo_documento = 'sa' AND is_t.estado = 1";
+            $params = [$productoId];
+
+            if ($almacenId) {
+                $where .= " AND is_t.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(is_t.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(is_t.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'salida' as tipo,
+                'SALIDA' as movimiento,
+                is_t.fecha,
+                CONCAT('Salida SAL-', is_t.serie, '-', is_t.numero) as documento,
+                udi.name as unidad,
+                CAST(udis.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udis.cantidad * udis.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(0 AS DECIMAL(16,4)) as precio,
+                CAST(pais.costo AS DECIMAL(16,4)) as costo,
+                CAST(0 AS DECIMAL(16,4)) as entrada,
+                CAST(udis.cantidad * udis.factor AS DECIMAL(16,4)) as salida,
+                is_t.id as referencia_id
+            FROM productoalmaceningresosalida pais
+            JOIN ingresosalida is_t ON is_t.id = pais.ingreso_id
+            JOIN productoalmacen pa ON pa.id = pais.producto_almacen_id
+            JOIN unidadderivadainmutableingresosalida udis ON udis.producto_almacen_ingreso_salida_id = pais.id
+            JOIN unidadderivadainmutable udi ON udi.id = udis.unidad_derivada_inmutable_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        if (empty($queries)) {
+            return null;
+        }
+
+        return [
+            'sql' => implode(' UNION ALL ', $queries),
+            'bindings' => $bindings,
+        ];
     }
 }

@@ -124,11 +124,24 @@ class RecepcionAlmacenController extends Controller
             });
         });
 
-        $query->orderBy('fecha', 'asc');
+        $query->orderBy('fecha', 'desc');
 
-        $recepciones = $query->limit(100)->get();
+        $perPage = $request->input('per_page', 50);
 
-        return response()->json(['data' => $this->toSnakeCase($recepciones)]);
+        if ($perPage == -1) {
+            $recepciones = $query->get();
+            return response()->json(['data' => $this->toSnakeCase($recepciones)]);
+        }
+
+        $paginated = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $this->toSnakeCase(collect($paginated->items())),
+            'total' => $paginated->total(),
+            'current_page' => $paginated->currentPage(),
+            'per_page' => $paginated->perPage(),
+            'last_page' => $paginated->lastPage(),
+        ]);
     }
 
     /**

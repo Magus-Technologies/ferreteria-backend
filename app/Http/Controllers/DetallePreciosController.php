@@ -19,6 +19,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Services\Cache\ProductoCacheService;
 
 class DetallePreciosController extends Controller
 {
@@ -246,6 +247,19 @@ class DetallePreciosController extends Controller
         }
 
         $totalImportados = count($request['data']) - count($duplicados);
+
+        // Invalidar caché de productos para los almacenes afectados
+        $almacenIds = collect($request['data'])
+            ->pluck('producto_almacen.connect.id')
+            ->unique()
+            ->map(fn($id) => ProductoAlmacen::where('id', $id)->value('almacen_id'))
+            ->filter()
+            ->unique();
+
+        $cacheService = app(ProductoCacheService::class);
+        foreach ($almacenIds as $almacenId) {
+            $cacheService->invalidateProductosAlmacen($almacenId);
+        }
 
         return response()->json([
             'data' => $duplicados,

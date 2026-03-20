@@ -858,6 +858,46 @@ class CompraController extends Controller
 
         return response()->json(['data' => $pagos]);
     }
+
+    /**
+     * Get compra details + pagos in a single request
+     * GET /api/compras/{id}/detalle-completo
+     */
+    public function detalleCompleto(string $id)
+    {
+        $compra = Compra::with([
+            'proveedor:id,ruc,razon_social',
+            'productosPorAlmacen.productoAlmacen.producto.marca',
+            'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
+            'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+            'user:id,name',
+            'ordenCompra:id,codigo,estado',
+        ])
+            ->withCount([
+                'recepcionesAlmacen as recepciones_almacen_count' => function ($query) {
+                    $query->where('estado', true);
+                },
+                'pagosDeCompras as pagos_de_compras_count' => function ($query) {
+                    $query->where('estado', true);
+                },
+            ])
+            ->withSum([
+                'pagosDeCompras as total_pagado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto')
+            ->findOrFail($id);
+
+        $pagos = $compra->pagosDeCompras()
+            ->with('despliegueDePago.metodoDePago')
+            ->orderBy('fecha', 'desc')
+            ->get();
+
+        return response()->json([
+            'data' => new CompraResource($compra),
+            'pagos' => $pagos,
+        ]);
+    }
     /**
      * Get compras por pagar (credit purchases with pending balance)
      */
