@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
+
 class GastoExtra extends Model
 {
     protected $table = 'gastos_extras';
@@ -17,9 +18,7 @@ class GastoExtra extends Model
         'id',
         'monto',
         'concepto',
-        'estado',
         'user_id',
-        'supervisor_id',
         'despliegue_pago_id',
     ];
 
@@ -43,11 +42,6 @@ class GastoExtra extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
-    }
-
-    public function supervisor(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'supervisor_id');
     }
 
     public function desplieguePago(): BelongsTo

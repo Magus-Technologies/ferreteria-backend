@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+
 class Compra extends Model
 {
     protected $table = 'compra';
@@ -41,6 +42,7 @@ class Compra extends Model
         'almacen_id',
         'proveedor_id',
         'orden_compra_id',
+        'gasto_extra_id',
     ];
 
     protected function casts(): array
@@ -104,5 +106,10 @@ class Compra extends Model
     public function ordenCompra(): BelongsTo
     {
         return $this->belongsTo(OrdenCompra::class, 'orden_compra_id');
+    }
+
+    public function gastoExtra(): BelongsTo
+    {
+        return $this->belongsTo(GastoExtra::class, 'gasto_extra_id');
     }
 }

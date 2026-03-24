@@ -241,6 +241,10 @@ class CompraController extends Controller
             'egreso_dinero_id' => 'nullable|string',
             'gasto_extra_id' => 'nullable|string|exists:gastos_extras,id',
             'despliegue_de_pago_id' => 'nullable|string',
+            'metodos_de_pago' => 'nullable|array',
+            'metodos_de_pago.*.despliegue_de_pago_id' => 'required_with:metodos_de_pago|string',
+            'metodos_de_pago.*.monto' => 'required_with:metodos_de_pago|numeric|min:0.01',
+            'metodos_de_pago.*.numero_operacion' => 'nullable|string',
             'user_id' => 'required|string',
             'almacen_id' => 'required|integer',
             'proveedor_id' => 'required|integer',
@@ -802,6 +806,36 @@ class CompraController extends Controller
 
                 MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
                     ->decrement('monto', $totalSoles);
+            }
+
+            // Procesar múltiples métodos de pago del modal
+            if (!empty($compra['metodos_de_pago'])) {
+                foreach ($compra['metodos_de_pago'] as $metodo) {
+                    $desplieguePagoId = $metodo['despliegue_de_pago_id'];
+                    if (str_contains($desplieguePagoId, '-')) {
+                        $parts = explode('-', $desplieguePagoId);
+                        $desplieguePagoId = $parts[1] ?? $desplieguePagoId;
+                    }
+
+                    $despliegue = DespliegueDePago::where('id', $desplieguePagoId)
+                        ->where('activo', true)
+                        ->first();
+
+                    if (!$despliegue) {
+                        throw new \Exception('Un método de pago seleccionado no existe o no está activo.');
+                    }
+
+                    $compraModel->pagosDeCompras()->create([
+                        'despliegue_de_pago_id' => $desplieguePagoId,
+                        'monto'                 => $metodo['monto'],
+                        'fecha'                 => now()->format('Y-m-d'),
+                        'numero_operacion'      => $metodo['numero_operacion'] ?? null,
+                        'estado'                => true,
+                    ]);
+
+                    MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
+                        ->decrement('monto', $metodo['monto']);
+                }
             }
         }
     }

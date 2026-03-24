@@ -4,29 +4,24 @@ namespace App\Http\Controllers\FlujoFinanciero;
 
 use App\Http\Controllers\Controller;
 use App\Models\GastoExtra;
-use App\Models\User;
-use App\Models\AperturaCierreCaja;
+use App\Models\SubCaja;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
-use App\Traits\ManejaFlujoCajaExtra;
+use Illuminate\Support\Facades\DB;
+use App\Models\User;
 
 class GastoExtraController extends Controller
 {
-    use ManejaFlujoCajaExtra;
-
     /**
      * Listar todos los gastos extras
      */
     public function index()
     {
-        $gastos = GastoExtra::with(['user', 'supervisor', 'desplieguePago.metodoDePago'])
+        $gastos = GastoExtra::with(['user', 'desplieguePago.metodoDePago', 'compra.proveedor'])
             ->orderBy('created_at', 'desc')
             ->get();
 
-        $subCajas = \App\Models\SubCaja::all();
+        $subCajas = SubCaja::all();
 
         $gastos->each(function ($gasto) use ($subCajas) {
             if ($gasto->desplieguePago) {
@@ -55,13 +50,11 @@ class GastoExtraController extends Controller
      */
     public function resumen()
     {
-        $query = GastoExtra::where('estado', 'aprobado');
+        $totalGastos = GastoExtra::sum('monto');
+        $totalTransacciones = GastoExtra::count();
 
-        $totalGastos = $query->sum('monto');
-        $totalTransacciones = $query->count();
-
-        $gastosHoy = (clone $query)->whereDate('created_at', now()->toDateString())->sum('monto');
-        $transaccionesHoy = (clone $query)->whereDate('created_at', now()->toDateString())->count();
+        $gastosHoy = GastoExtra::whereDate('created_at', now()->toDateString())->sum('monto');
+        $transaccionesHoy = GastoExtra::whereDate('created_at', now()->toDateString())->count();
 
         $promedioGasto = $totalTransacciones > 0 ? $totalGastos / $totalTransacciones : 0;
 
@@ -85,62 +78,17 @@ class GastoExtraController extends Controller
         $request->validate([
             'monto' => 'required|numeric|min:0.01',
             'concepto' => 'required|string|max:1000',
-            'supervisor_id' => 'nullable|string',
-            'supervisor_password' => 'nullable|string',
             'despliegue_pago_id' => 'nullable|string',
         ]);
 
         try {
             return DB::transaction(function () use ($request) {
-                $estado = 'pendiente';
-                $supervisorValidadoId = null;
-
-                // Validar supervisor si se envía
-                if ($request->supervisor_id && $request->supervisor_password) {
-                    $supervisor = $this->validarSupervisor($request->supervisor_id, $request->supervisor_password);
-
-                    if (!$supervisor) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Credenciales de supervisor inválidas'
-                        ], 403);
-                    }
-
-                    // Validar que exista apertura de hoy antes de aprobar
-                    $aperturaDiaria = $this->validarAperturaDiaria();
-                    if (!$aperturaDiaria) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'No hay apertura de caja para hoy. No se puede aprobar el gasto.'
-                        ], 422);
-                    }
-
-                    $estado = 'aprobado';
-                    $supervisorValidadoId = $supervisor->id;
-                }
-
-                $gastoId = Str::ulid()->toString();
-
                 $gasto = GastoExtra::create([
-                    'id' => $gastoId,
                     'monto' => $request->monto,
                     'concepto' => $request->concepto,
-                    'estado' => $estado,
-                    'user_id' => Auth::id() ?? User::first()?->id, // FIXME: remove fallback in prod
-                    'supervisor_id' => $supervisorValidadoId,
+                    'user_id' => Auth::id() ?? User::first()?->id,
                     'despliegue_pago_id' => $request->despliegue_pago_id,
                 ]);
-
-                if ($estado === 'aprobado') {
-                    $this->registrarEnCajaActiva(
-                        $gastoId,
-                        'gasto_extra',
-                        'egreso',
-                        (float)$request->monto,
-                        $request->despliegue_pago_id,
-                        'Gasto Extra Automático: ' . $request->concepto
-                    );
-                }
 
                 return response()->json([
                     'success' => true,
@@ -157,7 +105,7 @@ class GastoExtraController extends Controller
     }
 
     /**
-     * Actualizar un gasto extra (solo si está pendiente)
+     * Actualizar un gasto extra
      */
     public function update(Request $request, $id)
     {
@@ -196,115 +144,43 @@ class GastoExtraController extends Controller
     }
 
     /**
-     * Anular un gasto extra
+     * Eliminar un gasto extra (solo si no está asociado a una compra)
      */
-    public function anular($id)
+    public function destroy($id)
     {
         try {
             return DB::transaction(function () use ($id) {
-                $gasto = GastoExtra::find($id);
+                $gasto = GastoExtra::with('compra')->find($id);
 
                 if (!$gasto) {
                     return response()->json(['success' => false, 'message' => 'Gasto no encontrado'], 404);
                 }
 
-                $estadoAnterior = $gasto->estado;
-
-                $gasto->estado = 'anulado';
-                $gasto->save();
-
-                // Solo revertimos dinero en caja si había sido aprobado previamente
-                if ($estadoAnterior === 'aprobado') {
-                    $this->reversarEnCajaActiva(
-                        $gasto->id,
-                        'gasto_extra',
-                        'Anulación manual de gasto extra'
-                    );
-                }
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Gasto anulado correctamente',
-                    'data' => $gasto
-                ]);
-            });
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al anular el gasto: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Aprobar un gasto pendiente
-     */
-    public function aprobar(Request $request, $id)
-    {
-        $request->validate([
-            'supervisor_id' => 'required|string',
-            'supervisor_password' => 'required|string',
-        ]);
-
-        try {
-            return DB::transaction(function () use ($request, $id) {
-                $gasto = GastoExtra::find($id);
-
-                if (!$gasto) {
-                    return response()->json(['success' => false, 'message' => 'Gasto no encontrado'], 404);
-                }
-
-                // Validar que exista apertura de hoy antes de aprobar
-                $aperturaDiaria = $this->validarAperturaDiaria();
-                if (!$aperturaDiaria) {
+                if ($gasto->compra) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'No hay apertura de caja para hoy. No se puede aprobar el gasto.'
+                        'message' => 'No se puede eliminar un gasto ya asociado a una compra.'
                     ], 422);
                 }
 
-                // Validar supervisor
-                $supervisor = $this->validarSupervisor($request->supervisor_id, $request->supervisor_password);
-
-                if (!$supervisor) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Credenciales de supervisor inválidas'
-                    ], 403);
-                }
-
-                $gasto->estado = 'aprobado';
-                $gasto->supervisor_id = $supervisor->id;
-                $gasto->save();
-
-                // Como recien se aprueba, lo impactamos en caja
-                $this->registrarEnCajaActiva(
-                    $gasto->id,
-                    'gasto_extra',
-                    'egreso',
-                    (float)$gasto->monto,
-                    $gasto->despliegue_pago_id,
-                    'Aprobación de Gasto Extra: ' . $gasto->concepto
-                );
+                $gasto->delete();
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Gasto aprobado correctamente y debitado de caja',
-                    'data' => $gasto
+                    'message' => 'Gasto eliminado correctamente',
                 ]);
             });
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al aprobar el gasto: ' . $e->getMessage()
+                'message' => 'Error al eliminar el gasto: ' . $e->getMessage()
             ], 500);
         }
     }
 
     /**
      * Obtener gastos extras disponibles para asociar a una compra:
-     * - Estado pendiente o aprobado (no anulados)
-     * - Sin compra asociada (gasto_extra_id no usado en ninguna compra)
+     * - Sin compra asociada
      * - Opcionalmente excluir el gasto ya asociado a la compra que se edita
      */
     public function disponibles(Request $request)
@@ -312,7 +188,6 @@ class GastoExtraController extends Controller
         $excluirCompraId = $request->get('excluir_compra_id');
 
         $gastos = GastoExtra::with(['user', 'desplieguePago.metodoDePago'])
-            ->whereIn('estado', ['pendiente', 'aprobado'])
             ->whereDoesntHave('compra', function ($query) use ($excluirCompraId) {
                 if ($excluirCompraId) {
                     $query->where('id', '!=', $excluirCompraId);
@@ -325,36 +200,5 @@ class GastoExtraController extends Controller
             'success' => true,
             'data' => $gastos,
         ]);
-    }
-
-    /**
-     * Lógica compartida para validar un supervisor
-     */
-    private function validarSupervisor(string $supervisorId, string $password): ?User
-    {
-        $supervisor = User::find($supervisorId);
-        if (!$supervisor || !$supervisor->es_supervisor || !$supervisor->supervisor_password) {
-            return null;
-        }
-
-        if (!Hash::check($password, $supervisor->supervisor_password)) {
-            return null;
-        }
-
-        return $supervisor;
-    }
-
-    /**
-     * Validar que exista apertura de caja para hoy
-     */
-    private function validarAperturaDiaria(): ?AperturaCierreCaja
-    {
-        $hoy = now()->toDateString();
-
-        $apertura = AperturaCierreCaja::where('estado', 'abierta')
-            ->whereDate('fecha_apertura', $hoy)
-            ->first();
-
-        return $apertura;
     }
 }
