@@ -77,7 +77,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                         ->with([
                             'ubicacion:id,name',
                             'unidadesDerivadas' => function ($udq) {
-                                $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'precio_especial', 'precio_minimo', 'precio_ultimo', 'producto_complementario_id', 'producto_complementario_cantidad')
+                                $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'comision_publico', 'precio_especial', 'comision_especial', 'activador_especial', 'precio_minimo', 'comision_minimo', 'activador_minimo', 'precio_ultimo', 'comision_ultimo', 'activador_ultimo', 'producto_complementario_id', 'producto_complementario_cantidad')
                                     ->with([
                                         'unidadDerivada:id,name',
                                         'productoComplementario:id,name,cod_producto',
@@ -88,12 +88,18 @@ class ProductoRepository implements ProductoRepositoryInterface
                 },
             ]);
 
-        // Calcular tiene_ingresos con subqueries (1 query, no N+1)
-        $query->addSelect(DB::raw('(
-            EXISTS (SELECT 1 FROM productoalmaceningresosalida pai JOIN productoalmacen pa ON pa.id = pai.producto_almacen_id WHERE pa.producto_id = producto.id)
-            OR EXISTS (SELECT 1 FROM productoalmacenventa pav JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id WHERE pa.producto_id = producto.id)
-            OR EXISTS (SELECT 1 FROM productoalmacencompra pac JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id WHERE pa.producto_id = producto.id)
-        ) as tiene_ingresos'));
+        $isSearch = isset($filters['search']) || isset($filters['accion_tecnica']) || isset($filters['cod_barra']);
+
+        // Calcular tiene_ingresos solo cuando NO hay búsqueda activa (pesado: 3 EXISTS subqueries)
+        if (!$isSearch) {
+            $query->addSelect(DB::raw('(
+                EXISTS (SELECT 1 FROM productoalmaceningresosalida pai JOIN productoalmacen pa ON pa.id = pai.producto_almacen_id WHERE pa.producto_id = producto.id)
+                OR EXISTS (SELECT 1 FROM productoalmacenventa pav JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id WHERE pa.producto_id = producto.id)
+                OR EXISTS (SELECT 1 FROM productoalmacencompra pac JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id WHERE pa.producto_id = producto.id)
+            ) as tiene_ingresos'));
+        } else {
+            $query->addSelect(DB::raw('0 as tiene_ingresos'));
+        }
 
         // Solo productos que existen en el almacén seleccionado
         $query->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
@@ -103,9 +109,13 @@ class ProductoRepository implements ProductoRepositoryInterface
         // Apply filters
         $this->applyFilters($query, $filters, $almacenId);
 
-        // Orden alfabético: Primero letras (A-Z), luego números y símbolos
+        // Orden: simple name ASC cuando hay búsqueda (más rápido), completo cuando no
+        if ($isSearch) {
+            return $query->orderBy('name', 'asc')->paginate($perPage);
+        }
+
         return $query->orderByRaw('
-            CASE 
+            CASE
                 WHEN LEFT(LOWER(name), 1) BETWEEN "a" AND "z" THEN 0
                 ELSE 1
             END,
