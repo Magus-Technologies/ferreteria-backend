@@ -971,6 +971,11 @@ class VentaController extends Controller
                     ->update(['estado' => false]);
             }
 
+            // Poner cantidad_pendiente en 0 para que entrega quede como anulada
+            foreach ($venta->productosPorAlmacen as $item) {
+                $item->unidadesDerivadas()->update(['cantidad_pendiente' => 0]);
+            }
+
             // Update venta to Anulado
             $venta->update([
                 'estado_de_venta' => EstadoDeVenta::Anulado,
