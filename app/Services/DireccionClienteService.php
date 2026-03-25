@@ -47,6 +47,7 @@ class DireccionClienteService
                 'cliente_id' => $clienteId,
                 'tipo' => $tipo,
                 'direccion' => $data['direccion'],
+                'referencia' => $data['referencia'] ?? null,
                 'latitud' => $data['latitud'] ?? null,
                 'longitud' => $data['longitud'] ?? null,
                 'es_principal' => $esPrimera,
@@ -71,6 +72,10 @@ class DireccionClienteService
 
         if (isset($data['direccion'])) {
             $datosActualizacion['direccion'] = $data['direccion'];
+        }
+
+        if (array_key_exists('referencia', $data)) {
+            $datosActualizacion['referencia'] = $data['referencia'];
         }
 
         if (isset($data['latitud'])) {

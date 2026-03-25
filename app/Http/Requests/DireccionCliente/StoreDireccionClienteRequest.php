@@ -23,6 +23,7 @@ class StoreDireccionClienteRequest extends FormRequest
     {
         return [
             'direccion' => 'required|string|max:500',
+            'referencia' => 'nullable|string|max:500',
             'latitud' => [
                 'nullable',
                 'numeric',

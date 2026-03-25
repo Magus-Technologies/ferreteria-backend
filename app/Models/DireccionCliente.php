@@ -13,6 +13,7 @@ class DireccionCliente extends Model
         'cliente_id',
         'tipo',
         'direccion',
+        'referencia',
         'latitud',
         'longitud',
         'es_principal',

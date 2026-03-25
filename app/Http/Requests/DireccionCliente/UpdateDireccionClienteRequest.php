@@ -23,6 +23,7 @@ class UpdateDireccionClienteRequest extends FormRequest
     {
         return [
             'direccion' => 'sometimes|string|max:500',
+            'referencia' => 'nullable|string|max:500',
             'latitud' => [
                 'nullable',
                 'numeric',
