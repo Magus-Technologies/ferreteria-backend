@@ -95,6 +95,7 @@ class ClienteController extends Controller
             ],
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
+            'fecha_nacimiento' => 'nullable|date',
             'estado' => 'nullable|boolean',
         ];
 
@@ -160,6 +161,7 @@ class ClienteController extends Controller
             ],
             'telefono' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
+            'fecha_nacimiento' => 'nullable|date',
             'estado' => 'nullable|boolean',
         ];
 
