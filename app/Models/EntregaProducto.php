@@ -37,6 +37,7 @@ class EntregaProducto extends Model
         'observaciones',
         'almacen_salida_id',
         'chofer_id',
+        'vehiculo_id',
         'quien_entrega',
         'user_id',
         'tipo_pedido',
@@ -100,6 +101,14 @@ class EntregaProducto extends Model
     public function despachador(): BelongsTo
     {
         return $this->belongsTo(User::class, 'chofer_id');
+    }
+
+    /**
+     * Relación: Pertenece a un vehículo (asignación rotativa)
+     */
+    public function vehiculo(): BelongsTo
+    {
+        return $this->belongsTo(Vehiculo::class);
     }
 
     /**

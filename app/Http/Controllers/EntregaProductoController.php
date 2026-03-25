@@ -44,6 +44,7 @@ class EntregaProductoController extends Controller
                 'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono',
                 'almacenSalida:id,name',
                 'despachador:id,name',
+                'vehiculo:id,name,tipo,placa',
                 'user:id,name',
                 'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
                 'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
@@ -185,6 +186,7 @@ class EntregaProductoController extends Controller
             'user_id' => 'required|string',
             'tipo_pedido' => 'sometimes|string|in:interno,externo',
             'cargo_destino' => 'required_if:tipo_pedido,externo|nullable|string',
+            'vehiculo_id' => 'nullable|integer|exists:vehiculo,id',
             'productos_entregados' => 'required|array',
             'productos_entregados.*.unidad_derivada_venta_id' => 'required|integer',
             'productos_entregados.*.cantidad_entregada' => 'required|numeric|min:0',
@@ -215,6 +217,7 @@ class EntregaProductoController extends Controller
                 'user_id' => $validated['user_id'],
                 'tipo_pedido' => $validated['tipo_pedido'] ?? 'interno',
                 'cargo_destino' => $validated['cargo_destino'] ?? null,
+                'vehiculo_id' => $validated['vehiculo_id'] ?? null,
             ]);
 
             // Crear detalles y actualizar cantidades pendientes
@@ -285,6 +288,7 @@ class EntregaProductoController extends Controller
                     'almacenSalida:id,name',
                     'despachador:id,name',
                     'user:id,name',
+                    'vehiculo:id,name,tipo,placa',
                     'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
                 ]),
                 'message' => 'Entrega de producto creada exitosamente',
@@ -407,6 +411,7 @@ class EntregaProductoController extends Controller
             'observaciones' => 'nullable|string',
             'almacen_salida_id' => 'sometimes|integer',
             'chofer_id' => 'nullable|string',
+            'vehiculo_id' => 'nullable|integer|exists:vehiculo,id',
             'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
         ]);
 
@@ -421,7 +426,8 @@ class EntregaProductoController extends Controller
                     'venta:id,serie,numero,cliente_id',
                     'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono',
                     'almacenSalida:id,name',
-                    'despachador:id,name', // Usar 'despachador'
+                    'despachador:id,name',
+                    'vehiculo:id,name,tipo,placa',
                     'user:id,name',
                     'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
                     'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
