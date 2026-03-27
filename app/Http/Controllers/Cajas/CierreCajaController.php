@@ -71,8 +71,10 @@ class CierreCajaController extends Controller
                 // No es encargado, intentar como vendedor
                 \Log::info('No es encargado, intentando como vendedor');
 
-                // Buscar distribuciones activas del vendedor
+                // Buscar distribuciones activas del vendedor (SOLO HOY para forzar nueva distribución diaria)
+                $hoy = now()->startOfDay();
                 $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('user_id', $userId)
+                    ->where('created_at', '>=', $hoy)
                     ->whereHas('aperturaCierreCaja', function ($query) {
                         $query->whereNull('fecha_cierre');
                     })
@@ -127,9 +129,10 @@ class CierreCajaController extends Controller
      */
     private function calcularResumenVendedor(string $userId, $apertura): array
     {
-        // Monto inicial (distribución)
+        // Monto inicial (distribución SOLAMENTE SI ES DE HOY)
         $montoInicial = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
             ->where('user_id', $userId)
+            ->whereDate('created_at', now())
             ->sum('monto');
 
         // Obtener Cajas Chicas
@@ -137,9 +140,11 @@ class CierreCajaController extends Controller
             ->where('tipo_caja', 'CC')
             ->pluck('id');
 
-        // Transacciones del vendedor
+        // Transacciones del vendedor (SOLO HOY para resumen diario)
+        $hoy = now()->startOfDay();
         $transacciones = \App\Models\TransaccionCaja::whereIn('sub_caja_id', $cajasChicas)
             ->where('user_id', $userId)
+            ->where('fecha', '>=', $hoy)
             ->where(function ($query) {
                 $query->whereNull('referencia_tipo')
                     ->orWhere('referencia_tipo', '!=', 'apertura');
@@ -149,13 +154,15 @@ class CierreCajaController extends Controller
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
         $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
 
-        // Préstamos dados y recibidos
+        // Préstamos dados y recibidos (SOLO HOY)
         $prestamosDados = \App\Models\TransferenciaEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
             ->where('vendedor_origen_id', $userId)
+            ->whereDate('fecha_transferencia', now())
             ->sum('monto');
-
+ 
         $prestamosRecibidos = \App\Models\TransferenciaEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
             ->where('vendedor_destino_id', $userId)
+            ->whereDate('fecha_transferencia', now())
             ->sum('monto');
 
         $montoEsperado = $montoInicial + $ingresos - $egresos;

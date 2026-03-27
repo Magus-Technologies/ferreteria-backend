@@ -57,7 +57,7 @@ class ClasificadorMovimientos
         $subCajasIds = DB::table('sub_cajas')->where('estado', 1)->pluck('id');
 
         // 1. EFECTIVO INICIAL (distribución en apertura)
-        $efectivoInicial = $this->obtenerEfectivoInicial($aperturaId, $userId);
+        $efectivoInicial = $this->obtenerEfectivoInicial($aperturaId, $userId, $soloDiaActual, $fechaInicio, $fechaFin);
 
         // 2. COBROS POR MÉTODO DE PAGO (solo ventas del vendedor)
         $cobrosPorMetodo = $this->obtenerCobrosPorMetodoVendedor($ventas, $userId);
@@ -132,12 +132,18 @@ class ClasificadorMovimientos
     /**
      * Obtener efectivo inicial del vendedor (distribución en apertura)
      */
-    private function obtenerEfectivoInicial(string $aperturaId, string $userId): float
+    private function obtenerEfectivoInicial(string $aperturaId, string $userId, bool $soloDiaActual = false, $fechaInicio = null, $fechaFin = null): float
     {
-        return DB::table('distribucion_efectivo_vendedores')
+        $query = DB::table('distribucion_efectivo_vendedores')
             ->where('apertura_cierre_caja_id', $aperturaId)
-            ->where('user_id', $userId)
-            ->sum('monto');
+            ->where('user_id', $userId);
+
+        if ($soloDiaActual && $fechaInicio && $fechaFin) {
+            $query->where('created_at', '>=', $fechaInicio)
+                  ->where('created_at', '<=', $fechaFin);
+        }
+
+        return $query->sum('monto');
     }
 
     /**
@@ -404,12 +410,18 @@ class ClasificadorMovimientos
     private function obtenerResumenBancosVendedor($subCajasIds, $apertura, string $userId, Collection $ventas, $fechaInicio, $fechaFin): Collection
     {
         // 1. Obtener montos iniciales de bancos (transacciones con referencia_tipo = 'monto_inicial')
-        $montosIniciales = DB::table('transacciones_caja as tc')
+        $queryMontos = DB::table('transacciones_caja as tc')
             ->join('desplieguedepago as dp', 'tc.despliegue_pago_id', '=', 'dp.id')
             ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
             ->whereIn('tc.sub_caja_id', $subCajasIds)
-            ->where('tc.referencia_tipo', 'monto_inicial')
-            ->select([
+            ->where('tc.referencia_tipo', 'monto_inicial');
+
+        if ($fechaInicio && $fechaFin) {
+            $queryMontos->where('tc.fecha', '>=', $fechaInicio)
+                        ->where('tc.fecha', '<=', $fechaFin);
+        }
+
+        $montosIniciales = $queryMontos->select([
                 'mp.id as banco_id',
                 'mp.name as banco',
                 'mp.nombre_titular as titular',
