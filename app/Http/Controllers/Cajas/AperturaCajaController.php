@@ -523,14 +523,33 @@ class AperturaCajaController extends Controller
     public function historialTodas(): JsonResponse
     {
         try {
-            $perPage = request()->query('per_page', 15);
+            $perPage = request()->query('per_page', 50);
             $cajaPrincipalId = request()->query('caja_principal_id');
+            $fechaInicio = request()->query('fecha_inicio');
+            $fechaFin = request()->query('fecha_fin');
+            $userId = request()->query('user_id');
 
             $query = AperturaCierreCaja::with(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
 
-            // Filtrar por caja principal si se especifica
             if ($cajaPrincipalId) {
                 $query->where('caja_principal_id', $cajaPrincipalId);
+            }
+
+            if ($fechaInicio) {
+                $query->whereDate('fecha_apertura', '>=', $fechaInicio);
+            }
+
+            if ($fechaFin) {
+                $query->whereDate('fecha_apertura', '<=', $fechaFin);
+            }
+
+            if ($userId) {
+                $query->where(function ($q) use ($userId) {
+                    $q->where('user_id', $userId)
+                        ->orWhereHas('distribucionesVendedores', function ($q2) use ($userId) {
+                            $q2->where('user_id', $userId);
+                        });
+                });
             }
 
             $historial = $query->orderBy('fecha_apertura', 'desc')

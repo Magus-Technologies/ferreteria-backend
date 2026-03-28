@@ -292,6 +292,17 @@ class CompraController extends Controller
             // Validar nueva compra
             $this->validarNuevaCompra($validated);
 
+            // Mapear tipo_documento del frontend (nombre) al valor del enum PHP
+            $tipoDocumentoMap = [
+                'Factura'         => '01',
+                'Boleta'          => '03',
+                'NotaDeVenta'     => 'nv',
+                'Ingreso'         => 'in',
+                'Salida'          => 'sa',
+                'RecepcionAlmacen'=> 'rc',
+            ];
+            $validated['tipo_documento'] = $tipoDocumentoMap[$validated['tipo_documento']] ?? $validated['tipo_documento'];
+
             // Convert enums
             $estadoEnum = EstadoDeCompraDefinitiva::from($validated['estado_de_compra']);
             $formaDePagoEnum = FormaDePago::from($validated['forma_de_pago']);
@@ -507,6 +518,19 @@ class CompraController extends Controller
 
             // Devolver dinero de compra anterior
             $this->devolverDineroDeCompra($compra);
+
+            // Mapear tipo_documento del frontend al valor del enum PHP
+            if (isset($validated['tipo_documento'])) {
+                $tipoDocumentoMap = [
+                    'Factura'         => '01',
+                    'Boleta'          => '03',
+                    'NotaDeVenta'     => 'nv',
+                    'Ingreso'         => 'in',
+                    'Salida'          => 'sa',
+                    'RecepcionAlmacen'=> 'rc',
+                ];
+                $validated['tipo_documento'] = $tipoDocumentoMap[$validated['tipo_documento']] ?? $validated['tipo_documento'];
+            }
 
             // Convert enums if present
             $updateData = [];
@@ -742,25 +766,7 @@ class CompraController extends Controller
             throw new \Exception('No puedes seleccionar Egreso asociado (legado) y Despliegue de Pago al mismo tiempo');
         }
 
-        if (
-            $estadoEnum === EstadoDeCompraDefinitiva::Creado ||
-            ($estadoEnum === EstadoDeCompraDefinitiva::EnEspera &&
-                isset($compra['serie']) &&
-                isset($compra['numero']) &&
-                isset($compra['proveedor_id']))
-        ) {
-            $existingCompra = Compra::where('proveedor_id', $compra['proveedor_id'])
-                ->where('serie', $compra['serie'])
-                ->where('numero', $compra['numero']);
-
-            if (isset($compra['id'])) {
-                $existingCompra->where('id', '!=', $compra['id']);
-            }
-
-            if ($existingCompra->exists()) {
-                throw new \Exception('Ya existe una compra con el mismo proveedor, serie y número');
-            }
-        }
+        // Validación de duplicado eliminada
     }
 
     /**

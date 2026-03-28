@@ -223,6 +223,9 @@ class SubCajaController extends Controller
                         'metodo' => $metodo,
                         'titular' => $titular,
                         'tipo' => $tipo, // Agregar tipo para filtrado
+                        'tipo_sobrecargo' => $despliegue->tipo_sobrecargo ?? 'ninguno',
+                        'sobrecargo_porcentaje' => $despliegue->sobrecargo_porcentaje ?? 0,
+                        'adicional' => $despliegue->adicional ?? 0,
                     ];
                 }
             }

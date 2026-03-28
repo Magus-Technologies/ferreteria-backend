@@ -25,7 +25,7 @@ class IngresoDineroController extends Controller
             'user_id' => 'sometimes|string',
             'concepto' => 'sometimes|string',
             'search' => 'sometimes|string',
-            'per_page' => 'sometimes|integer|min:1|max:100',
+            'per_page' => 'sometimes|integer|min:1|max:500',
             'page' => 'sometimes|integer|min:1',
         ]);
 

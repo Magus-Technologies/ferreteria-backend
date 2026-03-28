@@ -422,14 +422,14 @@ class CierreCajaController extends Controller
     public function obtenerCierre(string $id): JsonResponse
     {
         try {
-            // Primero buscar en arqueos_diarios
+            // Primero buscar en arqueos_diarios por apertura_cierre_caja_id
             $arqueo = \App\Models\ArqueoDiario::with([
                 'aperturaCierreCaja.cajaPrincipal',
                 'aperturaCierreCaja.subCaja',
                 'aperturaCierreCaja.distribucionesVendedores.vendedor',
                 'user',
                 'supervisorValidador',
-            ])->find($id);
+            ])->where('apertura_cierre_caja_id', $id)->latest()->first();
 
             if ($arqueo) {
                 // Usar el resumen_snapshot guardado
