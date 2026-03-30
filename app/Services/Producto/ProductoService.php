@@ -82,7 +82,7 @@ class ProductoService implements ProductoServiceInterface
             "productoEnAlmacenes.almacen",
             "productoEnAlmacenes.ubicacion",
             "productoEnAlmacenes.unidadesDerivadas" => function ($udq) {
-                $udq->with("productoComplementario:id,name,cod_producto")
+                $udq->with(["productoComplementario:id,name,cod_producto", "unidadDerivada:id,name"])
                     ->orderBy("factor", "desc");
             },
         ]);
