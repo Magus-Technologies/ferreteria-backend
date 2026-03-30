@@ -32,6 +32,8 @@ class User extends Authenticatable
         "image",
         "empresa_id",
         "efectivo",
+        "vehiculo_id",
+        "licencia_conducir",
 
         // nuevos campos , info personal
         "tipo_documento",
@@ -127,6 +129,11 @@ class User extends Authenticatable
     public function ingresosDinero(): HasMany
     {
         return $this->hasMany(IngresoDinero::class);
+    }
+
+    public function vehiculo(): BelongsTo
+    {
+        return $this->belongsTo(Vehiculo::class);
     }
 
     public function entregasProducto(): HasMany

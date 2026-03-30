@@ -17,7 +17,7 @@ class UsuarioController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = User::with(['empresa']);
+        $query = User::with(['empresa', 'vehiculo:id,name,tipo,placa']);
 
         // Filtro por búsqueda (nombre, email, documento, codigo)
         if ($request->has('search')) {
@@ -94,6 +94,8 @@ class UsuarioController extends Controller
             // Otros
             'efectivo' => 'nullable|numeric|min:0',
             'estado' => 'nullable|boolean',
+            'vehiculo_id' => 'nullable|integer|exists:vehiculo,id',
+            'licencia_conducir' => 'nullable|string|max:20',
         ], [
             'name.required' => 'El nombre es obligatorio',
             'email.required' => 'El email es obligatorio',
@@ -247,6 +249,7 @@ class UsuarioController extends Controller
             // Otros
             'efectivo' => 'nullable|numeric|min:0',
             'estado' => 'nullable|boolean',
+            'vehiculo_id' => 'nullable|integer|exists:vehiculo,id',
         ];
 
         $validator = Validator::make($request->all(), $rules, [

@@ -29,7 +29,7 @@ class VehiculoController extends Controller
 
         $query->orderBy('name', 'asc');
 
-        $vehiculos = $query->get(['id', 'name', 'tipo', 'placa', 'estado']);
+        $vehiculos = $query->get(['id', 'name', 'tipo', 'marca_modelo', 'placa', 'estado']);
 
         return response()->json(['data' => $vehiculos]);
     }
@@ -52,6 +52,7 @@ class VehiculoController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:191',
             'tipo' => 'required|string|max:50',
+            'marca_modelo' => 'nullable|string|max:100',
             'placa' => 'nullable|string|max:20',
             'estado' => 'nullable|boolean',
         ]);
@@ -73,6 +74,7 @@ class VehiculoController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|string|max:191',
             'tipo' => 'sometimes|string|max:50',
+            'marca_modelo' => 'nullable|string|max:100',
             'placa' => 'nullable|string|max:20',
             'estado' => 'nullable|boolean',
         ]);
