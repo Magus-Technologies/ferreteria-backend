@@ -25,6 +25,19 @@ class TipoIngresoSalidaController extends Controller
             $query->where("estado", $request->boolean("estado"));
         }
 
+        // Filtro por tipo: ingreso, salida, ambos
+        if ($request->has("tipo")) {
+            $tipo = strtolower($request->tipo);
+            // Si busca 'ingreso', mostrar tipos 'ingreso' y 'ambos'
+            // Si busca 'salida', mostrar tipos 'salida' y 'ambos'
+            if (in_array($tipo, ['ingreso', 'salida'])) {
+                $query->where(function($q) use ($tipo) {
+                    $q->where('tipo', $tipo)
+                      ->orWhere('tipo', 'ambos');
+                });
+            }
+        }
+
         // Si no se solicita paginación, devolver array simple
         if (!$request->has("per_page") && !$request->has("page")) {
             $tiposIngresoSalida = $query->orderBy("name", "asc")->get();
@@ -59,6 +72,7 @@ class TipoIngresoSalidaController extends Controller
     {
         $validated = $request->validate([
             "name" => "required|string|max:191|unique:tipoingresosalida,name",
+            "tipo" => "required|string|in:ingreso,salida,ambos",
             "estado" => "nullable|boolean",
         ]);
 
@@ -87,6 +101,7 @@ class TipoIngresoSalidaController extends Controller
             "name" =>
                 "sometimes|required|string|max:191|unique:tipoingresosalida,name," .
                 $tipoIngresoSalida->id,
+            "tipo" => "sometimes|required|string|in:ingreso,salida,ambos",
             "estado" => "nullable|boolean",
         ]);
 

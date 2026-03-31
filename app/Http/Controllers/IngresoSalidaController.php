@@ -173,6 +173,16 @@ class IngresoSalidaController extends Controller
                 ? TipoDocumento::Ingreso
                 : TipoDocumento::Salida;
 
+            // Validar que el tipo_ingreso_id sea compatible con el tipo_documento
+            $tipoIngresoSalida = \App\Models\TipoIngresoSalida::findOrFail($validated["tipo_ingreso_id"]);
+            $tipoDocumentoLower = strtolower($tipoDocumentoString);
+            
+            if ($tipoIngresoSalida->tipo !== 'ambos' && $tipoIngresoSalida->tipo !== $tipoDocumentoLower) {
+                return response()->json([
+                    "message" => "El tipo '{$tipoIngresoSalida->name}' no es compatible con {$tipoDocumentoString}. Solo puede usarse para {$tipoIngresoSalida->tipo}.",
+                ], 400);
+            }
+
             $almacenId = $validated["almacen_id"];
             $productoId = $validated["producto_id"];
             $unidadDerivadaId = $validated["unidad_derivada_id"];

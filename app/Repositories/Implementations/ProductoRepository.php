@@ -354,6 +354,7 @@ class ProductoRepository implements ProductoRepositoryInterface
     private function applyCommissionFilter($query, string $commissionFilter, int $almacenId): void
     {
         if ($commissionFilter === 'con_comision') {
+            // Productos que tienen AL MENOS UNA unidad derivada con AL MENOS UNA comisión > 0
             $query->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
                 $q->where('almacen_id', $almacenId)->whereHas('unidadesDerivadas', function ($udq) {
                     $udq->where(function ($orQuery) {
@@ -366,16 +367,22 @@ class ProductoRepository implements ProductoRepositoryInterface
                 });
             });
         } elseif ($commissionFilter === 'sin_comision') {
+            // Productos donde NINGUNA unidad derivada tiene comisión > 0
+            // Es decir, TODAS las unidades derivadas tienen TODAS las comisiones <= 0
             $query->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
-                $q->where('almacen_id', $almacenId)->whereHas('unidadesDerivadas', function ($udq) {
-                    $udq->where(function ($andQuery) {
-                        $andQuery
-                            ->where('comision_publico', '<=', 0)
-                            ->where('comision_especial', '<=', 0)
-                            ->where('comision_minimo', '<=', 0)
-                            ->where('comision_ultimo', '<=', 0);
+                $q->where('almacen_id', $almacenId)
+                    // El producto debe tener unidades derivadas
+                    ->whereHas('unidadesDerivadas')
+                    // Pero NO debe tener ninguna unidad derivada con comisión > 0
+                    ->whereDoesntHave('unidadesDerivadas', function ($udq) {
+                        $udq->where(function ($orQuery) {
+                            $orQuery
+                                ->where('comision_publico', '>', 0)
+                                ->orWhere('comision_especial', '>', 0)
+                                ->orWhere('comision_minimo', '>', 0)
+                                ->orWhere('comision_ultimo', '>', 0);
+                        });
                     });
-                });
             });
         }
     }

@@ -17,6 +17,7 @@ class TipoIngresoSalida extends Model
      */
     protected $fillable = [
         'name',
+        'tipo',
         'estado',
     ];
 

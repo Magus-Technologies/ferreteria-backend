@@ -12,7 +12,7 @@ class IngresoSalidaPdfService
         $ingreso = $this->obtenerIngresoSalida($id);
         $empresa = $ingreso->user->empresa;
 
-        $tipoDoc = $ingreso->tipo_documento->value === 'Ingreso' ? 'NOTA DE INGRESO' : 'NOTA DE SALIDA';
+        $tipoDoc = $ingreso->tipo_documento->value === 'in' ? 'NOTA DE INGRESO' : 'NOTA DE SALIDA';
         $nroDoc = $this->formatNroDoc($ingreso);
         $productos = $this->prepararProductos($ingreso);
         $total = $this->calcularTotal($productos);
@@ -74,7 +74,7 @@ class IngresoSalidaPdfService
 
     private function formatNroDoc(IngresoSalida $ingreso): string
     {
-        $prefix = $ingreso->tipo_documento->value === 'Ingreso' ? 'NI' : 'NS';
+        $prefix = $ingreso->tipo_documento->value === 'in' ? 'NI' : 'NS';
         $serie = str_pad($ingreso->serie ?? '0', 4, '0', STR_PAD_LEFT);
         $numero = str_pad($ingreso->numero ?? '0', 8, '0', STR_PAD_LEFT);
         return "{$prefix}{$serie}-{$numero}";
@@ -83,7 +83,7 @@ class IngresoSalidaPdfService
     private function prepararProductos(IngresoSalida $ingreso): array
     {
         $productos = [];
-        $esSalida = $ingreso->tipo_documento->value !== 'Ingreso';
+        $esSalida = $ingreso->tipo_documento->value !== 'in';
 
         foreach ($ingreso->productosPorAlmacen as $pa) {
             $producto = $pa->productoAlmacen->producto;

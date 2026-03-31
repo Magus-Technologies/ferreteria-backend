@@ -102,9 +102,27 @@ class CompraController extends Controller
      */
     public function index(Request $request)
     {
-        $request->validate([
+        // Decodificar parámetros JSON si vienen como strings
+        $estadoDeCompra = $request->input('estado_de_compra');
+        if (is_string($estadoDeCompra) && (str_starts_with($estadoDeCompra, '{') || str_starts_with($estadoDeCompra, '['))) {
+            $decoded = json_decode($estadoDeCompra, true);
+            if ($decoded !== null) {
+                $request->merge(['estado_de_compra' => $decoded]);
+            }
+        }
+        
+        $ordenCompraId = $request->input('orden_compra_id');
+        if (is_string($ordenCompraId) && (str_starts_with($ordenCompraId, '{') || str_starts_with($ordenCompraId, '['))) {
+            $decoded = json_decode($ordenCompraId, true);
+            if ($decoded !== null) {
+                $request->merge(['orden_compra_id' => $decoded]);
+            }
+        }
+
+        // Validación flexible para manejar diferentes formatos
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'almacen_id' => 'sometimes|integer',
-            'estado_de_compra' => 'sometimes|string',
+            'estado_de_cuenta' => 'sometimes|string|in:Pagado,Deuda',
             'proveedor_id' => 'sometimes|integer',
             'forma_de_pago' => 'sometimes|string',
             'tipo_documento' => 'sometimes|string',
@@ -115,6 +133,13 @@ class CompraController extends Controller
             'per_page' => 'sometimes|integer|min:1|max:100',
             'page' => 'sometimes|integer|min:1',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => $validator->errors()->first(),
+                'errors' => $validator->errors()
+            ], 422);
+        }
 
         $query = Compra::query()
             ->with([
@@ -146,15 +171,34 @@ class CompraController extends Controller
 
         // Filter by estado_de_compra
         if ($request->has('estado_de_compra')) {
-            $estadoEnum = EstadoDeCompraDefinitiva::tryFrom($request->estado_de_compra);
-            if ($estadoEnum) {
-                $query->where('estado_de_compra', $estadoEnum->value);
+            $estadoDeCompra = $request->input('estado_de_compra');
+            
+            // Handle array format: {in: ['Creado', 'Procesado']}
+            if (is_array($estadoDeCompra) && isset($estadoDeCompra['in'])) {
+                $query->whereIn('estado_de_compra', $estadoDeCompra['in']);
+            } 
+            // Handle string format: 'Creado'
+            else if (is_string($estadoDeCompra)) {
+                $estadoEnum = EstadoDeCompraDefinitiva::tryFrom($estadoDeCompra);
+                if ($estadoEnum) {
+                    $query->where('estado_de_compra', $estadoEnum->value);
+                }
             }
         }
 
         // Filter by proveedor_id
         if ($request->has('proveedor_id')) {
             $query->where('proveedor_id', $request->proveedor_id);
+        }
+
+        // Filter by orden_compra_id
+        if ($request->has('orden_compra_id')) {
+            $ordenCompraFilter = $request->input('orden_compra_id');
+            
+            // Handle {not: null} format - solo compras que vengan de una orden
+            if (is_array($ordenCompraFilter) && array_key_exists('not', $ordenCompraFilter) && $ordenCompraFilter['not'] === null) {
+                $query->whereNotNull('orden_compra_id');
+            }
         }
 
         // Filter by forma_de_pago
@@ -197,22 +241,51 @@ class CompraController extends Controller
 
         $perPage = $request->input('per_page', 50);
 
+        // Get all results first (we need to filter by estado_de_cuenta which requires calculation)
+        $allCompras = $query->orderBy('fecha', 'desc')->get();
+
+        // Filter by estado_de_cuenta if provided
+        if ($request->has('estado_de_cuenta')) {
+            $estadoDeCuenta = $request->input('estado_de_cuenta');
+            
+            $allCompras = $allCompras->filter(function ($compra) use ($estadoDeCuenta) {
+                $totalCompra = $this->getTotalCompra($compra);
+                $totalPagado = (float) ($compra->total_pagado ?? 0);
+                $saldo = $totalCompra - $totalPagado;
+                
+                if ($estadoDeCuenta === 'Pagado') {
+                    // Pagado: saldo <= 0.01 (considerando diferencias de redondeo)
+                    return $saldo <= 0.01;
+                } else if ($estadoDeCuenta === 'Deuda') {
+                    // Deuda: saldo > 0.01
+                    return $saldo > 0.01;
+                }
+                
+                return true;
+            });
+        }
+
         if ($perPage === -1) {
             // Return all without pagination
             return response()->json([
-                'data' => CompraResource::collection($query->orderBy('fecha', 'desc')->limit(100)->get()),
-                'total' => $query->count(),
+                'data' => CompraResource::collection($allCompras->take(100)),
+                'total' => $allCompras->count(),
             ]);
         }
 
-        $compras = $query->orderBy('fecha', 'desc')->paginate($perPage);
+        // Manual pagination
+        $total = $allCompras->count();
+        $currentPage = $request->input('page', 1);
+        $offset = ($currentPage - 1) * $perPage;
+        $comprasPaginated = $allCompras->slice($offset, $perPage)->values();
+        $lastPage = (int) ceil($total / $perPage);
 
         return response()->json([
-            'data' => CompraResource::collection($compras->items()),
-            'total' => $compras->total(),
-            'current_page' => $compras->currentPage(),
-            'per_page' => $compras->perPage(),
-            'last_page' => $compras->lastPage(),
+            'data' => CompraResource::collection($comprasPaginated),
+            'total' => $total,
+            'current_page' => $currentPage,
+            'per_page' => $perPage,
+            'last_page' => $lastPage,
         ]);
     }
 
