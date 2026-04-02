@@ -25,7 +25,7 @@ class CreateProductoRequest extends FormRequest
             // Product fields
             'cod_producto' => 'nullable|string|unique:producto',
             'cod_barra' => 'nullable|string|unique:producto',
-            'name' => 'required|string|unique:producto',
+            'name' => 'required|string',
             'name_ticket' => 'required|string',
             'categoria_id' => 'required|exists:categoria,id',
             'marca_id' => 'required|exists:marca,id',
