@@ -23,6 +23,11 @@ interface OrdenCompraServiceInterface
     public function crear(array $data): OrdenCompra;
 
     /**
+     * Actualizar una orden de compra existente
+     */
+    public function actualizar(int $id, array $data): OrdenCompra;
+
+    /**
      * Anular una orden de compra
      */
     public function anular(int $id): OrdenCompra;

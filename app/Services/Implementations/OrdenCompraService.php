@@ -144,6 +144,79 @@ class OrdenCompraService implements OrdenCompraServiceInterface
         }
     }
 
+    public function actualizar(int $id, array $data): OrdenCompra
+    {
+        try {
+            DB::beginTransaction();
+
+            $orden = $this->repository->findById($id);
+
+            if (!$orden) {
+                throw OrdenCompraException::noEncontrada($id);
+            }
+
+            if (!in_array($orden->estado?->value, ['pendiente', 'en_proceso'])) {
+                throw new OrdenCompraException("Solo se pueden editar órdenes en estado pendiente o en proceso");
+            }
+
+            if (empty($data['productos'])) {
+                throw OrdenCompraException::sinProductos();
+            }
+
+            // Actualizar datos de la orden
+            $orden->update([
+                'proveedor_id' => $data['proveedor_id'] ?? $orden->proveedor_id,
+                'fecha' => $data['fecha'] ?? $orden->fecha,
+                'tipo_moneda' => $data['tipo_moneda'] ?? $orden->tipo_moneda,
+                'tipo_de_cambio' => $data['tipo_de_cambio'] ?? $orden->tipo_de_cambio,
+                'ruc' => $data['ruc'] ?? $orden->ruc,
+            ]);
+
+            // Eliminar productos existentes y crear nuevos
+            OrdenCompraProducto::where('orden_compra_id', $id)->delete();
+
+            foreach ($data['productos'] as $prod) {
+                OrdenCompraProducto::create([
+                    'orden_compra_id' => $orden->id,
+                    'producto_id' => $prod['producto_id'],
+                    'requerimiento_interno_producto_id' => $prod['requerimiento_interno_producto_id'] ?? null,
+                    'codigo' => $prod['codigo'] ?? null,
+                    'nombre' => $prod['nombre'] ?? null,
+                    'marca' => $prod['marca'] ?? null,
+                    'unidad' => $prod['unidad'] ?? null,
+                    'cantidad' => $prod['cantidad'],
+                    'cantidad_pendiente' => $prod['cantidad'],
+                    'precio' => $prod['precio'],
+                    'subtotal' => $prod['subtotal'],
+                    'flete' => $prod['flete'] ?? 0,
+                    'vencimiento' => $prod['vencimiento'] ?? null,
+                    'lote' => $prod['lote'] ?? null,
+                ]);
+            }
+
+            DB::commit();
+
+            Log::info('Orden de compra actualizada', [
+                'orden_id' => $orden->id,
+                'codigo' => $orden->codigo,
+            ]);
+
+            return $this->repository->findById($orden->id);
+
+        } catch (OrdenCompraException $e) {
+            DB::rollBack();
+            throw $e;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error al actualizar orden de compra', [
+                'orden_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw new \Exception("Error al actualizar la orden: " . $e->getMessage());
+        }
+    }
+
     public function anular(int $id): OrdenCompra
     {
         try {

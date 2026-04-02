@@ -106,6 +106,25 @@ class RecepcionAlmacenController extends Controller
             $query->where('estado', filter_var($request->estado, FILTER_VALIDATE_BOOLEAN));
         }
 
+        if ($request->has('proveedor_id')) {
+            // Filtrar por proveedor de Compra antigua O proveedor de OrdenCompra
+            $query->where(function ($q) use ($request) {
+                $q->whereHas('compra', function ($subQ) use ($request) {
+                    $subQ->where('proveedor_id', $request->proveedor_id);
+                })
+                ->orWhereHas('ordenCompra', function ($subQ) use ($request) {
+                    $subQ->where('proveedor_id', $request->proveedor_id);
+                });
+            });
+        }
+
+        if ($request->has('tipo_documento')) {
+            // Filtrar por tipo de documento de Compra
+            $query->whereHas('compra', function ($subQ) use ($request) {
+                $subQ->where('tipo_documento', $request->tipo_documento);
+            });
+        }
+
         // Filtrar solo órdenes de compra aprobadas (en_proceso o completada)
         // Soporta tanto Compra antigua como OrdenCompra nueva
         $query->where(function ($q) {

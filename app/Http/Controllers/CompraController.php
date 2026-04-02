@@ -296,13 +296,15 @@ class CompraController extends Controller
     {
         \Log::info('Compra store request:', $request->all());
         
+        $esEnEspera = $request->input('estado_de_compra') === 'ee';
+
         $validated = $request->validate([
             'id' => 'sometimes|string',
-            'tipo_documento' => 'required|string',
+            'tipo_documento' => $esEnEspera ? 'nullable|string' : 'required|string',
             'serie' => 'nullable|string',
             'numero' => 'nullable|integer',
             'descripcion' => 'nullable|string',
-            'forma_de_pago' => 'required|string',
+            'forma_de_pago' => $esEnEspera ? 'nullable|string' : 'required|string',
             'tipo_moneda' => 'required|string',
             'tipo_de_cambio' => 'nullable|numeric',
             'percepcion' => 'nullable|numeric',
@@ -320,7 +322,7 @@ class CompraController extends Controller
             'metodos_de_pago.*.numero_operacion' => 'nullable|string',
             'user_id' => 'required|string',
             'almacen_id' => 'required|integer',
-            'proveedor_id' => 'required|integer',
+            'proveedor_id' => $esEnEspera ? 'nullable|integer' : 'required|integer',
             'orden_compra_id' => 'nullable|integer|exists:ordenes_compra,id',
             'productos_por_almacen' => 'required|array',
             'productos_por_almacen.*.costo' => 'required|numeric',
@@ -374,35 +376,37 @@ class CompraController extends Controller
                 'Salida'          => 'sa',
                 'RecepcionAlmacen'=> 'rc',
             ];
-            $validated['tipo_documento'] = $tipoDocumentoMap[$validated['tipo_documento']] ?? $validated['tipo_documento'];
+            $validated['tipo_documento'] = isset($validated['tipo_documento'])
+                ? ($tipoDocumentoMap[$validated['tipo_documento']] ?? $validated['tipo_documento'])
+                : null;
 
             // Convert enums
             $estadoEnum = EstadoDeCompraDefinitiva::from($validated['estado_de_compra']);
-            $formaDePagoEnum = FormaDePago::from($validated['forma_de_pago']);
+            $formaDePagoEnum = isset($validated['forma_de_pago']) ? FormaDePago::from($validated['forma_de_pago']) : null;
             $tipoMonedaEnum = TipoMoneda::from($validated['tipo_moneda']);
 
             // Create compra
             $compra = Compra::create([
                 'id' => $validated['id'] ?? (string) \Illuminate\Support\Str::ulid(),
-                'tipo_documento' => $validated['tipo_documento'],
-                'serie' => $validated['serie'],
-                'numero' => $validated['numero'],
-                'descripcion' => $validated['descripcion'],
+                'tipo_documento' => $validated['tipo_documento'] ?? null,
+                'serie' => $validated['serie'] ?? null,
+                'numero' => $validated['numero'] ?? null,
+                'descripcion' => $validated['descripcion'] ?? null,
                 'forma_de_pago' => $formaDePagoEnum,
                 'tipo_moneda' => $tipoMonedaEnum,
-                'tipo_de_cambio' => $validated['tipo_de_cambio'],
-                'percepcion' => $validated['percepcion'],
-                'numero_dias' => $validated['numero_dias'],
-                'fecha_vencimiento' => $validated['fecha_vencimiento'],
+                'tipo_de_cambio' => $validated['tipo_de_cambio'] ?? null,
+                'percepcion' => $validated['percepcion'] ?? null,
+                'numero_dias' => $validated['numero_dias'] ?? null,
+                'fecha_vencimiento' => $validated['fecha_vencimiento'] ?? null,
                 'fecha' => $validated['fecha'],
-                'guia' => $validated['guia'],
+                'guia' => $validated['guia'] ?? null,
                 'estado_de_compra' => $estadoEnum,
-                'egreso_dinero_id' => $validated['egreso_dinero_id'],
+                'egreso_dinero_id' => $validated['egreso_dinero_id'] ?? null,
                 'gasto_extra_id' => $validated['gasto_extra_id'] ?? null,
-                'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
+                'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'] ?? null,
                 'user_id' => $validated['user_id'],
                 'almacen_id' => $validated['almacen_id'],
-                'proveedor_id' => $validated['proveedor_id'],
+                'proveedor_id' => $validated['proveedor_id'] ?? null,
                 'orden_compra_id' => $validated['orden_compra_id'] ?? null,
             ]);
 
@@ -808,6 +812,12 @@ class CompraController extends Controller
     private function validarNuevaCompra($compra)
     {
         $estadoEnum = EstadoDeCompraDefinitiva::from($compra['estado_de_compra']);
+
+        // En Espera no necesita validaciones de pago
+        if ($estadoEnum === EstadoDeCompraDefinitiva::EnEspera) {
+            return;
+        }
+
         $formaDePagoEnum = FormaDePago::from($compra['forma_de_pago']);
 
         $tieneEgreso = !empty($compra['egreso_dinero_id']) || !empty($compra['gasto_extra_id']);

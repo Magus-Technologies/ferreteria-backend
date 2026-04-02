@@ -19,8 +19,8 @@ class OrdenCompraController extends Controller
     public function index(Request $request)
     {
         $filters = $request->only([
-            'estado', 'proveedor_id', 'requerimiento_id',
-            'desde', 'hasta', 'search',
+            'estado', 'proveedor_id', 'requerimiento_id', 'almacen_id',
+            'desde', 'hasta', 'search', 'tipo_documento', 'forma_de_pago',
         ]);
 
         $perPage = $request->get('per_page', 20);
@@ -43,6 +43,19 @@ class OrdenCompraController extends Controller
             ->additional(['message' => "Orden de compra {$orden->codigo} creada exitosamente"])
             ->response()
             ->setStatusCode(201);
+    }
+
+    /**
+     * Actualizar orden de compra
+     */
+    public function update(CrearOrdenCompraRequest $request, int $id)
+    {
+        $data = $request->validated();
+        
+        $orden = $this->service->actualizar($id, $data);
+
+        return (new OrdenCompraResource($orden))
+            ->additional(['message' => "Orden de compra {$orden->codigo} actualizada exitosamente"]);
     }
 
     /**

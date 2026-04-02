@@ -48,6 +48,10 @@ class OrdenCompraRepository implements OrdenCompraRepositoryInterface
 
     private function applyFilters($query, array $filters): void
     {
+        if (!empty($filters['almacen_id'])) {
+            $query->where('almacen_id', $filters['almacen_id']);
+        }
+
         if (!empty($filters['estado'])) {
             $query->where('estado', $filters['estado']);
         }
@@ -58,6 +62,14 @@ class OrdenCompraRepository implements OrdenCompraRepositoryInterface
 
         if (!empty($filters['requerimiento_id'])) {
             $query->where('requerimiento_id', $filters['requerimiento_id']);
+        }
+
+        if (!empty($filters['tipo_documento'])) {
+            $query->where('tipo_documento', $filters['tipo_documento']);
+        }
+
+        if (!empty($filters['forma_de_pago'])) {
+            $query->where('forma_de_pago', $filters['forma_de_pago']);
         }
 
         if (!empty($filters['desde'])) {

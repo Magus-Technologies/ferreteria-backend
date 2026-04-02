@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/', [OrdenCompraController::class, 'index']);
         Route::post('/', [OrdenCompraController::class, 'store']);
         Route::get('/{id}', [OrdenCompraController::class, 'show']);
+        Route::put('/{id}', [OrdenCompraController::class, 'update']);
         Route::patch('/{id}/aprobar', [OrdenCompraController::class, 'aprobar']);
         Route::patch('/{id}/anular', [OrdenCompraController::class, 'anular']);
     });

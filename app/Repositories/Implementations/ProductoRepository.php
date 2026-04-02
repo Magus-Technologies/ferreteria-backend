@@ -242,9 +242,19 @@ class ProductoRepository implements ProductoRepositoryInterface
      */
     public function generateNextCode(): string
     {
-        $ultimoProducto = Producto::latest('id')->first();
+        // Buscar el código de producto más alto (numérico)
+        // Filtrar solo códigos numéricos para evitar problemas con códigos alfanuméricos
+        $ultimoCodigo = Producto::whereRaw('cod_producto REGEXP "^[0-9]+$"')
+            ->orderByRaw('CAST(cod_producto AS UNSIGNED) DESC')
+            ->value('cod_producto');
 
-        return (string) ($ultimoProducto ? $ultimoProducto->id + 1 : 1);
+        // Si no hay productos o todos tienen códigos no numéricos, empezar desde 1
+        if (!$ultimoCodigo) {
+            return '1';
+        }
+
+        // Incrementar el último código encontrado
+        return (string) ((int) $ultimoCodigo + 1);
     }
 
     /**
@@ -368,12 +378,10 @@ class ProductoRepository implements ProductoRepositoryInterface
             });
         } elseif ($commissionFilter === 'sin_comision') {
             // Productos donde NINGUNA unidad derivada tiene comisión > 0
-            // Es decir, TODAS las unidades derivadas tienen TODAS las comisiones <= 0
+            // Incluye productos sin unidades derivadas o con todas las comisiones <= 0 o NULL
             $query->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
                 $q->where('almacen_id', $almacenId)
-                    // El producto debe tener unidades derivadas
-                    ->whereHas('unidadesDerivadas')
-                    // Pero NO debe tener ninguna unidad derivada con comisión > 0
+                    // NO debe tener ninguna unidad derivada con comisión > 0
                     ->whereDoesntHave('unidadesDerivadas', function ($udq) {
                         $udq->where(function ($orQuery) {
                             $orQuery
@@ -385,6 +393,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                     });
             });
         }
+        // Si es 'all', no aplicar ningún filtro de comisión
     }
 
     /**
