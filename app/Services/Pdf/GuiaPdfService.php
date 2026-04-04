@@ -35,7 +35,7 @@ class GuiaPdfService
             'filas' => $this->prepararInfoGrid($guia),
             'observaciones' => $guia->observaciones ?: '-',
             'codigoQr' => $guia->sunat_codigo_qr,
-            'consultaUrl' => $this->getConsultaUrl($guia->id),
+            'consultaUrl' => $this->getConsultaUrl(),
         ];
 
         $filename = "GRE-{$guia->serie}-{$guia->numero}.pdf";
@@ -102,7 +102,7 @@ class GuiaPdfService
             'pesoTotal' => $pesoTotal,
             'observaciones' => $guia->observaciones ?: '-',
             'codigoQr' => $guia->sunat_codigo_qr,
-            'consultaUrl' => $this->getConsultaUrl($guia->id),
+            'consultaUrl' => $this->getConsultaUrl(),
         ];
 
         $filename = "TICKET-GRE-{$guia->serie}-{$guia->numero}.pdf";
@@ -227,10 +227,10 @@ class GuiaPdfService
         return $filas;
     }
 
-    private function getConsultaUrl(string $id): string
+    private function getConsultaUrl(): string
     {
         $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
 
-        return "{$frontendUrl}/consulta/guia/{$id}";
+        return "{$frontendUrl}/consulta";
     }
 }

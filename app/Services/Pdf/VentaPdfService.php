@@ -28,7 +28,7 @@ class VentaPdfService
         }
 
         $codigoQr = $this->obtenerCodigoQr($venta);
-        $consultaUrl = $this->getConsultaUrl('venta', $ventaId);
+        $consultaUrl = $this->getConsultaUrl();
 
         $data = [
             'venta' => $venta,
@@ -237,7 +237,7 @@ class VentaPdfService
             'son' => PdfService::numeroALetras($calculos['total']),
             'observaciones' => $venta->descripcion ?: '- NINGUNA',
             'vales' => $sinVales ? [] : $vales,
-            'consultaUrl' => $this->getConsultaUrl('venta', $ventaId),
+            'consultaUrl' => $this->getConsultaUrl(),
         ];
 
         $filename = "TICKET-{$venta->serie}-{$venta->numero}.pdf";
@@ -430,10 +430,10 @@ class VentaPdfService
         return "{$serie}-{$numero}";
     }
 
-    private function getConsultaUrl(string $tipo, string $id): string
+    private function getConsultaUrl(): string
     {
         $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
 
-        return "{$frontendUrl}/consulta/{$tipo}/{$id}";
+        return "{$frontendUrl}/consulta";
     }
 }

@@ -75,6 +75,10 @@ Route::get('/tipo-cambio', [TipoCambioController::class, 'index']);
 // ============================================
 // CONSULTA PÚBLICA DE DOCUMENTOS (sin auth)
 // ============================================
+Route::get('/consulta-documento/buscar', [
+    App\Http\Controllers\ConsultaDocumentoController::class,
+    'buscar',
+]);
 Route::get('/consulta-documento/{tipo}/{id}', [
     App\Http\Controllers\ConsultaDocumentoController::class,
     'show',

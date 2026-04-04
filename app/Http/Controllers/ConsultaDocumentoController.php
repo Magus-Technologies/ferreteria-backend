@@ -5,9 +5,59 @@ namespace App\Http\Controllers;
 use App\Models\Venta;
 use App\Models\GuiaRemision;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class ConsultaDocumentoController extends Controller
 {
+    /**
+     * Buscar documento por serie, correlativo y tipo.
+     * No requiere autenticación.
+     */
+    public function buscar(Request $request): JsonResponse
+    {
+        $serie = $request->query('serie');
+        $correlativo = $request->query('correlativo');
+        $tipoDocumento = $request->query('tipo_documento');
+
+        if (!$serie || !$correlativo || !$tipoDocumento) {
+            return response()->json([
+                'error' => ['message' => 'Debe ingresar serie, correlativo y tipo de documento'],
+            ], 400);
+        }
+
+        $numero = ltrim($correlativo, '0') ?: '0';
+
+        // Buscar en ventas (factura, boleta, nota de venta)
+        if (in_array($tipoDocumento, ['01', '03', 'NV'])) {
+            $venta = Venta::where('serie', $serie)
+                ->where('numero', $numero)
+                ->first();
+
+            if ($venta) {
+                return response()->json([
+                    'data' => ['tipo' => 'venta', 'id' => $venta->id],
+                ]);
+            }
+        }
+
+        // Buscar en guías de remisión
+        if ($tipoDocumento === '09') {
+            $guia = GuiaRemision::where('serie', $serie)
+                ->where('numero', $numero)
+                ->first();
+
+            if ($guia) {
+                return response()->json([
+                    'data' => ['tipo' => 'guia', 'id' => $guia->id],
+                ]);
+            }
+        }
+
+        return response()->json([
+            'error' => ['message' => 'No se encontró el documento con los datos proporcionados'],
+        ], 404);
+    }
+
     /**
      * Consulta pública de documento (venta o guía de remisión).
      * No requiere autenticación.
