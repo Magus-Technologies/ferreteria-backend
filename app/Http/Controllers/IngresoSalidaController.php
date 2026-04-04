@@ -120,7 +120,7 @@ class IngresoSalidaController extends Controller
 
         $result = $query
             ->orderBy("fecha", "desc")
-            ->orderBy("numero", "desc")
+            ->orderBy("created_at", "desc")
             ->paginate($perPage, ["*"], "page", $page);
 
         // Transformación para compatibilidad

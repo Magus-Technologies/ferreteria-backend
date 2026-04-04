@@ -59,7 +59,7 @@ class TransferenciaStockController extends Controller
 
         $perPage = $request->per_page ?? 50;
 
-        $result = $query->orderBy('fecha', 'desc')->paginate($perPage);
+        $result = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->paginate($perPage);
 
         return response()->json($result);
     }

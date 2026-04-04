@@ -242,7 +242,7 @@ class CompraController extends Controller
         $perPage = $request->input('per_page', 50);
 
         // Get all results first (we need to filter by estado_de_cuenta which requires calculation)
-        $allCompras = $query->orderBy('fecha', 'desc')->get();
+        $allCompras = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->get();
 
         // Filter by estado_de_cuenta if provided
         if ($request->has('estado_de_cuenta')) {
@@ -1094,7 +1094,7 @@ class CompraController extends Controller
 
         if ($perPage === -1) {
             // Return all without pagination
-            $compras = $query->orderBy('fecha', 'desc')->limit(100)->get();
+            $compras = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->limit(100)->get();
 
             // Filter only purchases with pending balance
             $comprasConSaldo = $compras->filter(function ($compra) {
@@ -1110,7 +1110,7 @@ class CompraController extends Controller
             ]);
         }
 
-        $compras = $query->orderBy('fecha', 'desc')->paginate($perPage);
+        $compras = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->paginate($perPage);
 
         // Filter only purchases with pending balance
         $comprasConSaldo = $compras->getCollection()->filter(function ($compra) {

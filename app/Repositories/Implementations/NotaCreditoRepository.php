@@ -38,7 +38,7 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
             'comprobanteReferencia.detalles' //  Cargar comprobante con detalles
         ]);
         $this->applyFilters($query, $filters);
-        return $query->orderBy('fecha', 'desc')->get();
+        return $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->get();
     }
 
     public function getPaginated(array $filters = [], int $perPage = 15): LengthAwarePaginator
@@ -51,7 +51,7 @@ class NotaCreditoRepository implements NotaCreditoRepositoryInterface
             'comprobanteReferencia.detalles' //  Cargar comprobante con detalles
         ]);
         $this->applyFilters($query, $filters);
-        return $query->orderBy('fecha', 'desc')->paginate($perPage);
+        return $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->paginate($perPage);
     }
 
     public function getByVenta(string $ventaId): Collection
