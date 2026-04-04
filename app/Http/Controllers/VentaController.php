@@ -175,12 +175,12 @@ class VentaController extends Controller
         if ($perPage === -1) {
             // Return all without pagination
             return response()->json([
-                'data' => $query->orderBy('fecha', 'desc')->limit(100)->get(),
+                'data' => $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->limit(100)->get(),
                 'total' => $query->count(),
             ]);
         }
 
-        $ventas = $query->orderBy('fecha', 'desc')->paginate($perPage);
+        $ventas = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->paginate($perPage);
 
         return response()->json([
             'data' => $ventas->items(),
