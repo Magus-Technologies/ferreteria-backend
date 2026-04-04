@@ -59,4 +59,11 @@
             </tr>
         </table>
     </div>
+
+    @if(!empty($consultaUrl))
+    <div style="text-align: center; margin-top: 8px; padding-top: 5px; border-top: 1px solid #ddd;">
+        <span style="font-size: 7pt; color: #666;">Consulte su documento en: </span>
+        <span style="font-size: 7pt; font-weight: bold; color: #333;">{{ $consultaUrl }}</span>
+    </div>
+    @endif
 @endsection

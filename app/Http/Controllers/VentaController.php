@@ -9,6 +9,7 @@ use App\Enums\TipoDocumento;
 use App\Enums\TipoMoneda;
 use App\Models\AperturaCierreCaja;
 use App\Models\DetalleEntregaProducto;
+use App\Models\EntregaProducto;
 use App\Models\DespliegueDePago;
 use App\Models\DespliegueDePagoVenta;
 use App\Models\IngresoDinero;
@@ -88,6 +89,12 @@ class VentaController extends Controller
             if ($estadoEnum) {
                 $query->where('estado_de_venta', $estadoEnum->value);
             }
+        } else {
+            // Por defecto excluir ventas En Espera y Anuladas
+            $query->whereNotIn('estado_de_venta', [
+                EstadoDeVenta::EnEspera->value,
+                EstadoDeVenta::Anulado->value,
+            ]);
         }
 
         // Filter by cliente_id
@@ -956,10 +963,29 @@ class VentaController extends Controller
                 ], 400);
             }
 
-            if ($venta->entregas_productos_count > 0) {
+            // Verificar entregas: si hay entregas ya entregadas, no se puede anular
+            $entregas = EntregaProducto::with('productosEntregados')
+                ->where('venta_id', $id)
+                ->get();
+
+            $entregasEntregadas = $entregas->where('estado_entrega', 'en');
+            if ($entregasEntregadas->count() > 0) {
                 return response()->json([
-                    'error' => ['message' => 'La venta no se puede anular porque tiene Entregas de Productos activas'],
+                    'error' => ['message' => 'La venta no se puede anular porque tiene entregas ya completadas. Anule primero las entregas.'],
                 ], 400);
+            }
+
+            // Cancelar entregas pendientes/en camino y revertir stock
+            $entregasPendientes = $entregas->whereIn('estado_entrega', ['pe', 'ec']);
+            foreach ($entregasPendientes as $entrega) {
+                foreach ($entrega->productosEntregados as $detalle) {
+                    $unidadDerivadaVenta = UnidadDerivadaInmutableVenta::find($detalle->unidad_derivada_venta_id);
+                    if ($unidadDerivadaVenta) {
+                        $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_entregada);
+                    }
+                }
+                DetalleEntregaProducto::where('entrega_producto_id', $entrega->id)->delete();
+                $entrega->delete();
             }
 
             // Devolver dinero

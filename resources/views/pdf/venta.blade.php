@@ -72,5 +72,6 @@
     @include('pdf.layout.footer', [
         'codigoQr' => $codigoQr,
         'mensajeFinal' => 'GRACIAS POR SU PREFERENCIA! DIOS LES BENDIGA!',
+        'consultaUrl' => $consultaUrl ?? null,
     ])
 @endsection

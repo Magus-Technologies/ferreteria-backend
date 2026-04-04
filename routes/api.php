@@ -14,6 +14,7 @@ use App\Http\Controllers\MotivoTrasladoController;
 use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\CumpleanosController;
 use App\Http\Controllers\PdfController;
+use App\Http\Controllers\TipoCambioController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -64,6 +65,19 @@ Route::prefix('qz')->group(function () {
 Route::get('/empresa/datos-publicos', [
     EmpresaController::class,
     'getDatosPublicos',
+]);
+
+// ============================================
+// TIPO DE CAMBIO (público - consulta SUNAT)
+// ============================================
+Route::get('/tipo-cambio', [TipoCambioController::class, 'index']);
+
+// ============================================
+// CONSULTA PÚBLICA DE DOCUMENTOS (sin auth)
+// ============================================
+Route::get('/consulta-documento/{tipo}/{id}', [
+    App\Http\Controllers\ConsultaDocumentoController::class,
+    'show',
 ]);
 
 // Rutas públicas para ver detalles (necesarias para PDFs compartibles)

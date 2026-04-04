@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\EstadoDeVenta;
 use App\Models\DetalleEntregaProducto;
 use App\Models\EntregaProducto;
 use App\Models\RequerimientoInterno;
@@ -79,6 +80,14 @@ class EntregaProductoController extends Controller
                 }
             });
         }
+
+        // Excluir entregas de ventas anuladas o en espera
+        $query->whereHas('venta', function ($q) {
+            $q->whereNotIn('estado_de_venta', [
+                EstadoDeVenta::Anulado->value,
+                EstadoDeVenta::EnEspera->value,
+            ]);
+        });
 
         // Filter by estado_entrega (soporta múltiples valores separados por coma)
         if ($request->has('estado_entrega')) {

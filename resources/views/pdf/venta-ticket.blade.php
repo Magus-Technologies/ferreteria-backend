@@ -201,6 +201,22 @@
         {{ $observaciones }}
     </div>
 
+    {{-- Enlace consulta documento --}}
+    @if(isset($consultaUrl))
+    <div class="separator"></div>
+    <div class="text-center" style="margin-top: 4px;">
+        <div style="font-size: 6pt; color: #666;">Consulte su documento en:</div>
+        <div style="font-size: 6pt; font-weight: bold; color: #333; word-break: break-all;">
+            {{ $consultaUrl }}
+        </div>
+    </div>
+    @endif
+
+    <div class="separator"></div>
+    <div class="text-center" style="margin-top: 2px;">
+        <div style="font-size: 7pt; font-weight: bold;">GRACIAS POR SU PREFERENCIA!</div>
+    </div>
+
     {{-- Vales aplicados --}}
     @if(isset($vales) && count($vales) > 0)
         @foreach($vales as $vale)
