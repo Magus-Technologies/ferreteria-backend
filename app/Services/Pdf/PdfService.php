@@ -100,6 +100,21 @@ class PdfService
     }
 
     /**
+     * Generar un PDF y devolver su contenido crudo (para adjuntar por correo).
+     */
+    public static function output(
+        string $view,
+        array $data,
+        string $orientation = 'portrait',
+        ?array $paperSize = null,
+    ): string {
+        $pdf = Pdf::loadView($view, $data)
+            ->setPaper($paperSize ?? 'a4', $orientation);
+
+        return $pdf->output();
+    }
+
+    /**
      * Convertir un numero a texto en espanol.
      * Ej: 1234.56 => "MIL DOSCIENTOS TREINTA Y CUATRO CON 56/100"
      */

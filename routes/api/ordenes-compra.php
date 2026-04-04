@@ -39,5 +39,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/{id}', [OrdenCompraController::class, 'update']);
         Route::patch('/{id}/aprobar', [OrdenCompraController::class, 'aprobar']);
         Route::patch('/{id}/anular', [OrdenCompraController::class, 'anular']);
+        Route::post('/{id}/enviar-correo', [OrdenCompraController::class, 'enviarCorreo']);
     });
 });

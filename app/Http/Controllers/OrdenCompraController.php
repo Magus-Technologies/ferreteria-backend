@@ -89,4 +89,38 @@ class OrdenCompraController extends Controller
         return (new OrdenCompraResource($orden))
             ->additional(['message' => "Orden {$orden->codigo} anulada correctamente"]);
     }
+    
+    /**
+     * Enviar orden de compra por correo
+     */
+    public function enviarCorreo(Request $request, int $id, \App\Services\Pdf\OrdenCompraPdfService $pdfService)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'columnas' => 'nullable|array',
+            'columnas.*' => 'string'
+        ]);
+
+        $orden = $this->service->obtenerPorId($id);
+        $email = $request->input('email');
+        $columnas = $request->input('columnas', null);
+
+        // Generar binario PDF con las columnas especificadas
+        $pdfBinario = $pdfService->generarBinario($id, $columnas);
+        $fileName = "OC-{$orden->codigo}.pdf";
+
+        try {
+            \Illuminate\Support\Facades\Mail::to($email)->send(new \App\Mail\OrdenCompraMail($orden, $pdfBinario, $fileName));
+            
+            return response()->json([
+                'success' => true,
+                'message' => "La Orden {$orden->codigo} se ha enviado correctamente a {$email}"
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => "Error al enviar el correo: " . $e->getMessage()
+            ], 500);
+        }
+    }
 }

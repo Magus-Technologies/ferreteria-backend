@@ -7,7 +7,19 @@ use Illuminate\Http\Response;
 
 class OrdenCompraPdfService
 {
-    public function generar(int $id): Response
+    public function generar(int $id, ?array $columnas = null): Response
+    {
+        $data = $this->prepararData($id, $columnas);
+        return PdfService::render('pdf.orden-compra', $data, "OC-{$data['orden']->codigo}.pdf");
+    }
+
+    public function generarBinario(int $id, ?array $columnas = null): string
+    {
+        $data = $this->prepararData($id, $columnas);
+        return PdfService::output('pdf.orden-compra', $data);
+    }
+
+    private function prepararData(int $id, ?array $columnas = null): array
     {
         $orden = $this->obtenerOrden($id);
         $empresa = $orden->user->empresa;
@@ -16,7 +28,7 @@ class OrdenCompraPdfService
         $productos = $this->prepararProductos($orden);
         $calculos = $this->calcularTotales($orden, $productos);
 
-        $data = [
+        return [
             'orden' => $orden,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -31,9 +43,8 @@ class OrdenCompraPdfService
             'son' => PdfService::numeroALetras($calculos['total']),
             'moneda' => $orden->tipo_moneda === 'd' ? 'DOLARES' : 'SOLES',
             'observaciones' => '- NINGUNA',
+            'columnas' => $columnas, // Añadido soporte para columnas seleccionables!
         ];
-
-        return PdfService::render('pdf.orden-compra', $data, "OC-{$orden->codigo}.pdf");
     }
 
     private function obtenerOrden(int $id): OrdenCompra
