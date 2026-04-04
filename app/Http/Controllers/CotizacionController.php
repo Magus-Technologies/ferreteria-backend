@@ -51,9 +51,23 @@ class CotizacionController extends Controller
             $query->whereDate('fecha', '<=', $request->fecha_hasta);
         }
 
-        // Búsqueda por número
-        if ($request->has('search')) {
-            $query->where('numero', 'like', '%' . $request->search . '%');
+        // Búsqueda por número o cliente (búsqueda global)
+        if ($request->has('search') && $request->search) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('numero', 'like', '%' . $search . '%')
+                  ->orWhereHas('cliente', function ($qc) use ($search) {
+                      $qc->where('razon_social', 'like', '%' . $search . '%')
+                         ->orWhere('nombres', 'like', '%' . $search . '%')
+                         ->orWhere('apellidos', 'like', '%' . $search . '%')
+                         ->orWhere('numero_documento', 'like', '%' . $search . '%');
+                  });
+            });
+        }
+ 
+        // Búsqueda específica por número
+        if ($request->has('numero') && $request->numero) {
+            $query->where('numero', 'like', '%' . $request->numero . '%');
         }
 
         // Paginación

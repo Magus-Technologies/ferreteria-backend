@@ -124,6 +124,30 @@ class RecepcionAlmacenController extends Controller
                 $subQ->where('tipo_documento', $request->tipo_documento);
             });
         }
+        
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('numero', 'LIKE', "%{$search}%")
+                    ->orWhereHas('compra', function ($subQ) use ($search) {
+                        $subQ->where('serie', 'LIKE', "%{$search}%")
+                            ->orWhere('numero', 'LIKE', "%{$search}%")
+                            ->orWhere('guia', 'LIKE', "%{$search}%")
+                            ->orWhereHas('proveedor', function ($pQ) use ($search) {
+                                $pQ->where('razon_social', 'LIKE', "%{$search}%")
+                                    ->orWhere('ruc', 'LIKE', "%{$search}%");
+                            });
+                    })
+                    ->orWhereHas('ordenCompra', function ($subQ) use ($search) {
+                        $subQ->where('codigo', 'LIKE', "%{$search}%")
+                            ->orWhere('guia', 'LIKE', "%{$search}%")
+                            ->orWhereHas('proveedor', function ($pQ) use ($search) {
+                                $pQ->where('razon_social', 'LIKE', "%{$search}%")
+                                    ->orWhere('ruc', 'LIKE', "%{$search}%");
+                            });
+                    });
+            });
+        }
 
         // Filtrar solo órdenes de compra aprobadas (en_proceso o completada)
         // Soporta tanto Compra antigua como OrdenCompra nueva

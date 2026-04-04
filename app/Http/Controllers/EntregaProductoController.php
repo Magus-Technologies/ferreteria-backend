@@ -34,6 +34,8 @@ class EntregaProductoController extends Controller
             'fecha_desde' => 'sometimes|date',
             'fecha_hasta' => 'sometimes|date',
             'per_page' => 'sometimes|integer|min:-1|max:100', // Permitir -1 para traer todos
+            'search' => 'sometimes|string|nullable',
+            'tipo_despacho' => 'sometimes|string|nullable',
         ]);
 
         // 🔍 DEBUG: Log de parámetros recibidos
@@ -97,6 +99,30 @@ class EntregaProductoController extends Controller
             } else {
                 $query->whereIn('estado_entrega', $estados);
             }
+        }
+ 
+        // Filter by tipo_despacho
+        if ($request->has('tipo_despacho') && $request->tipo_despacho) {
+            $query->where('tipo_despacho', $request->tipo_despacho);
+        }
+ 
+        // Global search (Client name, series, number)
+        if ($request->has('search') && $request->search) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                // Search by sale series/number
+                $q->whereHas('venta', function ($qv) use ($search) {
+                    $qv->where('serie', 'LIKE', "%{$search}%")
+                       ->orWhere('numero', 'LIKE', "%{$search}%")
+                       // Search by client data
+                       ->orWhereHas('cliente', function ($qc) use ($search) {
+                           $qc->where('razon_social', 'LIKE', "%{$search}%")
+                              ->orWhere('nombres', 'LIKE', "%{$search}%")
+                              ->orWhere('apellidos', 'LIKE', "%{$search}%")
+                              ->orWhere('numero_documento', 'LIKE', "%{$search}%");
+                       });
+                });
+            });
         }
 
         // Filter by fecha range usando fecha_programada (para entregas programadas)
