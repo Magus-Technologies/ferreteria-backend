@@ -17,12 +17,14 @@ class CrearRequerimientoInternoRequest extends FormRequest
         $esOCOSOC = in_array($tipoSolicitud, ['OC', 'SOC']);
 
         return [
-            'titulo' => ['required', 'string', 'max:255'],
-            'area' => ['required', 'string', 'max:100'],
-            'fecha_requerida' => ['required', 'date'],
-            'prioridad' => ['required', 'in:BAJA,MEDIA,ALTA,URGENTE'],
-            'tipo_solicitud' => ['required', 'in:OC,OS,SOC'],
-            'observaciones' => ['nullable', 'string'],
+            'titulo' => 'required|string|max:255',
+            'cargo' => 'required|string|max:100',
+            'fecha_requerida' => 'required|date',
+            'prioridad' => 'required|in:BAJA,MEDIA,ALTA,URGENTE',
+            'tipo_solicitud' => 'required|in:OC,OS,SOC',
+            'observaciones' => 'nullable|string',
+            'duracion_cantidad' => 'nullable|integer|min:1',
+            'duracion_unidad' => 'nullable|string|max:20',
             'proveedor_sugerido_id' => ['nullable', 'integer', 'exists:proveedor,id'],
             // OC/SOC - Productos
             'productos' => [
@@ -34,18 +36,20 @@ class CrearRequerimientoInternoRequest extends FormRequest
             'productos.*.nombre_adicional' => ['nullable', 'string', 'max:255'],
             'productos.*.cantidad' => ['required_with:productos', 'numeric', 'min:0.001'],
             'productos.*.unidad' => ['nullable', 'string', 'max:50'],
-            // OS - Servicio
-            'servicio' => [
+            // OS - Servicios
+            'servicios' => [
                 $tipoSolicitud === 'OS' ? 'required' : 'nullable',
                 'array',
+                $tipoSolicitud === 'OS' ? 'min:1' : 'nullable',
             ],
-            'servicio.descripcion_servicio' => [$tipoSolicitud === 'OS' ? 'required' : 'nullable', 'string'],
-            'servicio.tipo_servicio' => ['nullable', 'string', 'max:100'],
-            'servicio.lugar_ejecucion' => ['nullable', 'string', 'max:255'],
-            'servicio.fecha_inicio_estimada' => ['nullable', 'date'],
-            'servicio.presupuesto_referencial' => ['nullable', 'numeric', 'min:0'],
-            'servicio.duracion_cantidad' => ['nullable', 'integer', 'min:1'],
-            'servicio.duracion_unidad' => ['nullable', 'string', 'in:horas,dias,semanas'],
+            'servicios.*.descripcion_servicio' => ['required_with:servicios', 'string'],
+            'servicios.*.tipo_servicio' => ['nullable', 'string', 'max:100'],
+            'servicios.*.lugar_ejecucion' => ['nullable', 'string', 'max:255'],
+            'servicios.*.fecha_inicio_estimada' => ['nullable', 'date'],
+            'servicios.*.presupuesto_referencial' => ['nullable', 'numeric', 'min:0'],
+            'servicios.*.detalles' => ['nullable', 'string'],
+            'servicios.*.duracion_cantidad' => ['nullable', 'integer', 'min:1'],
+            'servicios.*.duracion_unidad' => ['nullable', 'string', 'in:horas,dias,semanas'],
         ];
     }
 
@@ -62,8 +66,9 @@ class CrearRequerimientoInternoRequest extends FormRequest
             'productos.min' => 'Debe agregar al menos un producto',
             'productos.*.producto_id.exists' => 'El producto seleccionado no existe',
             'productos.*.cantidad.min' => 'La cantidad debe ser mayor a 0',
-            'servicio.required' => 'Los datos del servicio son requeridos para solicitudes de tipo OS',
-            'servicio.descripcion_servicio.required' => 'La descripción del servicio es obligatoria',
+            'servicios.required' => 'Los servicios son requeridos para solicitudes de tipo OS',
+            'servicios.min' => 'Debe agregar al menos un servicio',
+            'servicios.*.descripcion_servicio.required' => 'La descripción del servicio es obligatoria',
         ];
     }
 }

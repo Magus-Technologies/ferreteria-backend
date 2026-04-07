@@ -14,12 +14,14 @@ class RequerimientoInterno extends Model
     protected $fillable = [
         'codigo',
         'titulo',
-        'area',
+        'cargo',
         'fecha_requerida',
         'prioridad',
         'tipo_solicitud',
         'observaciones',
         'estado',
+        'duracion_cantidad',
+        'duracion_unidad',
         'proveedor_sugerido_id',
         'user_id',
     ];
@@ -50,9 +52,9 @@ class RequerimientoInterno extends Model
         return $this->hasMany(RequerimientoInternoProducto::class, 'requerimiento_id');
     }
 
-    public function servicio(): HasOne
+    public function servicios(): HasMany
     {
-        return $this->hasOne(RequerimientoInternoServicio::class, 'requerimiento_id');
+        return $this->hasMany(RequerimientoInternoServicio::class, 'requerimiento_id');
     }
 
     public function ordenesCompra(): HasMany

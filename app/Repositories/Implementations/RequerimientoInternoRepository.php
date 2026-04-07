@@ -17,7 +17,7 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
             'productos.producto:id,cod_producto,name,marca_id,unidad_medida_id',
             'productos.producto.marca:id,name',
             'productos.producto.unidadMedida:id,name',
-            'servicio',
+            'servicios',
         ])->find($id);
     }
 
@@ -29,7 +29,7 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
             'productos.producto:id,cod_producto,name,marca_id,unidad_medida_id',
             'productos.producto.marca:id,name',
             'productos.producto.unidadMedida:id,name',
-            'servicio',
+            'servicios',
         ]);
 
         $this->applyFilters($query, $filters);
@@ -72,8 +72,8 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
             $query->where('tipo_solicitud', $filters['tipo_solicitud']);
         }
 
-        if (!empty($filters['area'])) {
-            $query->where('area', $filters['area']);
+        if (isset($filters['cargo'])) {
+            $query->where('cargo', 'like', "%{$filters['cargo']}%");
         }
 
         if (!empty($filters['prioridad'])) {
