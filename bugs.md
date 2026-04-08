@@ -1,149 +1,60 @@
-# BUGS / PENDIENTES
+# Bugs y Pendientes
 
----
+## General
 
-## VENTAS (⬜ 5 pendientes / ✅ 6 resueltos)
+- [ ] Implementar consulta con nuevo proveedor de RUC/DNI
+- [ ] En la búsqueda de productos, en Detalle de Precios no filtra bien las columnas a seleccionar para visualización
+- [ ] Que las franjas de color sean más claras al seleccionar
+- [ ] Fecha de emisión: formato con hora/minuto/segundo AM/PM
+- [ ] Formulario de fecha: filtrar siempre el "hoy" por defecto
+- [ ] Una vez que se busque un producto y salga del flotante de búsqueda, refrescar el nombre y el selector para que se mantenga en el buscador actual
+- [ ] Refrescar automáticamente cuando se haga cualquier acción
+- [ ] Ver tema de usuarios: cambio de contraseña y creación
+- [ ] Agregar en la campana notificaciones de crédito de ventas y compras
+- [ ] Agregar tabs de "Solicitud de Órdenes de Compra" y tabla de "Requerimiento de Servicios"
 
-❓ VENTAS - EL DESCUENTO EN SOLES AFECTA A LA CANTIDAD Y EL DESCUENTO EN PORCENTAJE AFECTA AL SUB TOTAL
+## Almacén
 
-✅ VENTAS - LOS PAGOS SALEN SIN NOMBRE PURO NUMEROS
+- [ ] Nombres de los precios: Precio Público, Precio Ferretería, Precio Especial, Precio Final (alinear con Ventas)
 
-✅ VENTAS - DESPACHO A DOMICILIO DEFAULD QUE SELECCIONE ALMACENERO
+## Compras y Ventas
 
-✅ VENTAS - LA DIRECCION ESE ES EDITABLE, LO QUE SELECCIONO DEL MAPA ES EN REFERENCIA PERO QUE SE APRECIE EN GRIS Y YO PUEDA AGREGAR UNA REFERENCIA ADICIONAL Y LO QUE SELECCIONE DEL MAPA SOLO SEA PARA QUE SE VALLAN EN EL MAPS.
+- [ ] La búsqueda no está bien: al poner un número de RUC lo encuentra pero lo borra — revisar autocompletados
 
-✅ VENTAS - DESPACHO EN TIENDA Y DESPACHO A DOMICILIO SI O SI SE DESCUENTA AL MOMENTO DE VENDER Y DESPACHO PARCIAL SE DESCUENTA AL MOMENTO DE SELECCIONAR UN TIPO DE FILTRO ( D. EN TIENDA Y DESPACHO A DOMICILIO) PONER OMITIR O QUE NO SEA OBLIGATORIO EL DESPACHO PARCIAL LA SELECCIÓN
+## Mis Compras
 
-✅ VENTAS - AL TERMINAR UNA VENTA EN SELECCIONAR DESPACHO ME MANDA A MIS VENTAS
+- [ ] Ver tema de filtros y los estados
+- [ ] No limpia cuando pongo "En Espera"
+- [ ] Egreso asociado: eliminar de donde no corresponde
+- [ ] Filtro de Estado de Cuenta, Estado de Compra y Pendientes de Recepción
+- [ ] Cuando pongo directo "Finalizar Recepción" no se muestra en Mis Recepciones
+- [ ] Cuando recepciono, debería estar por defecto el cliente
 
-✅ VENTAS - CUANDO ELIMINO UNA VENTA SIGUE SALIENDO EN CALENDARIO DE ENTREGAS PROGRAMADAS
+## Órdenes de Compra
 
-✅ VENTAS - EN LA TABLAS NO TE DEJA SELECCIONAR BIEN LOS TIPO DE PRECIO DEBERIA REFRESCAR ALTOQUE
+- [ ] Fecha filtre "hoy", tipo de documento en Factura y forma de pago en Contado. Serie y número, guía, percepción y egreso asociado no van
+- [ ] Implementar impresión
+- [ ] Consultar cómo funcionan los filtros de estado
+- [ ] Duplicar (replicar la lógica de "duplicar productos" de Mi Almacén)
 
-✅ VENTAS - LOS ACTIVADORES SI FUNCIONAN LOS PRECIOS PERO NO CAMBIA EL NOMBRE EN TIPO DE PRECIO Y NO PERMITE SELECCIONAR TIPO DE PRECIO.
+## Ventas
 
-✅ VENTAS - DEPACHO A DOMICILIO TIENE QUE SER OBLIGATORIO UN RESPONSABLE
+- [ ] En las tablas no deja seleccionar bien los tipos de precio — debería refrescar al toque
+- [ ] Lo que se selecciona del mapa es "en referencia": mostrarlo en gris y permitir agregar una referencia adicional. Lo seleccionado del mapa solo debe usarse para la navegación en Maps
+- [ ] Despacho en Tienda y Despacho a Domicilio: descontar siempre al momento de vender. Despacho Parcial: descontar al seleccionar tipo de filtro (D. en Tienda y Despacho a Domicilio). Poner "Omitir" o que no sea obligatoria la selección del Despacho Parcial
+- [ ] En venta con Despacho Parcial, agregar una tabla de "Despacho en Movilidad" con lo que se va a despachar
+- [ ] En Mis Ventas, al seleccionar "Entrega" mostrar los 2 tipos de despacho (en Tienda o a Domicilio)
 
-✅ VENTAS - CUANDO HAGO UNA VENTA RN ESPERA NO ACTUALIZA
+## Mis Ventas
 
----
+- [ ] Una vez que la unidad termina su reparto, que el estado salga como "Completado"
 
-## MIS VENTAS (⬜ 1 pendiente / ✅ 2 resueltos)
+## Kardex
 
-✅ MIS VENTAS - EN LAS TABLAS QUE NO APARESCAN EN ESPERA O ELIMINADOS
+- [ ] Buscador en tiempo real
+- [ ] Corregir datos jalados de Kardex vs Inventario y Facturación
+- [ ] Mostrar Stock Actual, Stock Anterior y Cuánto Ingresó
 
-✅ MIS VENTAS - UNA VEZ QUE LA UNIDAD LLEGA A TERMINAR RECIEN SU REPARTO QUE SALGA COMPLETADO
+## Finalidades / Integraciones
 
-✅ MIS VENTAS - VER POR QUE ALGUNAS BOLETAS NO TE PERMITEN ANULARF CUANDO ESTA CON DESPACHO A DOMICILIO
-
----
-
-## COMPRAS (⬜ 1 pendiente / ✅ 7 resueltos)
-
-✅ COMPRAS - LAS COMPRAS EN ESPERA NI ELIMINADAS, NO DEBEN DE SALIR EN LA TABLA.
-
-✅ COMPRAS - EN LA BUSQUEDA DE PRODUCTOS, EN DETALLES DE PRECIO NO SALE LAS COLUMNAS A SELECIONAR PARA VISUARLIZACION
-
-✅ COMPRAS - LA BUSQUEDA NO ESTA BIEN, PONGO UN NUMERO DE RUC LO ENCUENTRA PERO LO BORRA
-
-✅ COMPRAS - COMPRAS NO TE DEJA HACER COMPRAS AL CONTADO, CUANDO MUEVO LOS FILTROS DE TIPO DOCUMENTOS O FORMA DE MPAGO
-
-✅ COMPRAS - QUE LAS FRANJAS DE COLOR SEA TRANSPARENTE AL SELECCIONAR Y QUE SIGNIFICA PROCESADO
-
-✅ COMPRAS - LAS FRANJAS DE COLOR ESTAN MAL.
-
-✅ COMPRAS - UNA VENTA HICE EDITE Y SE VOLVIO EN ESPERA.
-
-✅ COMPRAS - EGRESO ASOCIADO NO ES OBLIGATORIO LOS GASTOS PARA TERMINAR UNA COMPRA. Y LOS GASTOS DEBEN DE IR DENTRO DE LOS METODOS DE PAGOS PERO SEPARADO
-
-✅ COMPRAS - PONER EN ESPERA NO DEBE SER OBLIGATORIO LOS DATOS.
-
----
-
-## MIS COMPRAS (⬜ 2 pendientes / ✅ 3 resueltos)
-
-❓ MIS COMPRAS - EN RECEPCION POR DEFAULD EL CLIENTE POR DEFAULD
-
-✅ MIS COMPRAS - DOY PONER EN ESPERA Y ME MANDA AL MODULO DE MIS COMPRAS Y NO ES ASI
-
-✅ MIS COMPRAS - EN LA TABLAS DE FECHA TAMBIEN DEBE APRECIARSE LA HORA QUE SE HIZO (ESO TAMBIEN SERIA EN GENERALES YA QUE ES PARA TODO DOCUMENTO)
-
-✅ MIS COMPRAS - FILTRO DE ESTADO DE CUENTA, ESTADO DE COMPRA Y PENDIENTES DE RECEPCIÓN
-
-✅ MIS COMPRAS - DOY RECUPERAR ORDEN DE COMPRA Y ME JALA TODO LO DE MIS COMPRAS
-
----
-
-## ORDENES DE COMPRA (❓ 2 por definir / ✅ 4 resueltos)
-
-❓ ORDENES DE COMPRA - QUE SE RELLENE CON EL COSTO DEL PRODUCTO
-
-❓ ORDEN DE COMPRA - QUEDAMOS EN QUE LO QUE FILTRE EN ESA TABLA SE IMPRIMA O QUE NO SE NOTE LOS COSTOS O ALGUNA OPCION DE QUE OCULTE LOS PRECIOS Y TOTALES
-
-✅ ORDEN DE COMPRA - FECHA FILTRE HOY Y TIPO DOCUMENTO EN FACTURA Y FORMA DE PAGO EN CONTADO, SERIE Y NÚMERO, GUIA, PERCEPCIÓN Y EFRESO ASOCIADO NO VAN.
-
-✅ MIS ORDEN DE COMPRA - CONSULTAR COMO FUNCIONA LOS FILTRO DE ESTADO
-
-✅ MIS ORDENES DE COMPRA - NO SALE EDITAR NI DUPLICAR.
-
-✅ MIS ORDENES DE COMPRA - EN SOLICITUDES NO FILTRA BIEN LAS FECHA
-
-✅ MIS ÓRDENES DE COMPRA - CUANDO SE SEPA QUE NO EXISTE ESE PRODUCTO QUE HALLA OTRA OPCIÓN DE CREACION DE PRODUCTOS PERO CUANDO VALLA A ORDENES DE COMPRAS OBLIGATORIO TE MANDE A CREAR NORMAL YA ESE PRODUCTO (SOLAMENTE ESE PRODUCTO CREADO)
-
-✅ SOLICITUD DE ORDENES DE COMPRA - NO TIENE BUENA BUSQUEDA DE PRODUCTOS
-
-✅ MIS ORDENES DE COMPRAS - NO ESTAN TODAS LAS ACCIONES Y TAMPOCO ESTA BIEN EL BUSCADO DE PROVEEDORES
-
----
-
-## ALMACEN (✅ 7 resueltos)
-
-✅ ALMACEN - NO ACTUALIZA BIEN CUANDO HAGO INGRESOS Y SALIDAS CUANDO LE DOY CLICK.
-
-✅ ALMACEN - FILTRO CON COMISION Y SIN COMISION Y TODOS NO FILTRA LAS MISMAS CANTIDADES DE PRODUCTOS
-
-✅ ALMACEN - CADA VEZ QUE DOY BUSCAR SIEMPRE TIENE QUE EFECTUAR LA BUSQUEDA DENUEVO ASI TENGA EL MISMO NOMBRE.
-
-✅ ALMACEN - BLOQUEAR LA BASURITA PARA SABER CUANDO YA NO USARLO
-
-✅ ALMACEN - EN LAS NOTAS DE INGRESO SIGUE SALIENDO COMO SALIDA DE ALMACEN
-
-✅ MI ALMACEN - CREACION DE PRODUCTOS, EL PRODUCTO QUE SE DESCONTARA DEBE DE SALIR PARA BUSCAR BIEN EL PRODUCTO.
-
-✅ ALMACEN - NOMBRES DE LOS PRECIOS, PRECIO PUBLICO, PRECIO FERRETERÍA, PRECIO ESPECIAL, PRECIO FINAL
-
-✅ ALMACEN - NO CREA EN DUPLICADO UEVO CODIGO
-
----
-
-## RECEPCION (✅ 2 resueltos)
-
-✅ RECEPCION - NO GUARDA EL ORDEN DE LAS FILAS DE LAS TABLAS COMO YO QUIERO.
-
-✅ RECEPCIÓN - FILTRO DE PROVEEDORES CON BOLETA
-
----
-
-## KARDEX (⬜ 1 pendiente / ✅ 3 resueltos)
-
-❓ KARDEX - BUSQUEDA DANDOLE LA LUPITA ES UNA Y DANDOLE ENTER ES OTRA BUSQUEDA ( COMPRAS POR VENCER Y VENTAS POR COBRAR Y EN TODO LO QUE TENGA MIS ... VENTAS ETC)
-
-✅ KARDEX - BUSQUEDA DE PRODUCTOS ES APARTE, PERO SI O SI SE FILTRO DE TODOS DEL DIA
-
-✅ KARDEX - STOCK ATERIOR
-
-✅ KARDEX - FILTRAR SIEMPRE DEL DIA
-
----
-
-## GENERALES (⬜ 2 pendientes / ✅ 3 resueltos)
-
-❓ GENERALES - UNA VEZ QUE BUSQUE UN PRODUCTO Y SALGA DEL FLOTANTE DE BUSQUEDA DE TIENE QUE REFRESCAR EL NOMBRE
-
-✅ GENERALES: TODA BUSQUEDA EN LAS TABLAS DE MIS MODULOS QUE TENGAS MIS SEAN SIEMPRE QUE FILTRE PRIMERO LO QUE SE HIZO ULTIMO Y AL FINAL EL PRIMERO QUE SE HIZO
-
-✅ GENERALES - NO SE APRECIA NINGUN CUMPLEAÑOS EN NINGUN LADO COMO NOTIFICACION
-
-✅ GENERALES: CUANDO DOY EN BUSCAR EN CUALQUIER MODULO TIENE QUE SIEMPRE BUSCAR O ACTUALIZAR LA BUSQUEDA
-
-✅ GENERALES - NO SALE LA APERTURA DE CAJA
+- [ ] Todo documento emitido se envíe por WhatsApp y correo (según el ejemplo enviado)
