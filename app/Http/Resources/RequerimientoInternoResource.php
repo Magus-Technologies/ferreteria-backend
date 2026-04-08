@@ -13,11 +13,13 @@ class RequerimientoInternoResource extends JsonResource
             'id' => $this->id,
             'codigo' => $this->codigo,
             'titulo' => $this->titulo,
-            'area' => $this->area,
+            'cargo' => $this->cargo,
             'fecha_requerida' => $this->fecha_requerida?->format('Y-m-d'),
             'prioridad' => $this->prioridad,
             'tipo_solicitud' => $this->tipo_solicitud,
             'observaciones' => $this->observaciones,
+            'duracion_cantidad' => $this->duracion_cantidad,
+            'duracion_unidad' => $this->duracion_unidad,
             'estado' => $this->estado,
             'estado_solicitud' => $this->calcularEstadoSolicitud(),
             'proveedor_sugerido_id' => $this->proveedor_sugerido_id,
@@ -66,18 +68,20 @@ class RequerimientoInternoResource extends JsonResource
                     ];
                 });
             }),
-            'servicio' => $this->whenLoaded('servicio', function () {
-                if (!$this->servicio) return null;
-                return [
-                    'id' => $this->servicio->id,
-                    'tipo_servicio' => $this->servicio->tipo_servicio,
-                    'descripcion_servicio' => $this->servicio->descripcion_servicio,
-                    'lugar_ejecucion' => $this->servicio->lugar_ejecucion,
-                    'fecha_inicio_estimada' => $this->servicio->fecha_inicio_estimada?->format('Y-m-d'),
-                    'presupuesto_referencial' => (float) $this->servicio->presupuesto_referencial,
-                    'duracion_cantidad' => $this->servicio->duracion_cantidad,
-                    'duracion_unidad' => $this->servicio->duracion_unidad,
-                ];
+            'servicios' => $this->whenLoaded('servicios', function () {
+                return $this->servicios->map(function ($srv) {
+                    return [
+                        'id' => $srv->id,
+                        'tipo_servicio' => $srv->tipo_servicio,
+                        'descripcion_servicio' => $srv->descripcion_servicio,
+                        'lugar_ejecucion' => $srv->lugar_ejecucion,
+                        'fecha_inicio_estimada' => $srv->fecha_inicio_estimada?->format('Y-m-d H:i'),
+                        'presupuesto_referencial' => (float) $srv->presupuesto_referencial,
+                        'detalles' => $srv->detalles,
+                        'duracion_cantidad' => $srv->duracion_cantidad,
+                        'duracion_unidad' => $srv->duracion_unidad,
+                    ];
+                });
             }),
             'items_count' => $this->whenLoaded('productos', fn() => $this->productos->count()),
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),

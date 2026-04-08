@@ -25,9 +25,9 @@ class RequerimientoInternoException extends Exception
         return new self("El requerimiento de tipo OC debe tener al menos un producto", 422);
     }
 
-    public static function sinServicio(): self
+    public static function sinServicios(): self
     {
-        return new self("El requerimiento de tipo OS debe incluir datos del servicio", 422);
+        return new self("El requerimiento de tipo OS debe tener al menos un servicio", 422);
     }
 
     public static function errorAlCrear(string $detalle): self

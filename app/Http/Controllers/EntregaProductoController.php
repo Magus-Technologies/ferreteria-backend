@@ -9,6 +9,7 @@ use App\Models\RequerimientoInterno;
 use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\User;
 use App\Models\Venta;
+use App\Exceptions\UsuarioEnMantenimientoException;
 use App\Services\FirebaseNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -511,13 +512,13 @@ class EntregaProductoController extends Controller
             ->where('tipo_solicitud', 'OS')
             ->where('estado', 'aprobado')
             ->where('user_id', $user->id)
-            ->whereHas('servicio', function ($query) {
+            ->whereHas('servicios', function ($query) {
                 $query->whereDate('fecha_inicio_estimada', today());
             })
             ->exists();
 
         if ($osAprobadaHoy) {
-            throw new \App\Exceptions\UsuarioEnMantenimientoException(
+            throw new UsuarioEnMantenimientoException(
                 'No puedes hacer despachos. Tienes mantenimiento programado para hoy'
             );
         }

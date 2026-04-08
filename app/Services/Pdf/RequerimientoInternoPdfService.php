@@ -40,7 +40,7 @@ class RequerimientoInternoPdfService
             'user.empresa',
             'proveedorSugerido',
             'productos.producto.unidadMedida',
-            'servicio',
+            'servicios',
         ])->findOrFail($id);
     }
 
@@ -57,13 +57,15 @@ class RequerimientoInternoPdfService
             })->toArray();
         }
 
-        if ($requerimiento->tipo_solicitud === 'OS' && $requerimiento->servicio) {
-            return [[
-                'codigo' => '—',
-                'cantidad' => 1,
-                'unidad' => 'SRV',
-                'descripcion' => ($requerimiento->servicio->tipo_servicio ?? '') . ': ' . ($requerimiento->servicio->descripcion_servicio ?? ''),
-            ]];
+        if ($requerimiento->tipo_solicitud === 'OS' && $requerimiento->servicios->isNotEmpty()) {
+            return $requerimiento->servicios->map(function ($srv) {
+                return [
+                    'codigo' => '—',
+                    'cantidad' => 1,
+                    'unidad' => 'SRV',
+                    'descripcion' => ($srv->tipo_servicio ? $srv->tipo_servicio . ': ' : '') . $srv->descripcion_servicio . ($srv->detalles ? " (" . $srv->detalles . ")" : ""),
+                ];
+            })->toArray();
         }
 
         return [];

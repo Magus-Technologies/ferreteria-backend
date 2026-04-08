@@ -16,7 +16,8 @@ use Illuminate\Support\Facades\Log;
 class RequerimientoInternoService implements RequerimientoInternoServiceInterface
 {
     public function __construct(
-        private RequerimientoInternoRepositoryInterface $repository
+        private RequerimientoInternoRepositoryInterface $repository,
+        private \App\Services\FirebaseNotificationService $notificationService
     ) {}
 
     public function listarPaginado(array $filters = [], int $perPage = 20): LengthAwarePaginator
@@ -50,11 +51,13 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
             $requerimiento = $this->repository->create([
                 'codigo' => $codigo,
                 'titulo' => $data['titulo'],
-                'area' => $data['area'],
+                'cargo' => $data['cargo'],
                 'fecha_requerida' => $data['fecha_requerida'],
                 'prioridad' => $data['prioridad'],
                 'tipo_solicitud' => $data['tipo_solicitud'],
                 'observaciones' => $data['observaciones'] ?? null,
+                'duracion_cantidad' => $data['duracion_cantidad'] ?? null,
+                'duracion_unidad' => $data['duracion_unidad'] ?? null,
                 'estado' => 'pendiente',
                 'proveedor_sugerido_id' => $data['proveedor_sugerido_id'] ?? null,
                 'user_id' => $data['user_id'],
@@ -84,27 +87,44 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                 }
             }
 
-            // Crear servicio (OS)
+            // Crear servicios (OS)
             if ($data['tipo_solicitud'] === 'OS') {
-                if (empty($data['servicio'])) {
-                    throw RequerimientoInternoException::sinServicio();
+                if (empty($data['servicios'])) {
+                    throw RequerimientoInternoException::sinServicios();
                 }
 
-                $srv = $data['servicio'];
-                
-                if (empty($srv['descripcion_servicio'])) {
-                    throw new \InvalidArgumentException('La descripción del servicio es requerida');
-                }
+                foreach ($data['servicios'] as $srv) {
+                    if (empty($srv['descripcion_servicio'])) {
+                        throw new \InvalidArgumentException('La descripción del servicio es requerida');
+                    }
 
-                RequerimientoInternoServicio::create([
-                    'requerimiento_id' => $requerimiento->id,
-                    'tipo_servicio' => $srv['tipo_servicio'] ?? null,
-                    'descripcion_servicio' => $srv['descripcion_servicio'],
-                    'lugar_ejecucion' => $srv['lugar_ejecucion'] ?? null,
-                    'fecha_inicio_estimada' => $srv['fecha_inicio_estimada'] ?? null,
-                    'presupuesto_referencial' => $srv['presupuesto_referencial'] ?? null,
-                    'duracion_cantidad' => $srv['duracion_cantidad'] ?? null,
-                    'duracion_unidad' => $srv['duracion_unidad'] ?? null,
+                    RequerimientoInternoServicio::create([
+                        'requerimiento_id' => $requerimiento->id,
+                        'tipo_servicio' => $srv['tipo_servicio'] ?? null,
+                        'descripcion_servicio' => $srv['descripcion_servicio'],
+                        'lugar_ejecucion' => $srv['lugar_ejecucion'] ?? null,
+                        'fecha_inicio_estimada' => $srv['fecha_inicio_estimada'] ?? null,
+                        'presupuesto_referencial' => $srv['presupuesto_referencial'] ?? null,
+                        'detalles' => $srv['detalles'] ?? null,
+                    ]);
+                }
+            }
+
+            // Notificar a administradores
+            try {
+                $this->notificationService->sendToRole(
+                    'ADMINISTRADOR',
+                    '📋 Nuevo Requerimiento Interno',
+                    "Se ha creado el requerimiento {$requerimiento->codigo}: {$requerimiento->titulo}",
+                    [
+                        'id' => (string) $requerimiento->id,
+                        'type' => 'requerimiento_interno',
+                        'codigo' => $requerimiento->codigo
+                    ]
+                );
+            } catch (\Exception $e) {
+                Log::warning('No se pudo enviar la notificación del requerimiento', [
+                    'error' => $e->getMessage()
                 ]);
             }
 
