@@ -13,7 +13,7 @@ class OrdenCompraRepository implements OrdenCompraRepositoryInterface
         return OrdenCompra::with([
             'user:id,name',
             'proveedor:id,razon_social,ruc',
-            'requerimiento:id,codigo,titulo,area,prioridad',
+            'requerimiento:id,codigo,titulo,cargo,prioridad',
             'productos',
         ])->find($id);
     }
@@ -23,7 +23,7 @@ class OrdenCompraRepository implements OrdenCompraRepositoryInterface
         $query = OrdenCompra::with([
             'user:id,name',
             'proveedor:id,razon_social,ruc',
-            'requerimiento:id,codigo,titulo,area,prioridad',
+            'requerimiento:id,codigo,titulo,cargo,prioridad',
             'productos',
         ])->withCount('productos');
 

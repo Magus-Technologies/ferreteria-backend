@@ -56,7 +56,7 @@
             <td style="width: 20%; font-weight: bold; text-transform: uppercase; font-size: 7.5pt; padding: 2px;">NÚMERO:</td>
             <td style="width: 30%; font-size: 8pt; padding: 2px;">{{ $requerimiento->codigo }}</td>
             <td style="width: 20%; font-weight: bold; text-transform: uppercase; font-size: 7.5pt; padding: 2px;">ÁREA:</td>
-            <td style="width: 30%; font-size: 8pt; padding: 2px;">{{ $requerimiento->area }}</td>
+            <td style="width: 30%; font-size: 8pt; padding: 2px;">{{ $requerimiento->cargo }}</td>
         </tr>
         <tr>
             <td style="font-weight: bold; text-transform: uppercase; font-size: 7.5pt; padding: 2px;">FECHA:</td>

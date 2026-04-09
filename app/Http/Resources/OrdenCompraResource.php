@@ -18,7 +18,7 @@ class OrdenCompraResource extends JsonResource
                     'id' => $this->requerimiento->id,
                     'codigo' => $this->requerimiento->codigo,
                     'titulo' => $this->requerimiento->titulo,
-                    'area' => $this->requerimiento->area,
+                    'cargo' => $this->requerimiento->cargo,
                     'prioridad' => $this->requerimiento->prioridad,
                 ];
             }),

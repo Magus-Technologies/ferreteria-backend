@@ -57,7 +57,7 @@ class CrearRequerimientoInternoRequest extends FormRequest
     {
         return [
             'titulo.required' => 'El título es requerido',
-            'area.required' => 'El área es requerida',
+            'cargo.required' => 'El cargo es requerido',
             'fecha_requerida.required' => 'La fecha requerida es obligatoria',
             'tipo_solicitud.required' => 'El tipo de solicitud es requerido',
             'tipo_solicitud.in' => 'El tipo de solicitud debe ser OC, OS o SOC',

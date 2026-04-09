@@ -93,7 +93,7 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
             $query->where(function ($q) use ($search) {
                 $q->where('codigo', 'like', "%{$search}%")
                   ->orWhere('titulo', 'like', "%{$search}%")
-                  ->orWhere('area', 'like', "%{$search}%");
+                  ->orWhere('cargo', 'like', "%{$search}%");
             });
         }
     }
