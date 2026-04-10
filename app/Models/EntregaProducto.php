@@ -32,6 +32,7 @@ class EntregaProducto extends Model
         'hora_inicio',
         'hora_fin',
         'direccion_entrega',
+        'referencia_entrega',
         'latitud',
         'longitud',
         'observaciones',
