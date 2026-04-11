@@ -133,7 +133,7 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // Préstamos entre Vendedores
-        Route::prefix('prestamos-vendedores')->group(function () {
+        Route::prefix('prestamos-vendedores')->middleware('broadcast:prestamos-vendedores')->group(function () {
             // Consultas (NO requieren caja abierta)
             Route::get('/', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'listarSolicitudes']);
             Route::get('/pendientes', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'solicitudesPendientes']);

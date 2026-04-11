@@ -257,7 +257,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // AUTORIZACIONES (sistema de aprobación por acción)
     // ============================================
-    Route::prefix('autorizaciones')->group(function () {
+    Route::prefix('autorizaciones')->middleware('broadcast:autorizaciones')->group(function () {
         // Configuración (admin)
         Route::get('/config', [AutorizacionController::class, 'configIndex']);
         Route::get('/config/{roleId}', [AutorizacionController::class, 'configPorRol']);

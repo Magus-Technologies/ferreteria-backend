@@ -21,7 +21,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // REQUERIMIENTOS INTERNOS
     // ============================================
-    Route::prefix('requerimientos-internos')->group(function () {
+    Route::prefix('requerimientos-internos')->middleware('broadcast:requerimientos-internos')->group(function () {
         Route::get('/', [RequerimientoInternoController::class, 'index']);
         Route::post('/', [RequerimientoInternoController::class, 'store']);
         Route::get('/{id}', [RequerimientoInternoController::class, 'show']);
