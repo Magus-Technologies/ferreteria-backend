@@ -13,50 +13,54 @@ trait ManejaFlujoCajaExtra
     /**
      * Registra un ingreso o egreso extra en la caja activa del usuario.
      */
-    protected function registrarEnCajaActiva(string $referenciaId, string $referenciaTipo, string $tipoTransaccion, float $monto, ?string $desplieguePagoId, string $descripcion): void
+    protected function registrarEnCajaActiva(string $referenciaId, string $referenciaTipo, string $tipoTransaccion, float $monto, ?string $desplieguePagoId, string $descripcion, ?string $subCajaIdParam = null): void
     {
-        // Obtener la caja abierta activa del usuario actual
-        // Puede ser el dueño de la apertura o un vendedor con distribución asignada
-        $apertura = AperturaCierreCaja::where('estado', 'abierta')
-            ->where(function ($query) {
-                $query->where('user_id', Auth::id())
-                    ->orWhereHas('distribucionesVendedores', function ($q) {
-                        $q->where('user_id', Auth::id());
-                    });
-            })
-            ->first();
+        $subCajaId = $subCajaIdParam;
 
-        // Si el usuario no tiene una caja abierta, registramos que no hubo impacto en una subcaja específica,
-        // o podemos lanzar excepción si las reglas de negocio exigen siempre caja abierta.
-        // Dado que es un gasto/ingreso "extra", asumiremos que SÍ requiere caja abierta si se declara "aprobado".
-        if (!$apertura) {
-            throw new \Exception('No hay una caja abierta para el usuario actual. No se puede procesar el flujo extra aprobado.');
-        }
-
-        $subCajaId = $apertura->sub_caja_id;
-
-        // Si la apertura es en la caja principal, requiere que tenga un sub_caja_id asignada
         if (!$subCajaId) {
-            // Caso donde tienen permiso general de todo. Tratamos de usar la primera subcaja ligada a la apertura o caja principal.
-            $subCajaPrincipal = DB::table('sub_cajas')->where('caja_principal_id', $apertura->caja_principal_id)->first();
-            if ($subCajaPrincipal) {
-                $subCajaId = $subCajaPrincipal->id;
-            } else {
-                throw new \Exception('No se ubicó una sub-caja válida para procesar el flujo extra.');
+            // Obtener la caja abierta activa del usuario actual
+            // Puede ser el dueño de la apertura o un vendedor con distribución asignada
+            $apertura = AperturaCierreCaja::where('estado', 'abierta')
+                ->where(function ($query) {
+                    $query->where('user_id', Auth::id())
+                        ->orWhereHas('distribucionesVendedores', function ($q) {
+                            $q->where('user_id', Auth::id());
+                        });
+                })
+                ->first();
+
+            // Dado que es un gasto/ingreso "extra", exigimos caja abierta para procesar el flujo.
+            if (!$apertura) {
+                throw new \Exception('No tiene una caja abierta para procesar este movimiento contable.');
+            }
+
+            $subCajaId = $apertura->sub_caja_id;
+
+            // Si la apertura es en la caja principal, requiere que tenga un sub_caja_id asignada
+            if (!$subCajaId) {
+                $subCajaPrincipal = DB::table('sub_cajas')->where('caja_principal_id', $apertura->caja_principal_id)->first();
+                if ($subCajaPrincipal) {
+                    $subCajaId = $subCajaPrincipal->id;
+                } else {
+                    throw new \Exception('No se ubicó una sub-caja válida para procesar el flujo extra.');
+                }
             }
         }
 
         $subCaja = DB::table('sub_cajas')->where('id', $subCajaId)->first();
+        if (!$subCaja) {
+            throw new \Exception('La sub-caja seleccionada no es válida.');
+        }
 
         // Calcular el nuevo saldo
-        $saldoAnterior = $subCaja->saldo_actual;
+        $saldoAnterior = (float) $subCaja->saldo_actual;
         $saldoNuevo = $tipoTransaccion === 'ingreso'
             ? $saldoAnterior + $monto
             : $saldoAnterior - $monto;
 
+        // Validar saldo insuficiente para gastos
         if ($tipoTransaccion === 'egreso' && $saldoNuevo < 0) {
-            // throw new \Exception('Saldo insuficiente en la caja actual para registrar este egreso extra. Saldo actual: S/' . $saldoAnterior);
-            // Comentado para permitir egresos en negativo temporalmente si las reglas lo permiten.
+            throw new \Exception("Saldo insuficiente en la sub-caja '{$subCaja->nombre}'. Disponible: S/" . number_format($saldoAnterior, 2));
         }
 
         // Crear la transacción

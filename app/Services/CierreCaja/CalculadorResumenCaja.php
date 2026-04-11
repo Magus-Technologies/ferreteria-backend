@@ -64,16 +64,18 @@ class CalculadorResumenCaja
             })
             ->sum('total');
 
-        // Filtrar solo otros ingresos en EFECTIVO
-        $otrosIngresosEfectivo = $clasificacion['otros_ingresos']
+        // Filtrar solo otros ingresos en EFECTIVO (unir normales + extras para el cálculo de efectivo)
+        $todosLosIngresosManuales = $clasificacion['otros_ingresos']->concat($clasificacion['ingresos_extras']);
+        $otrosIngresosEfectivo = $todosLosIngresosManuales
             ->filter(function ($ingreso) {
                 // Verificar si el ingreso es en efectivo (sub_caja contiene "Chica" o es efectivo)
                 return stripos($ingreso->sub_caja ?? '', 'Chica') !== false;
             })
             ->sum('monto');
 
-        // Filtrar solo gastos en EFECTIVO
-        $gastosEfectivo = $clasificacion['gastos_y_pagos']
+        // Filtrar solo gastos en EFECTIVO (unir normales + extras para el cálculo de efectivo)
+        $todosLosEgresosManuales = $clasificacion['gastos_y_pagos']->concat($clasificacion['gastos_extras']);
+        $gastosEfectivo = $todosLosEgresosManuales
             ->filter(function ($gasto) {
                 // Verificar si el gasto es en efectivo (sub_caja contiene "Chica" o es efectivo)
                 return stripos($gasto->sub_caja ?? '', 'Chica') !== false;
@@ -93,28 +95,24 @@ class CalculadorResumenCaja
         // Formatear detalles de ventas con información de pagos
         $detalleVentas = $this->formatearDetalleVentas($clasificacion['ventas']);
 
-        // Formatear detalles
-        $detalleIngresos = $clasificacion['otros_ingresos']->mapWithKeys(function ($item) {
-            return [$item->id => [
+        // Función auxiliar para formatear movimientos manuales
+        $formatearManual = function ($item, $tipoDefault = 'ingreso_manual') {
+            return [
                 'id' => $item->id,
-                'tipo' => 'ingreso_manual',
+                'tipo' => $item->tipo ?? $tipoDefault,
                 'monto' => number_format($item->monto, 2, '.', ''),
                 'concepto' => $item->descripcion,
                 'sub_caja' => $item->sub_caja,
                 'created_at' => $item->created_at,
-            ]];
-        });
+            ];
+        };
 
-        $detalleEgresos = $clasificacion['gastos_y_pagos']->mapWithKeys(function ($item) {
-            return [$item->id => [
-                'id' => $item->id,
-                'tipo' => $item->tipo,
-                'monto' => number_format($item->monto, 2, '.', ''),
-                'concepto' => $item->descripcion,
-                'sub_caja' => $item->sub_caja,
-                'created_at' => $item->created_at,
-            ]];
-        });
+        // Formatear detalles
+        $detalleIngresos = $clasificacion['otros_ingresos']->mapWithKeys(fn($item) => [$item->id => $formatearManual($item)]);
+        $detalleEgresos = $clasificacion['gastos_y_pagos']->mapWithKeys(fn($item) => [$item->id => $formatearManual($item, 'gasto_manual')]);
+        
+        $detalleIngresosExtras = $clasificacion['ingresos_extras']->mapWithKeys(fn($item) => [$item->id => $formatearManual($item, 'ingreso_extra')]);
+        $detalleGastosExtras = $clasificacion['gastos_extras']->mapWithKeys(fn($item) => [$item->id => $formatearManual($item, 'gasto_extra')]);
 
         $resultado = new ResumenCajaDTO(
             efectivoInicial: $clasificacion['efectivo_inicial'],
@@ -136,7 +134,11 @@ class CalculadorResumenCaja
             movimientosInternos: $clasificacion['movimientos_internos'],
             prestamos: $clasificacion['prestamos'],
             prestamosVendedores: $clasificacion['prestamos_vendedores'],
-            resumenBancos: $clasificacion['resumen_bancos']
+            resumenBancos: $clasificacion['resumen_bancos'],
+            totalIngresosExtras: $clasificacion['total_ingresos_extras'],
+            totalGastosExtras: $clasificacion['total_gastos_extras'],
+            detalleIngresosExtras: $detalleIngresosExtras,
+            detalleGastosExtras: $detalleGastosExtras
         );
 
         \Log::info('🔍 ResumenCajaDTO creado', [

@@ -80,10 +80,21 @@ class ClasificadorMovimientos
         // 8. RESUMEN DE BANCOS (montos iniciales + ingresos - egresos por banco)
         $resumenBancos = $this->obtenerResumenBancosVendedor($subCajasIds, $apertura, $userId, $ventas, $fechaInicio, $fechaFin);
 
-        // 9. CALCULAR TOTALES
+        // 9. SEPARAR INGRESOS Y GASTOS EXTRAS
+        $ingresosExtras = $otrosIngresos->where('referencia_tipo', 'ingreso_extra');
+        $otrosIngresosSinExtras = $otrosIngresos->where('referencia_tipo', '!=', 'ingreso_extra');
+
+        $gastosExtras = $gastosYPagos->where('referencia_tipo', 'gasto_extra');
+        $gastosSinExtras = $gastosYPagos->where('referencia_tipo', '!=', 'gasto_extra');
+
+        // 10. CALCULAR TOTALES
         $totalCobros = $cobrosPorMetodo->sum('total');
-        $totalOtrosIngresos = $otrosIngresos->sum('monto');
-        $totalGastos = $gastosYPagos->sum('monto');
+        $totalOtrosIngresos = $otrosIngresosSinExtras->sum('monto');
+        $totalIngresosExtras = $ingresosExtras->sum('monto');
+        
+        $totalGastos = $gastosSinExtras->sum('monto');
+        $totalGastosExtras = $gastosExtras->sum('monto');
+        
         $totalPrestamosRecibidos = $prestamosRecibidos->sum('monto');
         $totalPrestamosDados = $prestamosDados->sum('monto');
 
@@ -101,12 +112,20 @@ class ClasificadorMovimientos
             'total_cobros' => $totalCobros,
 
             // Otros ingresos (NO ventas)
-            'otros_ingresos' => $otrosIngresos,
+            'otros_ingresos' => $otrosIngresosSinExtras,
             'total_otros_ingresos' => $totalOtrosIngresos,
 
-            // Egresos
-            'gastos_y_pagos' => $gastosYPagos,
+            // Ingresos Extras (NUEVO)
+            'ingresos_extras' => $ingresosExtras,
+            'total_ingresos_extras' => $totalIngresosExtras,
+
+            // Egresos genéricos
+            'gastos_y_pagos' => $gastosSinExtras,
             'total_gastos' => $totalGastos,
+
+            // Gastos Extras (NUEVO)
+            'gastos_extras' => $gastosExtras,
+            'total_gastos_extras' => $totalGastosExtras,
 
             // Préstamos entre vendedores
             'prestamos_recibidos' => $prestamosRecibidos,
@@ -122,10 +141,10 @@ class ClasificadorMovimientos
             // Resumen de bancos (nuevo)
             'resumen_bancos' => $resumenBancos,
 
-            // Resúmenes
+            // Resúmenes (totales consolidados)
             'resumen_ventas' => $totalCobros,
-            'resumen_ingresos' => $totalCobros + $totalOtrosIngresos + $totalPrestamosRecibidos,
-            'resumen_egresos' => $totalGastos + $totalPrestamosDados,
+            'resumen_ingresos' => $totalCobros + $totalOtrosIngresos + $totalIngresosExtras + $totalPrestamosRecibidos,
+            'resumen_egresos' => $totalGastos + $totalGastosExtras + $totalPrestamosDados,
         ];
     }
 
@@ -140,7 +159,7 @@ class ClasificadorMovimientos
 
         if ($soloDiaActual && $fechaInicio && $fechaFin) {
             $query->where('created_at', '>=', $fechaInicio)
-                  ->where('created_at', '<=', $fechaFin);
+                ->where('created_at', '<=', $fechaFin);
         }
 
         return $query->sum('monto');
@@ -266,14 +285,11 @@ class ClasificadorMovimientos
      */
     private function obtenerGastosVendedor($subCajasIds, $apertura, string $userId, $fechaInicio, $fechaFin): Collection
     {
-
-
         $gastos = DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
             ->whereIn('tc.sub_caja_id', $subCajasIds)
-            ->where('tc.user_id', $userId) // ✅ FILTRAR POR VENDEDOR
+            ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'egreso')
-            // EXCLUIR egresos que son préstamos a vendedores o movimientos internos
             ->where(function ($query) {
                 $query->whereNull('tc.referencia_tipo')
                     ->orWhereNotIn('tc.referencia_tipo', ['transferencia_vendedor', 'movimiento_interno']);
@@ -284,13 +300,12 @@ class ClasificadorMovimientos
                 'tc.id',
                 'tc.monto',
                 'tc.descripcion',
+                'tc.referencia_tipo',
                 'tc.created_at',
                 'sc.nombre as sub_caja',
                 DB::raw("'gasto' as tipo")
             ])
             ->get();
-
-
 
         return $gastos;
     }
@@ -418,16 +433,16 @@ class ClasificadorMovimientos
 
         if ($fechaInicio && $fechaFin) {
             $queryMontos->where('tc.fecha', '>=', $fechaInicio)
-                        ->where('tc.fecha', '<=', $fechaFin);
+                ->where('tc.fecha', '<=', $fechaFin);
         }
 
         $montosIniciales = $queryMontos->select([
-                'mp.id as banco_id',
-                'mp.name as banco',
-                'mp.nombre_titular as titular',
-                'mp.cuenta_bancaria as cuenta',
-                DB::raw('SUM(tc.monto) as monto_inicial')
-            ])
+            'mp.id as banco_id',
+            'mp.name as banco',
+            'mp.nombre_titular as titular',
+            'mp.cuenta_bancaria as cuenta',
+            DB::raw('SUM(tc.monto) as monto_inicial')
+        ])
             ->groupBy('mp.id', 'mp.name', 'mp.nombre_titular', 'mp.cuenta_bancaria')
             ->get();
 

@@ -26,7 +26,11 @@ class ResumenCajaDTO
         public Collection $movimientosInternos = new Collection(),
         public Collection $prestamos = new Collection(),
         public Collection $prestamosVendedores = new Collection(),
-        public Collection $resumenBancos = new Collection()
+        public Collection $resumenBancos = new Collection(),
+        public float $totalIngresosExtras = 0,
+        public float $totalGastosExtras = 0,
+        public Collection $detalleIngresosExtras = new Collection(),
+        public Collection $detalleGastosExtras = new Collection()
     ) {}
 
     public function toArray(): array
@@ -52,6 +56,10 @@ class ResumenCajaDTO
             'prestamos' => $this->prestamos,
             'prestamos_vendedores' => $this->prestamosVendedores,
             'resumen_bancos' => $this->resumenBancos,
+            'total_ingresos_extras' => (float) $this->totalIngresosExtras,
+            'total_gastos_extras' => (float) $this->totalGastosExtras,
+            'detalle_ingresos_extras' => $this->detalleIngresosExtras,
+            'detalle_gastos_extras' => $this->detalleGastosExtras,
         ];
     }
 }
