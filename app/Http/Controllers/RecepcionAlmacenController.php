@@ -568,7 +568,7 @@ class RecepcionAlmacenController extends Controller
                 // 4. Marcar compra como Creado (ya no está completamente recepcionada)
                 DB::table('compra')
                     ->where('id', $recepcion->compra_id)
-                    ->update(['estado_de_compra' => 'pendiente']);
+                    ->update(['estado_de_compra' => 'cr']);
 
                 return $recepcion;
             });
