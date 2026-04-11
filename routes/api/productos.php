@@ -50,7 +50,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PRECIOS
     // ============================================
-    Route::prefix('productos')->group(function () {
+    Route::prefix('productos')->middleware('broadcast:productos')->group(function () {
         Route::get('/{id}/detalle-precios', [ProductoPriceController::class, 'show']);
         Route::put('/{id}/precios', [ProductoPriceController::class, 'update']);
         Route::post('/precios/bulk-update', [ProductoPriceController::class, 'bulkUpdate']);
@@ -66,7 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // CRUD (apiResource)
     // ============================================
-    Route::apiResource('productos', ProductoController::class);
+    Route::apiResource('productos', ProductoController::class)->middleware('broadcast:productos');
 
     // ============================================
     // REPORTES DE INVENTARIO

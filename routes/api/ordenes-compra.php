@@ -32,7 +32,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // ÓRDENES DE COMPRA
     // ============================================
-    Route::prefix('ordenes-compra')->group(function () {
+    Route::prefix('ordenes-compra')->middleware('broadcast:ordenes-compra')->group(function () {
         Route::get('/', [OrdenCompraController::class, 'index']);
         Route::post('/', [OrdenCompraController::class, 'store']);
         Route::get('/{id}', [OrdenCompraController::class, 'show']);

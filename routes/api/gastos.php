@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->group(function () {
 
     // Rutas principales de gastos
-    Route::prefix('gastos')->group(function () {
+    Route::prefix('gastos')->middleware('broadcast:gastos')->group(function () {
 
         // Obtener reporte de gastos con filtros
         Route::get('/', [EgresoDineroController::class, 'index']);
@@ -43,7 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Rutas para los gastos extras
-    Route::prefix('gastos-extras')->group(function () {
+    Route::prefix('gastos-extras')->middleware('broadcast:gastos')->group(function () {
         Route::get('/resumen', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'resumen']);
         Route::get('/disponibles', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'disponibles']);
         Route::get('/', [\App\Http\Controllers\FlujoFinanciero\GastoExtraController::class, 'index']);

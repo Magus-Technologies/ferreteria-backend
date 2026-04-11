@@ -28,7 +28,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // DESPLIEGUE DE PAGO (Legacy)
     // ============================================
     Route::apiResource('despliegues-de-pago', DespliegueDePagoController::class)
-        ->only(['index', 'show', 'store', 'update', 'destroy']);
+        ->only(['index', 'show', 'store', 'update', 'destroy'])
+        ->middleware('broadcast:despliegues-de-pago');
 
     // ============================================
     // MÉTODOS DE PAGO (Alias para compatibilidad)
@@ -46,7 +47,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // MÓDULO DE CAJAS REFACTORIZADO
     // ============================================
-    Route::prefix('cajas')->group(function () {
+    Route::prefix('cajas')->middleware('broadcast:cajas')->group(function () {
 
         // Métodos de Pago
         Route::get('/metodos-pago', [DesplieguePagoController::class, 'index']);

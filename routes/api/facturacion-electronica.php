@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->group(function () {
+Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->middleware('broadcast:facturacion-electronica')->group(function () {
 
     // ========== CONFIGURACIÓN ==========
     Route::get('/configuracion/auto-send-status', [ConfiguracionController::class, 'getAutoSendStatus']);

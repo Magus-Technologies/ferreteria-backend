@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->group(function () {
 
     // Rutas principales de ingresos
-    Route::prefix('ingresos')->group(function () {
+    Route::prefix('ingresos')->middleware('broadcast:ingresos')->group(function () {
 
         // Obtener reporte de ingresos con filtros
         Route::get('/', [IngresoDineroController::class, 'index']);
@@ -43,7 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Rutas para los ingresos extras
-    Route::prefix('ingresos-extras')->group(function () {
+    Route::prefix('ingresos-extras')->middleware('broadcast:ingresos')->group(function () {
         Route::get('/resumen', [\App\Http\Controllers\FlujoFinanciero\IngresoExtraController::class, 'resumen']);
         Route::get('/', [\App\Http\Controllers\FlujoFinanciero\IngresoExtraController::class, 'index']);
         Route::post('/', [\App\Http\Controllers\FlujoFinanciero\IngresoExtraController::class, 'store']);

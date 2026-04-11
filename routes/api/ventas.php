@@ -31,7 +31,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // VENTAS
     // ============================================
-    Route::prefix('ventas')->group(function () {
+    Route::prefix('ventas')->middleware('broadcast:ventas')->group(function () {
         Route::get('/por-cobrar', [VentaController::class, 'ventasPorCobrar']);
         Route::get('/historial', [VentaController::class, 'historialGeneral']);
         Route::post('/cobro-multiple', [VentaController::class, 'storeCobroMultiple']); // Cobro múltiple por cliente
@@ -39,12 +39,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{id}/cobros', [VentaController::class, 'getCobros']);   // Listar cobros de una venta
         Route::post('/{id}/cobros', [VentaController::class, 'storeCobro']); // Registrar un cobro
     });
-    Route::apiResource('ventas', VentaController::class)->middleware('caja.abierta');
+    Route::apiResource('ventas', VentaController::class)->middleware(['caja.abierta', 'broadcast:ventas']);
 
     // ============================================
     // COMPRAS
     // ============================================
-    Route::prefix('compras')->group(function () {
+    Route::prefix('compras')->middleware('broadcast:compras')->group(function () {
         Route::get('/resumen-mensual', [CompraController::class, 'resumenMensual']);
         Route::get('/reporte', [CompraController::class, 'reporteCompras']);
         Route::get('/resumen', [CompraController::class, 'resumenCompras']);
@@ -54,16 +54,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/pagos', [CompraController::class, 'storePago']);
         Route::put('/{id}/lotes-vencimientos', [CompraController::class, 'updateLotesVencimientos']);
     });
-    Route::apiResource('compras', CompraController::class);
+    Route::apiResource('compras', CompraController::class)->middleware('broadcast:compras');
 
     // ============================================
     // COTIZACIONES
     // ============================================
-    Route::prefix('cotizaciones')->group(function () {
+    Route::prefix('cotizaciones')->middleware('broadcast:cotizaciones')->group(function () {
         Route::get('/siguiente-numero/preview', [CotizacionController::class, 'siguienteNumero']);
         Route::post('/{id}/convertir-a-venta', [CotizacionController::class, 'convertirAVenta']);
     });
-    Route::apiResource('cotizaciones', CotizacionController::class);
+    Route::apiResource('cotizaciones', CotizacionController::class)->middleware('broadcast:cotizaciones');
 
     // ============================================
     // PRÉSTAMOS (Clientes)
@@ -74,7 +74,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/pagos', [PrestamoController::class, 'registrarPago']);
         Route::delete('/{prestamo_id}/pagos/{pago_id}', [PrestamoController::class, 'eliminarPago']);
     });
-    Route::apiResource('prestamos', PrestamoController::class)->middleware('caja.abierta');
+    Route::apiResource('prestamos', PrestamoController::class)->middleware(['caja.abierta', 'broadcast:prestamos']);
 
     // ============================================
     // CLIENTES
@@ -89,7 +89,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('direcciones/{id}', [ClienteController::class, 'eliminarDireccion']);
     Route::post('direcciones/{id}/marcar-principal', [ClienteController::class, 'marcarDireccionPrincipal']);
     
-    Route::apiResource('clientes', ClienteController::class);
+    Route::apiResource('clientes', ClienteController::class)->middleware('broadcast:clientes');
 
     // ============================================
     // CLIENTES - REPORTES
@@ -117,28 +117,28 @@ Route::middleware('auth:sanctum')->group(function () {
     // PROVEEDORES
     // ============================================
     Route::get('proveedores/check-documento', [ProveedorController::class, 'checkDocumento']);
-    Route::apiResource('proveedores', ProveedorController::class);
+    Route::apiResource('proveedores', ProveedorController::class)->middleware('broadcast:proveedores');
 
     // ============================================
     // INGRESOS Y SALIDAS (Inventario)
     // ============================================
-    Route::apiResource('ingresos-salidas', IngresoSalidaController::class);
+    Route::apiResource('ingresos-salidas', IngresoSalidaController::class)->middleware('broadcast:ingresos-salidas');
 
     // ============================================
     // TRANSFERENCIAS DE STOCK (entre almacenes)
     // ============================================
-    Route::apiResource('transferencias-stock', \App\Http\Controllers\TransferenciaStockController::class)->only(['index', 'store', 'destroy']);
+    Route::apiResource('transferencias-stock', \App\Http\Controllers\TransferenciaStockController::class)->only(['index', 'store', 'destroy'])->middleware('broadcast:transferencias-stock');
 
     // ============================================
     // RECEPCIONES DE ALMACÉN
     // ============================================
-    Route::apiResource('recepciones-almacen', RecepcionAlmacenController::class)->only(['index', 'show', 'store', 'destroy']);
+    Route::apiResource('recepciones-almacen', RecepcionAlmacenController::class)->only(['index', 'show', 'store', 'destroy'])->middleware('broadcast:recepciones-almacen');
 
     // ============================================
     // ENTREGAS DE PRODUCTOS
     // ============================================
-    Route::post('entregas-productos/{id}/aceptar', [EntregaProductoController::class, 'aceptar']);
-    Route::apiResource('entregas-productos', EntregaProductoController::class);
+    Route::post('entregas-productos/{id}/aceptar', [EntregaProductoController::class, 'aceptar'])->middleware('broadcast:entregas-productos');
+    Route::apiResource('entregas-productos', EntregaProductoController::class)->middleware('broadcast:entregas-productos');
 
     // ============================================
     // PAQUETES
@@ -150,7 +150,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // SERIES DE DOCUMENTOS
     // ============================================
     Route::get('series-documentos/siguiente-numero/preview', [SerieDocumentoController::class, 'siguienteNumero']);
-    Route::apiResource('series-documentos', SerieDocumentoController::class);
+    Route::apiResource('series-documentos', SerieDocumentoController::class)->middleware('broadcast:series-documentos');
 
     // ============================================
     // KARDEX
@@ -162,7 +162,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // CHOFERES
     // ============================================
     Route::get('choferes/buscar-dni/{dni}', [ChoferController::class, 'buscarPorDni']);
-    Route::apiResource('choferes', ChoferController::class);
+    Route::apiResource('choferes', ChoferController::class)->middleware('broadcast:choferes');
 
     // ============================================
     // NOTAS DE DÉBITO (Facturación Electrónica)

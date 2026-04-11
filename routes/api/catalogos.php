@@ -28,16 +28,16 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // CATÁLOGOS PRINCIPALES
     // ============================================
-    Route::apiResource('almacenes', AlmacenController::class);
-    Route::patch('almacenes/{id}/toggle-activo', [AlmacenController::class, 'toggleActivo']);
-    Route::apiResource('categorias', CategoriaController::class);
-    Route::apiResource('marcas', MarcaController::class);
-    Route::apiResource('ubicaciones', UbicacionController::class);
-    Route::apiResource('unidades-medida', UnidadMedidaController::class);
-    Route::apiResource('unidades-derivadas', UnidadDerivadaController::class);
-    Route::apiResource('tipos-ingreso-salida', TipoIngresoSalidaController::class);
-    Route::apiResource('tipos-servicio', TipoServicioController::class);
-    Route::apiResource('vehiculos', VehiculoController::class);
+    Route::apiResource('almacenes', AlmacenController::class)->middleware('broadcast:almacenes');
+    Route::patch('almacenes/{id}/toggle-activo', [AlmacenController::class, 'toggleActivo'])->middleware('broadcast:almacenes');
+    Route::apiResource('categorias', CategoriaController::class)->middleware('broadcast:categorias');
+    Route::apiResource('marcas', MarcaController::class)->middleware('broadcast:marcas');
+    Route::apiResource('ubicaciones', UbicacionController::class)->middleware('broadcast:ubicaciones');
+    Route::apiResource('unidades-medida', UnidadMedidaController::class)->middleware('broadcast:unidades-medida');
+    Route::apiResource('unidades-derivadas', UnidadDerivadaController::class)->middleware('broadcast:unidades-derivadas');
+    Route::apiResource('tipos-ingreso-salida', TipoIngresoSalidaController::class)->middleware('broadcast:tipos-ingreso-salida');
+    Route::apiResource('tipos-servicio', TipoServicioController::class)->middleware('broadcast:tipos-servicio');
+    Route::apiResource('vehiculos', VehiculoController::class)->middleware('broadcast:vehiculos');
 
     // ============================================
     // UBIGEO (Departamentos, Provincias, Distritos)

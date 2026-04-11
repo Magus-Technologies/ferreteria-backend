@@ -15,6 +15,7 @@ use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\CumpleanosController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\TipoCambioController;
+use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -130,6 +131,9 @@ Route::get('facturas/comprobante/{comprobanteId}/xml', [
 
 Route::middleware('auth:sanctum')->group(function () {
 
+    // Broadcasting auth (para canales privados)
+    Broadcast::routes();
+
     // ============================================
     // MÓDULOS IMPORTADOS
     // ============================================
@@ -152,7 +156,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/vendedores-disponibles', [UsuarioController::class, 'vendedoresDisponibles']);
         Route::post('/fcm-token', [NotificacionController::class, 'updateFcmToken']);
     });
-    Route::apiResource('usuarios', UsuarioController::class);
+    Route::apiResource('usuarios', UsuarioController::class)->middleware('broadcast:usuarios');
 
     // ============================================
     // NOTIFICACIONES PUSH (Firebase)
@@ -180,7 +184,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // EMPRESA
     // ============================================
-    Route::apiResource('empresas', EmpresaController::class);
+    Route::apiResource('empresas', EmpresaController::class)->middleware('broadcast:empresas');
 
     // ============================================
     // CONFIGURACIÓN DE IMPRESIÓN
@@ -208,7 +212,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/enviar-sunat', [GuiaRemisionController::class, 'enviarSunat']);
         Route::get('/{id}/pdf-data', [GuiaRemisionController::class, 'getPdfData']);
     });
-    Route::apiResource('guias-remision', GuiaRemisionController::class);
+    Route::apiResource('guias-remision', GuiaRemisionController::class)->middleware('broadcast:guias-remision');
 
     // ============================================
     // VALES DE COMPRA (PROMOCIONES)
