@@ -37,7 +37,7 @@ X- No me abre el buscador de clientes cuando no escribo nada; debería salir sin
 
 ## ORDEN DE COMPRA
 
-? Fecha filtre hoy y tipo documento default en Factura y forma de pago en Contado; ahora serie, número, guía, percepción y egreso asociado no van.
+X Fecha filtre hoy y tipo documento default en Factura y forma de pago en Contado; ahora serie, número, guía, percepción y egreso asociado no van.
 
 ## MIS ORDENES DE COMPRA
 
