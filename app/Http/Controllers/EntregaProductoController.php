@@ -46,6 +46,7 @@ class EntregaProductoController extends Controller
             ->with([
                 'venta:id,serie,numero,tipo_documento,cliente_id',
                 'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono',
+                'venta.cliente.direcciones:id,cliente_id,tipo,direccion,referencia,latitud,longitud',
                 'almacenSalida:id,name',
                 'despachador:id,name',
                 'vehiculo:id,name,tipo,placa',

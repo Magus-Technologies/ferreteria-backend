@@ -5,9 +5,9 @@
 - ~~En búsqueda no jala nuevos proveedores ni nuevos clientes.~~ ✅ (falta DECOLECTA_TOKEN en .env del servidor)
 - ~~Usuarios: cuando está creado, al momento de editar no sale para cambiar contraseña.~~ ✅
 - ~~Refrescar siempre cuando se haga una acción, y lo que se haga en una PC se muestre en tiempo real a las demás.~~ ✅ (Laravel Reverb WebSocket implementado)
-- Fecha emisión: formato hora/minuto/segundo AM y PM.
-- Formulario de fecha: filtrar siempre el hoy por defecto.
-- Una vez que se busque un producto y salga del flotante de búsqueda, se tiene que refrescar el nombre y el selector; que se mantenga en el buscador que está.
+- ~~Fecha emisión: formato hora/minuto/segundo AM y PM.~~ ✅
+- ~~Formulario de fecha: filtrar siempre el hoy por defecto.~~ ✅
+- ~~Una vez que se busque un producto y salga del flotante de búsqueda, se tiene que refrescar el nombre y el selector; que se mantenga en el buscador que está.~~ ✅
 
 ## ALMACEN
 
@@ -29,7 +29,7 @@
 ## VENTAS
 
 - No me abre el buscador de clientes cuando no escribo nada; debería salir sin filtrar nada.
-- En clientes no funciona el calendario en cumpleaños.
+- ~~En clientes no funciona el calendario en cumpleaños.~~ ✅
 
 ## MIS VENTAS
 
@@ -42,7 +42,7 @@
 ## MIS ORDENES DE COMPRA
 
 - Consultar cómo funciona los filtros de estado.
-- Duplicar: no jala bien los datos.
+- ~~Duplicar: no jala bien los datos.~~ ✅ (RUC mostraba ID del proveedor en vez del número de documento, corregido con proveedorOptionsDefault + initialSearchText)
 
 ## APERTURA DE CAJA
 
@@ -54,7 +54,7 @@
 
 ## MIS ENTREGAS
 
-- Cuando voy a despachar y selecciono en el mapa, no jala la del GPS sino de la dirección.
+- ~~Cuando voy a despachar y selecciono en el mapa, no jala la del GPS sino de la dirección.~~ ✅ (fallback a coordenadas GPS del cliente cuando la entrega no tiene coordenadas propias)
 
 ## WHATSAPP / CORREO
 
