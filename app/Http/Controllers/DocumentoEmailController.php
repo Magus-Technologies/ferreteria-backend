@@ -23,12 +23,14 @@ class DocumentoEmailController extends Controller
             'id' => 'required|string',
             'email' => 'required|email',
             'formato' => 'nullable|string|in:ticket,a4',
+            'mensaje' => 'nullable|string|max:1000',
         ]);
 
         $tipo = $request->input('tipo');
         $id = $request->input('id');
         $email = $request->input('email');
         $formato = $request->input('formato', 'a4');
+        $mensaje = $request->input('mensaje');
 
         // Generar PDF usando los servicios existentes
         $pdfResponse = match ($tipo) {
@@ -53,6 +55,7 @@ class DocumentoEmailController extends Controller
             pdfContent: $pdfContent,
             fileName: $fileName,
             empresaNombre: $empresaNombre,
+            mensajePersonalizado: $mensaje,
         ));
 
         return response()->json([

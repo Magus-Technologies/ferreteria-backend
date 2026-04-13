@@ -50,6 +50,14 @@ class ValeCompraController extends Controller
             }
         }
 
+        // Filtro por rango de fechas
+        if ($request->has('desde')) {
+            $query->where('fecha_inicio', '>=', $request->desde);
+        }
+        if ($request->has('hasta')) {
+            $query->where('fecha_inicio', '<=', $request->hasta);
+        }
+
         // Búsqueda por código o nombre
         if ($request->has('search')) {
             $search = $request->search;
