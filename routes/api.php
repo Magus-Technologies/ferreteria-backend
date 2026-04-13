@@ -134,6 +134,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Broadcasting auth (para canales privados)
     Broadcast::routes();
 
+    // Envío de documentos por email
+    Route::post('/documentos/enviar-email', [App\Http\Controllers\DocumentoEmailController::class, 'enviarEmail']);
+
     // ============================================
     // MÓDULOS IMPORTADOS
     // ============================================
