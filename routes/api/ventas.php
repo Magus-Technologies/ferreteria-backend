@@ -133,6 +133,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // RECEPCIONES DE ALMACÉN
     // ============================================
     Route::apiResource('recepciones-almacen', RecepcionAlmacenController::class)->only(['index', 'show', 'store', 'destroy'])->middleware('broadcast:recepciones-almacen');
+    Route::post('recepciones-almacen/finalizar-compra/{compra_id}', [RecepcionAlmacenController::class, 'finalizarCompra'])->middleware('broadcast:recepciones-almacen');
 
     // ============================================
     // ENTREGAS DE PRODUCTOS

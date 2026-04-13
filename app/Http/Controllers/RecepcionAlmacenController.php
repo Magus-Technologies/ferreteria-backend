@@ -472,6 +472,188 @@ class RecepcionAlmacenController extends Controller
     }
 
     /**
+     * Finalizar recepción de una compra
+     * POST /api/recepciones-almacen/finalizar-compra/{compra_id}
+     * 
+     * Crea automáticamente una recepción con todos los productos pendientes
+     * y marca la compra como Procesado
+     */
+    public function finalizarCompra($compra_id)
+    {
+        try {
+            $compra = \App\Models\Compra::with([
+                'productosPorAlmacen.productoAlmacen',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable'
+            ])->findOrFail($compra_id);
+
+            // Verificar que tenga al menos una recepción previa
+            $recepcionesCount = \App\Models\RecepcionAlmacen::where('compra_id', $compra_id)
+                ->where('estado', true)
+                ->count();
+
+            if ($recepcionesCount === 0) {
+                return response()->json([
+                    'error' => ['message' => 'Debe crear al menos una recepción antes de finalizar']
+                ], 400);
+            }
+
+            // Verificar que haya productos pendientes
+            $hayPendientes = false;
+            foreach ($compra->productosPorAlmacen as $producto) {
+                foreach ($producto->unidadesDerivadas as $unidad) {
+                    if ($unidad->cantidad_pendiente > 0) {
+                        $hayPendientes = true;
+                        break 2;
+                    }
+                }
+            }
+
+            if (!$hayPendientes) {
+                return response()->json([
+                    'error' => ['message' => 'No hay productos pendientes para recepcionar']
+                ], 400);
+            }
+
+            $result = DB::transaction(function () use ($compra) {
+                // Crear recepción automática con productos pendientes
+                $ultimoNumero = RecepcionAlmacen::max('numero') ?? 0;
+                $numero = $ultimoNumero + 1;
+
+                $recepcion = RecepcionAlmacen::create([
+                    'numero' => $numero,
+                    'compra_id' => $compra->id,
+                    'orden_compra_id' => $compra->orden_compra_id,
+                    'user_id' => auth()->id() ?? $compra->user_id,
+                    'fecha' => now(),
+                    'observaciones' => 'Recepción automática - Finalización de compra con productos faltantes (NO RECIBIDOS)',
+                    'estado' => false,
+                ]);
+
+                // Procesar cada producto con cantidad pendiente
+                foreach ($compra->productosPorAlmacen as $productoCompra) {
+                    $productoAlmacen = $productoCompra->productoAlmacen;
+                    $tieneUnidadesPendientes = false;
+
+                    // Verificar si tiene unidades pendientes
+                    foreach ($productoCompra->unidadesDerivadas as $unidad) {
+                        if ($unidad->cantidad_pendiente > 0) {
+                            $tieneUnidadesPendientes = true;
+                            break;
+                        }
+                    }
+
+                    if (!$tieneUnidadesPendientes) {
+                        continue;
+                    }
+
+                    // Crear ProductoAlmacenRecepcion
+                    $productoRecepcion = \App\Models\ProductoAlmacenRecepcion::create([
+                        'recepcion_id' => $recepcion->id,
+                        'costo' => $productoCompra->costo,
+                        'producto_almacen_id' => $productoAlmacen->id,
+                    ]);
+
+                    $stockBase = (float) $productoAlmacen->stock_fraccion;
+                    $acumulado = 0;
+
+                    // Procesar cada unidad derivada pendiente
+                    foreach ($productoCompra->unidadesDerivadas as $unidadCompra) {
+                        $cantidadPendiente = (float) $unidadCompra->cantidad_pendiente;
+
+                        if ($cantidadPendiente <= 0) {
+                            continue;
+                        }
+
+                        $factor = (float) $unidadCompra->factor;
+                        $bonificacion = $unidadCompra->bonificacion ?? false;
+
+                        // Crear UnidadDerivadaInmutableRecepcion
+                        $udRecepcion = \App\Models\UnidadDerivadaInmutableRecepcion::create([
+                            'unidad_derivada_inmutable_id' => $unidadCompra->unidad_derivada_inmutable_id,
+                            'producto_almacen_recepcion_id' => $productoRecepcion->id,
+                            'factor' => $factor,
+                            'cantidad' => $cantidadPendiente,
+                            'cantidad_restante' => $cantidadPendiente,
+                            'lote' => $unidadCompra->lote,
+                            'vencimiento' => $unidadCompra->vencimiento,
+                            'flete' => $unidadCompra->flete ?? 0,
+                            'bonificacion' => $bonificacion,
+                        ]);
+
+                        // Actualizar cantidad_pendiente a 0
+                        $unidadCompra->update(['cantidad_pendiente' => 0]);
+
+                        // Crear historial
+                        $stockInicial = $stockBase + $acumulado;
+                        $cantidadTotal = $cantidadPendiente * $factor;
+
+                        \App\Models\HistorialUnidadDerivadaInmutableRecepcion::create([
+                            'unidad_derivada_inmutable_recepcion_id' => $udRecepcion->id,
+                            'stock_anterior' => $stockInicial,
+                            'stock_nuevo' => $stockInicial + $cantidadTotal,
+                        ]);
+
+                        $acumulado += $cantidadTotal;
+                    }
+
+                    // Actualizar stock del producto
+                    if ($acumulado > 0) {
+                        $nuevoCosto = null;
+                        if ($stockBase <= 0) {
+                            $todasBonificacion = $productoCompra->unidadesDerivadas
+                                ->where('cantidad_pendiente', '>', 0)
+                                ->every(fn($ud) => $ud->bonificacion ?? false);
+                            $nuevoCosto = $todasBonificacion ? 0 : $productoCompra->costo;
+                        }
+
+                        $updateData = [
+                            'stock_fraccion' => DB::raw("stock_fraccion + {$acumulado}"),
+                        ];
+                        if ($nuevoCosto !== null) {
+                            $updateData['costo'] = $nuevoCosto;
+                        }
+
+                        \App\Models\ProductoAlmacen::where('id', $productoAlmacen->id)->update($updateData);
+
+                        app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+                    }
+                }
+
+                // Marcar compra como Procesado
+                $compra->update(['estado_de_compra' => \App\Enums\EstadoDeCompraDefinitiva::Procesado]);
+
+                // Si la compra tiene orden_compra_id, actualizar también la orden
+                if ($compra->orden_compra_id) {
+                    \App\Models\OrdenCompra::where('id', $compra->orden_compra_id)
+                        ->update(['estado' => \App\Enums\EstadoDeCompra::Completada]);
+                }
+
+                return $recepcion;
+            });
+
+            $result->load([
+                'compra.proveedor',
+                'compra.ordenCompra:id,codigo,estado',
+                'productosPorAlmacen.productoAlmacen.producto',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                'user',
+            ]);
+
+            return response()->json([
+                'data' => $result,
+                'message' => 'Recepción finalizada exitosamente. Se creó una recepción automática con los productos faltantes.'
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => [
+                    'message' => 'Error al finalizar la recepción: ' . $e->getMessage()
+                ]
+            ], 500);
+        }
+    }
+
+    /**
      * Eliminar (anular) una recepción de almacén
      * DELETE /api/recepciones-almacen/{id}
      *
