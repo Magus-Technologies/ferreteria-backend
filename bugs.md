@@ -28,12 +28,12 @@
 
 ## VENTAS
 
-- No me abre el buscador de clientes cuando no escribo nada; debería salir sin filtrar nada.
+- ~~No me abre el buscador de clientes cuando no escribo nada; debería salir sin filtrar nada.~~ ✅
 - ~~En clientes no funciona el calendario en cumpleaños.~~ ✅
 
 ## MIS VENTAS
 
-- No se aprecia bien los filtros, está mezclado, y cuando pago un crédito no cambia de color.
+- ~~No se aprecia bien los filtros, está mezclado, y cuando pago un crédito no cambia de color.~~ ✅ (filtros reorganizados en 2 filas uniformes + invalidación de QueryKeys.VENTAS al registrar cobro)
 
 ## ORDEN DE COMPRA
 
