@@ -821,7 +821,8 @@ class CompraController extends Controller
         $formaDePagoEnum = FormaDePago::from($compra['forma_de_pago']);
 
         $tieneEgreso = !empty($compra['egreso_dinero_id']) || !empty($compra['gasto_extra_id']);
-        $tieneDespliegue = !empty($compra['despliegue_de_pago_id']);
+        $tieneMetodosPago = !empty($compra['metodos_de_pago']);
+        $tieneDespliegue = !empty($compra['despliegue_de_pago_id']) || $tieneMetodosPago;
 
         if (
             $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
@@ -840,11 +841,11 @@ class CompraController extends Controller
             throw new \Exception('En compras a crédito no debes seleccionar Egreso asociado ni Despliegue de Pago');
         }
 
-        // egreso_dinero_id (legado) no puede combinarse con despliegue
+        // egreso_dinero_id (legado) no puede combinarse con despliegue (legado)
         if (
             $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             !empty($compra['egreso_dinero_id']) &&
-            $tieneDespliegue
+            !empty($compra['despliegue_de_pago_id'])
         ) {
             throw new \Exception('No puedes seleccionar Egreso asociado (legado) y Despliegue de Pago al mismo tiempo');
         }

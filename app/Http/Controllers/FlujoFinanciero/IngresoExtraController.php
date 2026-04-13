@@ -132,13 +132,16 @@ class IngresoExtraController extends Controller
                 ]);
 
                 if ($estado === 'aprobado') {
+                    $subCajaId = $this->obtenerSubCajaIdFromPago($request->despliegue_pago_id);
+                    
                     $this->registrarEnCajaActiva(
                         $ingresoId,
                         'ingreso_extra',
                         'ingreso',
                         (float) $request->monto,
                         $request->despliegue_pago_id,
-                        'Ingreso Extra Automático: ' . $request->concepto
+                        'Ingreso Extra Automático: ' . $request->concepto,
+                        $subCajaId
                     );
                 }
 
@@ -278,13 +281,16 @@ class IngresoExtraController extends Controller
                 $ingreso->save();
 
                 // Como recien se aprueba, lo impactamos en caja
+                $subCajaId = $this->obtenerSubCajaIdFromPago($ingreso->despliegue_pago_id);
+
                 $this->registrarEnCajaActiva(
                     $ingreso->id,
                     'ingreso_extra',
                     'ingreso',
                     (float) $ingreso->monto,
                     $ingreso->despliegue_pago_id,
-                    'Aprobación de Ingreso Extra: ' . $ingreso->concepto
+                    'Aprobación de Ingreso Extra: ' . $ingreso->concepto,
+                    $subCajaId
                 );
 
                 return response()->json([
@@ -330,5 +336,16 @@ class IngresoExtraController extends Controller
             ->first();
 
         return $apertura;
+    }
+
+    /**
+     * Obtener la sub-caja asociada a un método de pago
+     */
+    private function obtenerSubCajaIdFromPago(?string $desplieguePagoId): ?string
+    {
+        if (!$desplieguePagoId) return null;
+
+        $dp = \App\Models\DespliegueDePago::with('metodoDePago')->find($desplieguePagoId);
+        return $dp?->metodoDePago?->subcaja_id;
     }
 }

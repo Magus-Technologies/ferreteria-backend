@@ -8,27 +8,28 @@
 - ~~Fecha emisión: formato hora/minuto/segundo AM y PM.~~ ✅
 - ~~Formulario de fecha: filtrar siempre el hoy por defecto.~~ ✅
 - ~~Una vez que se busque un producto y salga del flotante de búsqueda, se tiene que refrescar el nombre y el selector; que se mantenga en el buscador que está.~~ ✅
-
+fecha de nacimiento.
 ## ALMACEN
 
-- Nombres de los precios: Precio Público, Precio Ferretería, Precio Especial, Precio Final - Ventas.
+X - Nombres de los precios: Precio Público, Precio Ferretería, Precio Especial, Precio Final - Ventas.
 
 ## COMPRAS
 
-- En la búsqueda de productos, en detalles de precio no filtra bien las columnas a seleccionar para visualización.
-- No me permite hacer compras al contado.
-- Los egresos asociados no se visualizan.
-- No limpia cuando pongo en espera.
+X - En la búsqueda de productos, en detalles de precio no filtra bien las columnas a seleccionar para visualización. checkbox
+X- No me permite hacer compras al contado.
+X - Los egresos asociados no se visualizan.
+X - No limpia cuando pongo en espera.
 
 ## MIS COMPRAS
 
-- Filtro de estado de cuenta, estado de compra y pendientes de recepción.
-- Cuando recepciono, el cliente sale como 19; no busca nuevamente con el nombre que está guardado.
-- Cuando pongo defrente finalizar recepción no se muestra en mis recepciones.
+X - Filtro de estado de cuenta, estado de compra y pendientes de recepción.
+X - Cuando recepciono, el cliente sale como 19; no busca nuevamente con el nombre que está guardado.
+X - Cuando pongo defrente finalizar recepción no se muestra en mis recepciones.
 
 ## VENTAS
 
 - ~~No me abre el buscador de clientes cuando no escribo nada; debería salir sin filtrar nada.~~ ✅
+X- No me abre el buscador de clientes cuando no escribo nada; debería salir sin filtrar nada.
 - ~~En clientes no funciona el calendario en cumpleaños.~~ ✅
 
 ## MIS VENTAS
@@ -37,7 +38,7 @@
 
 ## ORDEN DE COMPRA
 
-- Fecha filtre hoy y tipo documento default en Factura y forma de pago en Contado; ahora serie, número, guía, percepción y egreso asociado no van.
+X Fecha filtre hoy y tipo documento default en Factura y forma de pago en Contado; ahora serie, número, guía, percepción y egreso asociado no van.
 
 ## MIS ORDENES DE COMPRA
 
@@ -50,7 +51,7 @@
 
 ## FACTURACION
 
-- De este módulo cuando agrego un gasto está mal o no jala el mismo modal de gastos de contabilidad y no se registra.
+? - Eliminar - De este módulo cuando agrego un gasto y ingreso .
 
 ## MIS ENTREGAS
 

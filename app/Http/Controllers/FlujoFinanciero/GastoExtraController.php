@@ -9,9 +9,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\User;
+use App\Traits\ManejaFlujoCajaExtra;
 
 class GastoExtraController extends Controller
 {
+    use ManejaFlujoCajaExtra;
     /**
      * Listar todos los gastos extras
      */
@@ -83,6 +85,13 @@ class GastoExtraController extends Controller
 
         try {
             return DB::transaction(function () use ($request) {
+                // Determinar la sub-caja a partir del método de pago
+                $subCajaId = null;
+                if ($request->despliegue_pago_id) {
+                    $dp = \App\Models\DespliegueDePago::with('metodoDePago')->find($request->despliegue_pago_id);
+                    $subCajaId = $dp?->metodoDePago?->subcaja_id;
+                }
+
                 $gasto = GastoExtra::create([
                     'monto' => $request->monto,
                     'concepto' => $request->concepto,
@@ -90,17 +99,28 @@ class GastoExtraController extends Controller
                     'despliegue_pago_id' => $request->despliegue_pago_id,
                 ]);
 
+                // Registrar en caja (esto validará saldo y lanzará excepción si es insuficiente)
+                $this->registrarEnCajaActiva(
+                    $gasto->id,
+                    'gasto_extra',
+                    'egreso',
+                    (float) $request->monto,
+                    $request->despliegue_pago_id,
+                    'Gasto Extra: ' . $request->concepto,
+                    $subCajaId
+                );
+
                 return response()->json([
                     'success' => true,
-                    'message' => 'Gasto registrado correctamente',
+                    'message' => 'Gasto registrado correctamente y descontado de caja',
                     'data' => $gasto
                 ], 201);
             });
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al registrar el gasto: ' . $e->getMessage()
-            ], 500);
+                'message' => $e->getMessage()
+            ], 422); // 422 for validation/balance errors
         }
     }
 
@@ -163,11 +183,21 @@ class GastoExtraController extends Controller
                     ], 422);
                 }
 
+                $gastoId = $gasto->id;
+                $concepto = $gasto->concepto;
+                
                 $gasto->delete();
+
+                // Reversar el dinero en caja
+                $this->reversarEnCajaActiva(
+                    $gastoId,
+                    'gasto_extra',
+                    'Anulación de gasto: ' . $concepto
+                );
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Gasto eliminado correctamente',
+                    'message' => 'Gasto eliminado correctamente y monto devuelto a caja',
                 ]);
             });
         } catch (\Exception $e) {
