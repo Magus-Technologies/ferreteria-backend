@@ -37,6 +37,9 @@ class RecepcionAlmacen extends Model
         'user_id',
         'compra_id',
         'orden_compra_id',
+        'motivo_finalizacion',
+        'fecha_finalizacion',
+        'es_finalizacion',
     ];
 
     /**
@@ -47,6 +50,8 @@ class RecepcionAlmacen extends Model
         return [
             'fecha' => 'datetime',
             'estado' => 'boolean',
+            'es_finalizacion' => 'boolean',
+            'fecha_finalizacion' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

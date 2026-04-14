@@ -167,6 +167,9 @@ class RecepcionAlmacenController extends Controller
             });
         });
 
+        // Ocultar recepciones de finalización (técnicas, no son entradas reales)
+        $query->where('es_finalizacion', false);
+
         $query->orderBy('fecha', 'desc');
 
         $perPage = $request->input('per_page', 50);
@@ -177,9 +180,37 @@ class RecepcionAlmacenController extends Controller
         }
 
         $paginated = $query->paginate($perPage);
+        $items = collect($paginated->items());
+
+        // Enriquecer con datos de finalización de la compra/orden (herencia de datos para las columnas de la tabla)
+        $compraIds = $items->pluck('compra_id')->filter()->unique();
+        $ordenCompraIds = $items->pluck('orden_compra_id')->filter()->unique();
+
+        if ($compraIds->isNotEmpty() || $ordenCompraIds->isNotEmpty()) {
+            $finalizaciones = RecepcionAlmacen::where('es_finalizacion', true)
+                ->where('estado', true)
+                ->where(function ($q) use ($compraIds, $ordenCompraIds) {
+                    if ($compraIds->isNotEmpty()) $q->whereIn('compra_id', $compraIds);
+                    if ($ordenCompraIds->isNotEmpty()) $q->orWhereIn('orden_compra_id', $ordenCompraIds);
+                })
+                ->get();
+
+            $items->each(function ($item) use ($finalizaciones) {
+                $fin = $finalizaciones->first(function ($f) use ($item) {
+                    return ($item->compra_id && $f->compra_id === $item->compra_id) ||
+                           ($item->orden_compra_id && $f->orden_compra_id === $item->orden_compra_id);
+                });
+
+                if ($fin) {
+                    $item->setAttribute('motivo_finalizacion', $fin->motivo_finalizacion);
+                    $item->setAttribute('fecha_finalizacion', $fin->fecha_finalizacion);
+                    $item->setAttribute('es_finalizacion', true); // Mostramos el badge de finalizada
+                }
+            });
+        }
 
         return response()->json([
-            'data' => $this->toSnakeCase(collect($paginated->items())),
+            'data' => $this->toSnakeCase($items),
             'total' => $paginated->total(),
             'current_page' => $paginated->currentPage(),
             'per_page' => $paginated->perPage(),
@@ -196,8 +227,10 @@ class RecepcionAlmacenController extends Controller
         $recepcion = RecepcionAlmacen::with([
             'compra.proveedor',
             'compra.almacen',
+            'compra.productosPorAlmacen.unidadesDerivadas',
             'ordenCompra.proveedor',
             'ordenCompra.almacen',
+            'ordenCompra.productos',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
@@ -211,7 +244,109 @@ class RecepcionAlmacenController extends Controller
             ], 404);
         }
 
+        // Enriquecer con cantidades pedidas, recepcionadas y finalizadas
+        $this->enrichRecepcionWithCounts($recepcion);
+
         return response()->json(['data' => $this->toSnakeCase($recepcion)]);
+    }
+
+    /**
+     * Enriquecer una recepción con cantidades pedidas, recepcionadas y finalizadas
+     */
+    private function enrichRecepcionWithCounts($recepcion)
+    {
+        $parentDocId = $recepcion->compra_id ?? $recepcion->orden_compra_id;
+        if (!$parentDocId) return;
+
+        // Obtener todas las recepciones asociadas al mismo documento padre
+        $query = RecepcionAlmacen::where('estado', true);
+        if ($recepcion->compra_id) {
+            $query->where('compra_id', $recepcion->compra_id);
+        } else {
+            $query->where('orden_compra_id', $recepcion->orden_compra_id);
+        }
+
+        $todasRecepciones = $query->with([
+            'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable'
+        ])->get();
+
+        // Obtener counts originales del documento padre
+        $parentDoc = null;
+        if ($recepcion->compra_id) {
+            $parentDoc = $recepcion->compra;
+        } else {
+            $parentDoc = $recepcion->ordenCompra;
+        }
+
+        foreach ($recepcion->productosPorAlmacen as $productoRecepcion) {
+            $productoAlmacenId = $productoRecepcion->producto_almacen_id;
+            $productoId = $productoRecepcion->productoAlmacen->producto_id;
+            
+            // Encontrar el producto original en el documento padre
+            $parentProduct = null;
+            if ($recepcion->compra_id && $parentDoc) {
+                $parentProduct = $parentDoc->productosPorAlmacen
+                    ->where('producto_almacen_id', $productoAlmacenId)
+                    ->first();
+            } else if ($recepcion->orden_compra_id && $parentDoc) {
+                $parentProduct = $parentDoc->productos
+                    ->where('producto_id', $productoId)
+                    ->first();
+            }
+
+            foreach ($productoRecepcion->unidadesDerivadas as $unidadRecepcion) {
+                $unidadId = $unidadRecepcion->unidad_derivada_inmutable_id;
+                $unidadName = $unidadRecepcion->unidadDerivadaInmutable->name;
+                $bonificacion = $unidadRecepcion->bonificacion;
+
+                // 1. Cantidad Pedida (original del documento padre)
+                $cantidadPedida = 0;
+                if ($parentProduct) {
+                    if ($recepcion->compra_id) {
+                        $unidadCompra = $parentProduct->unidadesDerivadas
+                            ->where('unidad_derivada_inmutable_id', $unidadId)
+                            ->where('bonificacion', $bonificacion)
+                            ->first();
+                        $cantidadPedida = $unidadCompra ? (float) $unidadCompra->cantidad : 0;
+                    } else {
+                        // Flujo OrdenCompra: comparar por nombre de unidad si coincide
+                        if ($parentProduct->unidad === $unidadName && !$bonificacion) {
+                            $cantidadPedida = (float) $parentProduct->cantidad;
+                        }
+                    }
+                }
+
+                // 2 & 3. Cantidad Recepcionada y Finalizada (acumulados)
+                $cantidadRecepcionada = 0;
+                $cantidadFinalizada = 0;
+
+                foreach ($todasRecepciones as $otraRecepcion) {
+                    $productoOtraRecepcion = $otraRecepcion->productosPorAlmacen
+                        ->where('producto_almacen_id', $productoAlmacenId)
+                        ->first();
+                    
+                    if ($productoOtraRecepcion) {
+                        $unidadOtraRecepcion = $productoOtraRecepcion->unidadesDerivadas
+                            ->where('unidad_derivada_inmutable_id', $unidadId)
+                            ->where('bonificacion', $bonificacion)
+                            ->first();
+                        
+                        if ($unidadOtraRecepcion) {
+                            if ($otraRecepcion->es_finalizacion) {
+                                $cantidadFinalizada += (float) $unidadOtraRecepcion->cantidad;
+                            } else {
+                                $cantidadRecepcionada += (float) $unidadOtraRecepcion->cantidad;
+                            }
+                        }
+                    }
+                }
+
+                // Agregar los campos calculados dinámicamente
+                $unidadRecepcion->setAttribute('cantidad_pedida', $cantidadPedida);
+                $unidadRecepcion->setAttribute('cantidad_recepcionada', $cantidadRecepcionada);
+                $unidadRecepcion->setAttribute('cantidad_finalizada', $cantidadFinalizada);
+            }
+        }
     }
 
     /**
@@ -478,8 +613,24 @@ class RecepcionAlmacenController extends Controller
      * Crea automáticamente una recepción con todos los productos pendientes
      * y marca la compra como Procesado
      */
-    public function finalizarCompra($compra_id)
+    public function finalizarCompra(Request $request, $compra_id)
     {
+        $validator = Validator::make($request->all(), [
+            'motivo_finalizacion' => 'required|string|min:10',
+        ], [
+            'motivo_finalizacion.required' => 'El motivo de finalización es requerido',
+            'motivo_finalizacion.min' => 'El motivo debe tener al menos 10 caracteres',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => [
+                    'message' => $validator->errors()->first(),
+                    'errors' => $validator->errors()
+                ]
+            ], 422);
+        }
+
         try {
             $compra = \App\Models\Compra::with([
                 'productosPorAlmacen.productoAlmacen',
@@ -499,11 +650,17 @@ class RecepcionAlmacenController extends Controller
 
             // Verificar que haya productos pendientes
             $hayPendientes = false;
+            $productosPendientes = [];
+            
             foreach ($compra->productosPorAlmacen as $producto) {
                 foreach ($producto->unidadesDerivadas as $unidad) {
                     if ($unidad->cantidad_pendiente > 0) {
                         $hayPendientes = true;
-                        break 2;
+                        $productosPendientes[] = [
+                            'producto' => $producto->productoAlmacen->producto->name ?? 'Producto',
+                            'unidad' => $unidad->unidadDerivadaInmutable->name ?? 'UND',
+                            'cantidad_pendiente' => $unidad->cantidad_pendiente,
+                        ];
                     }
                 }
             }
@@ -514,7 +671,7 @@ class RecepcionAlmacenController extends Controller
                 ], 400);
             }
 
-            $result = DB::transaction(function () use ($compra) {
+            $result = DB::transaction(function () use ($compra, $request) {
                 // Crear recepción automática con productos pendientes
                 $ultimoNumero = RecepcionAlmacen::max('numero') ?? 0;
                 $numero = $ultimoNumero + 1;
@@ -526,7 +683,10 @@ class RecepcionAlmacenController extends Controller
                     'user_id' => auth()->id() ?? $compra->user_id,
                     'fecha' => now(),
                     'observaciones' => 'Recepción automática - Finalización de compra con productos faltantes (NO RECIBIDOS)',
-                    'estado' => false,
+                    'motivo_finalizacion' => $request->motivo_finalizacion,
+                    'fecha_finalizacion' => now(),
+                    'es_finalizacion' => true,
+                    'estado' => true,
                 ]);
 
                 // Procesar cada producto con cantidad pendiente
@@ -597,7 +757,8 @@ class RecepcionAlmacenController extends Controller
                     }
 
                     // Actualizar stock del producto
-                    if ($acumulado > 0) {
+                    // SI ES FINALIZACIÓN, NO SE INCREMENTA EL STOCK (porque no se recibió físicamente)
+                    if ($acumulado > 0 && !$recepcion->es_finalizacion) {
                         $nuevoCosto = null;
                         if ($stockBase <= 0) {
                             $todasBonificacion = $productoCompra->unidadesDerivadas
@@ -641,6 +802,7 @@ class RecepcionAlmacenController extends Controller
 
             return response()->json([
                 'data' => $result,
+                'productos_finalizados' => $productosPendientes,
                 'message' => 'Recepción finalizada exitosamente. Se creó una recepción automática con los productos faltantes.'
             ], 201);
 
