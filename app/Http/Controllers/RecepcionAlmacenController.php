@@ -167,8 +167,31 @@ class RecepcionAlmacenController extends Controller
             });
         });
 
-        // Ocultar recepciones de finalización (técnicas, no son entradas reales)
-        $query->where('es_finalizacion', false);
+        // Filtrar recepciones de finalización (técnicas)
+        // Se muestran solo si NO existen recepciones normales para la misma compra/orden.
+        // Si existen normales, las de finalización se ocultan porque su data ya se heredó a las normales.
+        $query->where(function ($q) {
+            $q->where('es_finalizacion', false)
+                ->orWhere(function ($q2) {
+                    $q2->where('es_finalizacion', true)
+                        ->whereNotExists(function ($sub) {
+                            $sub->select(DB::raw(1))
+                                ->from('recepcionalmacen as r_sub')
+                                ->where('r_sub.es_finalizacion', false)
+                                ->where('r_sub.estado', true)
+                                ->where(function ($q_match) {
+                                    $q_match->where(function ($q_compra) {
+                                        $q_compra->whereNotNull('recepcionalmacen.compra_id')
+                                            ->whereColumn('r_sub.compra_id', 'recepcionalmacen.compra_id');
+                                    })
+                                    ->orWhere(function ($q_orden) {
+                                        $q_orden->whereNotNull('recepcionalmacen.orden_compra_id')
+                                            ->whereColumn('r_sub.orden_compra_id', 'recepcionalmacen.orden_compra_id');
+                                    });
+                                });
+                        });
+                });
+        });
 
         $query->orderBy('fecha', 'desc');
 
@@ -637,16 +660,7 @@ class RecepcionAlmacenController extends Controller
                 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable'
             ])->findOrFail($compra_id);
 
-            // Verificar que tenga al menos una recepción previa
-            $recepcionesCount = \App\Models\RecepcionAlmacen::where('compra_id', $compra_id)
-                ->where('estado', true)
-                ->count();
-
-            if ($recepcionesCount === 0) {
-                return response()->json([
-                    'error' => ['message' => 'Debe crear al menos una recepción antes de finalizar']
-                ], 400);
-            }
+            // (Removido) Ya no es obligatorio tener recepciones previas para finalizar
 
             // Verificar que haya productos pendientes
             $hayPendientes = false;
