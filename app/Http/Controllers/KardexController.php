@@ -413,7 +413,7 @@ class KardexController extends Controller
 
             $queries[] = "SELECT
                 'compra' as tipo,
-                'REFERENCIA' as movimiento,
+                'COMPRA' as movimiento,
                 c.fecha,
                 CONCAT('Compra ',
                     CASE c.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE c.tipo_documento END,
