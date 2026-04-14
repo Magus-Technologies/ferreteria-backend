@@ -155,8 +155,8 @@ class OrdenCompraService implements OrdenCompraServiceInterface
                 throw OrdenCompraException::noEncontrada($id);
             }
 
-            if (!in_array($orden->estado?->value, ['pendiente', 'en_proceso'])) {
-                throw new OrdenCompraException("Solo se pueden editar órdenes en estado pendiente o en proceso");
+            if ($orden->estado?->value !== 'pendiente') {
+                throw new OrdenCompraException("Solo se pueden editar órdenes en estado pendiente");
             }
 
             if (empty($data['productos'])) {
@@ -230,7 +230,7 @@ class OrdenCompraService implements OrdenCompraServiceInterface
                 throw OrdenCompraException::yaAnulada();
             }
 
-            if (!in_array($orden->estado?->value, ['pendiente', 'en_proceso'])) {
+            if ($orden->estado?->value !== 'pendiente') {
                 throw OrdenCompraException::noAnulable($orden->estado?->value);
             }
 
@@ -283,8 +283,8 @@ class OrdenCompraService implements OrdenCompraServiceInterface
 
             DB::beginTransaction();
 
-            // 1. Cambiar estado de la Orden de Compra
-            $this->repository->cambiarEstado($id, 'en_proceso');
+            // 1. Cambiar estado de la Orden de Compra (Se marca como Completada/Aprobada directamente)
+            $this->repository->cambiarEstado($id, 'completada');
 
             // 2. Generar registro de Compra definitivo
             $compraId = (string) Str::ulid();

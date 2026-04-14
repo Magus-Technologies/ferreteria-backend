@@ -359,8 +359,8 @@ class CompraController extends Controller
                 }
                 
                 // Validar estado
-                if (!in_array($orden->estado->value, ['pendiente', 'en_proceso'])) {
-                    throw new \Exception('La orden debe estar en estado pendiente o en_proceso');
+                if ($orden->estado->value !== 'pendiente') {
+                    throw new \Exception('La orden ya ha sido aprobada o anulada');
                 }
             }
 
@@ -410,17 +410,12 @@ class CompraController extends Controller
                 'orden_compra_id' => $validated['orden_compra_id'] ?? null,
             ]);
 
-            // Cambiar estado de orden a en_proceso si es primera compra
+            // Si la compra viene de una OC, marcar la orden como completada (aprobada)
             if (isset($validated['orden_compra_id']) && $validated['orden_compra_id']) {
                 $orden = OrdenCompra::find($validated['orden_compra_id']);
                 
                 if ($orden->estado === EstadoDeCompra::Pendiente) {
-                    $orden->update(['estado' => EstadoDeCompra::EnProceso]);
-                }
-                
-                // Si el estado de la compra es "Creado", marcar la orden como aprobada
-                if ($estadoEnum === EstadoDeCompraDefinitiva::Creado) {
-                    $orden->update(['estado' => EstadoDeCompra::EnProceso]);
+                    $orden->update(['estado' => EstadoDeCompra::Completada]);
                 }
             }
 

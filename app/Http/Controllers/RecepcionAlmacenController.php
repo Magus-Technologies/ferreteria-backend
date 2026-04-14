@@ -149,7 +149,7 @@ class RecepcionAlmacenController extends Controller
             });
         }
 
-        // Filtrar solo órdenes de compra aprobadas (en_proceso o completada)
+        // Filtrar solo órdenes de compra aprobadas (completada)
         // Soporta tanto Compra antigua como OrdenCompra nueva
         $query->where(function ($q) {
             $q->whereHas('compra', function ($subQ) {
@@ -160,10 +160,7 @@ class RecepcionAlmacenController extends Controller
                 ]);
             })
             ->orWhereHas('ordenCompra', function ($subQ) {
-                $subQ->whereIn('estado', [
-                    EstadoDeCompra::EnProceso,
-                    EstadoDeCompra::Completada
-                ]);
+                $subQ->where('estado', EstadoDeCompra::Completada);
             });
         });
 
