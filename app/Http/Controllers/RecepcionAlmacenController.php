@@ -550,7 +550,7 @@ class RecepcionAlmacenController extends Controller
                         $acumulado += $cantidadTotal;
                     }
 
-                    // 5. Actualizar stock y costo del producto
+                    // Actualizar stock y costo del producto
                     $cantidadTotalProducto = $acumulado;
 
                     $nuevoCosto = null;
@@ -560,15 +560,14 @@ class RecepcionAlmacenController extends Controller
                         $nuevoCosto = $todasBonificacion ? 0 : $costo;
                     }
 
-                    $updateData = [
-                        'stock_fraccion' => DB::raw("stock_fraccion + {$cantidadTotalProducto}"),
-                    ];
-                    if ($nuevoCosto !== null) {
-                        $updateData['costo'] = $nuevoCosto;
+                    $productoAlmacenModel = \App\Models\ProductoAlmacen::find($productoAlmacen->id);
+                    if ($productoAlmacenModel) {
+                        $productoAlmacenModel->increment('stock_fraccion', $cantidadTotalProducto);
+                        if ($nuevoCosto !== null) {
+                            $productoAlmacenModel->update(['costo' => $nuevoCosto]);
+                        }
+                        \Illuminate\Support\Facades\Log::info("Stock actualizado en store (Recepcion): AlmacenProducto {$productoAlmacen->id}, Incremento: {$cantidadTotalProducto}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}");
                     }
-
-                    \App\Models\ProductoAlmacen::where('id', $productoAlmacen->id)
-                        ->update($updateData);
 
                     app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
                 }
@@ -768,24 +767,22 @@ class RecepcionAlmacenController extends Controller
                     }
 
                     // Actualizar stock del producto
-                    // SI ES FINALIZACIÓN, NO SE INCREMENTA EL STOCK (porque no se recibió físicamente)
-                    if ($acumulado > 0 && !$recepcion->es_finalizacion) {
+                    if ($acumulado > 0) {
                         $nuevoCosto = null;
                         if ($stockBase <= 0) {
                             $todasBonificacion = $productoCompra->unidadesDerivadas
-                                ->where('cantidad_pendiente', '>', 0)
                                 ->every(fn($ud) => $ud->bonificacion ?? false);
                             $nuevoCosto = $todasBonificacion ? 0 : $productoCompra->costo;
                         }
 
-                        $updateData = [
-                            'stock_fraccion' => DB::raw("stock_fraccion + {$acumulado}"),
-                        ];
-                        if ($nuevoCosto !== null) {
-                            $updateData['costo'] = $nuevoCosto;
+                        $productoAlmacenModel = \App\Models\ProductoAlmacen::find($productoAlmacen->id);
+                        if ($productoAlmacenModel) {
+                            $productoAlmacenModel->increment('stock_fraccion', $acumulado);
+                            if (null !== $nuevoCosto) {
+                                $productoAlmacenModel->update(['costo' => $nuevoCosto]);
+                            }
+                            \Illuminate\Support\Facades\Log::info("Stock actualizado en finalizarCompra: AlmacenProducto {$productoAlmacen->id}, Incremento: {$acumulado}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}");
                         }
-
-                        \App\Models\ProductoAlmacen::where('id', $productoAlmacen->id)->update($updateData);
 
                         app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
                     }

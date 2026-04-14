@@ -413,7 +413,7 @@ class KardexController extends Controller
 
             $queries[] = "SELECT
                 'compra' as tipo,
-                'ENTRADA' as movimiento,
+                'REFERENCIA' as movimiento,
                 c.fecha,
                 CONCAT('Compra ',
                     CASE c.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE c.tipo_documento END,
@@ -424,7 +424,7 @@ class KardexController extends Controller
                 CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as cantidad_fraccion,
                 CAST(0 AS DECIMAL(16,4)) as precio,
                 CAST(pac.costo AS DECIMAL(16,4)) as costo,
-                CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as entrada,
+                CAST(0 AS DECIMAL(16,4)) as entrada,
                 CAST(0 AS DECIMAL(16,4)) as salida,
                 c.id as referencia_id,
                 p.name as producto_nombre,
