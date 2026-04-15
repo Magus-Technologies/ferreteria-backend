@@ -122,7 +122,7 @@ class CompraController extends Controller
         // Validación flexible para manejar diferentes formatos
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'almacen_id' => 'sometimes|integer',
-            'estado_de_cuenta' => 'sometimes|string|in:Pagado,Deuda',
+            'estado_de_cuenta' => 'sometimes|string|in:Pagado,Credito',
             'proveedor_id' => 'sometimes|integer',
             'forma_de_pago' => 'sometimes|string',
             'tipo_documento' => 'sometimes|string',
@@ -249,16 +249,24 @@ class CompraController extends Controller
             $estadoDeCuenta = $request->input('estado_de_cuenta');
             
             $allCompras = $allCompras->filter(function ($compra) use ($estadoDeCuenta) {
+                // Exclude cancelled purchases from account status filters
+                if ($compra->estado_de_compra === EstadoDeCompraDefinitiva::Anulado) {
+                    return false;
+                }
+
                 $totalCompra = $this->getTotalCompra($compra);
                 $totalPagado = (float) ($compra->total_pagado ?? 0);
                 $saldo = $totalCompra - $totalPagado;
                 
+                $esContado = $compra->forma_de_pago === FormaDePago::Contado;
+                $esCredito = $compra->forma_de_pago === FormaDePago::Credito;
+
                 if ($estadoDeCuenta === 'Pagado') {
-                    // Pagado: saldo <= 0.01 (considerando diferencias de redondeo)
-                    return $saldo <= 0.01;
-                } else if ($estadoDeCuenta === 'Deuda') {
-                    // Deuda: saldo > 0.01
-                    return $saldo > 0.01;
+                    // Paid = Cash OR (Credit AND balance <= 0.01)
+                    return $esContado || ($esCredito && $saldo <= 0.01);
+                } else if ($estadoDeCuenta === 'Credito') {
+                    // Debt = Credit AND balance > 0.01
+                    return $esCredito && $saldo > 0.01;
                 }
                 
                 return true;
@@ -774,9 +782,11 @@ class CompraController extends Controller
             }
 
             $totalConPercepcion = $total + (float) ($compra->percepcion ?? 0);
-            $totalSoles = $compra->tipo_moneda === TipoMoneda::Soles
+            $totalSoles = $compra->tipo_moneda === TipoMoneda::Soles->value
                 ? $totalConPercepcion
                 : $totalConPercepcion * (float) ($compra->tipo_de_cambio ?? 1);
+
+            return $totalSoles;
         } else {
             // Array data
             foreach ($compra['productos_por_almacen'] as $item) {
