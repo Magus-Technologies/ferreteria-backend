@@ -1031,6 +1031,7 @@ class CompraController extends Controller
             'search' => 'sometimes|string',
             'per_page' => 'sometimes|integer|min:1|max:100',
             'page' => 'sometimes|integer|min:1',
+            'dias' => 'sometimes|integer|min:0|max:365',
         ]);
 
         $query = Compra::query()
@@ -1072,6 +1073,13 @@ class CompraController extends Controller
         }
         if ($request->has('hasta')) {
             $query->whereDate('fecha', '<=', $request->hasta);
+        }
+
+        // Filtro por días a vencer (compras cuya fecha_vencimiento <= hoy+N)
+        if ($request->has('dias')) {
+            $fechaLimite = now()->addDays($request->dias)->toDateString();
+            $query->whereNotNull('fecha_vencimiento')
+                ->whereDate('fecha_vencimiento', '<=', $fechaLimite);
         }
 
         // Search by serie, numero, or proveedor razon_social

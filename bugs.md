@@ -29,7 +29,6 @@ X - Cuando pongo defrente finalizar recepción no se muestra en mis recepciones.
 ## VENTAS
 
 - ~~No me abre el buscador de clientes cuando no escribo nada; debería salir sin filtrar nada.~~ ✅
-X- No me abre el buscador de clientes cuando no escribo nada; debería salir sin filtrar nada.
 - ~~En clientes no funciona el calendario en cumpleaños.~~ ✅
 
 ## MIS VENTAS

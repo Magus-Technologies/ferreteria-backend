@@ -733,8 +733,23 @@ class VentaController extends Controller
                 })->toArray(),
             ];
 
+            // Capturar estado anterior antes del update
+            $estadoAnterior = $venta->estado_de_venta instanceof \BackedEnum
+                ? $venta->estado_de_venta->value
+                : $venta->estado_de_venta;
+
             // Update venta
             $venta->update($updateData);
+
+            // Si se recupera una venta anulada, reactivar entregas canceladas
+            $estadoNuevo = isset($updateData['estado_de_venta'])
+                ? ($updateData['estado_de_venta'] instanceof \BackedEnum ? $updateData['estado_de_venta']->value : $updateData['estado_de_venta'])
+                : $estadoAnterior;
+            if ($estadoAnterior === 'an' && $estadoNuevo === 'cr') {
+                EntregaProducto::where('venta_id', $id)
+                    ->where('estado_entrega', 'ca')
+                    ->update(['estado_entrega' => 'pe']);
+            }
 
             // If productos_por_almacen is provided, update them
             if (isset($validated['productos_por_almacen'])) {
@@ -986,7 +1001,7 @@ class VentaController extends Controller
                     }
                 }
                 DetalleEntregaProducto::where('entrega_producto_id', $entrega->id)->delete();
-                $entrega->delete();
+                $entrega->update(['estado_entrega' => 'ca']);
             }
 
             // Devolver dinero

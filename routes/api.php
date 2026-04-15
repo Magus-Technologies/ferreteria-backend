@@ -182,6 +182,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/', [ConfiguracionNotificacionController::class, 'index']);
         Route::post('/', [ConfiguracionNotificacionController::class, 'store']);
         Route::get('/cumpleanos', [ConfiguracionNotificacionController::class, 'getCumpleanos']);
+        Route::get('/vencimientos', [ConfiguracionNotificacionController::class, 'getVencimientos']);
     });
 
     // ============================================

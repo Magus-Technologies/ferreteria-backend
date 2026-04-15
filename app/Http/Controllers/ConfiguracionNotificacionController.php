@@ -101,4 +101,23 @@ class ConfiguracionNotificacionController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Obtener configuración de vencimientos (ventas por cobrar y compras por pagar).
+     */
+    public function getVencimientos(): JsonResponse
+    {
+        $user = Auth::user();
+
+        $config = ConfiguracionNotificacion::where('user_id', $user->id)
+            ->where('tipo', 'vencimiento')
+            ->first();
+
+        return response()->json([
+            'data' => [
+                'habilitado'        => $config?->habilitado ?? true,
+                'dias_anticipacion' => $config?->dias_anticipacion ?? 7,
+            ],
+        ]);
+    }
 }
