@@ -1717,7 +1717,7 @@ class VentaController extends Controller
 
         // Filtro por días a vencer (ej: ventas que vencen en 15 días desde hoy)
         if ($request->has('dias')) {
-            $fechaLimite = now()->addDays($request->dias)->toDateString();
+            $fechaLimite = now()->addDays((int) $request->dias)->toDateString();
             $query->whereNotNull('fecha_vencimiento')
                 ->whereDate('fecha_vencimiento', '<=', $fechaLimite);
         }
