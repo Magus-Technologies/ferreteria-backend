@@ -472,7 +472,7 @@ class KardexController extends Controller
                 CAST(udr.cantidad * udr.factor AS DECIMAL(16,4)) as cantidad_fraccion,
                 CAST(0 AS DECIMAL(16,4)) as precio,
                 CAST(par.costo AS DECIMAL(16,4)) as costo,
-                CAST(udr.cantidad * udr.factor AS DECIMAL(16,4)) as entrada,
+                CAST(CASE WHEN r.es_finalizacion = 1 THEN 0 ELSE udr.cantidad * udr.factor END AS DECIMAL(16,4)) as entrada,
                 CAST(0 AS DECIMAL(16,4)) as salida,
                 r.id as referencia_id,
                 p.name as producto_nombre,

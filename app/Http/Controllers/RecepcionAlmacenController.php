@@ -743,58 +743,52 @@ class RecepcionAlmacenController extends Controller
                             'producto_almacen_recepcion_id' => $productoRecepcion->id,
                             'factor' => $factor,
                             'cantidad' => $cantidadPendiente,
-                            'cantidad_restante' => $cantidadPendiente,
+                            'cantidad_restante' => 0, // Finalización = NO recibido, por lo tanto 0 disponible para venta
                             'lote' => $unidadCompra->lote,
                             'vencimiento' => $unidadCompra->vencimiento,
                             'flete' => $unidadCompra->flete ?? 0,
                             'bonificacion' => $bonificacion,
                         ]);
 
-                        // Actualizar cantidad_pendiente a 0
+                        // Actualizar cantidad_pendiente en la COMPRA a 0
                         $unidadCompra->update(['cantidad_pendiente' => 0]);
 
-                        // Crear historial
-                        $stockInicial = $stockBase + $acumulado;
-                        $cantidadTotal = $cantidadPendiente * $factor;
+                        // Actualizar cantidad_pendiente en la ORDEN DE COMPRA vinculada (si existe)
+                        if ($compra->orden_compra_id) {
+                            \App\Models\OrdenCompraProducto::where('orden_compra_id', $compra->orden_compra_id)
+                                ->where('producto_id', $productoAlmacen->producto_id)
+                                ->where('unidad', $unidadCompra->unidadDerivadaInmutable->name ?? '')
+                                ->update(['cantidad_pendiente' => 0]);
+                        }
 
+                        // Crear historial con movimiento 0
+                        $stockInicial = $stockBase + $acumulado;
                         \App\Models\HistorialUnidadDerivadaInmutableRecepcion::create([
                             'unidad_derivada_inmutable_recepcion_id' => $udRecepcion->id,
                             'stock_anterior' => $stockInicial,
-                            'stock_nuevo' => $stockInicial + $cantidadTotal,
+                            'stock_nuevo' => $stockInicial, // Movimiento 0 (Solo queda como registro)
                         ]);
-
-                        $acumulado += $cantidadTotal;
                     }
 
-                    // Actualizar stock del producto
-                    if ($acumulado > 0) {
-                        $nuevoCosto = null;
-                        if ($stockBase <= 0) {
-                            $todasBonificacion = $productoCompra->unidadesDerivadas
-                                ->every(fn($ud) => $ud->bonificacion ?? false);
-                            $nuevoCosto = $todasBonificacion ? 0 : $productoCompra->costo;
-                        }
-
-                        $productoAlmacenModel = \App\Models\ProductoAlmacen::find($productoAlmacen->id);
-                        if ($productoAlmacenModel) {
-                            $productoAlmacenModel->increment('stock_fraccion', $acumulado);
-                            if (null !== $nuevoCosto) {
-                                $productoAlmacenModel->update(['costo' => $nuevoCosto]);
-                            }
-                            \Illuminate\Support\Facades\Log::info("Stock actualizado en finalizarCompra: AlmacenProducto {$productoAlmacen->id}, Incremento: {$acumulado}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}");
-                        }
-
-                        app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
-                    }
+                    // NOTA: NO incrementamos el stock_fraccion ni actualizamos costos en el Almacen
+                    // porque esta es una recepción de 'Finalización' (productos NO recibidos).
+                    
+                    app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
                 }
 
                 // Marcar compra como Procesado
                 $compra->update(['estado_de_compra' => \App\Enums\EstadoDeCompraDefinitiva::Procesado]);
 
-                // Si la compra tiene orden_compra_id, actualizar también la orden
+                // Si la compra tiene orden_compra_id, cerrar la orden si ya no quedan pendientes globales
                 if ($compra->orden_compra_id) {
-                    \App\Models\OrdenCompra::where('id', $compra->orden_compra_id)
-                        ->update(['estado' => \App\Enums\EstadoDeCompra::Completada]);
+                    $todasCerradas = !\App\Models\OrdenCompraProducto::where('orden_compra_id', $compra->orden_compra_id)
+                        ->where('cantidad_pendiente', '>', 0)
+                        ->exists();
+
+                    if ($todasCerradas) {
+                        \App\Models\OrdenCompra::where('id', $compra->orden_compra_id)
+                            ->update(['estado' => \App\Enums\EstadoDeCompra::Completada]);
+                    }
                 }
 
                 return $recepcion;

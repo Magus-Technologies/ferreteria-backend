@@ -89,23 +89,47 @@
     <div style="font-size: 9pt; font-weight: bold; text-transform: uppercase; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #fadc06;">
         {{ $requerimiento->tipo_solicitud === 'OC' ? 'Productos Requeridos' : 'Servicios Requeridos' }}
     </div>
+    @php
+        $columnasSeleccionadas = $columnas ?? ['codigo', 'cantidad', 'unidad', 'descripcion'];
+        
+        $colCount = count($columnasSeleccionadas);
+        $widthAuto = 100 - (in_array('codigo', $columnasSeleccionadas) ? 12 : 0) 
+                         - (in_array('cantidad', $columnasSeleccionadas) ? 15 : 0)
+                         - (in_array('unidad', $columnasSeleccionadas) ? 13 : 0);
+    @endphp
     <table style="width: 100%; border: 1.5px solid #fadc06; border-radius: 4px; overflow: hidden; margin-bottom: 14px;">
         <tr style="background-color: #fadc06;">
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: center; width: 12%;">CÓDIGO</td>
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: center; width: 15%;">CANTIDAD</td>
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: center; width: 13%;">U.M</td>
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: left; width: 60%;">DESCRIPCIÓN</td>
+            @if(in_array('codigo', $columnasSeleccionadas))
+                <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: center; width: 12%;">CÓDIGO</td>
+            @endif
+            @if(in_array('cantidad', $columnasSeleccionadas))
+                <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: center; width: 15%;">CANTIDAD</td>
+            @endif
+            @if(in_array('unidad', $columnasSeleccionadas))
+                <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: center; width: 13%;">U.M</td>
+            @endif
+            @if(in_array('descripcion', $columnasSeleccionadas))
+                <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: left; width: {{ $widthAuto }}%;">DESCRIPCIÓN</td>
+            @endif
         </tr>
-        @forelse($productos as $i => $prod)
+        @forelse($productos as $i => $item)
         <tr style="border-bottom: 1px solid #fadc06; background-color: {{ $i % 2 === 0 ? '#fafafa' : '#fff' }};">
-            <td style="padding: 3px 4px; font-size: 8pt; text-align: center;">{{ $prod['codigo'] }}</td>
-            <td style="padding: 3px 4px; font-size: 8pt; text-align: center;">{{ $prod['cantidad'] }}</td>
-            <td style="padding: 3px 4px; font-size: 8pt; text-align: center;">{{ $prod['unidad'] }}</td>
-            <td style="padding: 3px 4px; font-size: 8pt;">{{ $prod['descripcion'] }}</td>
+            @if(in_array('codigo', $columnasSeleccionadas))
+                <td style="padding: 3px 4px; font-size: 8pt; text-align: center;">{{ $item['codigo'] }}</td>
+            @endif
+            @if(in_array('cantidad', $columnasSeleccionadas))
+                <td style="padding: 3px 4px; font-size: 8pt; text-align: center;">{{ $item['cantidad'] }}</td>
+            @endif
+            @if(in_array('unidad', $columnasSeleccionadas))
+                <td style="padding: 3px 4px; font-size: 8pt; text-align: center;">{{ $item['unidad'] }}</td>
+            @endif
+            @if(in_array('descripcion', $columnasSeleccionadas))
+                <td style="padding: 3px 4px; font-size: 8pt;">{{ $item['descripcion'] }}</td>
+            @endif
         </tr>
         @empty
         <tr>
-            <td colspan="4" style="padding: 8px; text-align: center; font-style: italic; color: #666;">Sin items registrados</td>
+            <td colspan="{{ $colCount }}" style="padding: 8px; text-align: center; font-style: italic; color: #666;">Sin items registrados</td>
         </tr>
         @endforelse
     </table>

@@ -27,6 +27,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{id}', [RequerimientoInternoController::class, 'show']);
         Route::patch('/{id}/estado', [RequerimientoInternoController::class, 'updateEstado']);
         Route::patch('/productos/{productoId}/actualizar-cantidad-ordenada', [RequerimientoInternoController::class, 'actualizarCantidadOrdenada']);
+        Route::post('/{id}/enviar-correo', [RequerimientoInternoController::class, 'enviarCorreo']);
     });
 
     // ============================================

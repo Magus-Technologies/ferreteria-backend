@@ -7,7 +7,24 @@ use Illuminate\Http\Response;
 
 class RequerimientoInternoPdfService
 {
-    public function generar(int $id): Response
+    public function generar(int $id, ?array $columnas = null): Response
+    {
+        $data = $this->prepararData($id, $columnas);
+
+        return PdfService::render(
+            'pdf.requerimiento-interno',
+            $data,
+            "{$data['requerimiento']->codigo}-LOG-F-03.pdf",
+        );
+    }
+
+    public function generarBinario(int $id, ?array $columnas = null): string
+    {
+        $data = $this->prepararData($id, $columnas);
+        return PdfService::output('pdf.requerimiento-interno', $data);
+    }
+
+    private function prepararData(int $id, ?array $columnas = null): array
     {
         $requerimiento = $this->obtenerRequerimiento($id);
         $empresa = $requerimiento->user->empresa;
@@ -19,19 +36,14 @@ class RequerimientoInternoPdfService
 
         $productos = $this->prepararProductos($requerimiento);
 
-        $data = [
+        return [
             'requerimiento' => $requerimiento,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'fechaFormato' => $fechaFormato,
             'productos' => $productos,
+            'columnas' => $columnas, // Soporte para columnas seleccionables
         ];
-
-        return PdfService::render(
-            'pdf.requerimiento-interno',
-            $data,
-            "{$requerimiento->codigo}-LOG-F-03.pdf",
-        );
     }
 
     private function obtenerRequerimiento(int $id): RequerimientoInterno

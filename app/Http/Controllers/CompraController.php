@@ -16,6 +16,7 @@ use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenCompra;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableCompra;
+use App\Models\PagoDeCompra;
 use App\Http\Resources\CompraResource;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -734,13 +735,17 @@ class CompraController extends Controller
                 ], 400);
             }
 
-            if ($compra->pagos_de_compras_count > 0) {
-                return response()->json([
-                    'error' => ['message' => 'La compra no se puede anular porque tiene Pagos de Compra activos'],
-                ], 400);
+            // 1. Devolver dinero de pagos específicos (créditos/modal pagos)
+            $pagos = $compra->pagosDeCompras()->where('estado', true)->with('despliegueDePago')->get();
+            foreach ($pagos as $pago) {
+                if ($pago->despliegueDePago) {
+                    MetodoDePago::where('id', $pago->despliegueDePago->metodo_de_pago_id)
+                        ->increment('monto', (float) $pago->monto);
+                }
+                $pago->update(['estado' => false, 'observacion' => 'Anulado por anulación de compra']);
             }
 
-            // Devolver dinero
+            // 2. Devolver dinero de pago inicial (Contado/Egreso)
             $this->devolverDineroDeCompra($compra);
 
             // Update egreso_dinero if exists

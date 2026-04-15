@@ -6,7 +6,10 @@ use App\Http\Requests\ActualizarEstadoRequerimientoRequest;
 use App\Http\Requests\CrearRequerimientoInternoRequest;
 use App\Http\Resources\RequerimientoInternoResource;
 use App\Services\Interfaces\RequerimientoInternoServiceInterface;
+use App\Services\Pdf\RequerimientoInternoPdfService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\RequerimientoInternoMail;
 
 class RequerimientoInternoController extends Controller
 {
@@ -88,5 +91,39 @@ class RequerimientoInternoController extends Controller
         return response()->json([
             'message' => 'Cantidad ordenada actualizada exitosamente',
         ]);
+    }
+
+    /**
+     * Enviar requerimiento por correo
+     */
+    public function enviarCorreo(Request $request, int $id, RequerimientoInternoPdfService $pdfService)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'columnas' => 'nullable|array',
+            'columnas.*' => 'string'
+        ]);
+
+        $requerimiento = $this->service->obtenerPorId($id);
+        $email = $request->input('email');
+        $columnas = $request->input('columnas', null);
+
+        // Generar binario PDF con las columnas especificadas
+        $pdfBinario = $pdfService->generarBinario($id, $columnas);
+        $fileName = "SOC-{$requerimiento->codigo}.pdf";
+
+        try {
+            Mail::to($email)->send(new RequerimientoInternoMail($requerimiento, $pdfBinario, $fileName));
+            
+            return response()->json([
+                'success' => true,
+                'message' => "El Requerimiento {$requerimiento->codigo} se ha enviado correctamente a {$email}"
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => "Error al enviar el correo: " . $e->getMessage()
+            ], 500);
+        }
     }
 }
