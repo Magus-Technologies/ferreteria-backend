@@ -1077,7 +1077,7 @@ class CompraController extends Controller
 
         // Filtro por días a vencer (compras cuya fecha_vencimiento <= hoy+N)
         if ($request->has('dias')) {
-            $fechaLimite = now()->addDays($request->dias)->toDateString();
+            $fechaLimite = now()->addDays((int) $request->dias)->toDateString();
             $query->whereNotNull('fecha_vencimiento')
                 ->whereDate('fecha_vencimiento', '<=', $fechaLimite);
         }
