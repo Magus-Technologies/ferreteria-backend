@@ -10,7 +10,9 @@ use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\User;
 use App\Models\Venta;
 use App\Exceptions\UsuarioEnMantenimientoException;
+use App\Models\ProductoAlmacen;
 use App\Services\FirebaseNotificationService;
+use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -284,6 +286,27 @@ class EntregaProductoController extends Controller
 
                 // Actualizar cantidad pendiente
                 $unidadDerivadaVenta->decrement('cantidad_pendiente', $cantidadEntregada);
+
+                // Descontar stock si la venta es Parcial o no tiene tipo_despacho (legacy)
+                // (En Tienda y Domicilio ya descontaron al crear la venta)
+                if (! in_array($venta->tipo_despacho, ['et', 'do'])) {
+                    $productoAlmacenVenta = $unidadDerivadaVenta->productoAlmacenVenta;
+                    $productoAlmacen = $productoAlmacenVenta?->productoAlmacen;
+
+                    if ($productoAlmacen) {
+                        $cantidadEnFraccion = $cantidadEntregada * (float) $unidadDerivadaVenta->factor;
+                        $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+
+                        // Descontar producto complementario
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $productoAlmacen->id,
+                            (float) $unidadDerivadaVenta->factor,
+                            $cantidadEntregada,
+                            $validated['almacen_salida_id'],
+                            false // salida
+                        );
+                    }
+                }
             }
 
             // Enviar notificaciones FCM según tipo de pedido
@@ -483,12 +506,38 @@ class EntregaProductoController extends Controller
     public function destroy(string $id)
     {
         return DB::transaction(function () use ($id) {
-            $entrega = EntregaProducto::with('productosEntregados')->findOrFail($id);
+            $entrega = EntregaProducto::with([
+                'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen',
+            ])->findOrFail($id);
 
-            // Revertir cantidades pendientes
+            // Obtener la venta para saber si el stock se descontó al entregar
+            $venta = Venta::find($entrega->venta_id);
+            $stockDescontadoAlEntregar = ! in_array($venta?->tipo_despacho, ['et', 'do']);
+
+            // Revertir cantidades pendientes y stock
             foreach ($entrega->productosEntregados as $detalle) {
-                $unidadDerivadaVenta = UnidadDerivadaInmutableVenta::findOrFail($detalle->unidad_derivada_venta_id);
+                $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
+                if (! $unidadDerivadaVenta) continue;
+
                 $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_entregada);
+
+                // Revertir stock solo si se descontó al entregar (Parcial/legacy)
+                if ($stockDescontadoAlEntregar) {
+                    $productoAlmacen = $unidadDerivadaVenta->productoAlmacenVenta?->productoAlmacen;
+                    if ($productoAlmacen) {
+                        $cantidadEnFraccion = (float) $detalle->cantidad_entregada * (float) $unidadDerivadaVenta->factor;
+                        $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+
+                        // Revertir producto complementario
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $productoAlmacen->id,
+                            (float) $unidadDerivadaVenta->factor,
+                            (float) $detalle->cantidad_entregada,
+                            $entrega->almacen_salida_id,
+                            true // ingreso (revertir)
+                        );
+                    }
+                }
             }
 
             // Eliminar detalles

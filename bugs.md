@@ -34,6 +34,9 @@ X - Cuando pongo defrente finalizar recepción no se muestra en mis recepciones.
 ## MIS VENTAS
 
 - ~~No se aprecia bien los filtros, está mezclado, y cuando pago un crédito no cambia de color.~~ ✅ (filtros reorganizados en 2 filas uniformes + invalidación de QueryKeys.VENTAS al registrar cobro)
+- ~~Ventas al crédito: le puse 7 días y me sale 0 días (columna dias_mora y alerta al seleccionar cliente).~~ ✅ (fix `(int) $request->dias` en VentaController/CompraController para Carbon 3 + alerta "Cliente con deudas" ahora solo dispara en ventas VENCIDAS)
+- ~~Modal Buscar Cliente: columna "Días Mora" mostraba 0 para ventas recientes.~~ ✅ (renombrada a "Estado Vencimiento" con semántica correcta — "Faltan Xd" en verde/amarillo/naranja mientras esté dentro del crédito, "Mora Xd" en rojo cuando ya venció)
+- ~~Modal Buscar Cliente: debajo de la lista de clientes agregar tabla de detalle de deuda del cliente seleccionado.~~ ✅ (nuevo componente `table-detalle-deuda-cliente.tsx` que muestra documento, fecha, vencimiento, total, cobrado, resta y estado por venta pendiente)
 
 ## ORDEN DE COMPRA
 

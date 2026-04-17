@@ -27,6 +27,7 @@ use App\Models\ValeCompra;
 use App\Models\VentaHistorial;
 use App\Services\Interfaces\FacturaServiceInterface;
 use App\Services\ValeCompraService;
+use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -74,7 +75,7 @@ class VentaController extends Controller
                 'user:id,name',
                 'almacen:id,name',
                 'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
-                'entregasProductos:id,venta_id,estado_entrega',
+                'entregasProductos:id,venta_id,tipo_entrega,tipo_despacho,estado_entrega',
             ])
             ->withCount('entregasProductos as entregas_productos_count')
             ->withSum('despliegueDePagoVentas as total_pagado', 'monto');
@@ -209,6 +210,7 @@ class VentaController extends Controller
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'required|date',
             'estado_de_venta' => 'required|string',
+            'tipo_despacho' => 'nullable|string|in:et,do,pa',
             'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
@@ -322,6 +324,7 @@ class VentaController extends Controller
                 'tipo_de_cambio' => $validated['tipo_de_cambio'] ?? 1,
                 'fecha' => $validated['fecha'],
                 'estado_de_venta' => $estadoEnum,
+                'tipo_despacho' => $validated['tipo_despacho'] ?? null,
                 'cliente_id' => $validated['cliente_id'],
                 'direccion_seleccionada' => $validated['direccion_seleccionada'] ?? null, // Guardar dirección seleccionada
                 'recomendado_por_id' => $validated['recomendado_por_id'] ?? null,
@@ -378,6 +381,39 @@ class VentaController extends Controller
                         'descuento' => $unidad['descuento'] ?? 0,
                         'comision' => $unidad['comision'] ?? 0,
                     ]);
+                }
+            }
+
+            // Descontar stock si el tipo de despacho es En Tienda o Domicilio
+            // (Parcial se descuenta al momento de entregar, no al vender)
+            $tipoDespacho = $validated['tipo_despacho'] ?? null;
+            if (in_array($tipoDespacho, ['et', 'do'])) {
+                foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
+                    $pAlmacenId = $producto['producto_almacen_id'] ?? null;
+                    if (! $pAlmacenId && isset($producto['producto_id'])) {
+                        $pAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
+                            ->where('almacen_id', $validated['almacen_id'])
+                            ->first();
+                        $pAlmacenId = $pAlmacen?->id;
+                    } else {
+                        $pAlmacen = ProductoAlmacen::find($pAlmacenId);
+                    }
+
+                    if (! $pAlmacen) continue;
+
+                    foreach ($producto['unidades_derivadas'] as $unidad) {
+                        $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+                        $pAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+
+                        // Descontar producto complementario si existe
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $pAlmacen->id,
+                            (float) $unidad['factor'],
+                            (float) $unidad['cantidad'],
+                            $validated['almacen_id'],
+                            false // salida
+                        );
+                    }
                 }
             }
 
@@ -965,6 +1001,7 @@ class VentaController extends Controller
         return DB::transaction(function () use ($id) {
             $venta = Venta::with([
                 'productosPorAlmacen.unidadesDerivadas',
+                'productosPorAlmacen.productoAlmacen',
                 'despliegueDePagoVentas',
             ])
                 ->withCount('entregasProductos as entregas_productos_count')
@@ -1002,6 +1039,28 @@ class VentaController extends Controller
                 }
                 DetalleEntregaProducto::where('entrega_producto_id', $entrega->id)->delete();
                 $entrega->update(['estado_entrega' => 'ca']);
+            }
+
+            // Revertir stock si se descontó al crear la venta (En Tienda o Domicilio)
+            if (in_array($venta->tipo_despacho, ['et', 'do'])) {
+                foreach ($venta->productosPorAlmacen as $productoAlmacenVenta) {
+                    $productoAlmacen = $productoAlmacenVenta->productoAlmacen;
+                    if (! $productoAlmacen) continue;
+
+                    foreach ($productoAlmacenVenta->unidadesDerivadas as $unidad) {
+                        $cantidadEnFraccion = (float) $unidad->cantidad * (float) $unidad->factor;
+                        $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+
+                        // Revertir producto complementario
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $productoAlmacen->id,
+                            (float) $unidad->factor,
+                            (float) $unidad->cantidad,
+                            $venta->almacen_id,
+                            true // ingreso (revertir)
+                        );
+                    }
+                }
             }
 
             // Devolver dinero
