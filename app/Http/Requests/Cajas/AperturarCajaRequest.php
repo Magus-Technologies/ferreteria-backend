@@ -60,15 +60,25 @@ class AperturarCajaRequest extends FormRequest
             $vendedores = $this->input('vendedores', []);
             $montoApertura = (float) $this->input('monto_apertura', 0);
 
-            // Si hay vendedores, validar que el total sea mayor a 0
             if (!empty($vendedores)) {
+                // Cada vendedor debe tener monto > 0
+                foreach ($vendedores as $index => $vendedor) {
+                    $monto = (float) ($vendedor['monto'] ?? 0);
+                    if ($monto <= 0) {
+                        $validator->errors()->add(
+                            "vendedores.{$index}.monto",
+                            'El monto de cada vendedor debe ser mayor a S/. 0.00'
+                        );
+                    }
+                }
+
+                // El total también debe ser mayor a 0
                 $totalVendedores = collect($vendedores)->sum(fn($v) => (float) ($v['monto'] ?? 0));
                 if ($totalVendedores <= 0) {
-                    $validator->errors()->add('vendedores', 'El monto total distribuido a vendedores debe ser mayor a 0');
+                    $validator->errors()->add('vendedores', 'El monto total a distribuir debe ser mayor a S/. 0.00');
                 }
             } elseif ($montoApertura <= 0) {
-                // Sin vendedores, el monto_apertura debe ser mayor a 0
-                $validator->errors()->add('monto_apertura', 'El monto de apertura debe ser mayor a 0');
+                $validator->errors()->add('monto_apertura', 'El monto de apertura debe ser mayor a S/. 0.00');
             }
         });
     }
