@@ -499,7 +499,7 @@ class UsuarioController extends Controller
      */
     private function generateUniqueCode(): string
     {
-        // Obtener el último código usado
+        // Obtener el Ultimo código usado
         $lastUser = User::orderBy('codigo', 'desc')->first();
         
         if (!$lastUser || !$lastUser->codigo) {

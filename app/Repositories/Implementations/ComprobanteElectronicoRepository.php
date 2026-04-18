@@ -135,7 +135,7 @@ class ComprobanteElectronicoRepository implements ComprobanteElectronicoReposito
         ?string $detalleError = null,
         string $modoEnvio = 'manual'
     ): void {
-        // Obtener el último número de intento para este comprobante
+        // Obtener el ultimo número de intento para este comprobante
         $ultimoIntento = IntentoEnvioSunat::where('comprobante_id', $comprobanteId)
             ->max('numero_intento') ?? 0;
         

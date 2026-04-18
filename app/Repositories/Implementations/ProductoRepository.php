@@ -253,7 +253,7 @@ class ProductoRepository implements ProductoRepositoryInterface
             return '1';
         }
 
-        // Incrementar el último código encontrado
+        // Incrementar el ultimo código encontrado
         return (string) ((int) $ultimoCodigo + 1);
     }
 

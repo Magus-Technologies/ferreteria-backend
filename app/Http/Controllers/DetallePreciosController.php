@@ -62,7 +62,7 @@ class DetallePreciosController extends Controller
             throw new \Exception('No se encontró la empresa del usuario');
         }
 
-        // OPTIMIZACIÓN CRÍTICA: Obtener último número de ingreso UNA SOLA VEZ
+        // OPTIMIZACIÓN CRÍTICA: Obtener FINAL número de ingreso UNA SOLA VEZ
         // En lugar de consultar la BD 5000-6000 veces dentro del loop
         $ultimoIngreso = IngresoSalida::where('tipo_documento', 'in')
             ->where('serie', $empresa->serie_ingreso)

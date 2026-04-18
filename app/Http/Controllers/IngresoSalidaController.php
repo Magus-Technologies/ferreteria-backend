@@ -236,7 +236,7 @@ class IngresoSalidaController extends Controller
                 );
             }
 
-            // PASO 4: Obtener último número de documento
+            // PASO 4: Obtener Ultimo número de documento
             $ultimoIngreso = IngresoSalida::where(
                 "tipo_documento",
                 $tipoDocumentoEnum->value,
