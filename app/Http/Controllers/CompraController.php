@@ -547,6 +547,10 @@ class CompraController extends Controller
             'egreso_dinero_id' => 'nullable|string',
             'gasto_extra_id' => 'nullable|string|exists:gastos_extras,id',
             'despliegue_de_pago_id' => 'nullable|string',
+            'metodos_de_pago' => 'nullable|array',
+            'metodos_de_pago.*.despliegue_de_pago_id' => 'required_with:metodos_de_pago|string',
+            'metodos_de_pago.*.monto' => 'required_with:metodos_de_pago|numeric|min:0.01',
+            'metodos_de_pago.*.numero_operacion' => 'nullable|string',
             'user_id' => 'sometimes|string',
             'almacen_id' => 'sometimes|integer',
             'proveedor_id' => 'sometimes|integer',
@@ -581,10 +585,11 @@ class CompraController extends Controller
             $validated['id'] = $id;
 
             // Merge existing compra data with validated data for validation
+            // Use ?-> because En Espera compras may have null forma_de_pago/tipo_moneda
             $dataParaValidar = array_merge([
                 'estado_de_compra' => $compra->estado_de_compra->value,
-                'forma_de_pago' => $compra->forma_de_pago->value,
-                'tipo_moneda' => $compra->tipo_moneda->value,
+                'forma_de_pago' => $compra->forma_de_pago?->value,
+                'tipo_moneda' => $compra->tipo_moneda?->value,
                 'tipo_de_cambio' => $compra->tipo_de_cambio,
                 'serie' => $compra->serie,
                 'numero' => $compra->numero,
@@ -622,7 +627,7 @@ class CompraController extends Controller
                     $updateData[$key] = FormaDePago::from($value);
                 } elseif ($key === 'tipo_moneda') {
                     $updateData[$key] = TipoMoneda::from($value);
-                } elseif ($key !== 'productos_por_almacen' && $key !== 'id') {
+                } elseif (!in_array($key, ['productos_por_almacen', 'id', 'metodos_de_pago'])) {
                     $updateData[$key] = $value;
                 }
             }
@@ -826,6 +831,10 @@ class CompraController extends Controller
         // En Espera no necesita validaciones de pago
         if ($estadoEnum === EstadoDeCompraDefinitiva::EnEspera) {
             return;
+        }
+
+        if (empty($compra['forma_de_pago'])) {
+            throw new \Exception('La forma de pago es requerida para completar la compra');
         }
 
         $formaDePagoEnum = FormaDePago::from($compra['forma_de_pago']);
