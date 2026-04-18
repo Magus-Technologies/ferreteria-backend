@@ -34,6 +34,7 @@ class Venta extends Model
         'tipo_de_cambio',
         'fecha',
         'estado_de_venta',
+        'tipo_despacho',
         'cliente_id',
         'direccion_seleccionada', // ✅ Agregar campo
         'recomendado_por_id',
