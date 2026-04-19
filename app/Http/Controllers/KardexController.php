@@ -119,7 +119,7 @@ class KardexController extends Controller
 
         if ($perPage == -1) {
             // Sin paginación: traer todo ordenado
-            $rows = DB::select("{$wrappedSql} ORDER BY fecha ASC", $bindings);
+            $rows = DB::select("{$wrappedSql} ORDER BY fecha ASC, referencia_id ASC", $bindings);
             $saldoActual = $saldoInicial;
             $data = [];
             foreach ($rows as $row) {
@@ -149,7 +149,7 @@ class KardexController extends Controller
         $saldoAtOffset = $saldoInicial;
         if ($productoId && $offset > 0) {
             $prePage = DB::selectOne(
-                "SELECT COALESCE(SUM(entrada), 0) as sum_entradas, COALESCE(SUM(salida), 0) as sum_salidas FROM (SELECT entrada, salida FROM ({$unionSql}) as t ORDER BY fecha ASC LIMIT ?) as pre",
+                "SELECT COALESCE(SUM(entrada), 0) as sum_entradas, COALESCE(SUM(salida), 0) as sum_salidas FROM (SELECT entrada, salida FROM ({$unionSql}) as t ORDER BY fecha ASC, referencia_id ASC LIMIT ?) as pre",
                 array_merge($bindings, [$offset])
             );
             $saldoAtOffset = $saldoInicial + (float) $prePage->sum_entradas - (float) $prePage->sum_salidas;
@@ -157,7 +157,7 @@ class KardexController extends Controller
 
         // 3. Página actual
         $rows = DB::select(
-            "{$wrappedSql} ORDER BY fecha ASC LIMIT ? OFFSET ?",
+            "{$wrappedSql} ORDER BY fecha ASC, referencia_id ASC LIMIT ? OFFSET ?",
             array_merge($bindings, [$perPage, $offset])
         );
 
@@ -218,32 +218,33 @@ class KardexController extends Controller
         $queries = [];
         $bindings = [];
 
-        // VENTAS (SALIDA)
+        // VENTAS (SALIDA) - incluye todas, anuladas aparecen tachadas
         if (!$tipo || $tipo === 'venta') {
-            $where = "v.estado_de_venta != 'an'";
+            $whereBase = "1=1";
             $params = [];
 
             if ($productoId) {
-                $where .= " AND pa.producto_id = ?";
+                $whereBase .= " AND pa.producto_id = ?";
                 $params[] = $productoId;
             }
 
             if ($almacenId) {
-                $where .= " AND v.almacen_id = ?";
+                $whereBase .= " AND v.almacen_id = ?";
                 $params[] = $almacenId;
             }
             if ($desde) {
-                $where .= " AND DATE(v.fecha) >= ?";
+                $whereBase .= " AND DATE(v.fecha) >= ?";
                 $params[] = $desde;
             }
             if ($hasta) {
-                $where .= " AND DATE(v.fecha) <= ?";
+                $whereBase .= " AND DATE(v.fecha) <= ?";
                 $params[] = $hasta;
             }
 
+            // Fila de SALIDA para todas las ventas (activas y anuladas)
             $queries[] = "SELECT
                 'venta' as tipo,
-                'SALIDA' as movimiento,
+                CASE WHEN v.estado_de_venta = 'an' THEN 'ANULADO' ELSE 'SALIDA' END as movimiento,
                 v.fecha,
                 CONCAT(
                     CASE v.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE v.tipo_documento END,
@@ -266,8 +267,58 @@ class KardexController extends Controller
             JOIN producto p ON p.id = pa.producto_id
             JOIN unidadderivadainmutableventa udv ON udv.producto_almacen_venta_id = pav.id
             JOIN unidadderivadainmutable udi ON udi.id = udv.unidad_derivada_inmutable_id
-            WHERE {$where}";
+            WHERE {$whereBase}";
             $bindings = array_merge($bindings, $params);
+
+            // Fila de ENTRADA (devolución) solo para ventas anuladas
+            $whereAnulada = "v.estado_de_venta = 'an'";
+            $paramsAnulada = [];
+
+            if ($productoId) {
+                $whereAnulada .= " AND pa.producto_id = ?";
+                $paramsAnulada[] = $productoId;
+            }
+            if ($almacenId) {
+                $whereAnulada .= " AND v.almacen_id = ?";
+                $paramsAnulada[] = $almacenId;
+            }
+            if ($desde) {
+                $whereAnulada .= " AND DATE(v.fecha) >= ?";
+                $paramsAnulada[] = $desde;
+            }
+            if ($hasta) {
+                $whereAnulada .= " AND DATE(v.fecha) <= ?";
+                $paramsAnulada[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'venta' as tipo,
+                'DEVOLUCION' as movimiento,
+                v.fecha,
+                CONCAT(
+                    'Anulación ',
+                    CASE v.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE v.tipo_documento END,
+                    ' ', COALESCE(v.serie, ''), '-', LPAD(v.numero, 4, '0')
+                ) as documento,
+                udi.name as unidad,
+                CAST(udv.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udv.cantidad * udv.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(udv.precio AS DECIMAL(16,4)) as precio,
+                CAST(pav.costo AS DECIMAL(16,4)) as costo,
+                CAST(udv.cantidad * udv.factor AS DECIMAL(16,4)) as entrada,
+                CAST(0 AS DECIMAL(16,4)) as salida,
+                v.id as referencia_id,
+                pa.producto_id,
+                p.name as producto_nombre,
+                p.cod_producto as producto_codigo
+            FROM productoalmacenventa pav
+            JOIN venta v ON v.id = pav.venta_id
+            JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id
+            JOIN producto p ON p.id = pa.producto_id
+            JOIN unidadderivadainmutableventa udv ON udv.producto_almacen_venta_id = pav.id
+            JOIN unidadderivadainmutable udi ON udi.id = udv.unidad_derivada_inmutable_id
+            WHERE {$whereAnulada}";
+            $bindings = array_merge($bindings, $paramsAnulada);
         }
 
         // COTIZACIONES (REFERENCIA - no afecta stock)
@@ -371,7 +422,7 @@ class KardexController extends Controller
 
         // GUIAS DE REMISION (SALIDA)
         if (!$tipo || $tipo === 'guia') {
-            $where = "gr.afecta_stock = 1";
+            $where = "gr.afecta_stock = 1 AND gr.estado != 'ANULADA'";
             $params = [];
 
             if ($productoId) {
