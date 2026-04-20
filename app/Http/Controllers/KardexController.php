@@ -120,16 +120,59 @@ class KardexController extends Controller
         if ($perPage == -1) {
             // Sin paginación: traer todo ordenado
             $rows = DB::select("{$wrappedSql} ORDER BY fecha ASC, referencia_id ASC", $bindings);
-            $saldoActual = $saldoInicial;
             $data = [];
-            foreach ($rows as $row) {
-                if ($productoId) {
-                    $saldoActual += $row->entrada - $row->salida;
+
+            if ($productoId) {
+                // ── Producto único: saldo acumulado lineal ──
+                $saldoActual = $saldoInicial;
+                foreach ($rows as $row) {
+                    $row->saldo_anterior = round($saldoActual, 4);
+                    $saldoActual += (float)$row->entrada - (float)$row->salida;
                     $row->saldo = round($saldoActual, 4);
-                } else {
-                    $row->saldo = null; // No calcular saldo global para múltiples productos
+                    $data[] = $row;
                 }
-                $data[] = $row;
+            } else {
+                // ── Múltiples productos: saldo acumulado POR producto ──
+
+                // Paso 1: totales del periodo por producto (usando filas ya cargadas)
+                $periodoTotales = [];
+                foreach ($rows as $row) {
+                    $pid = $row->producto_id;
+                    if (!isset($periodoTotales[$pid])) {
+                        $periodoTotales[$pid] = ['entradas' => 0.0, 'salidas' => 0.0];
+                    }
+                    $periodoTotales[$pid]['entradas'] += (float)$row->entrada;
+                    $periodoTotales[$pid]['salidas']  += (float)$row->salida;
+                }
+
+                // Paso 2: stock actual de cada producto (1 sola query con whereIn)
+                $productIds = array_keys($periodoTotales);
+                $stocksResult = DB::table('productoalmacen')
+                    ->whereIn('producto_id', $productIds)
+                    ->when($almacenId, fn($q) => $q->where('almacen_id', $almacenId))
+                    ->select('producto_id', DB::raw('SUM(stock_fraccion) as stock_total'))
+                    ->groupBy('producto_id')
+                    ->get();
+                $stocksPorProducto = [];
+                foreach ($stocksResult as $s) {
+                    $stocksPorProducto[$s->producto_id] = (float)$s->stock_total;
+                }
+
+                // Paso 3: saldo_inicio = stock_actual + salidas_periodo - entradas_periodo
+                $saldosPorProducto = [];
+                foreach ($periodoTotales as $pid => $t) {
+                    $stockPid = $stocksPorProducto[$pid] ?? 0.0;
+                    $saldosPorProducto[$pid] = $stockPid + $t['salidas'] - $t['entradas'];
+                }
+
+                // Paso 4: saldo acumulado fila a fila por producto
+                foreach ($rows as $row) {
+                    $pid = $row->producto_id;
+                    $row->saldo_anterior = round($saldosPorProducto[$pid], 4);
+                    $saldosPorProducto[$pid] += (float)$row->entrada - (float)$row->salida;
+                    $row->saldo = round($saldosPorProducto[$pid], 4);
+                    $data[] = $row;
+                }
             }
 
             return response()->json([
@@ -161,17 +204,58 @@ class KardexController extends Controller
             array_merge($bindings, [$perPage, $offset])
         );
 
-        // 4. Calcular saldo running solo para la página si aplica
-        $saldoActual = $saldoAtOffset;
+        // 4. Calcular saldo running para la página
         $data = [];
-        foreach ($rows as $row) {
-            if ($productoId) {
-                $saldoActual += $row->entrada - $row->salida;
+        if ($productoId) {
+            $saldoActual = $saldoAtOffset;
+            foreach ($rows as $row) {
+                $row->saldo_anterior = round($saldoActual, 4);
+                $saldoActual += (float)$row->entrada - (float)$row->salida;
                 $row->saldo = round($saldoActual, 4);
-            } else {
-                $row->saldo = null;
+                $data[] = $row;
             }
-            $data[] = $row;
+        } else {
+            // Multi-producto paginado: calcular saldos por producto
+            $pids = array_unique(array_map(fn($r) => $r->producto_id, $rows));
+
+            // Totales globales del periodo por producto
+            $allPeriodTotals = DB::select(
+                "SELECT producto_id, COALESCE(SUM(entrada),0) as te, COALESCE(SUM(salida),0) as ts FROM ({$unionSql}) as t GROUP BY producto_id",
+                $bindings
+            );
+            $stocksResult = DB::table('productoalmacen')
+                ->whereIn('producto_id', $pids)
+                ->when($almacenId, fn($q) => $q->where('almacen_id', $almacenId))
+                ->select('producto_id', DB::raw('SUM(stock_fraccion) as stock_total'))
+                ->groupBy('producto_id')
+                ->get();
+            $stocksPorProducto = [];
+            foreach ($stocksResult as $s) {
+                $stocksPorProducto[$s->producto_id] = (float)$s->stock_total;
+            }
+            $saldosPorProducto = [];
+            foreach ($allPeriodTotals as $pt) {
+                $stockPid = $stocksPorProducto[$pt->producto_id] ?? 0.0;
+                $saldosPorProducto[$pt->producto_id] = $stockPid + (float)$pt->ts - (float)$pt->te;
+            }
+            if ($offset > 0) {
+                $preRows = DB::select(
+                    "SELECT producto_id, entrada, salida FROM ({$unionSql}) as t ORDER BY fecha ASC, referencia_id ASC LIMIT ?",
+                    array_merge($bindings, [$offset])
+                );
+                foreach ($preRows as $pr) {
+                    $saldosPorProducto[$pr->producto_id] = ($saldosPorProducto[$pr->producto_id] ?? 0.0)
+                        + (float)$pr->entrada - (float)$pr->salida;
+                }
+            }
+            foreach ($rows as $row) {
+                $pid = $row->producto_id;
+                $row->saldo_anterior = round($saldosPorProducto[$pid] ?? 0.0, 4);
+                $saldosPorProducto[$pid] = ($saldosPorProducto[$pid] ?? 0.0)
+                    + (float)$row->entrada - (float)$row->salida;
+                $row->saldo = round($saldosPorProducto[$pid], 4);
+                $data[] = $row;
+            }
         }
 
         return response()->json([
