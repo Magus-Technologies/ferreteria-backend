@@ -386,8 +386,10 @@ class VentaController extends Controller
 
             // Descontar stock si el tipo de despacho es En Tienda o Domicilio
             // (Parcial se descuenta al momento de entregar, no al vender)
+            // No descontar si la venta está "en espera" (no es una venta finalizada)
             $tipoDespacho = $validated['tipo_despacho'] ?? null;
-            if (in_array($tipoDespacho, ['et', 'do'])) {
+            $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
+            if (in_array($tipoDespacho, ['et', 'do']) && $estadoVentaStr !== 'es') {
                 foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
                     if (! $pAlmacenId && isset($producto['producto_id'])) {
@@ -774,6 +776,27 @@ class VentaController extends Controller
                 ? $venta->estado_de_venta->value
                 : $venta->estado_de_venta;
 
+            // Capturar tipo_despacho anterior y snapshot de cantidades previas
+            // para poder decidir si revertir/aplicar stock correctamente
+            $tipoDespachoAnterior = $venta->tipo_despacho instanceof \BackedEnum
+                ? $venta->tipo_despacho->value
+                : $venta->tipo_despacho;
+
+            $stockDescontadoAntes = in_array($tipoDespachoAnterior, ['et', 'do']) && $estadoAnterior !== 'es';
+
+            $snapshotUnidadesAnteriores = [];
+            if ($stockDescontadoAntes) {
+                foreach ($venta->productosPorAlmacen as $pav) {
+                    foreach ($pav->unidadesDerivadas as $ud) {
+                        $snapshotUnidadesAnteriores[] = [
+                            'producto_almacen_id' => $pav->producto_almacen_id,
+                            'cantidad' => (float) $ud->cantidad,
+                            'factor' => (float) $ud->factor,
+                        ];
+                    }
+                }
+            }
+
             // Update venta
             $venta->update($updateData);
 
@@ -844,6 +867,54 @@ class VentaController extends Controller
                             'descuento' => $unidad['descuento'] ?? 0,
                             'comision' => $unidad['comision'] ?? 0,
                         ]);
+                    }
+                }
+            }
+
+            // Ajustar stock según transición de estado + tipo_despacho
+            // Revertir stock anterior si ya se había descontado
+            if ($stockDescontadoAntes) {
+                foreach ($snapshotUnidadesAnteriores as $snap) {
+                    $pAlmacen = ProductoAlmacen::find($snap['producto_almacen_id']);
+                    if (! $pAlmacen) continue;
+                    $cantidadFraccion = $snap['cantidad'] * $snap['factor'];
+                    $pAlmacen->increment('stock_fraccion', $cantidadFraccion);
+                    ComplementarioStockService::procesarComplementarioPorFactor(
+                        $pAlmacen->id,
+                        $snap['factor'],
+                        $snap['cantidad'],
+                        $venta->almacen_id,
+                        true // revertir (ingreso)
+                    );
+                }
+            }
+
+            // Aplicar nuevo descuento de stock si corresponde
+            $tipoDespachoNuevo = $validated['tipo_despacho'] ?? $tipoDespachoAnterior;
+            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do']) && $estadoNuevo !== 'es';
+            if ($descontarStockAhora && isset($validated['productos_por_almacen'])) {
+                foreach ($validated['productos_por_almacen'] as $producto) {
+                    $pAlmacenId = $producto['producto_almacen_id'] ?? null;
+                    if (! $pAlmacenId && isset($producto['producto_id'])) {
+                        $pAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
+                            ->where('almacen_id', $venta->almacen_id)
+                            ->first();
+                        $pAlmacenId = $pAlmacen?->id;
+                    } else {
+                        $pAlmacen = ProductoAlmacen::find($pAlmacenId);
+                    }
+                    if (! $pAlmacen) continue;
+
+                    foreach ($producto['unidades_derivadas'] as $unidad) {
+                        $cantidadFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+                        $pAlmacen->decrement('stock_fraccion', $cantidadFraccion);
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $pAlmacen->id,
+                            (float) $unidad['factor'],
+                            (float) $unidad['cantidad'],
+                            $venta->almacen_id,
+                            false // salida
+                        );
                     }
                 }
             }
