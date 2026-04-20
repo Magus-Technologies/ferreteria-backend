@@ -293,7 +293,7 @@ class KardexController extends Controller
 
             $queries[] = "SELECT
                 'venta' as tipo,
-                'DEVOLUCION' as movimiento,
+                'ANULADO' as movimiento,
                 v.fecha,
                 CONCAT(
                     'Anulación ',
