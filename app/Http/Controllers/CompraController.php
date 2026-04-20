@@ -869,7 +869,28 @@ class CompraController extends Controller
             throw new \Exception('No puedes seleccionar Egreso asociado (legado) y Despliegue de Pago al mismo tiempo');
         }
 
-        // Validación de duplicado eliminada
+        // Validación de duplicado: (serie, numero, proveedor_id) es UNIQUE en la DB
+        if (!empty($compra['serie']) && !empty($compra['numero']) && !empty($compra['proveedor_id'])) {
+            $query = Compra::where('serie', $compra['serie'])
+                ->where('numero', $compra['numero'])
+                ->where('proveedor_id', $compra['proveedor_id']);
+
+            if (!empty($compra['id'])) {
+                $query->where('id', '!=', $compra['id']);
+            }
+
+            if ($query->exists()) {
+                throw new \Illuminate\Validation\ValidationException(
+                    validator([], []),
+                    response()->json([
+                        'message' => "Ya existe una compra con la serie {$compra['serie']}-{$compra['numero']} para este proveedor",
+                        'errors' => [
+                            'numero' => ["Ya existe una compra con la serie {$compra['serie']}-{$compra['numero']} para este proveedor"],
+                        ],
+                    ], 422)
+                );
+            }
+        }
     }
 
     /**
