@@ -39,6 +39,7 @@ class EntregaProductoController extends Controller
             'per_page' => 'sometimes|integer|min:-1|max:100', // Permitir -1 para traer todos
             'search' => 'sometimes|string|nullable',
             'tipo_despacho' => 'sometimes|string|nullable',
+            'tipo_entrega' => 'sometimes|string|nullable',
         ]);
 
         // 🔍 DEBUG: Log de parámetros recibidos
@@ -108,6 +109,11 @@ class EntregaProductoController extends Controller
         // Filter by tipo_despacho
         if ($request->has('tipo_despacho') && $request->tipo_despacho) {
             $query->where('tipo_despacho', $request->tipo_despacho);
+        }
+
+        // Filter by tipo_entrega
+        if ($request->has('tipo_entrega') && $request->tipo_entrega) {
+            $query->where('tipo_entrega', $request->tipo_entrega);
         }
  
         // Global search (Client name, series, number)
