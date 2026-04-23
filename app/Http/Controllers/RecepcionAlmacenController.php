@@ -861,16 +861,31 @@ class RecepcionAlmacenController extends Controller
                     ->with(['unidadesDerivadas', 'productoAlmacen'])
                     ->get();
 
-                // Obtener productos de la compra para revertir cantidad_pendiente
-                $productosCompra = ProductoAlmacenCompra::where('compra_id', $recepcion->compra_id)->get();
-                $productosCompraMap = $productosCompra->keyBy('producto_almacen_id');
+                // Mapeo de productos del documento padre (Compra u OrdenCompra)
+                $productosDocPadreMap = collect();
+                if ($recepcion->compra_id) {
+                    $productosDocPadreMap = ProductoAlmacenCompra::where('compra_id', $recepcion->compra_id)
+                        ->get()
+                        ->keyBy('producto_almacen_id');
+                } else if ($recepcion->orden_compra_id) {
+                    $productosDocPadreMap = \App\Models\OrdenCompraProducto::where('orden_compra_id', $recepcion->orden_compra_id)
+                        ->get()
+                        ->keyBy('producto_id');
+                }
 
                 foreach ($productosRecepcion as $productoRecepcion) {
                     $productoAlmacenId = $productoRecepcion->producto_almacen_id;
-                    $productoCompra = $productosCompraMap->get($productoAlmacenId);
+                    $productoId = $productoRecepcion->productoAlmacen->producto_id;
+                    
+                    // Encontrar el producto correspondiente en el documento padre
+                    $productoDocPadre = $recepcion->compra_id 
+                        ? $productosDocPadreMap->get($productoAlmacenId)
+                        : $productosDocPadreMap->get($productoId);
 
-                    if (!$productoCompra) {
-                        throw new \Exception('No se encontró el producto de la compra');
+                    if (!$productoDocPadre) {
+                        // Si no se encuentra, logueamos pero continuamos (podría ser un producto eliminado de la compra?)
+                        \Illuminate\Support\Facades\Log::warning("No se encontró el producto ID {$productoId} en el documento padre al anular recepción {$recepcion->id}");
+                        continue;
                     }
 
                     $stockBase = (float) $productoRecepcion->productoAlmacen->stock_fraccion;
@@ -881,40 +896,60 @@ class RecepcionAlmacenController extends Controller
                         $cantidad = (float) $unidadDerivada->cantidad;
                         $cantidadTotal = $cantidad * $factor;
 
-                        // Incrementar cantidad_pendiente en la compra
-                        UnidadDerivadaInmutableCompra::where('producto_almacen_compra_id', $productoCompra->id)
-                            ->where('unidad_derivada_inmutable_id', $unidadDerivada->unidad_derivada_inmutable_id)
-                            ->where('bonificacion', $unidadDerivada->bonificacion)
-                            ->increment('cantidad_pendiente', $cantidad);
+                        // Restaurar cantidad_pendiente en el documento padre
+                        if ($recepcion->compra_id) {
+                            UnidadDerivadaInmutableCompra::where('producto_almacen_compra_id', $productoDocPadre->id)
+                                ->where('unidad_derivada_inmutable_id', $unidadDerivada->unidad_derivada_inmutable_id)
+                                ->where('bonificacion', $unidadDerivada->bonificacion)
+                                ->increment('cantidad_pendiente', $cantidad);
+                            
+                            // Si la compra viene de una OC, restaurar también en la OC
+                            $compraActual = DB::table('compra')->where('id', $recepcion->compra_id)->first();
+                            if ($compraActual && $compraActual->orden_compra_id) {
+                                \App\Models\OrdenCompraProducto::where('orden_compra_id', $compraActual->orden_compra_id)
+                                    ->where('producto_id', $productoId)
+                                    ->increment('cantidad_pendiente', $cantidad);
+                            }
+                        } else if ($recepcion->orden_compra_id) {
+                            // En OrdenCompraProducto, la cantidad_pendiente está en la misma tabla del producto
+                            // Solo restauramos si la unidad coincide (flujo simplificado OC)
+                            if ($productoDocPadre->unidad === $unidadDerivada->unidadDerivadaInmutable->name) {
+                                $productoDocPadre->increment('cantidad_pendiente', $cantidad);
+                            }
+                        }
 
-                        // Crear historial de reversión
-                        $stockInicial = $stockBase - $acumulado;
-                        HistorialUnidadDerivadaInmutableRecepcion::create([
-                            'unidad_derivada_inmutable_recepcion_id' => $unidadDerivada->id,
-                            'stock_anterior' => $stockInicial,
-                            'stock_nuevo' => $stockInicial - $cantidadTotal,
-                        ]);
+                        // Crear historial de reversión (solo si hubo movimiento de stock)
+                        if (!$recepcion->es_finalizacion) {
+                            $stockInicial = $stockBase - $acumulado;
+                            HistorialUnidadDerivadaInmutableRecepcion::create([
+                                'unidad_derivada_inmutable_recepcion_id' => $unidadDerivada->id,
+                                'stock_anterior' => $stockInicial,
+                                'stock_nuevo' => $stockInicial - $cantidadTotal,
+                            ]);
+                        }
 
                         $acumulado += $cantidadTotal;
                     }
 
-                    // Decrementar stock
-                    $paModel = ProductoAlmacen::find($productoAlmacenId);
-                    ProductoAlmacen::where('id', $productoAlmacenId)
-                        ->update([
-                            'stock_fraccion' => DB::raw("stock_fraccion - {$acumulado}"),
-                        ]);
-
-                    // Invalidar cache de productos
-                    if ($paModel) {
-                        app(ProductoCacheService::class)->invalidateProductosAlmacen($paModel->almacen_id);
+                    // Decrementar stock SOLO si no es una recepción de finalización
+                    if (!$recepcion->es_finalizacion && $acumulado > 0) {
+                        $paModel = ProductoAlmacen::find($productoAlmacenId);
+                        if ($paModel) {
+                            $paModel->decrement('stock_fraccion', $acumulado);
+                            app(ProductoCacheService::class)->invalidateProductosAlmacen($paModel->almacen_id);
+                        }
                     }
                 }
 
-                // 4. Marcar compra como Creado (ya no está completamente recepcionada)
-                DB::table('compra')
-                    ->where('id', $recepcion->compra_id)
-                    ->update(['estado_de_compra' => 'cr']);
+                // 4. Actualizar estado del documento padre si corresponde
+                if ($recepcion->compra_id) {
+                    DB::table('compra')
+                        ->where('id', $recepcion->compra_id)
+                        ->update(['estado_de_compra' => 'cr']); // 'cr' = Creado (Pendiente)
+                } else if ($recepcion->orden_compra_id) {
+                    \App\Models\OrdenCompra::where('id', $recepcion->orden_compra_id)
+                        ->update(['estado' => \App\Enums\EstadoDeCompra::Completada]); // Sigue completada pero con pendientes
+                }
 
                 return $recepcion;
             });

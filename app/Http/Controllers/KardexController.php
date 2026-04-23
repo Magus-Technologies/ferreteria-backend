@@ -83,8 +83,13 @@ class KardexController extends Controller
         $wrappedSql = "SELECT * FROM ({$unionSql}) as movimientos";
 
         // 1. Totales: COUNT + SUM entradas/salidas (1 query)
+        // Solo sumamos entradas/salidas que AFECTAN stock (no tipo compra en inventario)
         $totals = DB::selectOne(
-            "SELECT COUNT(*) as total, COALESCE(SUM(entrada), 0) as total_entradas, COALESCE(SUM(salida), 0) as total_salidas FROM ({$unionSql}) as t",
+            "SELECT 
+                COUNT(*) as total, 
+                COALESCE(SUM(CASE WHEN tipo != 'compra' THEN entrada ELSE 0 END), 0) as total_entradas, 
+                COALESCE(SUM(CASE WHEN tipo != 'compra' THEN salida ELSE 0 END), 0) as total_salidas 
+            FROM ({$unionSql}) as t",
             $bindings
         );
 
@@ -101,7 +106,7 @@ class KardexController extends Controller
                 ->where('producto_id', $productoId)
                 ->when($almacenId, fn($q) => $q->where('almacen_id', $almacenId))
                 ->sum('stock_fraccion');
-            
+
             $saldoInicial = $stockActual + $totalSalidas - $totalEntradas;
         }
 
@@ -119,7 +124,7 @@ class KardexController extends Controller
 
         if ($perPage == -1) {
             // Sin paginación: traer todo ordenado
-            $rows = DB::select("{$wrappedSql} ORDER BY fecha ASC, referencia_id ASC", $bindings);
+            $rows = DB::select("{$wrappedSql} ORDER BY DATE(fecha) ASC, orden ASC, fecha ASC, referencia_id ASC", $bindings);
             $data = [];
 
             if ($productoId) {
@@ -127,7 +132,10 @@ class KardexController extends Controller
                 $saldoActual = $saldoInicial;
                 foreach ($rows as $row) {
                     $row->saldo_anterior = round($saldoActual, 4);
-                    $saldoActual += (float)$row->entrada - (float)$row->salida;
+                    // Solo afecta el saldo si no es una compra (la compra es solo referencia en inventario)
+                    if ($row->tipo !== 'compra') {
+                        $saldoActual += (float) $row->entrada - (float) $row->salida;
+                    }
                     $row->saldo = round($saldoActual, 4);
                     $data[] = $row;
                 }
@@ -141,8 +149,10 @@ class KardexController extends Controller
                     if (!isset($periodoTotales[$pid])) {
                         $periodoTotales[$pid] = ['entradas' => 0.0, 'salidas' => 0.0];
                     }
-                    $periodoTotales[$pid]['entradas'] += (float)$row->entrada;
-                    $periodoTotales[$pid]['salidas']  += (float)$row->salida;
+                    if ($row->tipo !== 'compra') {
+                        $periodoTotales[$pid]['entradas'] += (float) $row->entrada;
+                        $periodoTotales[$pid]['salidas'] += (float) $row->salida;
+                    }
                 }
 
                 // Paso 2: stock actual de cada producto (1 sola query con whereIn)
@@ -155,7 +165,7 @@ class KardexController extends Controller
                     ->get();
                 $stocksPorProducto = [];
                 foreach ($stocksResult as $s) {
-                    $stocksPorProducto[$s->producto_id] = (float)$s->stock_total;
+                    $stocksPorProducto[$s->producto_id] = (float) $s->stock_total;
                 }
 
                 // Paso 3: saldo_inicio = stock_actual + salidas_periodo - entradas_periodo
@@ -169,7 +179,9 @@ class KardexController extends Controller
                 foreach ($rows as $row) {
                     $pid = $row->producto_id;
                     $row->saldo_anterior = round($saldosPorProducto[$pid], 4);
-                    $saldosPorProducto[$pid] += (float)$row->entrada - (float)$row->salida;
+                    if ($row->tipo !== 'compra') {
+                        $saldosPorProducto[$pid] += (float) $row->entrada - (float) $row->salida;
+                    }
                     $row->saldo = round($saldosPorProducto[$pid], 4);
                     $data[] = $row;
                 }
@@ -192,7 +204,10 @@ class KardexController extends Controller
         $saldoAtOffset = $saldoInicial;
         if ($productoId && $offset > 0) {
             $prePage = DB::selectOne(
-                "SELECT COALESCE(SUM(entrada), 0) as sum_entradas, COALESCE(SUM(salida), 0) as sum_salidas FROM (SELECT entrada, salida FROM ({$unionSql}) as t ORDER BY fecha ASC, referencia_id ASC LIMIT ?) as pre",
+                "SELECT 
+                    COALESCE(SUM(CASE WHEN tipo != 'compra' THEN entrada ELSE 0 END), 0) as sum_entradas, 
+                    COALESCE(SUM(CASE WHEN tipo != 'compra' THEN salida ELSE 0 END), 0) as sum_salidas 
+                FROM (SELECT tipo, entrada, salida FROM ({$unionSql}) as t ORDER BY DATE(fecha) ASC, orden ASC, fecha ASC, referencia_id ASC LIMIT ?) as pre",
                 array_merge($bindings, [$offset])
             );
             $saldoAtOffset = $saldoInicial + (float) $prePage->sum_entradas - (float) $prePage->sum_salidas;
@@ -200,7 +215,7 @@ class KardexController extends Controller
 
         // 3. Página actual
         $rows = DB::select(
-            "{$wrappedSql} ORDER BY fecha ASC, referencia_id ASC LIMIT ? OFFSET ?",
+            "{$wrappedSql} ORDER BY DATE(fecha) ASC, orden ASC, fecha ASC, referencia_id ASC LIMIT ? OFFSET ?",
             array_merge($bindings, [$perPage, $offset])
         );
 
@@ -210,7 +225,9 @@ class KardexController extends Controller
             $saldoActual = $saldoAtOffset;
             foreach ($rows as $row) {
                 $row->saldo_anterior = round($saldoActual, 4);
-                $saldoActual += (float)$row->entrada - (float)$row->salida;
+                if ($row->tipo !== 'compra') {
+                    $saldoActual += (float) $row->entrada - (float) $row->salida;
+                }
                 $row->saldo = round($saldoActual, 4);
                 $data[] = $row;
             }
@@ -218,9 +235,13 @@ class KardexController extends Controller
             // Multi-producto paginado: calcular saldos por producto
             $pids = array_unique(array_map(fn($r) => $r->producto_id, $rows));
 
-            // Totales globales del periodo por producto
+            // Totales globales del periodo por producto (respetando exclusión de compra)
             $allPeriodTotals = DB::select(
-                "SELECT producto_id, COALESCE(SUM(entrada),0) as te, COALESCE(SUM(salida),0) as ts FROM ({$unionSql}) as t GROUP BY producto_id",
+                "SELECT 
+                    producto_id, 
+                    COALESCE(SUM(CASE WHEN tipo != 'compra' THEN entrada ELSE 0 END), 0) as te, 
+                    COALESCE(SUM(CASE WHEN tipo != 'compra' THEN salida ELSE 0 END), 0) as ts 
+                FROM ({$unionSql}) as t GROUP BY producto_id",
                 $bindings
             );
             $stocksResult = DB::table('productoalmacen')
@@ -231,28 +252,32 @@ class KardexController extends Controller
                 ->get();
             $stocksPorProducto = [];
             foreach ($stocksResult as $s) {
-                $stocksPorProducto[$s->producto_id] = (float)$s->stock_total;
+                $stocksPorProducto[$s->producto_id] = (float) $s->stock_total;
             }
             $saldosPorProducto = [];
             foreach ($allPeriodTotals as $pt) {
                 $stockPid = $stocksPorProducto[$pt->producto_id] ?? 0.0;
-                $saldosPorProducto[$pt->producto_id] = $stockPid + (float)$pt->ts - (float)$pt->te;
+                $saldosPorProducto[$pt->producto_id] = $stockPid + (float) $pt->ts - (float) $pt->te;
             }
             if ($offset > 0) {
                 $preRows = DB::select(
-                    "SELECT producto_id, entrada, salida FROM ({$unionSql}) as t ORDER BY fecha ASC, referencia_id ASC LIMIT ?",
+                    "SELECT producto_id, entrada, salida FROM ({$unionSql}) as t ORDER BY DATE(fecha) ASC, orden ASC, fecha ASC, referencia_id ASC LIMIT ?",
                     array_merge($bindings, [$offset])
                 );
                 foreach ($preRows as $pr) {
-                    $saldosPorProducto[$pr->producto_id] = ($saldosPorProducto[$pr->producto_id] ?? 0.0)
-                        + (float)$pr->entrada - (float)$pr->salida;
+                    if ($pr->tipo !== 'compra') {
+                        $saldosPorProducto[$pr->producto_id] = ($saldosPorProducto[$pr->producto_id] ?? 0.0)
+                            + (float) $pr->entrada - (float) $pr->salida;
+                    }
                 }
             }
             foreach ($rows as $row) {
                 $pid = $row->producto_id;
                 $row->saldo_anterior = round($saldosPorProducto[$pid] ?? 0.0, 4);
-                $saldosPorProducto[$pid] = ($saldosPorProducto[$pid] ?? 0.0)
-                    + (float)$row->entrada - (float)$row->salida;
+                if ($row->tipo !== 'compra') {
+                    $saldosPorProducto[$pid] = ($saldosPorProducto[$pid] ?? 0.0)
+                        + (float) $row->entrada - (float) $row->salida;
+                }
                 $row->saldo = round($saldosPorProducto[$pid], 4);
                 $data[] = $row;
             }
@@ -337,14 +362,15 @@ class KardexController extends Controller
                 udi.name as unidad,
                 CAST(udv.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udv.cantidad * udv.factor AS DECIMAL(16,4)) as cantidad_fraccion,
-                CAST(udv.precio AS DECIMAL(16,4)) as precio,
-                CAST(pav.costo AS DECIMAL(16,4)) as costo,
+                CAST(udv.precio / NULLIF(udv.factor, 0) AS DECIMAL(16,4)) as precio,
+                CAST(pav.costo / NULLIF(udv.factor, 0) AS DECIMAL(16,4)) as costo,
                 CAST(0 AS DECIMAL(16,4)) as entrada,
                 CAST(udv.cantidad * udv.factor AS DECIMAL(16,4)) as salida,
                 v.id as referencia_id,
                 pa.producto_id,
                 p.name as producto_nombre,
-                p.cod_producto as producto_codigo
+                p.cod_producto as producto_codigo,
+                1 as orden
             FROM productoalmacenventa pav
             JOIN venta v ON v.id = pav.venta_id
             JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id
@@ -387,14 +413,15 @@ class KardexController extends Controller
                 udi.name as unidad,
                 CAST(udv.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udv.cantidad * udv.factor AS DECIMAL(16,4)) as cantidad_fraccion,
-                CAST(udv.precio AS DECIMAL(16,4)) as precio,
-                CAST(pav.costo AS DECIMAL(16,4)) as costo,
+                CAST(udv.precio / NULLIF(udv.factor, 0) AS DECIMAL(16,4)) as precio,
+                CAST(pav.costo / NULLIF(udv.factor, 0) AS DECIMAL(16,4)) as costo,
                 CAST(udv.cantidad * udv.factor AS DECIMAL(16,4)) as entrada,
                 CAST(0 AS DECIMAL(16,4)) as salida,
                 v.id as referencia_id,
                 pa.producto_id,
                 p.name as producto_nombre,
-                p.cod_producto as producto_codigo
+                p.cod_producto as producto_codigo,
+                1 as orden
             FROM productoalmacenventa pav
             JOIN venta v ON v.id = pav.venta_id
             JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id
@@ -438,14 +465,15 @@ class KardexController extends Controller
                 udi.name as unidad,
                 CAST(udc.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as cantidad_fraccion,
-                CAST(udc.precio AS DECIMAL(16,4)) as precio,
-                CAST(pac.costo AS DECIMAL(16,4)) as costo,
+                CAST(udc.precio / NULLIF(udc.factor, 0) AS DECIMAL(16,4)) as precio,
+                CAST(pac.costo / NULLIF(udc.factor, 0) AS DECIMAL(16,4)) as costo,
                 CAST(0 AS DECIMAL(16,4)) as entrada,
                 CAST(0 AS DECIMAL(16,4)) as salida,
                 c.id as referencia_id,
                 pa.producto_id,
                 p.name as producto_nombre,
-                p.cod_producto as producto_codigo
+                p.cod_producto as producto_codigo,
+                2 as orden
             FROM productoalmacencotizacion pac
             JOIN cotizacion c ON c.id = pac.cotizacion_id
             JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id
@@ -488,13 +516,14 @@ class KardexController extends Controller
                 CAST(udp.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udp.cantidad * udp.factor AS DECIMAL(16,4)) as cantidad_fraccion,
                 CAST(0 AS DECIMAL(16,4)) as precio,
-                CAST(pap.costo AS DECIMAL(16,4)) as costo,
+                CAST(pap.costo / NULLIF(udp.factor, 0) AS DECIMAL(16,4)) as costo,
                 CAST(0 AS DECIMAL(16,4)) as entrada,
                 CAST(udp.cantidad * udp.factor AS DECIMAL(16,4)) as salida,
                 p.id as referencia_id,
                 pa.producto_id,
                 prod.name as producto_nombre,
-                prod.cod_producto as producto_codigo
+                prod.cod_producto as producto_codigo,
+                3 as orden
             FROM productoalmacenprestamo pap
             JOIN prestamos p ON p.id = pap.prestamo_id
             JOIN productoalmacen pa ON pa.id = pap.producto_almacen_id
@@ -542,7 +571,8 @@ class KardexController extends Controller
                 gr.id as referencia_id,
                 dgr.producto_id,
                 p.name as producto_nombre,
-                p.cod_producto as producto_codigo
+                p.cod_producto as producto_codigo,
+                4 as orden
             FROM detalle_guia_remision dgr
             JOIN guia_remision gr ON gr.id = dgr.guia_remision_id
             JOIN producto p ON p.id = dgr.producto_id
@@ -573,7 +603,7 @@ class KardexController extends Controller
         if (!$tipo || $tipo === 'compra') {
             $where = "c.estado_de_compra != 'an'";
             $params = [];
-            
+
             if ($productoId) {
                 $where .= " AND pa.producto_id = ?";
                 $params[] = $productoId;
@@ -604,13 +634,14 @@ class KardexController extends Controller
                 CAST(udc.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as cantidad_fraccion,
                 CAST(0 AS DECIMAL(16,4)) as precio,
-                CAST(pac.costo AS DECIMAL(16,4)) as costo,
-                CAST(0 AS DECIMAL(16,4)) as entrada,
+                CAST(pac.costo / NULLIF(udc.factor, 0) AS DECIMAL(16,4)) as costo,
+                CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as entrada,
                 CAST(0 AS DECIMAL(16,4)) as salida,
                 c.id as referencia_id,
                 p.name as producto_nombre,
                 p.cod_producto as producto_codigo,
-                pa.producto_id
+                pa.producto_id,
+                1 as orden
             FROM productoalmacencompra pac
             JOIN compra c ON c.id = pac.compra_id
             JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id
@@ -625,7 +656,7 @@ class KardexController extends Controller
         if (!$tipo || $tipo === 'recepcion') {
             $where = "r.estado = 1";
             $params = [];
-            
+
             if ($productoId) {
                 $where .= " AND pa.producto_id = ?";
                 $params[] = $productoId;
@@ -653,13 +684,14 @@ class KardexController extends Controller
                 CAST(udr.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udr.cantidad * udr.factor AS DECIMAL(16,4)) as cantidad_fraccion,
                 CAST(0 AS DECIMAL(16,4)) as precio,
-                CAST(par.costo AS DECIMAL(16,4)) as costo,
+                CAST(par.costo / NULLIF(udr.factor, 0) AS DECIMAL(16,4)) as costo,
                 CAST(CASE WHEN r.es_finalizacion = 1 THEN 0 ELSE udr.cantidad * udr.factor END AS DECIMAL(16,4)) as entrada,
                 CAST(0 AS DECIMAL(16,4)) as salida,
                 r.id as referencia_id,
                 p.name as producto_nombre,
                 p.cod_producto as producto_codigo,
-                pa.producto_id
+                pa.producto_id,
+                2 as orden
             FROM productoalmacenrecepcion par
             JOIN recepcionalmacen r ON r.id = par.recepcion_id
             JOIN productoalmacen pa ON pa.id = par.producto_almacen_id
@@ -674,7 +706,7 @@ class KardexController extends Controller
         if (!$tipo || $tipo === 'ingreso') {
             $where = "is_t.tipo_documento = 'in' AND is_t.estado = 1";
             $params = [];
-            
+
             if ($productoId) {
                 $where .= " AND pa.producto_id = ?";
                 $params[] = $productoId;
@@ -702,13 +734,14 @@ class KardexController extends Controller
                 CAST(udis.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udis.cantidad * udis.factor AS DECIMAL(16,4)) as cantidad_fraccion,
                 CAST(0 AS DECIMAL(16,4)) as precio,
-                CAST(pais.costo AS DECIMAL(16,4)) as costo,
+                CAST(pais.costo / NULLIF(udis.factor, 0) AS DECIMAL(16,4)) as costo,
                 CAST(udis.cantidad * udis.factor AS DECIMAL(16,4)) as entrada,
                 CAST(0 AS DECIMAL(16,4)) as salida,
                 is_t.id as referencia_id,
                 p.name as producto_nombre,
                 p.cod_producto as producto_codigo,
-                pa.producto_id
+                pa.producto_id,
+                3 as orden
             FROM productoalmaceningresosalida pais
             JOIN ingresosalida is_t ON is_t.id = pais.ingreso_id
             JOIN productoalmacen pa ON pa.id = pais.producto_almacen_id
@@ -723,7 +756,7 @@ class KardexController extends Controller
         if (!$tipo || $tipo === 'salida') {
             $where = "is_t.tipo_documento = 'sa' AND is_t.estado = 1";
             $params = [];
-            
+
             if ($productoId) {
                 $where .= " AND pa.producto_id = ?";
                 $params[] = $productoId;
@@ -751,13 +784,14 @@ class KardexController extends Controller
                 CAST(udis.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udis.cantidad * udis.factor AS DECIMAL(16,4)) as cantidad_fraccion,
                 CAST(0 AS DECIMAL(16,4)) as precio,
-                CAST(pais.costo AS DECIMAL(16,4)) as costo,
+                CAST(pais.costo / NULLIF(udis.factor, 0) AS DECIMAL(16,4)) as costo,
                 CAST(0 AS DECIMAL(16,4)) as entrada,
                 CAST(udis.cantidad * udis.factor AS DECIMAL(16,4)) as salida,
                 is_t.id as referencia_id,
                 p.name as producto_nombre,
                 p.cod_producto as producto_codigo,
-                pa.producto_id
+                pa.producto_id,
+                4 as orden
             FROM productoalmaceningresosalida pais
             JOIN ingresosalida is_t ON is_t.id = pais.ingreso_id
             JOIN productoalmacen pa ON pa.id = pais.producto_almacen_id
