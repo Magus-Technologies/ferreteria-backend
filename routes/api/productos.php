@@ -82,7 +82,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // DETALLE DE PRECIOS (Legacy - Unidades Derivadas)
     // ============================================
-    Route::prefix('detalle-precios')->group(function () {
+    Route::prefix('detalle-precios')->middleware('broadcast:productos')->group(function () {
         Route::post('/import', [DetallePreciosController::class, 'import']);
         Route::post('/get-producto-almacen', [DetallePreciosController::class, 'getProductoAlmacenByCodProducto']);
         Route::post('/importar-unidades-derivadas', [DetallePreciosController::class, 'importarUnidadesDerivadas']);

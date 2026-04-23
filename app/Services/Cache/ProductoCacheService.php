@@ -15,9 +15,11 @@ use Illuminate\Support\Facades\Log;
 class ProductoCacheService
 {
     /**
-     * Tiempo de cache en segundos (5 minutos)
+     * Tiempo de cache en segundos (30s).
+     * TTL corto como red de seguridad ante invalidaciones que no se disparan
+     * (p. ej. mutaciones que no pasan por los observers de ProductoAlmacen).
      */
-    const CACHE_TTL = 300;
+    const CACHE_TTL = 30;
 
     /**
      * Tamaño máximo de respuesta para cachear (10MB en bytes)

@@ -26,6 +26,16 @@ class ProductoAlmacen extends Model
                 app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
             }
         });
+
+        // Nuevo producto asignado a un almacén: invalidar búsquedas cacheadas que no lo incluían
+        static::created(function (ProductoAlmacen $productoAlmacen) {
+            app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+        });
+
+        // Producto removido del almacén: invalidar búsquedas que aún lo listaban
+        static::deleted(function (ProductoAlmacen $productoAlmacen) {
+            app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+        });
     }
 
     protected function casts(): array
