@@ -158,6 +158,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('kardex', [KardexController::class, 'index']);
     Route::get('kardex/inventario', [KardexController::class, 'inventario']);
+    Route::get('kardex/finanzas', [\App\Http\Controllers\KardexFinanzasController::class, 'index']);
 
     // ============================================
     // CHOFERES
