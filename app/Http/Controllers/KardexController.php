@@ -353,7 +353,7 @@ class KardexController extends Controller
             // Fila de SALIDA para todas las ventas (activas y anuladas)
             $queries[] = "SELECT
                 'venta' as tipo,
-                CASE WHEN v.estado_de_venta = 'an' THEN 'ANULADO' ELSE 'SALIDA' END as movimiento,
+                'VENTA' as movimiento,
                 v.fecha,
                 CONCAT(
                     CASE v.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE v.tipo_documento END,
@@ -403,7 +403,7 @@ class KardexController extends Controller
 
             $queries[] = "SELECT
                 'venta' as tipo,
-                'ANULADO' as movimiento,
+                'DEVOLUCIÓN' as movimiento,
                 v.fecha,
                 CONCAT(
                     'Anulación ',
@@ -421,7 +421,7 @@ class KardexController extends Controller
                 pa.producto_id,
                 p.name as producto_nombre,
                 p.cod_producto as producto_codigo,
-                1 as orden
+                2 as orden
             FROM productoalmacenventa pav
             JOIN venta v ON v.id = pav.venta_id
             JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id
