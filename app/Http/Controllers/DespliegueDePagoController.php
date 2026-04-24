@@ -44,8 +44,10 @@ class DespliegueDePagoController extends Controller
                 ->unique()
                 ->toArray();
 
-            // Despliegues usados por CUALQUIER sub-caja de la MISMA caja principal
+            // Despliegues usados por sub-cajas ACTIVAS de la MISMA caja principal
+            // (para evitar que un método se asigne a múltiples sub-cajas activas)
             $usadosPorMisma = \App\Models\SubCaja::where('caja_principal_id', $cajaPrincipalId)
+                ->where('estado', 1) // Solo sub-cajas activas
                 ->get()
                 ->pluck('despliegues_pago_ids')
                 ->flatten()
@@ -133,11 +135,36 @@ class DespliegueDePagoController extends Controller
         // Generar ID único
         $validated['id'] = (string) \Illuminate\Support\Str::ulid();
         $validated['activo'] = true;
+        
+        // Si no se especifica mostrar, establecer true por defecto
+        if (!isset($validated['mostrar'])) {
+            $validated['mostrar'] = true;
+        }
+        
+        // Establecer valores por defecto para campos opcionales
+        if (!isset($validated['requiere_numero_serie'])) {
+            $validated['requiere_numero_serie'] = false;
+        }
+        if (!isset($validated['sobrecargo_porcentaje'])) {
+            $validated['sobrecargo_porcentaje'] = 0;
+        }
+        if (!isset($validated['tipo_sobrecargo'])) {
+            $validated['tipo_sobrecargo'] = 'ninguno';
+        }
+        if (!isset($validated['adicional'])) {
+            $validated['adicional'] = 0;
+        }
 
         $item = DespliegueDePago::create($validated);
 
         return response()->json([
-            'data' => $item,
+            'data' => [
+                'id' => $item->id,
+                'name' => $item->name,
+                'label' => $item->name,
+                'mostrar' => $item->mostrar,
+                'activo' => $item->activo,
+            ],
             'message' => 'Método de pago creado exitosamente'
         ], 201);
     }

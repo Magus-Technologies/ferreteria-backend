@@ -128,6 +128,21 @@ class MetodoDePagoController extends Controller
 
         $item = MetodoDePago::create($validated);
 
+        // Crear automáticamente un despliegue de pago con el mismo nombre
+        // para que aparezca disponible en las sub-cajas
+        $desplieguePagoId = (string) \Illuminate\Support\Str::ulid();
+        \App\Models\DespliegueDePago::create([
+            'id' => $desplieguePagoId,
+            'name' => $validated['name'],
+            'metodo_de_pago_id' => $item->id,
+            'activo' => true,
+            'mostrar' => true,
+            'requiere_numero_serie' => false,
+            'sobrecargo_porcentaje' => 0,
+            'tipo_sobrecargo' => 'ninguno',
+            'adicional' => 0,
+        ]);
+
         // NOTA: El monto_inicial se registrará automáticamente cuando se cree una sub-caja
         // digital con los métodos de pago vinculados de este banco (ver CajaService::registrarMontoInicialSiAplica)
 
