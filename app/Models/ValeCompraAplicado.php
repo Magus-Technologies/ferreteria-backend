@@ -33,9 +33,9 @@ class ValeCompraAplicado extends Model
             'cantidad_productos' => 'decimal:3',
             'descuento_aplicado' => 'decimal:4',
             'genera_vale_futuro' => 'boolean',
-            'fecha_validez_generado' => 'date',
+            'fecha_validez_generado' => 'date:Y-m-d',
             'usado' => 'boolean',
-            'fecha_uso' => 'date',
+            'fecha_uso' => 'date:Y-m-d',
             'fecha_aplicacion' => 'datetime',
         ];
     }

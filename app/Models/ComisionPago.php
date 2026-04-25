@@ -26,9 +26,9 @@ class ComisionPago extends Model
 
     protected $casts = [
         'monto_pagado' => 'decimal:2',
-        'periodo_desde' => 'date',
-        'periodo_hasta' => 'date',
-        'fecha_pago' => 'date',
+        'periodo_desde' => 'date:Y-m-d',
+        'periodo_hasta' => 'date:Y-m-d',
+        'fecha_pago' => 'date:Y-m-d',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

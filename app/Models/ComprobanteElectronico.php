@@ -79,8 +79,8 @@ class ComprobanteElectronico extends Model
     ];
 
     protected $casts = [
-        'fecha_emision' => 'date',
-        'fecha_vencimiento' => 'date',
+        'fecha_emision' => 'date:Y-m-d',
+        'fecha_vencimiento' => 'date:Y-m-d',
         'hora_emision' => 'datetime',
         'fecha_envio_sunat' => 'datetime',
         'fecha_respuesta_sunat' => 'datetime',

@@ -23,7 +23,7 @@ class TransaccionResource extends JsonResource
                 'id' => $this->user->id,
                 'name' => $this->user->name,
             ],
-            'fecha' => $this->fecha->format('Y-m-d H:i:s'),
+            'fecha' => $this->fecha,
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),
         ];
     }

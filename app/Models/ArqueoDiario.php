@@ -33,7 +33,7 @@ class ArqueoDiario extends Model
     ];
 
     protected $casts = [
-        'fecha_arqueo' => 'date',
+        'fecha_arqueo' => 'date:Y-m-d',
         'monto_cierre' => 'decimal:2',
         'monto_cierre_efectivo' => 'decimal:2',
         'monto_cierre_cuentas' => 'decimal:2',

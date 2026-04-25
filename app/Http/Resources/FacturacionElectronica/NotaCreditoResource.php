@@ -23,7 +23,7 @@ class NotaCreditoResource extends JsonResource
             'monto_igv' => $this->monto_igv,
             'monto_subtotal' => $this->monto_subtotal,
             'referencia_documento' => $this->referencia_documento,
-            'fecha_emision' => $this->fecha?->format('Y-m-d H:i:s'),
+            'fecha_emision' => $this->fecha,
             'estado' => $this->estado,
             'estado_sunat' => $this->comprobanteElectronico?->estado_sunat ?? 'PENDIENTE', // Estado SUNAT del comprobante
             'almacen_id' => $this->almacen_id,

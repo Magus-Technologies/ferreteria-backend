@@ -33,7 +33,7 @@ class Cliente extends Model
         return [
             'tipo_cliente' => TipoCliente::class,
             'estado' => 'boolean',
-            'fecha_nacimiento' => 'date',
+            'fecha_nacimiento' => 'date:Y-m-d',
             'puntos' => 'integer',
             'centimos' => 'integer',
         ];

@@ -30,7 +30,7 @@ class OrdenCompraResource extends JsonResource
                     'ruc' => $this->proveedor->ruc,
                 ];
             }),
-            'fecha' => $this->fecha?->format('Y-m-d'),
+            'fecha' => $this->fecha,
             'tipo_moneda' => $this->tipo_moneda,
             'tipo_de_cambio' => (float) $this->tipo_de_cambio,
             'ruc' => $this->ruc,
@@ -41,7 +41,7 @@ class OrdenCompraResource extends JsonResource
             'percepcion' => (float) $this->percepcion,
             'forma_de_pago' => $this->forma_de_pago,
             'numero_dias' => $this->numero_dias,
-            'fecha_vencimiento' => $this->fecha_vencimiento?->format('Y-m-d'),
+            'fecha_vencimiento' => $this->fecha_vencimiento,
             'estado' => $this->estado?->value ?? $this->estado,
             'user_id' => $this->user_id,
             'user' => $this->whenLoaded('user', function () {

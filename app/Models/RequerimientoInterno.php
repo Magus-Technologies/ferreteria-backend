@@ -29,7 +29,7 @@ class RequerimientoInterno extends Model
     protected function casts(): array
     {
         return [
-            'fecha_requerida' => 'date',
+            'fecha_requerida' => 'date:Y-m-d',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

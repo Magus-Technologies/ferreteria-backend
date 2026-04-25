@@ -46,7 +46,7 @@ class NotaDebitoResource extends JsonResource
             'monto_igv' => (float) $this->monto_igv,
             'monto_subtotal' => (float) $this->monto_subtotal,
             'referencia_documento' => $this->referencia_documento,
-            'fecha' => $this->fecha?->format('Y-m-d H:i:s'),
+            'fecha' => $this->fecha,
             'fecha_formato' => $this->fecha?->format('d/m/Y'),
             'estado' => $this->estado,
             'estado_sunat' => $comprobanteElectronico?->estado_sunat ?? 'pendiente',

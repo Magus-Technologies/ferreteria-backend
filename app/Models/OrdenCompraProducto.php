@@ -35,7 +35,7 @@ class OrdenCompraProducto extends Model
             'precio' => 'decimal:4',
             'subtotal' => 'decimal:2',
             'flete' => 'decimal:2',
-            'vencimiento' => 'date',
+            'vencimiento' => 'date:Y-m-d',
         ];
     }
 
