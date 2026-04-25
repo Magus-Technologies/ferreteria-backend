@@ -599,9 +599,9 @@ class KardexController extends Controller
         $queries = [];
         $bindings = [];
 
-        // COMPRAS (ENTRADA)
+        // COMPRAS (ENTRADA) - Solo compras procesadas/recepcionadas
         if (!$tipo || $tipo === 'compra') {
-            $where = "c.estado_de_compra != 'an'";
+            $where = "c.estado_de_compra = 'pr'"; // Solo Procesado (ya recepcionado)
             $params = [];
 
             if ($productoId) {
@@ -642,6 +642,59 @@ class KardexController extends Controller
                 p.cod_producto as producto_codigo,
                 pa.producto_id,
                 1 as orden
+            FROM productoalmacencompra pac
+            JOIN compra c ON c.id = pac.compra_id
+            JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id
+            JOIN producto p ON p.id = pa.producto_id
+            JOIN unidadderivadainmutablecompra udc ON udc.producto_almacen_compra_id = pac.id
+            JOIN unidadderivadainmutable udi ON udi.id = udc.unidad_derivada_inmutable_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        // COMPRAS CREADAS (REFERENCIA - no afecta stock hasta recepción)
+        if (!$tipo || $tipo === 'compra') {
+            $where = "c.estado_de_compra = 'cr'"; // Solo Creado
+            $params = [];
+
+            if ($productoId) {
+                $where .= " AND pa.producto_id = ?";
+                $params[] = $productoId;
+            }
+
+            if ($almacenId) {
+                $where .= " AND c.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(c.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(c.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'compra' as tipo,
+                'REFERENCIA' as movimiento,
+                c.fecha,
+                CONCAT('Compra (Creada) ',
+                    CASE c.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE c.tipo_documento END,
+                    ' ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, 0)
+                ) as documento,
+                udi.name as unidad,
+                CAST(udc.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(0 AS DECIMAL(16,4)) as precio,
+                CAST(pac.costo / NULLIF(udc.factor, 0) AS DECIMAL(16,4)) as costo,
+                CAST(0 AS DECIMAL(16,4)) as entrada,
+                CAST(0 AS DECIMAL(16,4)) as salida,
+                c.id as referencia_id,
+                p.name as producto_nombre,
+                p.cod_producto as producto_codigo,
+                pa.producto_id,
+                0 as orden
             FROM productoalmacencompra pac
             JOIN compra c ON c.id = pac.compra_id
             JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id
