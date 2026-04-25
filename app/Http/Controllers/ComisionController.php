@@ -135,7 +135,7 @@ class ComisionController extends Controller
                 'v.numero',
                 'v.fecha',
                 'a.name as almacen',
-                'c.razon_social as cliente',
+                DB::raw("COALESCE(NULLIF(TRIM(c.razon_social), ''), NULLIF(TRIM(CONCAT_WS(' ', c.nombres, c.apellidos)), '')) as cliente"),
                 'p.name as producto',
                 'udi.name as unidad',
                 'udiv.cantidad',
