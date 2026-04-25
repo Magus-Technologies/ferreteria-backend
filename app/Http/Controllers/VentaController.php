@@ -428,6 +428,39 @@ class VentaController extends Controller
             $venta->stock_aplicado = $debeDescontar;
             $venta->save();
 
+            // Auto-crear entrega para ventas de Recojo en Tienda (tipo_despacho='et').
+            // El cliente se lleva el producto en el momento, así que la entrega
+            // queda marcada como 'en' (entregado) y la cantidad pendiente se cierra.
+            // Esto permite que la venta aparezca en /mis-entregas.
+            $autoCrearEntrega = $tipoDespacho === 'et' && $estadoVentaStr !== 'es' && ! $omitirEntrega;
+            if ($autoCrearEntrega) {
+                $entregaAuto = EntregaProducto::create([
+                    'venta_id' => $venta->id,
+                    'tipo_entrega' => 'rt',
+                    'tipo_despacho' => 'in',
+                    'estado_entrega' => 'en',
+                    'fecha_entrega' => now(),
+                    'almacen_salida_id' => $validated['almacen_id'],
+                    'user_id' => $validated['user_id'],
+                    'quien_entrega' => 'vendedor',
+                    'tipo_pedido' => 'interno',
+                ]);
+
+                $unidadesVenta = UnidadDerivadaInmutableVenta::whereHas(
+                    'productoAlmacenVenta',
+                    fn ($q) => $q->where('venta_id', $venta->id)
+                )->get();
+
+                foreach ($unidadesVenta as $unidad) {
+                    DetalleEntregaProducto::create([
+                        'entrega_producto_id' => $entregaAuto->id,
+                        'unidad_derivada_venta_id' => $unidad->id,
+                        'cantidad_entregada' => $unidad->cantidad,
+                    ]);
+                    $unidad->update(['cantidad_pendiente' => 0]);
+                }
+            }
+
             // Create despliegue_de_pago_ventas if provided
             if (isset($validated['despliegue_de_pago_ventas'])) {
                 foreach ($validated['despliegue_de_pago_ventas'] as $desplieguePago) {
