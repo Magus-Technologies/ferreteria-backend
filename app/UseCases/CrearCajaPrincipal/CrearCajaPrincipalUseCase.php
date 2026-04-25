@@ -22,7 +22,7 @@ class CrearCajaPrincipalUseCase
         return new CrearCajaPrincipalResponse(
             success: true,
             cajaPrincipal: $cajaPrincipal,
-            message: 'Caja principal creada y aperturada exitosamente. Ya puedes hacer ventas.'
+            message: 'Caja principal creada exitosamente.'
         );
     }
 }

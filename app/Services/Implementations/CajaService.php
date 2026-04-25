@@ -39,18 +39,7 @@ class CajaService implements CajaServiceInterface
             ]);
 
             // Crear automáticamente la Caja Chica
-            $cajaChica = $this->crearCajaChicaAutomatica($cajaPrincipal->id, $codigo, $metodoPagoId, $nombreMetodoPago);
-            
-            // NUEVO: Crear apertura automática con monto 0
-            AperturaCierreCaja::create([
-                'id' => (string) Str::ulid(),
-                'caja_principal_id' => $cajaPrincipal->id,
-                'sub_caja_id' => $cajaChica->id,
-                'user_id' => $userId,
-                'monto_apertura' => 0.00,
-                'fecha_apertura' => now(),
-                'estado' => 'abierta',
-            ]);
+            $this->crearCajaChicaAutomatica($cajaPrincipal->id, $codigo, $metodoPagoId, $nombreMetodoPago);
 
             return $cajaPrincipal->fresh(['user', 'subCajas']);
         });
