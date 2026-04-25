@@ -72,6 +72,14 @@ class AperturaCajaController extends Controller
                     $montoTotal = collect($vendedores)->sum('monto');
                 }
 
+                // Guardia: nunca aperturar con monto 0
+                if ($montoTotal <= 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'El monto de apertura debe ser mayor a S/. 0.00',
+                    ], 422);
+                }
+
                 // 4. Verificar si ya hay una apertura activa DEL DÍA ACTUAL
                 $hoy = now()->startOfDay();
                 $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)

@@ -13,10 +13,14 @@ class AperturarCajaRequest extends FormRequest
 
     public function rules(): array
     {
+        $tieneVendedores = !empty($this->input('vendedores'));
+
         return [
             'caja_principal_id' => 'required|integer|exists:cajas_principales,id',
-            'monto_apertura' => 'nullable|numeric|min:0.01',
-            
+            'monto_apertura' => $tieneVendedores
+                ? 'nullable|numeric|min:0.01'
+                : 'required|numeric|min:0.01',
+
             // Distribución a vendedores (opcional)
             'vendedores' => 'nullable|array',
             'vendedores.*.user_id' => 'required|string|exists:user,id',
