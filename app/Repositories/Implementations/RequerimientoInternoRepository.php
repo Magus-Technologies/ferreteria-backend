@@ -81,11 +81,11 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
         }
 
         if (!empty($filters['desde'])) {
-            $query->whereDate('fecha_requerida', '>=', $filters['desde']);
+            $query->whereDate('created_at', '>=', $filters['desde']);
         }
 
         if (!empty($filters['hasta'])) {
-            $query->whereDate('fecha_requerida', '<=', $filters['hasta']);
+            $query->whereDate('created_at', '<=', $filters['hasta']);
         }
 
         if (!empty($filters['search'])) {
