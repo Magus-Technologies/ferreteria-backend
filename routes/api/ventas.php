@@ -108,9 +108,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('clientes/{clienteId}/calificaciones', [ClienteCalificacionController::class, 'index']);
     Route::get('clientes/{clienteId}/calificaciones/ultima', [ClienteCalificacionController::class, 'ultimaCalificacion']);
-    Route::post('clientes/{clienteId}/calificaciones', [ClienteCalificacionController::class, 'store']);
-    Route::put('calificaciones/{calificacionId}', [ClienteCalificacionController::class, 'update']);
-    Route::delete('calificaciones/{calificacionId}', [ClienteCalificacionController::class, 'destroy']);
+    Route::post('clientes/{clienteId}/calificaciones', [ClienteCalificacionController::class, 'store'])->middleware('broadcast:cliente-calificaciones');
+    Route::put('calificaciones/{calificacionId}', [ClienteCalificacionController::class, 'update'])->middleware('broadcast:cliente-calificaciones');
+    Route::delete('calificaciones/{calificacionId}', [ClienteCalificacionController::class, 'destroy'])->middleware('broadcast:cliente-calificaciones');
     Route::get('calificaciones/estados', [ClienteCalificacionController::class, 'estados']);
 
     // ============================================
