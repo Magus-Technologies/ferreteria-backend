@@ -34,6 +34,7 @@ class DespliegueDePagoController extends Controller
         // y por la Caja Chica (CC) de la MISMA caja principal
         if ($request->has('exclude_used_by_caja_principal_id')) {
             $cajaPrincipalId = $request->input('exclude_used_by_caja_principal_id');
+            $exceptSubCajaId = $request->input('except_sub_caja_id'); // ID de la sub-caja siendo editada
 
             // Despliegues usados por sub-cajas de OTRAS cajas principales (sin importar estado)
             $usadosPorOtras = \App\Models\SubCaja::where('caja_principal_id', '!=', $cajaPrincipalId)
@@ -46,8 +47,15 @@ class DespliegueDePagoController extends Controller
 
             // Despliegues usados por sub-cajas ACTIVAS de la MISMA caja principal
             // (para evitar que un método se asigne a múltiples sub-cajas activas)
-            $usadosPorMisma = \App\Models\SubCaja::where('caja_principal_id', $cajaPrincipalId)
-                ->where('estado', 1) // Solo sub-cajas activas
+            $queryMisma = \App\Models\SubCaja::where('caja_principal_id', $cajaPrincipalId)
+                ->where('estado', 1); // Solo sub-cajas activas
+            
+            // Si estamos editando una sub-caja, excluirla del filtrado
+            if ($exceptSubCajaId) {
+                $queryMisma->where('id', '!=', $exceptSubCajaId);
+            }
+            
+            $usadosPorMisma = $queryMisma
                 ->get()
                 ->pluck('despliegues_pago_ids')
                 ->flatten()
