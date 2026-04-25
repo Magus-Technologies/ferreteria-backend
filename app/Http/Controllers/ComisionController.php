@@ -117,8 +117,9 @@ class ComisionController extends Controller
         $detalle = DB::table('venta as v')
             ->join('productoalmacenventa as pav', 'pav.venta_id', '=', 'v.id')
             ->join('unidadderivadainmutableventa as udiv', 'udiv.producto_almacen_venta_id', '=', 'pav.id')
-            ->join('unidadderivadainmutable as udi', 'udi.id', '=', 'udiv.unidad_derivada_inmutable_id')
-            ->leftJoin('producto as p', 'p.id', '=', 'udi.producto_id')
+            ->leftJoin('unidadderivadainmutable as udi', 'udi.id', '=', 'udiv.unidad_derivada_inmutable_id')
+            ->leftJoin('productoalmacen as pa', 'pa.id', '=', 'pav.producto_almacen_id')
+            ->leftJoin('producto as p', 'p.id', '=', 'pa.producto_id')
             ->leftJoin('cliente as c', 'c.id', '=', 'v.cliente_id')
             ->leftJoin('almacen as a', 'a.id', '=', 'v.almacen_id')
             ->where('v.user_id', $userId)
@@ -136,6 +137,7 @@ class ComisionController extends Controller
                 'a.name as almacen',
                 'c.razon_social as cliente',
                 'p.name as producto',
+                'udi.name as unidad',
                 'udiv.cantidad',
                 'udiv.precio',
                 'udiv.comision',
@@ -151,6 +153,7 @@ class ComisionController extends Controller
                     'almacen' => $row->almacen,
                     'cliente' => $row->cliente,
                     'producto' => $row->producto,
+                    'unidad' => $row->unidad,
                     'cantidad' => (float) $row->cantidad,
                     'precio' => (float) $row->precio,
                     'comision' => (float) $row->comision,

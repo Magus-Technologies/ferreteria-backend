@@ -302,9 +302,10 @@ class EntregaProductoController extends Controller
                 // Actualizar cantidad pendiente
                 $unidadDerivadaVenta->decrement('cantidad_pendiente', $cantidadEntregada);
 
-                // Descontar stock si la venta es Parcial o no tiene tipo_despacho (legacy)
-                // (En Tienda y Domicilio ya descontaron al crear la venta)
-                if (! in_array($venta->tipo_despacho, ['et', 'do'])) {
+                // Descontar stock solo si la venta aún no lo aplicó.
+                // Cubre Parcial, ventas legacy sin tipo_despacho, y Domicilio/En Tienda
+                // creadas con "Omitir entrega" (donde el stock se difiere a la entrega).
+                if (! $venta->stock_aplicado) {
                     $productoAlmacenVenta = $unidadDerivadaVenta->productoAlmacenVenta;
                     $productoAlmacen = $productoAlmacenVenta?->productoAlmacen;
 

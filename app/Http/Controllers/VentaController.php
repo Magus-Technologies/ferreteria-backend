@@ -211,6 +211,7 @@ class VentaController extends Controller
             'fecha' => 'required|date',
             'estado_de_venta' => 'required|string',
             'tipo_despacho' => 'nullable|string|in:et,do,pa',
+            'omitir_entrega' => 'sometimes|boolean',
             'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
@@ -387,9 +388,13 @@ class VentaController extends Controller
             // Descontar stock si el tipo de despacho es En Tienda o Domicilio
             // (Parcial se descuenta al momento de entregar, no al vender)
             // No descontar si la venta está "en espera" (no es una venta finalizada)
+            // No descontar si se omite la entrega: el stock se descontará cuando
+            // se cree la entrega manualmente desde Mis Ventas.
             $tipoDespacho = $validated['tipo_despacho'] ?? null;
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
-            if (in_array($tipoDespacho, ['et', 'do']) && $estadoVentaStr !== 'es') {
+            $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
+            $debeDescontar = in_array($tipoDespacho, ['et', 'do']) && $estadoVentaStr !== 'es' && ! $omitirEntrega;
+            if ($debeDescontar) {
                 foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
                     if (! $pAlmacenId && isset($producto['producto_id'])) {
@@ -418,6 +423,10 @@ class VentaController extends Controller
                     }
                 }
             }
+
+            // Marcar si el stock fue aplicado al crear la venta
+            $venta->stock_aplicado = $debeDescontar;
+            $venta->save();
 
             // Create despliegue_de_pago_ventas if provided
             if (isset($validated['despliegue_de_pago_ventas'])) {
@@ -651,6 +660,8 @@ class VentaController extends Controller
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'sometimes|date',
             'estado_de_venta' => 'sometimes|string',
+            'tipo_despacho' => 'nullable|string|in:et,do,pa',
+            'omitir_entrega' => 'sometimes|boolean',
             'cliente_id' => 'sometimes|integer',
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
@@ -732,7 +743,7 @@ class VentaController extends Controller
                     $updateData[$key] = TipoDocumento::from($value);
                 } elseif ($key === 'tipo_moneda') {
                     $updateData[$key] = TipoMoneda::from($value);
-                } elseif ($key !== 'productos_por_almacen' && $key !== 'despliegue_de_pago_ventas' && $key !== 'servicios_venta' && $key !== 'id') {
+                } elseif ($key !== 'productos_por_almacen' && $key !== 'despliegue_de_pago_ventas' && $key !== 'servicios_venta' && $key !== 'id' && $key !== 'omitir_entrega') {
                     $updateData[$key] = $value;
                 }
             }
@@ -782,7 +793,9 @@ class VentaController extends Controller
                 ? $venta->tipo_despacho->value
                 : $venta->tipo_despacho;
 
-            $stockDescontadoAntes = in_array($tipoDespachoAnterior, ['et', 'do']) && $estadoAnterior !== 'es';
+            // Usar el flag persistido en la venta (refleja realmente si el stock fue
+            // descontado al crear, considerando casos como "omitir entrega").
+            $stockDescontadoAntes = (bool) $venta->stock_aplicado;
 
             $snapshotUnidadesAnteriores = [];
             if ($stockDescontadoAntes) {
@@ -891,7 +904,8 @@ class VentaController extends Controller
 
             // Aplicar nuevo descuento de stock si corresponde
             $tipoDespachoNuevo = $validated['tipo_despacho'] ?? $tipoDespachoAnterior;
-            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do']) && $estadoNuevo !== 'es';
+            $omitirEntregaUpdate = (bool) ($validated['omitir_entrega'] ?? false);
+            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do']) && $estadoNuevo !== 'es' && ! $omitirEntregaUpdate;
             if ($descontarStockAhora && isset($validated['productos_por_almacen'])) {
                 foreach ($validated['productos_por_almacen'] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
@@ -918,6 +932,10 @@ class VentaController extends Controller
                     }
                 }
             }
+
+            // Reflejar el nuevo estado del flag tras el update
+            $venta->stock_aplicado = $descontarStockAhora;
+            $venta->save();
 
             // If despliegue_de_pago_ventas is provided, update them
             if (isset($validated['despliegue_de_pago_ventas'])) {
@@ -1112,8 +1130,8 @@ class VentaController extends Controller
                 $entrega->update(['estado_entrega' => 'ca']);
             }
 
-            // Revertir stock si se descontó al crear la venta (En Tienda o Domicilio)
-            if (in_array($venta->tipo_despacho, ['et', 'do'])) {
+            // Revertir stock si se descontó al crear la venta (flag persistido)
+            if ($venta->stock_aplicado) {
                 foreach ($venta->productosPorAlmacen as $productoAlmacenVenta) {
                     $productoAlmacen = $productoAlmacenVenta->productoAlmacen;
                     if (! $productoAlmacen) continue;
@@ -1143,9 +1161,10 @@ class VentaController extends Controller
                     ->update(['estado' => false]);
             }
 
-            // Update venta to Anulado
+            // Update venta to Anulado y limpiar flag de stock aplicado
             $venta->update([
                 'estado_de_venta' => EstadoDeVenta::Anulado,
+                'stock_aplicado' => false,
             ]);
 
             return response()->json([

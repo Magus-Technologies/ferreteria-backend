@@ -37,8 +37,8 @@ class OrdenCompra extends Model
     protected function casts(): array
     {
         return [
-            'fecha' => 'date',
-            'fecha_vencimiento' => 'date',
+            'fecha' => 'date:Y-m-d',
+            'fecha_vencimiento' => 'date:Y-m-d',
             'tipo_de_cambio' => 'decimal:4',
             'percepcion' => 'decimal:4',
             'numero_dias' => 'integer',

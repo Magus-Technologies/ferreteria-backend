@@ -35,6 +35,7 @@ class Venta extends Model
         'fecha',
         'estado_de_venta',
         'tipo_despacho',
+        'stock_aplicado',
         'cliente_id',
         'direccion_seleccionada', // ✅ Agregar campo
         'recomendado_por_id',
@@ -50,6 +51,7 @@ class Venta extends Model
             'tipo_moneda' => TipoMoneda::class,
             'estado_de_venta' => EstadoDeVenta::class,
             'tipo_de_cambio' => 'decimal:4',
+            'stock_aplicado' => 'boolean',
             'numero_dias' => 'integer',
             'fecha_vencimiento' => 'datetime',
             'fecha' => 'datetime',
