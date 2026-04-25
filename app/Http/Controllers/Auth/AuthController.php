@@ -30,6 +30,7 @@ class AuthController extends Controller
                         'almacen_id', 'marca_id', 'logo'
                     ]);
                 },
+                'vehiculo:id,name,tipo,placa',
                 'restrictions:id,name',
                 'roles.restrictions:id,name',
             ])
@@ -63,6 +64,8 @@ class AuthController extends Controller
                 'empresa' => $user->empresa,
                 'all_restrictions' => $allRestrictions,
                 'rol_sistema' => $user->rol_sistema,
+                'vehiculo_id' => $user->vehiculo_id,
+                'vehiculo' => $user->vehiculo,
             ],
             'token' => $token,
         ]);
@@ -81,6 +84,7 @@ class AuthController extends Controller
                     'almacen_id', 'marca_id', 'logo'
                 ]);
             },
+            'vehiculo:id,name,tipo,placa',
             'restrictions:id,name',
             'roles.restrictions:id,name',
         ]);
@@ -103,6 +107,8 @@ class AuthController extends Controller
             'empresa' => $user->empresa,
             'all_restrictions' => $allRestrictions,
             'rol_sistema' => $user->rol_sistema,
+            'vehiculo_id' => $user->vehiculo_id,
+            'vehiculo' => $user->vehiculo,
         ]);
     }
 

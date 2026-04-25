@@ -40,6 +40,7 @@ class EntregaProductoController extends Controller
             'search' => 'sometimes|string|nullable',
             'tipo_despacho' => 'sometimes|string|nullable',
             'tipo_entrega' => 'sometimes|string|nullable',
+            'solo_programadas' => 'sometimes|boolean',
         ]);
 
         // 🔍 DEBUG: Log de parámetros recibidos
@@ -114,6 +115,14 @@ class EntregaProductoController extends Controller
         // Filter by tipo_entrega
         if ($request->has('tipo_entrega') && $request->tipo_entrega) {
             $query->where('tipo_entrega', $request->tipo_entrega);
+        }
+
+        // Filter solo_programadas: solo entregas a domicilio/parcial con fecha programada futura, no entregadas ni canceladas.
+        // Usado por el calendario de entregas para evitar duplicados (en-tienda, ya entregadas, sin hora).
+        if ($request->boolean('solo_programadas')) {
+            $query->whereNotNull('fecha_programada')
+                  ->where('tipo_despacho', '!=', 'in')
+                  ->whereNotIn('estado_entrega', ['en', 'ca']);
         }
  
         // Global search (Client name, series, number)
