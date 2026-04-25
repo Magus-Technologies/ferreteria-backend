@@ -432,6 +432,15 @@ class RecepcionAlmacenController extends Controller
                 $ultimoNumero = RecepcionAlmacen::max('numero') ?? 0;
                 $numero = $ultimoNumero + 1;
 
+                // Guardar el estado anterior de la compra (si existe)
+                $estadoCompraAnterior = null;
+                if ($request->compra_id) {
+                    $compraActual = DB::table('compra')->where('id', $request->compra_id)->first();
+                    if ($compraActual) {
+                        $estadoCompraAnterior = $compraActual->estado_de_compra;
+                    }
+                }
+
                 // 2. Crear la recepción de almacén
                 $recepcion = RecepcionAlmacen::create([
                     'numero' => $numero,
@@ -448,6 +457,7 @@ class RecepcionAlmacenController extends Controller
                     'transportista_name' => $request->transportista_name,
                     'transportista_guia_remision' => $request->transportista_guia_remision,
                     'estado' => true,
+                    'estado_compra_anterior' => $estadoCompraAnterior,
                 ]);
 
                 // 3. Procesar cada producto
@@ -853,8 +863,8 @@ class RecepcionAlmacenController extends Controller
                     throw new \Exception('No se puede eliminar una recepción que ya fue usada en ventas');
                 }
 
-                // 2. Marcar como inactiva
-                $recepcion->update(['estado' => false]);
+                // 2. Marcar como inactiva Y anulada
+                $recepcion->update(['estado' => false, 'anulada' => true]);
 
                 // 3. Revertir stock - obtener productos de la recepción
                 $productosRecepcion = ProductoAlmacenRecepcion::where('recepcion_id', $recepcion->id)
@@ -943,9 +953,11 @@ class RecepcionAlmacenController extends Controller
 
                 // 4. Actualizar estado del documento padre si corresponde
                 if ($recepcion->compra_id) {
+                    // Restaurar el estado anterior de la compra
+                    $estadoARestaurar = $recepcion->estado_compra_anterior ?? 'cr';
                     DB::table('compra')
                         ->where('id', $recepcion->compra_id)
-                        ->update(['estado_de_compra' => 'cr']); // 'cr' = Creado (Pendiente)
+                        ->update(['estado_de_compra' => $estadoARestaurar]);
                 } else if ($recepcion->orden_compra_id) {
                     \App\Models\OrdenCompra::where('id', $recepcion->orden_compra_id)
                         ->update(['estado' => \App\Enums\EstadoDeCompra::Completada]); // Sigue completada pero con pendientes

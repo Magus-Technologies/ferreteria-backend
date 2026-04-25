@@ -94,7 +94,7 @@ class DespliegueDePagoController extends Controller
                 'string',
                 'max:191',
             ],
-            'metodo_de_pago_id' => 'nullable|string|exists:metododepago,id',
+            'metodo_de_pago_id' => 'required|string|exists:metododepago,id',
             'requiere_numero_serie' => 'sometimes|boolean',
             'sobrecargo_porcentaje' => 'sometimes|numeric|min:0|max:100',
             'tipo_sobrecargo' => 'sometimes|in:porcentaje,monto_fijo,ninguno',
@@ -111,20 +111,8 @@ class DespliegueDePagoController extends Controller
         ], [
             'numero_celular.unique' => 'Este número de celular ya está registrado en otro método de pago',
             'numero_celular.regex' => 'El número de celular solo puede contener números y símbolos +, -, ( )',
+            'metodo_de_pago_id.required' => 'Debes seleccionar un banco',
         ]);
-
-        // Si no se proporciona metodo_de_pago_id, crear uno con el mismo nombre
-        if (empty($validated['metodo_de_pago_id'])) {
-            $metodoPago = \App\Models\MetodoDePago::firstOrCreate(
-                ['name' => $validated['name']],
-                [
-                    'id'     => (string) \Illuminate\Support\Str::ulid(),
-                    'monto'  => 0,
-                    'activo' => true,
-                ]
-            );
-            $validated['metodo_de_pago_id'] = $metodoPago->id;
-        }
 
         // Validar que no exista el mismo nombre para el mismo banco
         $existeDuplicado = DespliegueDePago::where('name', $validated['name'])

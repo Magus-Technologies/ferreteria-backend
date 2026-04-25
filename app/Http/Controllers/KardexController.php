@@ -327,9 +327,9 @@ class KardexController extends Controller
         $queries = [];
         $bindings = [];
 
-        // VENTAS (SALIDA) - incluye todas, anuladas aparecen tachadas
+        // VENTAS (SALIDA) - excluye ventas en espera, incluye anuladas
         if (!$tipo || $tipo === 'venta') {
-            $whereBase = "1=1";
+            $whereBase = "v.estado_de_venta != 'ee'"; // Excluir ventas en espera
             $params = [];
 
             if ($productoId) {
@@ -350,7 +350,7 @@ class KardexController extends Controller
                 $params[] = $hasta;
             }
 
-            // Fila de SALIDA para todas las ventas (activas y anuladas)
+            // Fila de SALIDA para todas las ventas (activas y anuladas, pero NO en espera)
             $queries[] = "SELECT
                 'venta' as tipo,
                 'VENTA' as movimiento,
@@ -599,9 +599,10 @@ class KardexController extends Controller
         $queries = [];
         $bindings = [];
 
-        // COMPRAS (ENTRADA) - Solo compras procesadas/recepcionadas
+        // COMPRAS - Mostrar solo compras creadas y procesadas (NO en espera)
+        // Las compras en espera no deben aparecer en el kardex
         if (!$tipo || $tipo === 'compra') {
-            $where = "c.estado_de_compra = 'pr'"; // Solo Procesado (ya recepcionado)
+            $where = "c.estado_de_compra IN ('cr', 'pr')"; // Creado, Procesado (NO En Espera)
             $params = [];
 
             if ($productoId) {
@@ -624,77 +625,34 @@ class KardexController extends Controller
 
             $queries[] = "SELECT
                 'compra' as tipo,
-                'COMPRA' as movimiento,
+                CASE 
+                    WHEN c.estado_de_compra = 'pr' THEN 'COMPRA'
+                    ELSE 'REFERENCIA'
+                END as movimiento,
                 c.fecha,
                 CONCAT('Compra ',
                     CASE c.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE c.tipo_documento END,
-                    ' ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, 0)
+                    ' ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, 0),
+                    CASE 
+                        WHEN c.estado_de_compra = 'cr' THEN ' (Creada)'
+                        ELSE ''
+                    END
                 ) as documento,
                 udi.name as unidad,
                 CAST(udc.cantidad AS DECIMAL(16,4)) as cantidad,
                 CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as cantidad_fraccion,
                 CAST(0 AS DECIMAL(16,4)) as precio,
                 CAST(pac.costo / NULLIF(udc.factor, 0) AS DECIMAL(16,4)) as costo,
-                CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as entrada,
+                CAST(CASE WHEN c.estado_de_compra = 'pr' THEN udc.cantidad * udc.factor ELSE 0 END AS DECIMAL(16,4)) as entrada,
                 CAST(0 AS DECIMAL(16,4)) as salida,
                 c.id as referencia_id,
                 p.name as producto_nombre,
                 p.cod_producto as producto_codigo,
                 pa.producto_id,
-                1 as orden
-            FROM productoalmacencompra pac
-            JOIN compra c ON c.id = pac.compra_id
-            JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id
-            JOIN producto p ON p.id = pa.producto_id
-            JOIN unidadderivadainmutablecompra udc ON udc.producto_almacen_compra_id = pac.id
-            JOIN unidadderivadainmutable udi ON udi.id = udc.unidad_derivada_inmutable_id
-            WHERE {$where}";
-            $bindings = array_merge($bindings, $params);
-        }
-
-        // COMPRAS CREADAS (REFERENCIA - no afecta stock hasta recepción)
-        if (!$tipo || $tipo === 'compra') {
-            $where = "c.estado_de_compra = 'cr'"; // Solo Creado
-            $params = [];
-
-            if ($productoId) {
-                $where .= " AND pa.producto_id = ?";
-                $params[] = $productoId;
-            }
-
-            if ($almacenId) {
-                $where .= " AND c.almacen_id = ?";
-                $params[] = $almacenId;
-            }
-            if ($desde) {
-                $where .= " AND DATE(c.fecha) >= ?";
-                $params[] = $desde;
-            }
-            if ($hasta) {
-                $where .= " AND DATE(c.fecha) <= ?";
-                $params[] = $hasta;
-            }
-
-            $queries[] = "SELECT
-                'compra' as tipo,
-                'REFERENCIA' as movimiento,
-                c.fecha,
-                CONCAT('Compra (Creada) ',
-                    CASE c.tipo_documento WHEN '01' THEN 'Factura' WHEN '03' THEN 'Boleta' WHEN 'nv' THEN 'Nota de Venta' ELSE c.tipo_documento END,
-                    ' ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, 0)
-                ) as documento,
-                udi.name as unidad,
-                CAST(udc.cantidad AS DECIMAL(16,4)) as cantidad,
-                CAST(udc.cantidad * udc.factor AS DECIMAL(16,4)) as cantidad_fraccion,
-                CAST(0 AS DECIMAL(16,4)) as precio,
-                CAST(pac.costo / NULLIF(udc.factor, 0) AS DECIMAL(16,4)) as costo,
-                CAST(0 AS DECIMAL(16,4)) as entrada,
-                CAST(0 AS DECIMAL(16,4)) as salida,
-                c.id as referencia_id,
-                p.name as producto_nombre,
-                p.cod_producto as producto_codigo,
-                pa.producto_id,
-                0 as orden
+                CASE 
+                    WHEN c.estado_de_compra = 'pr' THEN 1
+                    ELSE 0
+                END as orden
             FROM productoalmacencompra pac
             JOIN compra c ON c.id = pac.compra_id
             JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id
@@ -745,6 +703,56 @@ class KardexController extends Controller
                 p.cod_producto as producto_codigo,
                 pa.producto_id,
                 2 as orden
+            FROM productoalmacenrecepcion par
+            JOIN recepcionalmacen r ON r.id = par.recepcion_id
+            JOIN productoalmacen pa ON pa.id = par.producto_almacen_id
+            JOIN producto p ON p.id = pa.producto_id
+            JOIN unidadderivadainmutablerecepcion udr ON udr.producto_almacen_recepcion_id = par.id
+            JOIN unidadderivadainmutable udi ON udi.id = udr.unidad_derivada_inmutable_id
+            WHERE {$where}";
+            $bindings = array_merge($bindings, $params);
+        }
+
+        // ANULACIONES DE RECEPCIONES (SALIDA - reverso de entrada)
+        if (!$tipo || $tipo === 'recepcion') {
+            $where = "r.estado = 0 AND r.anulada = 1";
+            $params = [];
+
+            if ($productoId) {
+                $where .= " AND pa.producto_id = ?";
+                $params[] = $productoId;
+            }
+
+            if ($almacenId) {
+                $where .= " AND pa.almacen_id = ?";
+                $params[] = $almacenId;
+            }
+            if ($desde) {
+                $where .= " AND DATE(r.fecha) >= ?";
+                $params[] = $desde;
+            }
+            if ($hasta) {
+                $where .= " AND DATE(r.fecha) <= ?";
+                $params[] = $hasta;
+            }
+
+            $queries[] = "SELECT
+                'recepcion_anulada' as tipo,
+                'ANULACION' as movimiento,
+                r.updated_at as fecha,
+                CONCAT('Recepcion REC-', r.numero, ' (Anulada)') as documento,
+                udi.name as unidad,
+                CAST(udr.cantidad AS DECIMAL(16,4)) as cantidad,
+                CAST(udr.cantidad * udr.factor AS DECIMAL(16,4)) as cantidad_fraccion,
+                CAST(0 AS DECIMAL(16,4)) as precio,
+                CAST(par.costo / NULLIF(udr.factor, 0) AS DECIMAL(16,4)) as costo,
+                CAST(0 AS DECIMAL(16,4)) as entrada,
+                CAST(CASE WHEN r.es_finalizacion = 1 THEN 0 ELSE udr.cantidad * udr.factor END AS DECIMAL(16,4)) as salida,
+                r.id as referencia_id,
+                p.name as producto_nombre,
+                p.cod_producto as producto_codigo,
+                pa.producto_id,
+                5 as orden
             FROM productoalmacenrecepcion par
             JOIN recepcionalmacen r ON r.id = par.recepcion_id
             JOIN productoalmacen pa ON pa.id = par.producto_almacen_id

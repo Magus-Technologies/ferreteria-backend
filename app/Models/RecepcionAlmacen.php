@@ -34,12 +34,14 @@ class RecepcionAlmacen extends Model
         'transportista_name',
         'transportista_guia_remision',
         'estado',
+        'anulada',
         'user_id',
         'compra_id',
         'orden_compra_id',
         'motivo_finalizacion',
         'fecha_finalizacion',
         'es_finalizacion',
+        'estado_compra_anterior',
     ];
 
     /**
