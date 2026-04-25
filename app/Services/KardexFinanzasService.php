@@ -265,7 +265,7 @@ class KardexFinanzasService
         }
 
         return [
-            'data' => $data,
+            'data' => array_reverse($data),
             'total' => $total,
             'current_page' => $page,
             'per_page' => $perPage,

@@ -188,7 +188,7 @@ class KardexController extends Controller
             }
 
             return response()->json([
-                'data' => $data,
+                'data' => array_reverse($data),
                 'total' => $total,
                 'current_page' => 1,
                 'per_page' => -1,
@@ -284,7 +284,7 @@ class KardexController extends Controller
         }
 
         return response()->json([
-            'data' => $data,
+            'data' => array_reverse($data),
             'total' => $total,
             'current_page' => (int) $page,
             'per_page' => $perPage,
