@@ -275,7 +275,7 @@ class AperturaCajaController extends Controller
                     'user_id' => $userId,
                     'monto_apertura' => $montoTotal,
                     'conteo_apertura_billetes_monedas' => $conteoBilletes,
-                    'fecha_apertura' => now()->startOfDay(), // Guardar al inicio del día (00:00:00)
+                    'fecha_apertura' => now(),
                     'estado' => 'abierta',
                 ]);
 
