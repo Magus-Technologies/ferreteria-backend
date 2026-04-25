@@ -8,6 +8,7 @@ use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\ClienteReporteController;
 use App\Http\Controllers\ClienteCalificacionController;
 use App\Http\Controllers\ProveedorController;
+use App\Http\Controllers\ProveedorCalificacionController;
 use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\EntregaProductoController;
 use App\Http\Controllers\PaqueteController;
@@ -118,6 +119,16 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('proveedores/check-documento', [ProveedorController::class, 'checkDocumento']);
     Route::apiResource('proveedores', ProveedorController::class)->middleware('broadcast:proveedores');
+
+    // ============================================
+    // CALIFICACIONES DE PROVEEDORES
+    // ============================================
+    Route::get('proveedores/{proveedorId}/calificaciones', [ProveedorCalificacionController::class, 'index']);
+    Route::get('proveedores/{proveedorId}/calificaciones/ultima', [ProveedorCalificacionController::class, 'ultimaCalificacion']);
+    Route::post('proveedores/{proveedorId}/calificaciones', [ProveedorCalificacionController::class, 'store'])->middleware('broadcast:proveedor-calificaciones');
+    Route::put('calificaciones/{calificacionId}', [ProveedorCalificacionController::class, 'update'])->middleware('broadcast:proveedor-calificaciones');
+    Route::delete('calificaciones/{calificacionId}', [ProveedorCalificacionController::class, 'destroy'])->middleware('broadcast:proveedor-calificaciones');
+    Route::get('calificaciones/estados', [ProveedorCalificacionController::class, 'estados']);
 
     // ============================================
     // INGRESOS Y SALIDAS (Inventario)
