@@ -124,6 +124,7 @@ class ComisionController extends Controller
             ->leftJoin('almacen as a', 'a.id', '=', 'v.almacen_id')
             ->where('v.user_id', $userId)
             ->where('v.estado_de_venta', '!=', 'an')
+            ->where('udiv.comision', '>', 0)
             ->when($desde, fn($q) => $q->whereDate('v.fecha', '>=', $desde))
             ->when($hasta, fn($q) => $q->whereDate('v.fecha', '<=', $hasta))
             ->when($almacenId, fn($q) => $q->where('v.almacen_id', $almacenId))
