@@ -53,7 +53,7 @@ class GuiaRemision extends Model
     protected function casts(): array
     {
         return [
-            'fecha_emision' => 'date:Y-m-d',
+            'fecha_emision' => 'datetime',
             'fecha_traslado' => 'date:Y-m-d',
             'afecta_stock' => 'boolean',
             'fecha_anulacion' => 'datetime',
