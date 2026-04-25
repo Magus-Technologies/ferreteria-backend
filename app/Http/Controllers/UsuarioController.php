@@ -166,6 +166,8 @@ class UsuarioController extends Controller
             // Otros
             'efectivo' => $request->efectivo ?? 0,
             'estado' => $request->estado ?? true,
+            'vehiculo_id' => $request->vehiculo_id,
+            'licencia_conducir' => $request->licencia_conducir,
         ]);
 
         // Asignar rol automáticamente basándose en rol_sistema
@@ -173,7 +175,7 @@ class UsuarioController extends Controller
             $this->asignarRolPorSistema($usuario, $request->rol_sistema);
         }
 
-        $usuario->load('empresa');
+        $usuario->load(['empresa', 'vehiculo:id,name,tipo,placa']);
 
         return response()->json([
             'data' => $usuario,
@@ -187,7 +189,7 @@ class UsuarioController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $usuario = User::with(['empresa'])->find($id);
+        $usuario = User::with(['empresa', 'vehiculo:id,name,tipo,placa'])->find($id);
 
         if (!$usuario) {
             return response()->json([
@@ -250,6 +252,7 @@ class UsuarioController extends Controller
             'efectivo' => 'nullable|numeric|min:0',
             'estado' => 'nullable|boolean',
             'vehiculo_id' => 'nullable|integer|exists:vehiculo,id',
+            'licencia_conducir' => 'nullable|string|max:20',
         ];
 
         $validator = Validator::make($request->all(), $rules, [
@@ -365,9 +368,15 @@ class UsuarioController extends Controller
         if ($request->has('estado')) {
             $usuario->estado = $request->estado;
         }
+        if ($request->has('vehiculo_id')) {
+            $usuario->vehiculo_id = $request->vehiculo_id;
+        }
+        if ($request->has('licencia_conducir')) {
+            $usuario->licencia_conducir = $request->licencia_conducir;
+        }
 
         $usuario->save();
-        $usuario->load('empresa');
+        $usuario->load(['empresa', 'vehiculo:id,name,tipo,placa']);
 
         return response()->json([
             'data' => $usuario,
