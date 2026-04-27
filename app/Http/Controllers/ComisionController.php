@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ComisionPago;
+use App\Models\ComisionPagoVenta;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -122,12 +123,19 @@ class ComisionController extends Controller
             ->leftJoin('producto as p', 'p.id', '=', 'pa.producto_id')
             ->leftJoin('cliente as c', 'c.id', '=', 'v.cliente_id')
             ->leftJoin('almacen as a', 'a.id', '=', 'v.almacen_id')
+            ->leftJoin('comision_pago_venta as cpv', 'cpv.unidad_derivada_venta_id', '=', 'udiv.id')
             ->where('v.user_id', $userId)
             ->where('v.estado_de_venta', '!=', 'an')
             ->where('udiv.comision', '>', 0)
             ->when($desde, fn($q) => $q->whereDate('v.fecha', '>=', $desde))
             ->when($hasta, fn($q) => $q->whereDate('v.fecha', '<=', $hasta))
             ->when($almacenId, fn($q) => $q->where('v.almacen_id', $almacenId))
+            ->groupBy(
+                'v.id', 'v.tipo_documento', 'v.serie', 'v.numero', 'v.fecha',
+                'a.name', 'c.razon_social', 'c.nombres', 'c.apellidos',
+                'p.name', 'p.cod_producto', 'udi.name', 'udiv.id',
+                'udiv.cantidad', 'udiv.precio', 'udiv.comision'
+            )
             ->orderBy('v.fecha', 'desc')
             ->select([
                 'v.id as venta_id',
@@ -144,9 +152,18 @@ class ComisionController extends Controller
                 'udiv.precio',
                 'udiv.comision',
                 DB::raw('(udiv.comision * udiv.cantidad) as comision_total'),
+                DB::raw('COALESCE(SUM(cpv.monto_aplicado), 0) as monto_pagado'),
             ])
             ->get()
             ->map(function ($row) {
+                $comisionTotal = round((float) $row->comision_total, 2);
+                $montoPagado = round((float) $row->monto_pagado, 2);
+                $estadoPago = 'pendiente';
+                if ($montoPagado >= $comisionTotal - 0.001 && $comisionTotal > 0) {
+                    $estadoPago = 'pagada';
+                } elseif ($montoPagado > 0) {
+                    $estadoPago = 'parcial';
+                }
                 return [
                     'venta_id' => $row->venta_id,
                     'comprobante' => trim(($row->serie ?? '') . '-' . ($row->numero ?? '')),
@@ -160,13 +177,17 @@ class ComisionController extends Controller
                     'cantidad' => (float) $row->cantidad,
                     'precio' => (float) $row->precio,
                     'comision' => (float) $row->comision,
-                    'comision_total' => round((float) $row->comision_total, 2),
+                    'comision_total' => $comisionTotal,
+                    'monto_pagado' => $montoPagado,
+                    'estado_pago' => $estadoPago,
                 ];
             });
 
         return response()->json([
             'data' => $detalle,
             'total_comision' => round($detalle->sum('comision_total'), 2),
+            'total_pagado' => round($detalle->sum('monto_pagado'), 2),
+            'total_pendiente' => round($detalle->sum('comision_total') - $detalle->sum('monto_pagado'), 2),
         ]);
     }
 
@@ -201,6 +222,7 @@ class ComisionController extends Controller
 
     /**
      * Registrar un pago de comisión a un vendedor.
+     * Distribuye automáticamente el monto sobre las comisiones pendientes (FIFO por fecha).
      */
     public function registrarPago(Request $request): JsonResponse
     {
@@ -216,12 +238,52 @@ class ComisionController extends Controller
 
         $validated['pagado_por'] = $request->user()->id;
 
-        $pago = ComisionPago::create($validated);
-        $pago->load(['vendedor:id,name,email', 'pagadoPor:id,name']);
+        return DB::transaction(function () use ($validated) {
+            $pago = ComisionPago::create($validated);
 
-        return response()->json([
-            'data' => $pago,
-        ], 201);
+            // Traer todas las unidades con comisión del vendedor + lo ya aplicado.
+            // Orden FIFO: ventas más antiguas primero.
+            $pendientes = DB::table('venta as v')
+                ->join('productoalmacenventa as pav', 'pav.venta_id', '=', 'v.id')
+                ->join('unidadderivadainmutableventa as udiv', 'udiv.producto_almacen_venta_id', '=', 'pav.id')
+                ->leftJoin('comision_pago_venta as cpv', 'cpv.unidad_derivada_venta_id', '=', 'udiv.id')
+                ->where('v.user_id', $validated['user_id'])
+                ->where('v.estado_de_venta', '!=', 'an')
+                ->where('udiv.comision', '>', 0)
+                ->groupBy('udiv.id', 'v.fecha', 'udiv.comision', 'udiv.cantidad')
+                ->orderBy('v.fecha', 'asc')
+                ->orderBy('udiv.id', 'asc')
+                ->select([
+                    'udiv.id as udiv_id',
+                    DB::raw('(udiv.comision * udiv.cantidad) as comision_total'),
+                    DB::raw('COALESCE(SUM(cpv.monto_aplicado), 0) as ya_pagado'),
+                ])
+                ->get();
+
+            $disponible = round((float) $validated['monto_pagado'], 2);
+
+            foreach ($pendientes as $u) {
+                if ($disponible <= 0.001) break;
+
+                $pendiente = round((float) $u->comision_total - (float) $u->ya_pagado, 2);
+                if ($pendiente <= 0.001) continue;
+
+                $aplicar = min($pendiente, $disponible);
+                $aplicar = round($aplicar, 2);
+                if ($aplicar <= 0) continue;
+
+                ComisionPagoVenta::create([
+                    'comision_pago_id' => $pago->id,
+                    'unidad_derivada_venta_id' => $u->udiv_id,
+                    'monto_aplicado' => $aplicar,
+                ]);
+
+                $disponible = round($disponible - $aplicar, 2);
+            }
+
+            $pago->load(['vendedor:id,name,email', 'pagadoPor:id,name']);
+            return response()->json(['data' => $pago], 201);
+        });
     }
 
     /**
