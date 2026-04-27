@@ -30,7 +30,6 @@ use App\Services\ValeCompraService;
 use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class VentaController extends Controller
@@ -266,8 +265,11 @@ class VentaController extends Controller
                 $validated['cliente_id'] = $clienteVarios->id;
             }
 
-            // Generar serie y número automáticamente si no se proporcionan
-            if (empty($validated['serie']) || empty($validated['numero'])) {
+            // Generar serie y número automáticamente si no se proporcionan.
+            // No se generan para ventas En Espera (borrador) — se reservan al pasar a Creado
+            // para no consumir correlativos ni generar huecos en la numeración SUNAT.
+            $estadoVentaTmp = $validated['estado_de_venta'] ?? 'cr';
+            if ($estadoVentaTmp !== 'ee' && (empty($validated['serie']) || empty($validated['numero']))) {
                 $serieDoc = \App\Models\SerieDocumento::where('tipo_documento', $validated['tipo_documento'])
                     ->where('almacen_id', $validated['almacen_id'])
                     ->where('activo', true)
@@ -278,7 +280,6 @@ class VentaController extends Controller
                     throw new \Exception("No se encontró una serie activa para el tipo de documento {$validated['tipo_documento']} en el almacén {$validated['almacen_id']}");
                 }
 
-                // Incrementar el correlativo
                 $nuevoCorrelativo = $serieDoc->correlativo + 1;
                 $serieDoc->update(['correlativo' => $nuevoCorrelativo]);
 
@@ -393,7 +394,7 @@ class VentaController extends Controller
             $tipoDespacho = $validated['tipo_despacho'] ?? null;
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
-            $debeDescontar = in_array($tipoDespacho, ['et', 'do']) && $estadoVentaStr !== 'es' && ! $omitirEntrega;
+            $debeDescontar = in_array($tipoDespacho, ['et', 'do']) && $estadoVentaStr !== 'ee' && ! $omitirEntrega;
             if ($debeDescontar) {
                 foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
@@ -432,7 +433,7 @@ class VentaController extends Controller
             // El cliente se lleva el producto en el momento, así que la entrega
             // queda marcada como 'en' (entregado) y la cantidad pendiente se cierra.
             // Esto permite que la venta aparezca en /mis-entregas.
-            $autoCrearEntrega = $tipoDespacho === 'et' && $estadoVentaStr !== 'es' && ! $omitirEntrega;
+            $autoCrearEntrega = $tipoDespacho === 'et' && $estadoVentaStr !== 'ee' && ! $omitirEntrega;
             if ($autoCrearEntrega) {
                 $entregaAuto = EntregaProducto::create([
                     'venta_id' => $venta->id,
@@ -464,26 +465,12 @@ class VentaController extends Controller
             // Create despliegue_de_pago_ventas if provided
             if (isset($validated['despliegue_de_pago_ventas'])) {
                 foreach ($validated['despliegue_de_pago_ventas'] as $desplieguePago) {
-                    // Log para debug
-                    \Log::info('Procesando método de pago:', [
-                        'despliegue_pago_id' => $desplieguePago['despliegue_de_pago_id'],
-                        'monto' => $desplieguePago['monto'],
-                        'numero_operacion' => $desplieguePago['numero_operacion'] ?? 'NO ENVIADO',
-                        'isset' => isset($desplieguePago['numero_operacion']),
-                        'empty' => empty($desplieguePago['numero_operacion']),
-                    ]);
-
                     // Obtener el método de pago para calcular sobrecargo
                     $metodoPago = DespliegueDePago::find($desplieguePago['despliegue_de_pago_id']);
-                    
+
                     if (!$metodoPago) {
                         throw new \Exception("Método de pago no encontrado: {$desplieguePago['despliegue_de_pago_id']}");
                     }
-
-                    \Log::info('Método de pago info:', [
-                        'name' => $metodoPago->name,
-                        'requiere_numero_serie' => $metodoPago->requiere_numero_serie,
-                    ]);
 
                     // Validar si requiere número de operación
                     if ($metodoPago->requiere_numero_serie && 
@@ -547,87 +534,38 @@ class VentaController extends Controller
             // APLICAR VALES DE COMPRA AUTOMÁTICAMENTE
             try {
                 $detallesVenta = $this->prepararDetallesVentaParaVales($validated);
-                $valesAplicados = $this->valeCompraService->aplicarValesAutomaticos($venta, $detallesVenta);
-
-                if ($valesAplicados->isNotEmpty()) {
-                    Log::info('Vales aplicados automáticamente', [
-                        'venta_id' => $venta->id,
-                        'vales_count' => $valesAplicados->count(),
-                        'vales' => $valesAplicados->pluck('vale_compra_id'),
-                    ]);
-                }
+                $this->valeCompraService->aplicarValesAutomaticos($venta, $detallesVenta);
             } catch (\Exception $e) {
-                Log::error('Error al aplicar vales automáticos', [
-                    'venta_id' => $venta->id,
-                    'error' => $e->getMessage(),
-                ]);
+                // No fallar la venta por error en vales
             }
 
             // CANJEAR VALE GENERADO (código de próxima compra)
             if (!empty($validated['codigo_vale'])) {
                 try {
-                    $canjeado = $this->valeCompraService->aplicarValeGenerado($validated['codigo_vale'], $venta);
-                    if ($canjeado) {
-                        Log::info('Vale generado canjeado en la venta', [
-                            'venta_id' => $venta->id,
-                            'codigo_vale' => $validated['codigo_vale'],
-                        ]);
-                    }
+                    $this->valeCompraService->aplicarValeGenerado($validated['codigo_vale'], $venta);
                 } catch (\Exception $e) {
-                    Log::error('Error al canjear vale generado', [
-                        'venta_id' => $venta->id,
-                        'codigo_vale' => $validated['codigo_vale'],
-                        'error' => $e->getMessage(),
-                    ]);
+                    // No fallar la venta por error en canje
                 }
             }
 
             // GENERAR COMPROBANTE ELECTRÓNICO AUTOMÁTICAMENTE
-            // Solo para facturas (01) y boletas (03)
-            $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
-                ? $venta->tipo_documento->value 
+            // Solo para facturas (01) y boletas (03), y solo si la venta NO está En Espera.
+            // En Espera = borrador no finalizado, no debe enviarse a SUNAT.
+            $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum
+                ? $venta->tipo_documento->value
                 : $venta->tipo_documento;
 
-            Log::info('🔍 Intentando generar comprobante automático', [
-                'venta_id' => $venta->id,
-                'tipo_documento' => $tipoDocumento,
-                'user_id' => $validated['user_id'],
-            ]);
 
-            if (in_array($tipoDocumento, ['01', '03'])) {
+            if (in_array($tipoDocumento, ['01', '03']) && $estadoVentaStr !== 'ee') {
                 try {
                     $dto = new FacturaDTO(
                         ventaId: $venta->id,
                         usuarioId: $validated['user_id']
                     );
-
-                    Log::info('🔍 DTO creado, llamando a facturaService', [
-                        'dto_venta_id' => $dto->ventaId,
-                        'dto_usuario_id' => $dto->usuarioId,
-                    ]);
-
-                    $resultado = $this->facturaService->generarComprobanteDesdeVenta($dto);
-                    
-                    Log::info('✅ Comprobante electrónico generado automáticamente', [
-                        'venta_id' => $venta->id,
-                        'tipo_documento' => $tipoDocumento,
-                        'success' => $resultado['success'] ?? false,
-                        'comprobante_id' => $resultado['comprobante']->id ?? 'NO_ID',
-                    ]);
+                    $this->facturaService->generarComprobanteDesdeVenta($dto);
                 } catch (\Exception $e) {
                     // No fallar la venta si hay error al generar comprobante
-                    Log::error('❌ Error al generar comprobante automáticamente', [
-                        'venta_id' => $venta->id,
-                        'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString(),
-                        'file' => $e->getFile(),
-                        'line' => $e->getLine(),
-                    ]);
                 }
-            } else {
-                Log::info('⏭️ Tipo de documento no requiere comprobante electrónico', [
-                    'tipo_documento' => $tipoDocumento,
-                ]);
             }
 
             return response()->json([
@@ -856,6 +794,30 @@ class VentaController extends Controller
                     ->update(['estado_entrega' => 'pe']);
             }
 
+            // Si transición En Espera → Creado y la venta aún no tiene serie/numero,
+            // reservar correlativo ahora (se difirió en store para no consumir números
+            // en borradores).
+            if ($estadoAnterior === 'ee' && $estadoNuevo !== 'ee' && (empty($venta->serie) || empty($venta->numero))) {
+                $tipoDocVenta = $venta->tipo_documento instanceof \BackedEnum
+                    ? $venta->tipo_documento->value
+                    : $venta->tipo_documento;
+                $serieDoc = \App\Models\SerieDocumento::where('tipo_documento', $tipoDocVenta)
+                    ->where('almacen_id', $venta->almacen_id)
+                    ->where('activo', true)
+                    ->orderBy('created_at', 'desc')
+                    ->first();
+                if (! $serieDoc) {
+                    throw new \Exception("No se encontró una serie activa para el tipo de documento {$tipoDocVenta} en el almacén {$venta->almacen_id}");
+                }
+                $nuevoCorrelativo = $serieDoc->correlativo + 1;
+                $serieDoc->update(['correlativo' => $nuevoCorrelativo]);
+                $venta->update([
+                    'serie' => $serieDoc->serie,
+                    'numero' => $nuevoCorrelativo,
+                ]);
+                $venta->refresh();
+            }
+
             // If productos_por_almacen is provided, update them
             if (isset($validated['productos_por_almacen'])) {
                 // Eliminar registros hijos en orden correcto para evitar FK constraint
@@ -938,7 +900,7 @@ class VentaController extends Controller
             // Aplicar nuevo descuento de stock si corresponde
             $tipoDespachoNuevo = $validated['tipo_despacho'] ?? $tipoDespachoAnterior;
             $omitirEntregaUpdate = (bool) ($validated['omitir_entrega'] ?? false);
-            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do']) && $estadoNuevo !== 'es' && ! $omitirEntregaUpdate;
+            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do']) && $estadoNuevo !== 'ee' && ! $omitirEntregaUpdate;
             if ($descontarStockAhora && isset($validated['productos_por_almacen'])) {
                 foreach ($validated['productos_por_almacen'] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
@@ -1007,51 +969,31 @@ class VentaController extends Controller
             $validated['id'] = $id;
             $this->procesoPostVenta($validated);
 
-            // ✅ REGENERAR COMPROBANTE ELECTRÓNICO AUTOMÁTICAMENTE AL EDITAR
-            // Solo para facturas (01) y boletas (03) que ya tienen comprobante
-            $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
-                ? $venta->tipo_documento->value 
+            // Comprobante electrónico (Boleta 03 / Factura 01) automático en update.
+            // Solo si el estado nuevo NO es En Espera. Si ya existe → regenerar.
+            // Si no existe y la venta sale de En Espera → generar nuevo.
+            $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum
+                ? $venta->tipo_documento->value
                 : $venta->tipo_documento;
 
-            if (in_array($tipoDocumento, ['01', '03'])) {
+            if (in_array($tipoDocumento, ['01', '03']) && $estadoNuevo !== 'ee') {
                 try {
-                    // Verificar si ya existe un comprobante para esta venta
                     $comprobanteExistente = \App\Models\ComprobanteElectronico::where('venta_id', $venta->id)->first();
-                    
-                    if ($comprobanteExistente) {
-                        Log::info('🔄 Regenerando comprobante electrónico automáticamente', [
-                            'venta_id' => $venta->id,
-                            'comprobante_id' => $comprobanteExistente->id,
-                        ]);
 
-                        // Eliminar el comprobante existente y sus detalles
+                    if ($comprobanteExistente) {
                         \App\Models\DetalleComprobanteElectronico::where('comprobante_electronico_id', $comprobanteExistente->id)->delete();
                         $comprobanteExistente->delete();
+                    }
 
-                        Log::info('🗑️ Comprobante anterior eliminado', [
-                            'venta_id' => $venta->id,
-                            'comprobante_id' => $comprobanteExistente->id,
-                        ]);
-
-                        // Generar nuevo comprobante
+                    if ($comprobanteExistente || $estadoAnterior === 'ee') {
                         $dto = new FacturaDTO(
                             ventaId: $venta->id,
                             usuarioId: $venta->user_id
                         );
-
-                        $resultado = $this->facturaService->generarComprobanteDesdeVenta($dto);
-                        
-                        Log::info('✅ Comprobante electrónico regenerado automáticamente', [
-                            'venta_id' => $venta->id,
-                            'comprobante_id' => $resultado['comprobante']->id ?? 'NO_ID',
-                        ]);
+                        $this->facturaService->generarComprobanteDesdeVenta($dto);
                     }
                 } catch (\Exception $e) {
-                    // No fallar la actualización si hay error al regenerar comprobante
-                    Log::error('❌ Error al regenerar comprobante automáticamente', [
-                        'venta_id' => $venta->id,
-                        'error' => $e->getMessage(),
-                    ]);
+                    // No fallar el update si hay error al generar comprobante
                 }
             }
 
@@ -1366,10 +1308,6 @@ class VentaController extends Controller
     private function registrarVentaEnCaja($venta, $desplieguesDePago)
     {
         try {
-            \Log::info('=== INICIANDO REGISTRO EN CAJA ===');
-            \Log::info("Venta ID: {$venta->id}");
-            \Log::info("User ID: {$venta->user_id}");
-
             // 1. Buscar la caja abierta del vendedor
             $apertura = AperturaCierreCaja::where('user_id', $venta->user_id)
                 ->where('estado', 'abierta')
@@ -1377,57 +1315,27 @@ class VentaController extends Controller
 
             // Si el vendedor no tiene apertura propia, buscar cualquier apertura activa de una caja principal
             if (!$apertura) {
-                \Log::info("ℹ️ Vendedor sin apertura propia, buscando apertura activa de caja principal");
-                
-                // Buscar cualquier apertura activa (para vendedores que no tienen caja asignada)
                 $apertura = AperturaCierreCaja::where('estado', 'abierta')
                     ->orderBy('fecha_apertura', 'desc')
                     ->first();
-                
-                if ($apertura) {
-                    \Log::info("✅ Usando apertura de caja principal: {$apertura->id} (Caja: {$apertura->caja_principal_id})");
-                }
             }
-
-            if ($apertura) {
-                \Log::info("✅ Apertura encontrada: {$apertura->id}");
-                \Log::info("Caja Principal ID: {$apertura->caja_principal_id}");
-            } else {
-                \Log::info("ℹ️ No hay apertura de caja disponible, usando sub-cajas directamente");
-            }
-
-            $totalVenta = $this->getTotalVenta($venta);
-            \Log::info("Total venta: {$totalVenta}");
 
             // 2. Procesar cada método de pago
             foreach ($desplieguesDePago as $desplieguePago) {
-                \Log::info("Procesando método de pago: {$desplieguePago['despliegue_de_pago_id']}");
-
                 $despliegue = DespliegueDePago::with('metodoDePago')->findOrFail($desplieguePago['despliegue_de_pago_id']);
                 $monto = (float) $desplieguePago['monto'];
 
-                \Log::info("Despliegue: {$despliegue->name}, Monto: {$monto}");
-
                 // 3. Determinar la sub-caja a usar
                 $subCaja = null;
-                
+
                 // PRIORIDAD 1: Si viene sub_caja_id en los datos, usarlo directamente
                 if (isset($desplieguePago['sub_caja_id']) && $desplieguePago['sub_caja_id']) {
                     $subCajaTemp = SubCaja::find($desplieguePago['sub_caja_id']);
-                    
-                    if ($subCajaTemp) {
-                        // ✅ VALIDAR: Verificar que la sub-caja acepta el tipo de comprobante de la venta
-                        if ($subCajaTemp->aceptaComprobante($venta->tipo_documento->value)) {
-                            $subCaja = $subCajaTemp;
-                            \Log::info("✅ Usando sub-caja especificada: {$subCaja->id} - {$subCaja->nombre}");
-                        } else {
-                            \Log::warning("⚠️ Sub-caja {$subCajaTemp->id} - {$subCajaTemp->nombre} NO acepta tipo de comprobante {$venta->tipo_documento->value}");
-                            \Log::warning("Tipos aceptados: " . json_encode($subCajaTemp->tipos_comprobante));
-                            // No usar esta sub-caja, continuar con las siguientes prioridades
-                        }
+                    if ($subCajaTemp && $subCajaTemp->aceptaComprobante($venta->tipo_documento->value)) {
+                        $subCaja = $subCajaTemp;
                     }
                 }
-                
+
                 // PRIORIDAD 2: Si hay apertura, buscar en la caja principal del vendedor
                 if (!$subCaja && $apertura) {
                     $subCaja = $this->buscarSubCajaParaMetodoPago(
@@ -1442,13 +1350,9 @@ class VentaController extends Controller
                             ->where('tipo_caja', 'CC')
                             ->whereJsonContains('tipos_comprobante', $venta->tipo_documento->value)
                             ->first();
-                        
-                        if ($subCaja) {
-                            \Log::info('Usando Caja Chica de la apertura');
-                        }
                     }
                 }
-                
+
                 // PRIORIDAD 3: Buscar globalmente en todas las sub-cajas
                 if (!$subCaja) {
                     $subCaja = $this->buscarSubCajaGlobalParaMetodoPago(
@@ -1458,38 +1362,18 @@ class VentaController extends Controller
                 }
 
                 if (! $subCaja) {
-                    \Log::error("❌ No se encontró sub-caja para registrar venta {$venta->id}");
                     continue;
                 }
-
-                \Log::info("✅ Sub-caja encontrada: {$subCaja->id} - {$subCaja->nombre}");
 
                 // ✅ VALIDACIÓN CRÍTICA: Verificar que la sub-caja acepta el tipo de comprobante
                 if (!$subCaja->aceptaComprobante($venta->tipo_documento->value)) {
-                    \Log::error("❌ VALIDACIÓN FALLIDA: Sub-caja '{$subCaja->nombre}' NO acepta tipo de comprobante '{$venta->tipo_documento->value}'", [
-                        'sub_caja_id' => $subCaja->id,
-                        'sub_caja_nombre' => $subCaja->nombre,
-                        'tipos_aceptados' => $subCaja->tipos_comprobante,
-                        'tipo_documento_venta' => $venta->tipo_documento->value,
-                        'venta_id' => $venta->id,
-                        'despliegue_pago_id' => $desplieguePago['despliegue_de_pago_id'],
-                    ]);
-                    
-                    // NO registrar esta transacción, continuar con el siguiente método de pago
                     continue;
                 }
-
-                \Log::info("✅ Validación exitosa: Sub-caja acepta el tipo de comprobante", [
-                    'sub_caja' => $subCaja->nombre,
-                    'tipo_documento' => $venta->tipo_documento->value,
-                ]);
 
                 // 4. Actualizar saldo de la sub-caja
                 $saldoAnterior = $subCaja->saldo_actual;
                 $subCaja->saldo_actual += $monto;
                 $subCaja->save();
-
-                \Log::info("Saldo actualizado: {$saldoAnterior} -> {$subCaja->saldo_actual}");
 
                 // 5. Registrar transacción en transacciones_caja
                 TransaccionCaja::create([
@@ -1534,33 +1418,10 @@ class VentaController extends Controller
                 }
             }
 
-            \Log::info("✅ Venta {$venta->id} registrada en sub-cajas");
-
         } catch (\Exception $e) {
-            // Log el error pero no fallar la venta
-            \Log::error('Error al registrar venta en caja: '.$e->getMessage());
+            // No fallar la venta si hay error al registrar en caja
         }
     }
-
-    /**
-     * Determinar si un método de pago es efectivo
-     */
-    private function esMetodoPagoEfectivo($despliegue)
-    {
-        $metodoPago = $despliegue->metodoDePago;
-        if (! $metodoPago) {
-            return false;
-        }
-
-        // Verificar si el nombre contiene palabras clave de efectivo
-        $nombre = strtolower($metodoPago->name);
-
-        return str_contains($nombre, 'efectivo') ||
-               str_contains($nombre, 'cash') ||
-               str_contains($nombre, 'cch') ||
-               str_contains($nombre, 'ca');
-    }
-
     /**
      * Buscar sub-caja que acepte un método de pago específico
      * Prioriza sub-cajas más específicas sobre las que aceptan "*"
@@ -1619,9 +1480,6 @@ class VentaController extends Controller
             return $a['especificidad'] - $b['especificidad'];
         });
 
-        \Log::info("Sub-cajas compatibles encontradas: " . count($subCajasCompatibles));
-        \Log::info("Sub-caja seleccionada: {$subCajasCompatibles[0]['subCaja']->nombre} (Prioridad: {$subCajasCompatibles[0]['prioridad']})");
-
         return $subCajasCompatibles[0]['subCaja'];
     }
 
@@ -1631,12 +1489,8 @@ class VentaController extends Controller
      */
     private function buscarSubCajaGlobalParaMetodoPago($desplieguePagoId, $tipoComprobante)
     {
-        \Log::info("🔍 Buscando sub-caja global para método de pago: {$desplieguePagoId}, tipo comprobante: {$tipoComprobante}");
-
         // Buscar todas las sub-cajas activas (incluyendo Caja Chica)
         $subCajas = SubCaja::where('estado', true)->get();
-
-        \Log::info("📊 Total sub-cajas activas: " . $subCajas->count());
 
         $subCajasCompatibles = [];
 
@@ -1673,7 +1527,6 @@ class VentaController extends Controller
         }
 
         if (empty($subCajasCompatibles)) {
-            \Log::warning("❌ No se encontró ninguna sub-caja compatible globalmente");
             return null;
         }
 
@@ -1684,9 +1537,6 @@ class VentaController extends Controller
             }
             return $a['especificidad'] - $b['especificidad'];
         });
-
-        \Log::info("✅ Sub-cajas compatibles encontradas globalmente: " . count($subCajasCompatibles));
-        \Log::info("Sub-caja seleccionada: {$subCajasCompatibles[0]['subCaja']->nombre} (Caja Principal: {$subCajasCompatibles[0]['subCaja']->caja_principal_id}, Prioridad: {$subCajasCompatibles[0]['prioridad']})");
 
         return $subCajasCompatibles[0]['subCaja'];
     }
