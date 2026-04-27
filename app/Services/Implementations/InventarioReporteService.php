@@ -37,8 +37,8 @@ class InventarioReporteService implements InventarioReporteServiceInterface
                     p.name as producto,
                     m.name as marca,
                     SUM(udiv.precio * udiv.cantidad) as importe_venta,
-                    SUM(pav.costo * udiv.cantidad) as importe_costo,
-                    SUM(udiv.precio * udiv.cantidad) - SUM(pav.costo * udiv.cantidad) as importe
+                    SUM(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END * udiv.cantidad) as importe_costo,
+                    SUM(udiv.precio * udiv.cantidad) - SUM(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END * udiv.cantidad) as importe
                 ");
                 $query->orderByDesc('importe');
                 break;

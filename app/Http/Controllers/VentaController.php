@@ -339,22 +339,24 @@ class VentaController extends Controller
             foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                 // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
                 $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
-
-                if (! $productoAlmacenId && isset($producto['producto_id'])) {
+                $productoAlmacen = null;
+                if ($productoAlmacenId) {
+                    $productoAlmacen = ProductoAlmacen::find($productoAlmacenId);
+                } else if (isset($producto['producto_id'])) {
                     $productoAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
                         ->where('almacen_id', $validated['almacen_id'])
                         ->first();
-
-                    if (! $productoAlmacen) {
-                        throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$validated['almacen_id']}");
-                    }
-
-                    $productoAlmacenId = $productoAlmacen->id;
                 }
+
+                if (! $productoAlmacen) {
+                    throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$validated['almacen_id']}");
+                }
+
+                $productoAlmacenId = $productoAlmacen->id;
 
                 $productoAlmacenVenta = ProductoAlmacenVenta::create([
                     'venta_id' => $venta->id,
-                    'costo' => $producto['costo'],
+                    'costo' => (isset($producto['costo']) && $producto['costo'] > 0) ? $producto['costo'] : ($productoAlmacen->costo ?? 0),
                     'producto_almacen_id' => $productoAlmacenId,
                     'paquete_id' => $producto['paquete_id'] ?? null,
                     'paquete_nombre' => $producto['paquete_nombre'] ?? null,
@@ -833,23 +835,27 @@ class VentaController extends Controller
                 foreach ($validated['productos_por_almacen'] as $producto) {
                     // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
                     $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
-
-                    if (! $productoAlmacenId && isset($producto['producto_id'])) {
+                    $productoAlmacen = null;
+                    if ($productoAlmacenId) {
+                        $productoAlmacen = ProductoAlmacen::find($productoAlmacenId);
+                    } else if (isset($producto['producto_id'])) {
                         $productoAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
                             ->where('almacen_id', $venta->almacen_id)
                             ->first();
-
-                        if (! $productoAlmacen) {
-                            throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$venta->almacen_id}");
-                        }
-
-                        $productoAlmacenId = $productoAlmacen->id;
                     }
+
+                    if (! $productoAlmacen) {
+                        throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$venta->almacen_id}");
+                    }
+
+                    $productoAlmacenId = $productoAlmacen->id;
 
                     $productoAlmacenVenta = ProductoAlmacenVenta::create([
                         'venta_id' => $venta->id,
-                        'costo' => $producto['costo'],
+                        'costo' => (isset($producto['costo']) && $producto['costo'] > 0) ? $producto['costo'] : ($productoAlmacen->costo ?? 0),
                         'producto_almacen_id' => $productoAlmacenId,
+                        'paquete_id' => $producto['paquete_id'] ?? null,
+                        'paquete_nombre' => $producto['paquete_nombre'] ?? null,
                     ]);
 
                     foreach ($producto['unidades_derivadas'] as $unidad) {

@@ -100,20 +100,20 @@ class GananciasService implements GananciasServiceInterface
             ->when(!empty($filtros['incluir']), function($q) use ($filtros) {
                 switch ($filtros['incluir']) {
                     case 'con_ganancia':
-                        return $q->whereRaw('(udiv.precio - pav.costo) * udiv.cantidad > 0');
+                        return $q->whereRaw('(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad > 0');
                     case 'con_perdida':
-                        return $q->whereRaw('(udiv.precio - pav.costo) * udiv.cantidad < 0');
+                        return $q->whereRaw('(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad < 0');
                     case 'sin_costo':
-                        return $q->where('pav.costo', 0);
+                        return $q->whereRaw('(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) = 0');
                 }
                 return $q;
             })
             ->selectRaw('
                 SUM(udiv.precio * udiv.cantidad) as total_ventas,
-                SUM(pav.costo * udiv.cantidad) as total_costo,
-                SUM((udiv.precio - pav.costo) * udiv.cantidad) as total_ganancia,
+                SUM(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END * udiv.cantidad) as total_costo,
+                SUM((udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad) as total_ganancia,
                 COUNT(DISTINCT v.id) as total_transacciones,
-                SUM(CASE WHEN udiv.precio < pav.costo THEN (pav.costo - udiv.precio) * udiv.cantidad ELSE 0 END) as total_perdida
+                SUM(CASE WHEN udiv.precio < (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) THEN ((CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) - udiv.precio) * udiv.cantidad ELSE 0 END) as total_perdida
             ')->first();
 
         $gastosU = DB::table('unidadderivadainmutablecompra as udic')
@@ -204,9 +204,9 @@ class GananciasService implements GananciasServiceInterface
                 DB::raw("udiv.cantidad as cant"),
                 DB::raw("udiv.precio as p_unit"),
                 DB::raw("udiv.precio * udiv.cantidad as subtot"),
-                DB::raw("pav.costo as costo_unit"),
-                DB::raw("pav.costo * udiv.cantidad as costo_total"),
-                DB::raw("(udiv.precio - pav.costo) * udiv.cantidad as ganancia"),
+                DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END as costo_unit"),
+                DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END * udiv.cantidad as costo_total"),
+                DB::raw("(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad as ganancia"),
                 DB::raw("'E' as cc"), // Por defecto 'E' (Efectivo)
                 'v.created_at',
                 'v.updated_at'
