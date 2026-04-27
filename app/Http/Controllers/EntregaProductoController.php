@@ -527,8 +527,10 @@ class EntregaProductoController extends Controller
             ])->findOrFail($id);
 
             // Obtener la venta para saber si el stock se descontó al entregar
+            // Si la venta tiene stock_aplicado=false, el stock se descontó al crear la entrega
+            // (caso Parcial, legacy, o Domicilio/EnTienda con omitir_entrega).
             $venta = Venta::find($entrega->venta_id);
-            $stockDescontadoAlEntregar = ! in_array($venta?->tipo_despacho, ['et', 'do']);
+            $stockDescontadoAlEntregar = ! ($venta?->stock_aplicado ?? false);
 
             // Revertir cantidades pendientes y stock
             foreach ($entrega->productosEntregados as $detalle) {
