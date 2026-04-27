@@ -116,8 +116,20 @@ class GananciasService implements GananciasServiceInterface
                 SUM(CASE WHEN udiv.precio < pav.costo THEN (pav.costo - udiv.precio) * udiv.cantidad ELSE 0 END) as total_perdida
             ')->first();
 
-        // Gastos adicionales (esto podría venir de otra tabla si existe)
-        $gastosU = 0; // Por ahora en 0, se puede implementar según la lógica de negocio
+        $gastosU = DB::table('unidadderivadainmutablecompra as udic')
+            ->join('productoalmacencompra as pac', 'udic.producto_almacen_compra_id', '=', 'pac.id')
+            ->join('compra as comp', 'pac.compra_id', '=', 'comp.id')
+            ->where('comp.estado_de_compra', '!=', 'an')
+            ->when(!empty($filtros['almacen_id']), function ($q) use ($filtros) {
+                return $q->where('comp.almacen_id', $filtros['almacen_id']);
+            })
+            ->when(!empty($filtros['desde']), function ($q) use ($filtros) {
+                return $q->whereDate('comp.fecha', '>=', $filtros['desde']);
+            })
+            ->when(!empty($filtros['hasta']), function ($q) use ($filtros) {
+                return $q->whereDate('comp.fecha', '<=', $filtros['hasta']);
+            })
+            ->sum(DB::raw('udic.cantidad * pac.costo'));
 
         $totalVentas = $resumen->total_ventas ?? 0;
         $totalCosto = $resumen->total_costo ?? 0;
@@ -178,6 +190,7 @@ class GananciasService implements GananciasServiceInterface
             ->select([
                 DB::raw("DATE_FORMAT(v.fecha, '%d/%m/%Y') as fecha"),
                 DB::raw("TIME_FORMAT(v.fecha, '%H:%i:%s') as hora_emision"),
+                DB::raw("DATE_FORMAT(v.fecha_vencimiento, '%d/%m/%Y') as fecha_vencimiento"),
                 DB::raw("v.tipo_documento as tipo_doc"),
                 DB::raw("CONCAT(COALESCE(ce.serie, 'S/N'), '-', LPAD(COALESCE(ce.correlativo, v.numero), 8, '0')) as numero"),
                 DB::raw("v.forma_de_pago as f_pago"),

@@ -17,8 +17,9 @@ class GananciasResource extends JsonResource
     {
         return [
             'id' => $this->id ?? uniqid(),
-            'fecha' => $this->fecha, // Ya viene formateada desde el query
-            'hora_emision' => $this->hora_emision ?? null, // Nueva columna de hora
+            'fecha' => $this->fecha,
+            'hora_emision' => $this->hora_emision ?? null,
+            'fecha_vencimiento' => $this->fecha_vencimiento ?? null,
             'tipo_doc' => $this->mapearTipoDocumento($this->tipo_doc),
             'numero' => $this->numero,
             'f_pago' => $this->mapearFormaPago($this->f_pago),
