@@ -1871,10 +1871,9 @@ class VentaController extends Controller
                     $query->where('estado', true);
                 }
             ], 'monto')
-            // Solo ventas a crédito
+            // Solo ventas a crédito registradas (no en espera, no anuladas, no procesadas)
             ->where('forma_de_pago', FormaDePago::Credito)
-            // Solo activas (no anuladas)
-            ->where('estado_de_venta', '!=', EstadoDeVenta::Anulado);
+            ->where('estado_de_venta', EstadoDeVenta::Creado);
 
         // Filtros opcionales
         if ($request->has('almacen_id')) {
