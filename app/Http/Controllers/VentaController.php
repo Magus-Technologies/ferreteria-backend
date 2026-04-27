@@ -316,8 +316,9 @@ class VentaController extends Controller
             $venta = Venta::create([
                 'id' => $validated['id'] ?? (string) \Illuminate\Support\Str::ulid(),
                 'tipo_documento' => $tipoDocumentoEnum,
-                'serie' => $validated['serie'],
-                'numero' => $validated['numero'],
+                // serie/numero pueden ser null para ventas En Espera (se reservan al pasar a Creado)
+                'serie' => $validated['serie'] ?? null,
+                'numero' => $validated['numero'] ?? null,
                 'descripcion' => $validated['descripcion'] ?? null,
                 'forma_de_pago' => $formaDePagoEnum,
                 'numero_dias' => $validated['numero_dias'] ?? null,
