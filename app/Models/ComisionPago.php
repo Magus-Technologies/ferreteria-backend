@@ -53,4 +53,9 @@ class ComisionPago extends Model
     {
         return $this->belongsTo(User::class, 'pagado_por');
     }
+
+    public function detallesAplicados()
+    {
+        return $this->hasMany(ComisionPagoVenta::class, 'comision_pago_id');
+    }
 }
