@@ -2060,15 +2060,16 @@ class VentaController extends Controller
     {
         $validated = $request->validate([
             'cliente_id'            => 'required|integer|exists:cliente,id',
-            'despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
+            'despliegue_de_pago_id' => 'nullable|string|exists:desplieguedepago,id',
             'monto_total'           => 'required|numeric|min:0.01',
             'fecha'                 => 'required|date',
             'observacion'           => 'nullable|string|max:500',
             'numero_operacion'      => 'nullable|string|max:100',
             'user_id'               => 'required|string|exists:user,id',
             'distribucion'          => 'required|array|min:1',
-            'distribucion.*.venta_id' => 'required|string',
-            'distribucion.*.monto'    => 'required|numeric|min:0.01',
+            'distribucion.*.venta_id'              => 'required|string',
+            'distribucion.*.monto'                 => 'required|numeric|min:0.01',
+            'distribucion.*.despliegue_de_pago_id' => 'nullable|string|exists:desplieguedepago,id',
         ]);
 
         return DB::transaction(function () use ($validated) {
@@ -2102,9 +2103,14 @@ class VentaController extends Controller
                     throw new \Exception("El monto S/ " . number_format($item['monto'], 2) . " excede el saldo pendiente S/ " . number_format($saldoPendiente, 2) . " de la venta {$venta->serie}-{$venta->numero}");
                 }
 
+                $desplieguePagoId = $item['despliegue_de_pago_id'] ?? $validated['despliegue_de_pago_id'] ?? null;
+                if (!$desplieguePagoId) {
+                    throw new \Exception("Debe seleccionar un modo de pago para la venta {$venta->serie}-{$venta->numero}");
+                }
+
                 // Crear el cobro
                 $cobro = $venta->cobrosVenta()->create([
-                    'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
+                    'despliegue_de_pago_id' => $desplieguePagoId,
                     'monto'                 => $item['monto'],
                     'fecha'                 => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
                     'observacion'           => $validated['observacion'] ?? null,
