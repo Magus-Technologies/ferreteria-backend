@@ -306,7 +306,29 @@ class IngresoSalidaController extends Controller
                 "stock_nuevo" => $stockNuevo,
             ]);
 
-            // PASO 12: Actualizar ProductoAlmacen (stock y costo)
+            // PASO 12: Registrar en kardex ANTES de actualizar el stock
+            $kardexService = app(\App\Services\Kardex\KardexInventarioService::class);
+            $ingresoSalidaConRelaciones = IngresoSalida::with([
+                "productosPorAlmacen.productoAlmacen.producto",
+                "productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable",
+            ])->findOrFail($ingresoSalida->id);
+
+            foreach ($ingresoSalidaConRelaciones->productosPorAlmacen as $detalle) {
+                $productoAlmacenKardex = $detalle->productoAlmacen;
+                if (!$productoAlmacenKardex) continue;
+
+                foreach ($detalle->unidadesDerivadas as $ud) {
+                    $costo = (float) $detalle->costo;
+
+                    if ($esIngreso) {
+                        $kardexService->registrarIngreso($ingresoSalidaConRelaciones, $productoAlmacenKardex, $ud, $costo);
+                    } else {
+                        $kardexService->registrarSalida($ingresoSalidaConRelaciones, $productoAlmacenKardex, $ud, $costo);
+                    }
+                }
+            }
+
+            // PASO 13: Actualizar ProductoAlmacen (stock y costo)
             $nuevoCosto = $productoAlmacen->costo;
             if ($stockAnterior <= 0 && $esIngreso) {
                 // Si el stock era 0 o negativo y es un ingreso, usar el costo actual
@@ -330,7 +352,7 @@ class IngresoSalidaController extends Controller
             // Invalidar cache de productos del almacén
             app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
 
-            // PASO 13: Retornar resultado con relaciones
+            // PASO 14: Retornar resultado con relaciones
             $result = IngresoSalida::with([
                 "almacen:id,name",
                 "proveedor:id,razon_social",

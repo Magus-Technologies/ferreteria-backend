@@ -12,32 +12,16 @@ class KardexInventarioService
      */
     public function registrar(array $data)
     {
-        // Calcular stock_anterior basado en TODAS las filas anteriores del mismo producto-almacén
-        // Obtener todas las filas del mismo producto-almacén ordenadas por created_at
-        $todasLasFilas = DB::table('kardex_inventarios')
-            ->where('producto_id', $data['producto_id'])
+        // Obtener el stock actual del producto_almacen en la BD
+        // Este es el stock REAL en ese momento
+        $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $data['producto_id'])
             ->where('almacen_id', $data['almacen_id'])
-            ->orderBy('created_at', 'asc')
-            ->get();
+            ->first();
         
-        // Si hay filas anteriores, usar el stock_actual de la última como stock_anterior
-        if ($todasLasFilas->isNotEmpty()) {
-            $ultimaFila = $todasLasFilas->last();
-            $stockAnterior = (float) $ultimaFila->stock_actual;
+        if ($productoAlmacen) {
+            $stockAnterior = (float) $productoAlmacen->stock_fraccion;
         } else {
-            // Si no hay filas anteriores, obtener el stock inicial del producto_almacen
-            try {
-                $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $data['producto_id'])
-                    ->where('almacen_id', $data['almacen_id'])
-                    ->first();
-                
-                if ($productoAlmacen) {
-                    $stockAnterior = (float) $productoAlmacen->stock_fraccion;
-                }
-            } catch (\Exception $e) {
-                // Si hay error al obtener el stock, usar 0
-                $stockAnterior = 0;
-            }
+            $stockAnterior = 0;
         }
         
         // Calcular stock actual después de esta transacción
@@ -60,7 +44,6 @@ class KardexInventarioService
             'stock_actual' => $data['stock_actual'],
             'entrada' => $data['entrada'] ?? 0,
             'salida' => $data['salida'] ?? 0,
-            'filas_anteriores' => $todasLasFilas->count(),
         ]);
         
         $resultado = KardexInventario::create($data);
