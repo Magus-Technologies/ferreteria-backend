@@ -988,7 +988,31 @@ class RecepcionAlmacenController extends Controller
                     }
                 }
 
-                // 4. Actualizar estado del documento padre si corresponde
+                // 4. Registrar anulación en kardex inventario
+                $kardexInventarioService = app(\App\Services\Kardex\KardexInventarioService::class);
+                
+                foreach ($productosRecepcion as $productoRecepcion) {
+                    $productoAlmacen = $productoRecepcion->productoAlmacen;
+                    
+                    foreach ($productoRecepcion->unidadesDerivadas as $unidadDerivada) {
+                        // Crear objeto temporal con la estructura esperada
+                        $unidadTemporal = (object) [
+                            'unidadDerivadaInmutable' => $unidadDerivada->unidadDerivadaInmutable,
+                            'cantidad' => (float) $unidadDerivada->cantidad,
+                            'factor' => (float) $unidadDerivada->factor,
+                        ];
+
+                        $kardexInventarioService->registrarAnulacionRecepcion(
+                            $recepcion,
+                            $productoAlmacen,
+                            $unidadTemporal,
+                            $productoRecepcion->costo,
+                            5 // orden = 5 para anulación
+                        );
+                    }
+                }
+
+                // 5. Actualizar estado del documento padre si corresponde
                 if ($recepcion->compra_id) {
                     // Restaurar el estado anterior de la compra
                     $estadoARestaurar = $recepcion->estado_compra_anterior ?? 'cr';
