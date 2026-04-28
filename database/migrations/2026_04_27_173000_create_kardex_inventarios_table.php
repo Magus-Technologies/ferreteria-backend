@@ -30,11 +30,10 @@ return new class extends Migration {
             // Relaciones para mantener integridad, aunque los textos se preserven
             $table->integer('producto_almacen_id')->nullable();
             $table->unsignedBigInteger('usuario_id')->nullable();
+            $table->bigInteger('almacen_id')->nullable();
+            $table->bigInteger('producto_id')->nullable();
 
             $table->timestamps();
-
-            $table->foreign('producto_almacen_id')->references('id')->on('productoalmacen')->onDelete('set null');
-            $table->foreign('usuario_id')->references('id')->on('users')->onDelete('set null');
         });
     }
 

@@ -582,7 +582,44 @@ class RecepcionAlmacenController extends Controller
                     app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
                 }
 
-                // 6. Verificar si quedan productos pendientes
+                // 5. Registrar en kardex inventario (ENTRADA - con impacto en stock)
+                $kardexInventarioService = app(\App\Services\Kardex\KardexInventarioService::class);
+                
+                foreach ($request->productos_por_almacen as $productoData) {
+                    $productoId = $productoData['producto_id'];
+                    $almacenId = $productoData['almacen_id'];
+                    $costo = $productoData['costo'];
+
+                    $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $productoId)
+                        ->where('almacen_id', $almacenId)
+                        ->first();
+
+                    if ($productoAlmacen) {
+                        foreach ($productoData['unidades_derivadas'] as $udData) {
+                            $unidadInmutable = \App\Models\UnidadDerivadaInmutable::firstOrCreate(
+                                ['name' => $udData['unidad_derivada_name']],
+                                ['name' => $udData['unidad_derivada_name']]
+                            );
+
+                            // Crear objeto temporal con la estructura esperada por registrarRecepcion
+                            $unidadTemporal = (object) [
+                                'unidadDerivadaInmutable' => $unidadInmutable,
+                                'cantidad' => (float) $udData['cantidad'],
+                                'factor' => (float) $udData['factor'],
+                            ];
+
+                            $kardexInventarioService->registrarRecepcion(
+                                $recepcion,
+                                $productoAlmacen,
+                                $unidadTemporal,
+                                $costo,
+                                2 // orden = 2 para recepción
+                            );
+                        }
+                    }
+                }
+
+                // 7. Verificar si quedan productos pendientes
                 $existePendiente = false;
                 if ($request->compra_id) {
                     $existePendiente = \App\Models\UnidadDerivadaInmutableCompra::whereHas('productoAlmacenCompra', function ($q) use ($request) {

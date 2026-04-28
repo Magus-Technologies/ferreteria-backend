@@ -477,6 +477,23 @@ class CompraController extends Controller
                 }
             }
 
+            // Registrar en kardex inventario solo si NO está en espera
+            if ($validated['estado_de_compra'] !== 'ee') {
+                $kardexInventarioService = app(\App\Services\Kardex\KardexInventarioService::class);
+                
+                foreach ($compra->productosPorAlmacen as $pac) {
+                    foreach ($pac->unidadesDerivadas as $unidad) {
+                        $kardexInventarioService->registrarCompraReferencia(
+                            $compra,
+                            $pac->productoAlmacen,
+                            $unidad,
+                            $pac->costo,
+                            0 // orden = 0 para referencia
+                        );
+                    }
+                }
+            }
+
             // Proceso post compra
             $validated['id'] = $compra->id;
             $this->procesoPostCompra($validated);
@@ -584,6 +601,9 @@ class CompraController extends Controller
             // Add id to validated data for validation
             $validated['id'] = $id;
 
+            // Guardar el estado anterior ANTES de actualizar
+            $estadoAnterior = $compra->estado_de_compra->value;
+
             // Merge existing compra data with validated data for validation
             // Use ?-> because En Espera compras may have null forma_de_pago/tipo_moneda
             $dataParaValidar = array_merge([
@@ -634,6 +654,38 @@ class CompraController extends Controller
 
             // Update compra
             $compra->update($updateData);
+
+            // Registrar en kardex si la compra cambió de 'ee' a otro estado
+            $estadoNuevo = $compra->estado_de_compra->value;
+            
+            \Log::info('Compra update - Verificando cambio de estado:', [
+                'compra_id' => $compra->id,
+                'estado_anterior' => $estadoAnterior,
+                'estado_nuevo' => $estadoNuevo,
+            ]);
+            
+            if ($estadoAnterior === 'ee' && $estadoNuevo !== 'ee') {
+                \Log::info('Compra update - Registrando en kardex porque cambió de ee a ' . $estadoNuevo);
+                // La compra pasó de en espera a registrada/procesada
+                $kardexInventarioService = app(\App\Services\Kardex\KardexInventarioService::class);
+                
+                $compra->refresh(); // Recargar para obtener relaciones actualizadas
+                foreach ($compra->productosPorAlmacen as $pac) {
+                    foreach ($pac->unidadesDerivadas as $unidad) {
+                        $kardexInventarioService->registrarCompraReferencia(
+                            $compra,
+                            $pac->productoAlmacen,
+                            $unidad,
+                            $pac->costo,
+                            0 // orden = 0 para referencia
+                        );
+                    }
+                }
+            } else {
+                \Log::info('Compra update - NO registrando en kardex', [
+                    'razon' => $estadoAnterior !== 'ee' ? 'No era en espera' : 'Sigue siendo en espera',
+                ]);
+            }
 
             // If productos_por_almacen is provided, update them
             if (isset($validated['productos_por_almacen'])) {

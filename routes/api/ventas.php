@@ -15,7 +15,8 @@ use App\Http\Controllers\PaqueteController;
 use App\Http\Controllers\SerieDocumentoController;
 use App\Http\Controllers\ChoferController;
 use App\Http\Controllers\RecepcionAlmacenController;
-use App\Http\Controllers\KardexController;
+use App\Http\Controllers\KardexInventarioController;
+use App\Http\Controllers\KardexFacturacionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -167,8 +168,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // KARDEX
     // ============================================
-    Route::get('kardex', [KardexController::class, 'index']);
-    Route::get('kardex/inventario', [KardexController::class, 'inventario']);
+    Route::get('kardex-inventario', [KardexInventarioController::class, 'index']);
+    Route::get('kardex-facturacion', [KardexFacturacionController::class, 'index']);
     Route::get('kardex/finanzas', [\App\Http\Controllers\KardexFinanzasController::class, 'index']);
 
     // ============================================

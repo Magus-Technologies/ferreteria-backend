@@ -31,12 +31,10 @@ return new class extends Migration {
             $table->string('venta_id')->nullable();
             $table->integer('producto_almacen_id')->nullable();
             $table->unsignedBigInteger('usuario_id')->nullable();
+            $table->bigInteger('almacen_id')->nullable();
+            $table->bigInteger('producto_id')->nullable();
 
             $table->timestamps();
-
-            $table->foreign('venta_id')->references('id')->on('venta')->onDelete('set null');
-            $table->foreign('producto_almacen_id')->references('id')->on('productoalmacen')->onDelete('set null');
-            $table->foreign('usuario_id')->references('id')->on('users')->onDelete('set null');
         });
     }
 
