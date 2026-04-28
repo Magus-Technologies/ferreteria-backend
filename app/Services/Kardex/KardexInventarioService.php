@@ -20,14 +20,12 @@ class KardexInventarioService
             ->orderBy('created_at', 'asc')
             ->get();
         
-        // Calcular stock acumulado de TODAS las filas anteriores
-        $stockAnterior = 0;
-        foreach ($todasLasFilas as $fila) {
-            $stockAnterior += (float) $fila->entrada - (float) $fila->salida;
-        }
-        
-        // Si no hay filas anteriores, obtener el stock inicial del producto_almacen
-        if ($todasLasFilas->isEmpty()) {
+        // Si hay filas anteriores, usar el stock_actual de la última como stock_anterior
+        if ($todasLasFilas->isNotEmpty()) {
+            $ultimaFila = $todasLasFilas->last();
+            $stockAnterior = (float) $ultimaFila->stock_actual;
+        } else {
+            // Si no hay filas anteriores, obtener el stock inicial del producto_almacen
             try {
                 $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $data['producto_id'])
                     ->where('almacen_id', $data['almacen_id'])
