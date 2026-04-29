@@ -398,6 +398,29 @@ class VentaController extends Controller
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
             $debeDescontar = in_array($tipoDespacho, ['et', 'do']) && $estadoVentaStr !== 'ee' && ! $omitirEntrega;
+            
+            // CAPTURAR STOCK ANTERIOR ANTES DE DECREMENTAR (para kardex)
+            // Capturar SIEMPRE si no está en espera (porque se registrará en kardex)
+            $stocksAnteriores = [];
+            if ($estadoVentaStr !== 'ee') {
+                foreach ($validated['productos_por_almacen'] ?? [] as $idx => $producto) {
+                    $pAlmacenId = $producto['producto_almacen_id'] ?? null;
+                    if (! $pAlmacenId && isset($producto['producto_id'])) {
+                        $pAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
+                            ->where('almacen_id', $validated['almacen_id'])
+                            ->first();
+                        $pAlmacenId = $pAlmacen?->id;
+                    } else {
+                        $pAlmacen = ProductoAlmacen::find($pAlmacenId);
+                    }
+
+                    if ($pAlmacen) {
+                        // Guardar stock anterior ANTES de decrementar
+                        $stocksAnteriores[$pAlmacenId] = (float) $pAlmacen->stock_fraccion;
+                    }
+                }
+            }
+            
             if ($debeDescontar) {
                 foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
@@ -548,6 +571,51 @@ class VentaController extends Controller
                     $this->valeCompraService->aplicarValeGenerado($validated['codigo_vale'], $venta);
                 } catch (\Exception $e) {
                     // No fallar la venta por error en canje
+                }
+            }
+
+            // REGISTRAR EN KARDEX FACTURACIÓN si la venta NO está en espera
+            if ($estadoVentaStr !== 'ee') {
+                try {
+                    $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
+                    
+                    // Usar los datos del request directamente en lugar de recargar
+                    foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
+                        $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
+                        $productoAlmacen = null;
+                        if ($productoAlmacenId) {
+                            $productoAlmacen = ProductoAlmacen::with('producto')->find($productoAlmacenId);
+                        } else if (isset($producto['producto_id'])) {
+                            $productoAlmacen = ProductoAlmacen::with('producto')
+                                ->where('producto_id', $producto['producto_id'])
+                                ->where('almacen_id', $validated['almacen_id'])
+                                ->first();
+                            $productoAlmacenId = $productoAlmacen?->id;
+                        }
+                        
+                        if (!$productoAlmacen) {
+                            continue;
+                        }
+
+                        // Obtener el stock anterior capturado ANTES del decremento
+                        $stockAnterior = $stocksAnteriores[$productoAlmacenId] ?? null;
+
+                        foreach ($producto['unidades_derivadas'] as $unidad) {
+                            $costo = (float) $producto['costo'];
+                            $unidadData = [
+                                'unidad_derivada_inmutable_name' => $unidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
+                                'cantidad' => (float) $unidad['cantidad'],
+                                'factor' => (float) $unidad['factor'],
+                                'precio' => (float) $unidad['precio'],
+                            ];
+                            
+                            // Pasar el stock anterior capturado
+                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // No fallar la venta si hay error al registrar en kardex
+                    \Log::error('Error registrando en kardex facturación: ' . $e->getMessage() . ' - ' . $e->getFile() . ':' . $e->getLine());
                 }
             }
 
@@ -819,6 +887,27 @@ class VentaController extends Controller
                     'numero' => $nuevoCorrelativo,
                 ]);
                 $venta->refresh();
+
+                // REGISTRAR EN KARDEX FACTURACIÓN cuando cambia de 'ee' a otro estado
+                try {
+                    $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
+                    $ventaConRelaciones = Venta::with([
+                        'productosPorAlmacen.productoAlmacen.producto',
+                        'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                    ])->findOrFail($venta->id);
+
+                    foreach ($ventaConRelaciones->productosPorAlmacen as $detalle) {
+                        $productoAlmacen = $detalle->productoAlmacen;
+                        if (!$productoAlmacen) continue;
+
+                        foreach ($detalle->unidadesDerivadas as $ud) {
+                            $costo = (float) $detalle->costo;
+                            $kardexFacturacionService->registrarVenta($ventaConRelaciones, $productoAlmacen, $ud, $costo);
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // No fallar la venta si hay error al registrar en kardex
+                }
             }
 
             // If productos_por_almacen is provided, update them
@@ -1148,6 +1237,34 @@ class VentaController extends Controller
                 'estado_de_venta' => EstadoDeVenta::Anulado,
                 'stock_aplicado' => false,
             ]);
+
+            // REGISTRAR DEVOLUCIÓN EN KARDEX FACTURACIÓN
+            try {
+                $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
+                foreach ($venta->productosPorAlmacen as $detalle) {
+                    $productoAlmacen = $detalle->productoAlmacen;
+                    if (!$productoAlmacen) continue;
+
+                    foreach ($detalle->unidadesDerivadas as $ud) {
+                        if (!$ud->unidadDerivadaInmutable) {
+                            \Log::warning("Unidad derivada sin relación: {$ud->id}");
+                            continue;
+                        }
+                        
+                        $costo = (float) $detalle->costo;
+                        // Pasar los datos como objeto con propiedades accesibles
+                        $unidadObj = new \stdClass();
+                        $unidadObj->unidadDerivadaInmutable = $ud->unidadDerivadaInmutable;
+                        $unidadObj->cantidad = (float) $ud->cantidad;
+                        $unidadObj->factor = (float) $ud->factor;
+                        $unidadObj->precio = (float) $ud->precio;
+                        $kardexFacturacionService->registrarDevolucionVenta($venta, $productoAlmacen, $unidadObj, $costo);
+                    }
+                }
+            } catch (\Exception $e) {
+                // No fallar la anulación si hay error al registrar en kardex
+                \Log::error('Error registrando devolución en kardex facturación: ' . $e->getMessage() . ' - ' . $e->getFile() . ':' . $e->getLine());
+            }
 
             return response()->json([
                 'data' => 'ok',

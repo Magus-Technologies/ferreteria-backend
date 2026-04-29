@@ -12,43 +12,29 @@ class KardexFacturacionService
      */
     public function registrar(array $data)
     {
-        // Calcular stock_anterior basado en todas las filas anteriores del mismo producto-almacén
-        // Obtener todas las filas anteriores del mismo producto-almacén ordenadas por fecha y orden
-        $filasAnteriores = DB::table('kardex_facturacions')
+        // Obtener el saldo actual del producto_almacen en la BD
+        // Este es el saldo REAL en ese momento
+        $productoAlmacen = DB::table('productoalmacen')
             ->where('producto_id', $data['producto_id'])
             ->where('almacen_id', $data['almacen_id'])
-            ->orderBy('fecha', 'asc')
-            ->orderBy('orden', 'asc')
-            ->get();
+            ->first();
         
-        // Calcular stock acumulado hasta ahora
-        $stockAnterior = 0;
-        foreach ($filasAnteriores as $fila) {
-            $stockAnterior += (float) $fila->entrada - (float) $fila->salida;
+        if ($productoAlmacen) {
+            $saldoAnterior = (float) $productoAlmacen->stock_fraccion;
+        } else {
+            $saldoAnterior = 0;
         }
         
-        // Si no hay filas anteriores, obtener el stock inicial del producto_almacen
-        if ($filasAnteriores->isEmpty()) {
-            $productoAlmacen = DB::table('producto_almacen')
-                ->where('producto_id', $data['producto_id'])
-                ->where('almacen_id', $data['almacen_id'])
-                ->first();
-            
-            if ($productoAlmacen) {
-                $stockAnterior = (float) $productoAlmacen->stock_fraccion;
-            }
-        }
-        
-        // Calcular stock actual después de esta transacción
+        // Calcular saldo actual después de esta transacción
         $cantIngreso = (float) ($data['entrada'] ?? 0);
         $cantSalida = (float) ($data['salida'] ?? 0);
-        $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
+        $saldoActual = $saldoAnterior + $cantIngreso - $cantSalida;
         
         // Agregar los valores calculados a los datos
-        $data['stock_anterior'] = $stockAnterior;
+        $data['stock_anterior'] = $saldoAnterior;
         $data['cant_ingreso'] = $cantIngreso;
         $data['cant_salida'] = $cantSalida;
-        $data['stock_actual'] = $stockActual;
+        $data['stock_actual'] = $saldoActual;
         
         return KardexFacturacion::create($data);
     }
@@ -57,7 +43,7 @@ class KardexFacturacionService
      * Registra una venta en kardex facturación (cuando se crea)
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
      */
-    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1)
+    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null)
     {
         $tipoDocumento = match($venta->tipo_documento->value) {
             '01' => 'Factura',
@@ -66,25 +52,40 @@ class KardexFacturacionService
             default => $venta->tipo_documento->value,
         };
 
-        return $this->registrar([
+        $cantSalida = $unidad['cantidad'] * $unidad['factor'];
+
+        $data = [
             'tipo' => 'venta',
             'movimiento' => 'VENTA',
             'fecha' => $venta->fecha,
             'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad['unidad_derivada_inmutable_name'],
             'cantidad' => $unidad['cantidad'],
-            'cantidad_fraccion' => $unidad['cantidad'] * $unidad['factor'],
+            'cantidad_fraccion' => $cantSalida,
             'precio' => $unidad['precio'],
             'costo' => $costo,
             'entrada' => 0,
-            'salida' => $unidad['cantidad'] * $unidad['factor'],
+            'salida' => $cantSalida,
             'referencia_id' => $venta->id,
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+
+        // Si se proporciona stock anterior, usarlo directamente
+        if ($stockAnterior !== null) {
+            $data['stock_anterior'] = $stockAnterior;
+            $data['cant_ingreso'] = 0;
+            $data['cant_salida'] = $cantSalida;
+            $data['stock_actual'] = $stockAnterior - $cantSalida;
+            
+            return KardexFacturacion::create($data);
+        }
+
+        // Si no se proporciona, usar el método registrar que consulta la BD
+        return $this->registrar($data);
     }
 
     /**
@@ -198,24 +199,33 @@ class KardexFacturacionService
         foreach ($allRows as $row) {
             $key = "{$row->producto_id}_{$row->almacen_id}";
             
-            // Obtener stock anterior para este producto-almacén
-            $stockAnterior = $stockPorProductoAlmacen[$key] ?? 0;
-            
-            // Calcular cant_ingreso y cant_salida
-            $cantIngreso = (float) $row->entrada;
-            $cantSalida = (float) $row->salida;
-            
-            // Calcular stock actual
-            $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
-            
-            // Actualizar el stock actual para la siguiente iteración
-            $stockPorProductoAlmacen[$key] = $stockActual;
+            // Si el registro YA tiene stock_anterior y stock_actual guardados, usarlos
+            // (esto ocurre cuando se registró correctamente al crear la venta)
+            if ($row->stock_anterior !== null && $row->stock_actual !== null) {
+                // Usar los valores guardados en la BD
+                $stockAnterior = (float) $row->stock_anterior;
+                $stockActual = (float) $row->stock_actual;
+                
+                // Actualizar el stock actual para la siguiente iteración
+                $stockPorProductoAlmacen[$key] = $stockActual;
+            } else {
+                // Si NO tiene valores guardados, calcularlos (para registros antiguos)
+                $stockAnterior = $stockPorProductoAlmacen[$key] ?? 0;
+                
+                $cantIngreso = (float) $row->entrada;
+                $cantSalida = (float) $row->salida;
+                
+                $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
+                
+                // Actualizar el stock actual para la siguiente iteración
+                $stockPorProductoAlmacen[$key] = $stockActual;
+            }
 
-            // Crear objeto con todos los campos, sobrescribiendo los valores calculados
+            // Crear objeto con todos los campos
             $rowData = (array) $row;
             $rowData['stock_anterior'] = $stockAnterior;
-            $rowData['cant_ingreso'] = $cantIngreso;
-            $rowData['cant_salida'] = $cantSalida;
+            $rowData['cant_ingreso'] = (float) $row->entrada;
+            $rowData['cant_salida'] = (float) $row->salida;
             $rowData['stock_actual'] = $stockActual;
             
             $rowsWithStockAll[] = (object) $rowData;
