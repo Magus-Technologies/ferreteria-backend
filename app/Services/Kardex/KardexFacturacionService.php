@@ -57,9 +57,18 @@ class KardexFacturacionService
 
         $cantSalida = $unidad['cantidad'] * $unidad['factor'];
 
-        // Cargar la relación cliente si no está cargada
-        if (!$venta->relationLoaded('cliente') && $venta->cliente_id) {
-            $venta->load('cliente');
+        // Obtener el nombre del cliente directamente desde la BD si no está cargado
+        $clienteNombre = 'Sin cliente';
+        if ($venta->cliente_id) {
+            if ($venta->relationLoaded('cliente') && $venta->cliente) {
+                $clienteNombre = $this->obtenerNombreCliente($venta->cliente);
+            } else {
+                // Buscar el cliente directamente en la BD
+                $cliente = \App\Models\Cliente::find($venta->cliente_id);
+                if ($cliente) {
+                    $clienteNombre = $this->obtenerNombreCliente($cliente);
+                }
+            }
         }
 
         $data = [
@@ -79,7 +88,7 @@ class KardexFacturacionService
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'cliente_id' => $venta->cliente_id,
-            'cliente_nombre' => $this->obtenerNombreCliente($venta->cliente),
+            'cliente_nombre' => $clienteNombre,
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ];
@@ -133,9 +142,17 @@ class KardexFacturacionService
             ->where('movimiento', 'VENTA CRÉDITO (EDITADA)')
             ->update(['movimiento' => 'VENTA CRÉDITO (ANULADA)']);
 
-        // Cargar la relación cliente si no está cargada
-        if (!$venta->relationLoaded('cliente') && $venta->cliente_id) {
-            $venta->load('cliente');
+        // Obtener el nombre del cliente directamente desde la BD si no está cargado
+        $clienteNombre = 'Sin cliente';
+        if ($venta->cliente_id) {
+            if ($venta->relationLoaded('cliente') && $venta->cliente) {
+                $clienteNombre = $this->obtenerNombreCliente($venta->cliente);
+            } else {
+                $cliente = \App\Models\Cliente::find($venta->cliente_id);
+                if ($cliente) {
+                    $clienteNombre = $this->obtenerNombreCliente($cliente);
+                }
+            }
         }
 
         // Luego registrar la devolución
@@ -156,7 +173,7 @@ class KardexFacturacionService
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'cliente_id' => $venta->cliente_id,
-            'cliente_nombre' => $this->obtenerNombreCliente($venta->cliente),
+            'cliente_nombre' => $clienteNombre,
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ]);
@@ -178,9 +195,17 @@ class KardexFacturacionService
         // Determinar si es contado o crédito
         $movimiento = $venta->forma_de_pago->value === 'co' ? 'VENTA CONTADO' : 'VENTA CRÉDITO';
 
-        // Cargar la relación cliente si no está cargada
-        if (!$venta->relationLoaded('cliente') && $venta->cliente_id) {
-            $venta->load('cliente');
+        // Obtener el nombre del cliente directamente desde la BD si no está cargado
+        $clienteNombre = 'Sin cliente';
+        if ($venta->cliente_id) {
+            if ($venta->relationLoaded('cliente') && $venta->cliente) {
+                $clienteNombre = $this->obtenerNombreCliente($venta->cliente);
+            } else {
+                $cliente = \App\Models\Cliente::find($venta->cliente_id);
+                if ($cliente) {
+                    $clienteNombre = $this->obtenerNombreCliente($cliente);
+                }
+            }
         }
 
         return $this->registrar([
@@ -200,7 +225,7 @@ class KardexFacturacionService
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'cliente_id' => $venta->cliente_id,
-            'cliente_nombre' => $this->obtenerNombreCliente($venta->cliente),
+            'cliente_nombre' => $clienteNombre,
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ]);
