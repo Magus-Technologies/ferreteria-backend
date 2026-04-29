@@ -303,25 +303,26 @@ class CompraController extends Controller
      */
     public function store(Request $request)
     {
-        \Log::info('Compra store request:', $request->all());
-        
-        // Mapear tipo_documento del frontend (nombre) al valor del enum PHP ANTES de validar
-        $tipoDocumentoMap = [
-            'Factura'         => '01',
-            'Boleta'          => '03',
-            'NotaDeVenta'     => 'nv',
-            'Ingreso'         => 'in',
-            'Salida'          => 'sa',
-            'RecepcionAlmacen'=> 'rc',
-        ];
-        
-        if ($request->has('tipo_documento') && isset($tipoDocumentoMap[$request->input('tipo_documento')])) {
-            $request->merge(['tipo_documento' => $tipoDocumentoMap[$request->input('tipo_documento')]]);
-        }
-        
-        $esEnEspera = $request->input('estado_de_compra') === 'ee';
+        try {
+            \Log::info('Compra store request:', $request->all());
+            
+            // Mapear tipo_documento del frontend (nombre) al valor del enum PHP ANTES de validar
+            $tipoDocumentoMap = [
+                'Factura'         => '01',
+                'Boleta'          => '03',
+                'NotaDeVenta'     => 'nv',
+                'Ingreso'         => 'in',
+                'Salida'          => 'sa',
+                'RecepcionAlmacen'=> 'rc',
+            ];
+            
+            if ($request->has('tipo_documento') && isset($tipoDocumentoMap[$request->input('tipo_documento')])) {
+                $request->merge(['tipo_documento' => $tipoDocumentoMap[$request->input('tipo_documento')]]);
+            }
+            
+            $esEnEspera = $request->input('estado_de_compra') === 'ee';
 
-        $validated = $request->validate([
+            $validated = $request->validate([
             'id' => 'sometimes|string',
             'tipo_documento' => $esEnEspera ? 'nullable|string' : 'required|string',
             'serie' => 'nullable|string',
@@ -554,6 +555,21 @@ class CompraController extends Controller
                 ]),
             ], 201);
         });
+        } catch (\Exception $e) {
+            \Log::error('Error creating compra:', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
+            return response()->json([
+                'message' => 'Error al crear la compra',
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ], 500);
+        }
     }
 
     /**
