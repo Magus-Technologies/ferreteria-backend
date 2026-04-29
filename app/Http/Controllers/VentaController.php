@@ -1959,6 +1959,72 @@ class VentaController extends Controller
     }
 
     /**
+     * Listar TODOS los cobros con filtros (para el modal de cobros realizados)
+     */
+    public function getAllCobros(Request $request)
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'cliente_id' => 'sometimes|integer',
+            'per_page' => 'sometimes|integer|min:1|max:100',
+        ]);
+
+        $query = \App\Models\CobroVenta::query()
+            ->with([
+                'venta.cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
+                'venta:id,tipo_documento,serie,numero,fecha,fecha_vencimiento,almacen_id,cliente_id',
+                'despliegueDePago.metodoDePago',
+                'user:id,name'
+            ])
+            ->where('estado', true);
+
+        // Filtrar por almacén (a través de la venta)
+        if ($request->has('almacen_id')) {
+            $query->whereHas('venta', function ($q) use ($request) {
+                $q->where('almacen_id', $request->almacen_id);
+            });
+        }
+
+        // Filtrar por rango de fechas del cobro
+        if ($request->has('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+        if ($request->has('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
+        }
+
+        // Filtrar por cliente
+        if ($request->has('cliente_id')) {
+            $query->whereHas('venta', function ($q) use ($request) {
+                $q->where('cliente_id', $request->cliente_id);
+            });
+        }
+
+        $query->orderBy('fecha', 'desc');
+
+        $perPage = $request->input('per_page', 50);
+
+        if ($perPage === -1) {
+            return response()->json([
+                'data' => $query->get(),
+                'total' => $query->count(),
+            ]);
+        }
+
+        $cobros = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $cobros->items(),
+            'total' => $cobros->total(),
+            'current_page' => $cobros->currentPage(),
+            'per_page' => $cobros->perPage(),
+            'last_page' => $cobros->lastPage(),
+        ]);
+    }
+
+    /**
      * Registrar un cobro para una venta a crédito
      */
     public function storeCobro(Request $request, string $id)
