@@ -52,11 +52,53 @@ class GastoExtraController extends Controller
      */
     public function resumen()
     {
-        $totalGastos = GastoExtra::sum('monto');
-        $totalTransacciones = GastoExtra::count();
+        // Gastos extras registrados manualmente
+        $totalGastosExtras = GastoExtra::sum('monto');
+        $totalTransaccionesExtras = GastoExtra::count();
 
-        $gastosHoy = GastoExtra::whereDate('created_at', now()->toDateString())->sum('monto');
-        $transaccionesHoy = GastoExtra::whereDate('created_at', now()->toDateString())->count();
+        $gastosExtrasHoy = GastoExtra::whereDate('created_at', now()->toDateString())->sum('monto');
+        $transaccionesExtrasHoy = GastoExtra::whereDate('created_at', now()->toDateString())->count();
+
+        // Calcular pérdidas por salidas de productos (malogrados, vencidos, robados)
+        // Solo considerar salidas (tipo = 'salida')
+        // La cantidad está en unidadderivadainmutableingresosalida, multiplicada por el factor para obtener la cantidad en fracción
+        $perdidasSalidas = DB::table('ingresosalida as i')
+            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
+            ->join('productoalmaceningresosalida as pa', 'i.id', '=', 'pa.ingreso_id')
+            ->join('unidadderivadainmutableingresosalida as ud', 'pa.id', '=', 'ud.producto_almacen_ingreso_salida_id')
+            ->where('t.tipo', 'salida')
+            ->where('i.estado', true)
+            ->select(DB::raw('SUM(ud.cantidad * ud.factor * pa.costo) as total_perdidas'))
+            ->value('total_perdidas') ?? 0;
+
+        $perdidasSalidasHoy = DB::table('ingresosalida as i')
+            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
+            ->join('productoalmaceningresosalida as pa', 'i.id', '=', 'pa.ingreso_id')
+            ->join('unidadderivadainmutableingresosalida as ud', 'pa.id', '=', 'ud.producto_almacen_ingreso_salida_id')
+            ->where('t.tipo', 'salida')
+            ->where('i.estado', true)
+            ->whereDate('i.created_at', now()->toDateString())
+            ->select(DB::raw('SUM(ud.cantidad * ud.factor * pa.costo) as total_perdidas'))
+            ->value('total_perdidas') ?? 0;
+
+        $transaccionesSalidas = DB::table('ingresosalida as i')
+            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
+            ->where('t.tipo', 'salida')
+            ->where('i.estado', true)
+            ->count();
+
+        $transaccionesSalidasHoy = DB::table('ingresosalida as i')
+            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
+            ->where('t.tipo', 'salida')
+            ->where('i.estado', true)
+            ->whereDate('i.created_at', now()->toDateString())
+            ->count();
+
+        // Totales combinados (gastos extras + pérdidas por salidas)
+        $totalGastos = $totalGastosExtras + $perdidasSalidas;
+        $gastosHoy = $gastosExtrasHoy + $perdidasSalidasHoy;
+        $totalTransacciones = $totalTransaccionesExtras + $transaccionesSalidas;
+        $transaccionesHoy = $transaccionesExtrasHoy + $transaccionesSalidasHoy;
 
         $promedioGasto = $totalTransacciones > 0 ? $totalGastos / $totalTransacciones : 0;
 
@@ -68,6 +110,9 @@ class GastoExtraController extends Controller
                 'total_transacciones' => $totalTransacciones,
                 'transacciones_hoy' => $transaccionesHoy,
                 'promedio_gasto' => round($promedioGasto, 2),
+                // Desglose adicional
+                'gastos_extras' => round($totalGastosExtras, 2),
+                'perdidas_salidas' => round($perdidasSalidas, 2),
             ]
         ]);
     }
