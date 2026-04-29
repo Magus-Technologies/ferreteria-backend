@@ -456,6 +456,14 @@ class KardexFacturacionService
                 $stockPorProductoAlmacen[$key] = $stockActual;
             }
 
+            // Si cliente_nombre está vacío pero cliente_id existe, buscar el nombre
+            if (empty($row->cliente_nombre) && !empty($row->cliente_id)) {
+                $cliente = DB::table('clientes')->where('id', $row->cliente_id)->first();
+                if ($cliente) {
+                    $row->cliente_nombre = $cliente->razon_social ?? $cliente->nombre_comercial ?? 'Sin cliente';
+                }
+            }
+
             // Crear objeto con todos los campos
             $rowData = (array) $row;
             $rowData['stock_anterior'] = $stockAnterior;

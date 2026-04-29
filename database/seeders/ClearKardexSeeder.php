@@ -13,7 +13,6 @@ class ClearKardexSeeder extends Seeder
     public function run(): void
     {
         // Limpiar la tabla kardex_inventarios
-        DB::table('kardex_facturacions')->truncate();
         DB::table('kardex_inventarios')->truncate();
         
         $this->command->info('Tabla kardex_inventarios limpiada exitosamente.');
