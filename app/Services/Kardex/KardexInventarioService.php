@@ -359,8 +359,8 @@ class KardexInventarioService
 
         $total = $query->count();
 
-        // Obtener TODAS las filas ordenadas
-        $allRows = $query->orderBy('fecha', 'asc')->orderBy('orden', 'asc')->get();
+        // Obtener TODAS las filas ordenadas DESCENDENTE (más recientes primero)
+        $allRows = $query->orderBy('fecha', 'desc')->orderBy('orden', 'desc')->get();
 
         // Aplicar paginación a los resultados
         if ($perPage == -1) {

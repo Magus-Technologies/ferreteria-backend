@@ -189,7 +189,8 @@ class KardexFacturacionService
 
         $total = $query->count();
 
-        // Obtener TODAS las filas ordenadas para calcular stock acumulado correctamente
+        // Obtener TODAS las filas ordenadas ASCENDENTE para calcular stock acumulado correctamente
+        // (necesitamos calcular desde el más antiguo al más reciente)
         $allRows = $query->orderBy('fecha', 'asc')->orderBy('orden', 'asc')->get();
 
         // Calcular stock acumulado para TODAS las filas
@@ -230,6 +231,9 @@ class KardexFacturacionService
             
             $rowsWithStockAll[] = (object) $rowData;
         }
+
+        // Invertir el orden para mostrar los más recientes primero
+        $rowsWithStockAll = array_reverse($rowsWithStockAll);
 
         // Ahora aplicar paginación a los resultados ya calculados
         if ($perPage == -1) {
