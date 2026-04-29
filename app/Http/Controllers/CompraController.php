@@ -992,11 +992,22 @@ class CompraController extends Controller
 
             // Procesar múltiples métodos de pago del modal
             if (!empty($compra['metodos_de_pago'])) {
+                \Log::info('Procesando metodos_de_pago:', $compra['metodos_de_pago']);
+                
                 foreach ($compra['metodos_de_pago'] as $metodo) {
                     $desplieguePagoId = $metodo['despliegue_de_pago_id'];
+                    
+                    \Log::info('Procesando metodo de pago:', [
+                        'despliegue_de_pago_id_original' => $desplieguePagoId,
+                        'monto' => $metodo['monto'],
+                    ]);
+                    
+                    // NO extraer el ID si ya viene en formato correcto (sin guión)
+                    // Solo extraer si tiene el formato "subcaja_id-despliegue_id"
                     if (str_contains($desplieguePagoId, '-')) {
                         $parts = explode('-', $desplieguePagoId);
                         $desplieguePagoId = $parts[1] ?? $desplieguePagoId;
+                        \Log::info('ID extraído:', ['despliegue_de_pago_id' => $desplieguePagoId]);
                     }
 
                     $despliegue = DespliegueDePago::where('id', $desplieguePagoId)
@@ -1004,16 +1015,33 @@ class CompraController extends Controller
                         ->first();
 
                     if (!$despliegue) {
-                        throw new \Exception('Un método de pago seleccionado no existe o no está activo.');
+                        \Log::error('Despliegue de pago no encontrado:', ['id' => $desplieguePagoId]);
+                        throw new \Exception("El método de pago seleccionado (ID: {$desplieguePagoId}) no existe o no está activo.");
                     }
 
-                    $compraModel->pagosDeCompras()->create([
+                    \Log::info('Creando pago de compra:', [
+                        'compra_id' => $compraModel->id,
                         'despliegue_de_pago_id' => $desplieguePagoId,
-                        'monto'                 => $metodo['monto'],
-                        'fecha'                 => now()->format('Y-m-d'),
-                        'numero_operacion'      => $metodo['numero_operacion'] ?? null,
-                        'estado'                => true,
+                        'monto' => $metodo['monto'],
                     ]);
+
+                    try {
+                        $pagoCreado = $compraModel->pagosDeCompras()->create([
+                            'despliegue_de_pago_id' => $desplieguePagoId,
+                            'monto'                 => $metodo['monto'],
+                            'fecha'                 => now()->format('Y-m-d'),
+                            'numero_operacion'      => $metodo['numero_operacion'] ?? null,
+                            'estado'                => true,
+                        ]);
+                        
+                        \Log::info('Pago de compra creado exitosamente:', ['id' => $pagoCreado->id]);
+                    } catch (\Exception $e) {
+                        \Log::error('Error al crear pago de compra:', [
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString(),
+                        ]);
+                        throw $e;
+                    }
 
                     MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
                         ->decrement('monto', $metodo['monto']);
