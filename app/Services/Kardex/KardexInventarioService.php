@@ -141,6 +141,18 @@ class KardexInventarioService
      */
     public function registrarRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 2)
     {
+        // Obtener proveedor de la compra asociada a la recepción
+        $proveedorId = null;
+        $proveedorNombre = null;
+        
+        if ($recepcion->compra_id) {
+            $compra = \App\Models\Compra::find($recepcion->compra_id);
+            if ($compra) {
+                $proveedorId = $compra->proveedor_id;
+                $proveedorNombre = $compra->proveedor?->razon_social ?? $compra->proveedor?->nombre_comercial ?? 'Sin proveedor';
+            }
+        }
+
         return $this->registrar([
             'tipo' => 'recepcion',
             'movimiento' => 'ENTRADA',
@@ -157,6 +169,8 @@ class KardexInventarioService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'proveedor_id' => $proveedorId,
+            'proveedor_nombre' => $proveedorNombre,
             'almacen_id' => $productoAlmacen->almacen_id,
             'orden' => $orden,
         ]);
@@ -167,6 +181,18 @@ class KardexInventarioService
      */
     public function registrarAnulacionRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 5)
     {
+        // Obtener proveedor de la compra asociada a la recepción
+        $proveedorId = null;
+        $proveedorNombre = null;
+        
+        if ($recepcion->compra_id) {
+            $compra = \App\Models\Compra::find($recepcion->compra_id);
+            if ($compra) {
+                $proveedorId = $compra->proveedor_id;
+                $proveedorNombre = $compra->proveedor?->razon_social ?? $compra->proveedor?->nombre_comercial ?? 'Sin proveedor';
+            }
+        }
+
         return $this->registrar([
             'tipo' => 'recepcion_anulada',
             'movimiento' => 'ANULACION',
@@ -183,6 +209,8 @@ class KardexInventarioService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'proveedor_id' => $proveedorId,
+            'proveedor_nombre' => $proveedorNombre,
             'almacen_id' => $productoAlmacen->almacen_id,
             'orden' => $orden,
         ]);

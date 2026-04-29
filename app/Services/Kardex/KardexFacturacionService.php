@@ -74,7 +74,7 @@ class KardexFacturacionService
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'cliente_id' => $venta->cliente_id,
-            'cliente_nombre' => $venta->cliente?->razon_social ?? $venta->cliente?->nombre_comercial ?? 'Sin cliente',
+            'cliente_nombre' => $this->obtenerNombreCliente($venta->cliente),
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ];
@@ -146,7 +146,7 @@ class KardexFacturacionService
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'cliente_id' => $venta->cliente_id,
-            'cliente_nombre' => $venta->cliente?->razon_social ?? $venta->cliente?->nombre_comercial ?? 'Sin cliente',
+            'cliente_nombre' => $this->obtenerNombreCliente($venta->cliente),
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ]);
@@ -185,7 +185,7 @@ class KardexFacturacionService
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'cliente_id' => $venta->cliente_id,
-            'cliente_nombre' => $venta->cliente?->razon_social ?? $venta->cliente?->nombre_comercial ?? 'Sin cliente',
+            'cliente_nombre' => $this->obtenerNombreCliente($venta->cliente),
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ]);
@@ -492,5 +492,28 @@ class KardexFacturacionService
             'per_page' => $perPage,
             'last_page' => (int) ($perPage == -1 ? 1 : ceil($total / $perPage)),
         ]);
+    }
+
+    /**
+     * Obtiene el nombre completo del cliente según su tipo
+     */
+    private function obtenerNombreCliente($cliente): string
+    {
+        if (!$cliente) {
+            return 'Sin cliente';
+        }
+
+        // Si es persona jurídica (empresa), usar razon_social o nombre_comercial
+        if ($cliente->tipo_cliente === 'j') {
+            return $cliente->razon_social ?? $cliente->nombre_comercial ?? 'Sin cliente';
+        }
+
+        // Si es persona natural, usar nombres y apellidos
+        if ($cliente->tipo_cliente === 'p') {
+            $nombres = trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? ''));
+            return $nombres ?: 'Sin cliente';
+        }
+
+        return 'Sin cliente';
     }
 }
