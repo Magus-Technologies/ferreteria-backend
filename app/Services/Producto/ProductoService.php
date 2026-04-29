@@ -332,6 +332,13 @@ class ProductoService implements ProductoServiceInterface
                     "message" => "Producto actualizado exitosamente",
                 ]);
             } catch (\Exception $e) {
+                Log::error('Error al actualizar producto', [
+                    'producto_id' => $id,
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
                 return response()->json(
                     [
                         "error" =>
