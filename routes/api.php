@@ -144,6 +144,7 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/api/productos.php';    // Productos (CRUD, importación, archivos, precios)
     require __DIR__ . '/api/ventas.php';       // Ventas, compras, cotizaciones, préstamos, clientes, proveedores
     require __DIR__ . '/api/cajas.php';        // Cajas (apertura, cierre, transacciones, préstamos)
+    require __DIR__ . '/api/kardex.php';       // Kardex (inventario, facturación, finanzas)
     require __DIR__ . '/api/facturacion-electronica.php';  // Facturación electrónica (notas de débito, crédito, facturas)
     require __DIR__ . '/api/ganancias.php';    // Gestión contable y financiera - Mis Ganancias
     require __DIR__ . '/api/ingresos.php';     // Gestión contable y financiera - Mis Ingresos
