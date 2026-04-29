@@ -572,11 +572,17 @@ class RecepcionAlmacenController extends Controller
 
                     $productoAlmacenModel = \App\Models\ProductoAlmacen::find($productoAlmacen->id);
                     if ($productoAlmacenModel) {
+                        // Guardar el stock anterior ANTES de incrementar para el kardex
+                        $stockAntesDeRecepcion = $productoAlmacenModel->stock_fraccion;
+                        
                         $productoAlmacenModel->increment('stock_fraccion', $cantidadTotalProducto);
                         if ($nuevoCosto !== null) {
                             $productoAlmacenModel->update(['costo' => $nuevoCosto]);
                         }
                         \Illuminate\Support\Facades\Log::info("Stock actualizado en store (Recepcion): AlmacenProducto {$productoAlmacen->id}, Incremento: {$cantidadTotalProducto}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}");
+                        
+                        // Guardar el stock anterior para usarlo en kardex
+                        $productoData['stock_anterior_recepcion'] = $stockAntesDeRecepcion;
                     }
 
                     app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
@@ -589,6 +595,7 @@ class RecepcionAlmacenController extends Controller
                     $productoId = $productoData['producto_id'];
                     $almacenId = $productoData['almacen_id'];
                     $costo = $productoData['costo'];
+                    $stockAnteriorRecepcion = $productoData['stock_anterior_recepcion'] ?? null;
 
                     $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $productoId)
                         ->where('almacen_id', $almacenId)
@@ -613,7 +620,8 @@ class RecepcionAlmacenController extends Controller
                                 $productoAlmacen,
                                 $unidadTemporal,
                                 $costo,
-                                2 // orden = 2 para recepción
+                                2, // orden = 2 para recepción
+                                $stockAnteriorRecepcion // Pasar el stock anterior guardado
                             );
                         }
                     }

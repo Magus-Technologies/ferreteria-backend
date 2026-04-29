@@ -26,16 +26,23 @@ class KardexInventarioService
                 ->first();
         }
 
-        // 2. Obtener el stock actual real
-        if ($productoAlmacen) {
+        // 2. Obtener el stock actual real (o usar el override si se proporciona)
+        if (isset($data['stock_anterior_override'])) {
+            // Usar el stock anterior proporcionado explícitamente
+            $stockAnterior = (float) $data['stock_anterior_override'];
+            unset($data['stock_anterior_override']); // Remover para no guardarlo en la BD
+        } elseif ($productoAlmacen) {
             $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+        } else {
+            $stockAnterior = 0;
+            \Log::warning('Kardex registrar - No se encontró ProductoAlmacen:', $data);
+        }
+        
+        if ($productoAlmacen) {
             $data['producto_almacen_id'] = $productoAlmacen->id;
             // Asegurar que producto_id y almacen_id coincidan con el registro encontrado
             $data['producto_id'] = $productoAlmacen->producto_id;
             $data['almacen_id'] = $productoAlmacen->almacen_id;
-        } else {
-            $stockAnterior = 0;
-            \Log::warning('Kardex registrar - No se encontró ProductoAlmacen:', $data);
         }
         
         // 3. Registrar el usuario que realiza el movimiento
@@ -150,7 +157,7 @@ class KardexInventarioService
     /**
      * Registra una recepción en kardex inventario
      */
-    public function registrarRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 2)
+    public function registrarRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 2, $stockAnteriorOverride = null)
     {
         // Obtener proveedor de la compra asociada a la recepción
         $proveedorId = null;
@@ -164,7 +171,7 @@ class KardexInventarioService
             }
         }
 
-        return $this->registrar([
+        $dataToRegister = [
             'tipo' => 'recepcion',
             'movimiento' => 'ENTRADA',
             'fecha' => $recepcion->fecha,
@@ -184,7 +191,14 @@ class KardexInventarioService
             'proveedor_nombre' => $proveedorNombre,
             'almacen_id' => $productoAlmacen->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+        
+        // Si se proporciona un stock anterior específico, usarlo en lugar del actual
+        if ($stockAnteriorOverride !== null) {
+            $dataToRegister['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+
+        return $this->registrar($dataToRegister);
     }
 
     /**
