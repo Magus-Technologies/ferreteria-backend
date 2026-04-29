@@ -293,12 +293,14 @@ class VentaController extends Controller
                 throw new \Exception("Cliente no encontrado");
             }
 
-            // Validar que Facturas (01) solo se emitan a clientes con RUC
-            if ($validated['tipo_documento'] === '01' && $cliente->tipo_documento !== 'ruc') {
+            // Validar que Facturas (01) solo se emitan a clientes con RUC (11 dígitos)
+            $esRuc = strlen($cliente->numero_documento) === 11;
+            if ($validated['tipo_documento'] === '01' && !$esRuc) {
                 return response()->json([
-                    'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
+                    'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC (11 dígitos). Para clientes con DNI (8 dígitos) debe emitir una Boleta (03).',
                     'error' => 'TIPO_DOCUMENTO_INVALIDO',
-                    'cliente_tipo_documento' => $cliente->tipo_documento,
+                    'cliente_numero_documento' => $cliente->numero_documento,
+                    'cliente_tipo_cliente' => $cliente->tipo_cliente->value ?? null,
                     'tipo_comprobante_solicitado' => '01',
                 ], 422);
             }
