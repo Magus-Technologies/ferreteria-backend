@@ -187,6 +187,9 @@ class GananciasService implements GananciasServiceInterface
             ->leftJoin('user as u', 'v.user_id', '=', 'u.id')
             ->leftJoin('almacen as a', 'v.almacen_id', '=', 'a.id')
             ->leftJoin('comprobantes_electronicos as ce', 'v.id', '=', 'ce.venta_id')
+            // Join para obtener el despliegue de pago
+            ->leftJoin('desplieguedepagoventa as dpv', 'v.id', '=', 'dpv.venta_id')
+            ->leftJoin('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
             ->select([
                 DB::raw("DATE_FORMAT(v.fecha, '%d/%m/%Y') as fecha"),
                 DB::raw("TIME_FORMAT(v.fecha, '%H:%i:%s') as hora_emision"),
@@ -207,7 +210,7 @@ class GananciasService implements GananciasServiceInterface
                 DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END as costo_unit"),
                 DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END * udiv.cantidad as costo_total"),
                 DB::raw("(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad as ganancia"),
-                DB::raw("'E' as cc"), // Por defecto 'E' (Efectivo)
+                DB::raw("COALESCE(dp.id, 'SIN_METODO') as cc"), // ID del despliegue de pago
                 'v.created_at',
                 'v.updated_at'
             ])
@@ -265,6 +268,11 @@ class GananciasService implements GananciasServiceInterface
         if (!empty($filtros['serie']) && !empty($filtros['numero'])) {
             $query->where('ce.serie', $filtros['serie'])
                   ->where('ce.correlativo', $filtros['numero']);
+        }
+
+        // Filtro por despliegue de pago (C.Caja)
+        if (!empty($filtros['confirmar_caja'])) {
+            $query->where('dp.id', $filtros['confirmar_caja']);
         }
 
         // Filtro "incluir" para ganancias/pérdidas
