@@ -57,7 +57,7 @@ class GananciasService implements GananciasServiceInterface
             ->leftJoin('user as u', 'v.user_id', '=', 'u.id')
             ->leftJoin('almacen as a', 'v.almacen_id', '=', 'a.id')
             ->leftJoin('comprobantes_electronicos as ce', 'v.id', '=', 'ce.venta_id')
-            ->where('v.estado_de_venta', '!=', 'Anulado')
+            ->where('v.estado_de_venta', '!=', 'an')
             ->when(!empty($filtros['almacen_id']), function($q) use ($filtros) {
                 return $q->where('v.almacen_id', $filtros['almacen_id']);
             })
@@ -218,7 +218,7 @@ class GananciasService implements GananciasServiceInterface
                 'v.created_at',
                 'v.updated_at'
             ])
-            ->where('v.estado_de_venta', '!=', 'Anulado');
+            ->where('v.estado_de_venta', '!=', 'an');
 
         // Aplicar filtros
         if (!empty($filtros['almacen_id'])) {

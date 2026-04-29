@@ -146,10 +146,10 @@ class KardexInventarioService
         $proveedorNombre = null;
         
         if ($recepcion->compra_id) {
-            $compra = \App\Models\Compra::find($recepcion->compra_id);
-            if ($compra) {
+            $compra = \App\Models\Compra::with('proveedor')->find($recepcion->compra_id);
+            if ($compra && $compra->proveedor) {
                 $proveedorId = $compra->proveedor_id;
-                $proveedorNombre = $compra->proveedor?->razon_social ?? $compra->proveedor?->nombre_comercial ?? 'Sin proveedor';
+                $proveedorNombre = $compra->proveedor->razon_social ?? $compra->proveedor->nombre_comercial ?? 'Sin proveedor';
             }
         }
 
@@ -186,10 +186,10 @@ class KardexInventarioService
         $proveedorNombre = null;
         
         if ($recepcion->compra_id) {
-            $compra = \App\Models\Compra::find($recepcion->compra_id);
-            if ($compra) {
+            $compra = \App\Models\Compra::with('proveedor')->find($recepcion->compra_id);
+            if ($compra && $compra->proveedor) {
                 $proveedorId = $compra->proveedor_id;
-                $proveedorNombre = $compra->proveedor?->razon_social ?? $compra->proveedor?->nombre_comercial ?? 'Sin proveedor';
+                $proveedorNombre = $compra->proveedor->razon_social ?? $compra->proveedor->nombre_comercial ?? 'Sin proveedor';
             }
         }
 
