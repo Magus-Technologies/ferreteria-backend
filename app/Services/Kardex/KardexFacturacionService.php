@@ -57,6 +57,11 @@ class KardexFacturacionService
 
         $cantSalida = $unidad['cantidad'] * $unidad['factor'];
 
+        // Cargar la relación cliente si no está cargada
+        if (!$venta->relationLoaded('cliente') && $venta->cliente_id) {
+            $venta->load('cliente');
+        }
+
         $data = [
             'tipo' => 'venta',
             'movimiento' => $movimiento,
@@ -128,6 +133,11 @@ class KardexFacturacionService
             ->where('movimiento', 'VENTA CRÉDITO (EDITADA)')
             ->update(['movimiento' => 'VENTA CRÉDITO (ANULADA)']);
 
+        // Cargar la relación cliente si no está cargada
+        if (!$venta->relationLoaded('cliente') && $venta->cliente_id) {
+            $venta->load('cliente');
+        }
+
         // Luego registrar la devolución
         return $this->registrar([
             'tipo' => 'venta',
@@ -167,6 +177,11 @@ class KardexFacturacionService
 
         // Determinar si es contado o crédito
         $movimiento = $venta->forma_de_pago->value === 'co' ? 'VENTA CONTADO' : 'VENTA CRÉDITO';
+
+        // Cargar la relación cliente si no está cargada
+        if (!$venta->relationLoaded('cliente') && $venta->cliente_id) {
+            $venta->load('cliente');
+        }
 
         return $this->registrar([
             'tipo' => 'venta',
@@ -500,11 +515,12 @@ class KardexFacturacionService
     private function obtenerNombreCliente($cliente): string
     {
         if (!$cliente) {
+            \Log::warning('obtenerNombreCliente: cliente es null');
             return 'Sin cliente';
         }
 
         // Si es persona jurídica (empresa), usar razon_social o nombre_comercial
-        if ($cliente->tipo_cliente === 'j') {
+        if ($cliente->tipo_cliente === 'j' || $cliente->tipo_cliente === 'e') {
             return $cliente->razon_social ?? $cliente->nombre_comercial ?? 'Sin cliente';
         }
 
