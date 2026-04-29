@@ -579,6 +579,9 @@ class VentaController extends Controller
                 try {
                     $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
                     
+                    // Cargar la relación cliente para el kardex
+                    $venta->load('cliente');
+                    
                     // Usar los datos del request directamente en lugar de recargar
                     foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                         $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
