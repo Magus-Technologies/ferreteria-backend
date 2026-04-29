@@ -352,6 +352,8 @@ class CompraController extends Controller
         \Log::info('Validated data:', $validated);
 
         return DB::transaction(function () use ($validated) {
+            \Log::info('=== INICIO TRANSACCIÓN COMPRA ===');
+            
             // Extraer el despliegue_id del formato "sub_caja_id-despliegue_id" si es necesario
             if (isset($validated['despliegue_de_pago_id']) && str_contains($validated['despliegue_de_pago_id'], '-')) {
                 $parts = explode('-', $validated['despliegue_de_pago_id']);
@@ -373,8 +375,15 @@ class CompraController extends Controller
                 }
             }
 
+            \Log::info('Validando nueva compra...');
             // Validar nueva compra
-            $this->validarNuevaCompra($validated);
+            try {
+                $this->validarNuevaCompra($validated);
+                \Log::info('Validación exitosa');
+            } catch (\Exception $e) {
+                \Log::error('Error en validación:', ['error' => $e->getMessage()]);
+                throw $e;
+            }
 
             // Mapear tipo_documento del frontend (nombre) al valor del enum PHP
             $tipoDocumentoMap = [
@@ -393,6 +402,12 @@ class CompraController extends Controller
             $estadoEnum = EstadoDeCompraDefinitiva::from($validated['estado_de_compra']);
             $formaDePagoEnum = isset($validated['forma_de_pago']) ? FormaDePago::from($validated['forma_de_pago']) : null;
             $tipoMonedaEnum = TipoMoneda::from($validated['tipo_moneda']);
+
+            \Log::info('Creando compra...', [
+                'tipo_documento' => $validated['tipo_documento'],
+                'serie' => $validated['serie'],
+                'numero' => $validated['numero'],
+            ]);
 
             // Create compra
             $compra = Compra::create([
@@ -429,20 +444,38 @@ class CompraController extends Controller
             }
 
             // Create productos_por_almacen and unidades_derivadas
-            foreach ($validated['productos_por_almacen'] as $producto) {
+            \Log::info('Procesando productos_por_almacen...', ['count' => count($validated['productos_por_almacen'])]);
+            
+            foreach ($validated['productos_por_almacen'] as $index => $producto) {
+                \Log::info("Procesando producto #{$index}", [
+                    'producto_id' => $producto['producto_id'] ?? null,
+                    'producto_almacen_id' => $producto['producto_almacen_id'] ?? null,
+                    'costo' => $producto['costo'],
+                ]);
+                
                 // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
                 $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
 
                 if (!$productoAlmacenId && isset($producto['producto_id'])) {
+                    \Log::info("Buscando ProductoAlmacen", [
+                        'producto_id' => $producto['producto_id'],
+                        'almacen_id' => $validated['almacen_id'],
+                    ]);
+                    
                     $productoAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
                         ->where('almacen_id', $validated['almacen_id'])
                         ->first();
 
                     if (!$productoAlmacen) {
+                        \Log::error("ProductoAlmacen no encontrado", [
+                            'producto_id' => $producto['producto_id'],
+                            'almacen_id' => $validated['almacen_id'],
+                        ]);
                         throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$validated['almacen_id']}");
                     }
 
                     $productoAlmacenId = $productoAlmacen->id;
+                    \Log::info("ProductoAlmacen encontrado", ['producto_almacen_id' => $productoAlmacenId]);
                 }
 
                 $productoAlmacenCompra = ProductoAlmacenCompra::create([
@@ -450,8 +483,16 @@ class CompraController extends Controller
                     'costo' => $producto['costo'],
                     'producto_almacen_id' => $productoAlmacenId,
                 ]);
+                
+                \Log::info("ProductoAlmacenCompra creado", ['id' => $productoAlmacenCompra->id]);
 
-                foreach ($producto['unidades_derivadas'] as $unidad) {
+                foreach ($producto['unidades_derivadas'] as $udIndex => $unidad) {
+                    \Log::info("Procesando unidad derivada #{$udIndex}", [
+                        'unidad_derivada_inmutable_id' => $unidad['unidad_derivada_inmutable_id'] ?? null,
+                        'unidad_derivada_inmutable_name' => $unidad['unidad_derivada_inmutable_name'] ?? null,
+                        'cantidad' => $unidad['cantidad'],
+                    ]);
+                    
                     // Get unidad_derivada_inmutable_id (either provided or firstOrCreate by name)
                     $unidadDerivadaInmutableId = $unidad['unidad_derivada_inmutable_id'] ?? null;
 
@@ -461,6 +502,7 @@ class CompraController extends Controller
                             ['name' => $unidad['unidad_derivada_inmutable_name']]
                         );
                         $unidadDerivadaInmutableId = $unidadDerivadaInmutable->id;
+                        \Log::info("UnidadDerivadaInmutable creada/encontrada", ['id' => $unidadDerivadaInmutableId]);
                     }
 
                     UnidadDerivadaInmutableCompra::create([
@@ -474,6 +516,8 @@ class CompraController extends Controller
                         'flete' => $unidad['flete'] ?? 0,
                         'bonificacion' => $unidad['bonificacion'] ?? false,
                     ]);
+                    
+                    \Log::info("UnidadDerivadaInmutableCompra creada");
                 }
             }
 
