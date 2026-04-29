@@ -1968,7 +1968,7 @@ class VentaController extends Controller
             'desde' => 'sometimes|date',
             'hasta' => 'sometimes|date',
             'cliente_id' => 'sometimes|integer',
-            'per_page' => 'sometimes|integer|min:1|max:100',
+            'per_page' => 'sometimes|integer|min:-1|max:100', // -1 = todos los registros
         ]);
 
         $query = \App\Models\CobroVenta::query()
@@ -2004,8 +2004,9 @@ class VentaController extends Controller
 
         $query->orderBy('fecha', 'desc');
 
-        $perPage = $request->input('per_page', 50);
+        $perPage = (int) $request->input('per_page', 50);
 
+        // Si per_page es -1, devolver todos los registros sin paginación
         if ($perPage === -1) {
             return response()->json([
                 'data' => $query->get(),
