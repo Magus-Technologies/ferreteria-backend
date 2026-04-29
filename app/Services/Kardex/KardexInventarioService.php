@@ -12,24 +12,43 @@ class KardexInventarioService
      */
     public function registrar(array $data)
     {
-        // Obtener el stock actual del producto_almacen en la BD
-        // Este es el stock REAL en ese momento
-        $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $data['producto_id'])
-            ->where('almacen_id', $data['almacen_id'])
-            ->first();
-        
+        // 1. Asegurar que tenemos el producto_almacen_id si no viene
+        $almacenId = $data['almacen_id'] ?? null;
+        $productoId = $data['producto_id'] ?? null;
+        $productoAlmacenId = $data['producto_almacen_id'] ?? null;
+
+        $productoAlmacen = null;
+        if ($productoAlmacenId) {
+            $productoAlmacen = \App\Models\ProductoAlmacen::find($productoAlmacenId);
+        } elseif ($productoId && $almacenId) {
+            $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $productoId)
+                ->where('almacen_id', $almacenId)
+                ->first();
+        }
+
+        // 2. Obtener el stock actual real
         if ($productoAlmacen) {
             $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+            $data['producto_almacen_id'] = $productoAlmacen->id;
+            // Asegurar que producto_id y almacen_id coincidan con el registro encontrado
+            $data['producto_id'] = $productoAlmacen->producto_id;
+            $data['almacen_id'] = $productoAlmacen->almacen_id;
         } else {
             $stockAnterior = 0;
+            \Log::warning('Kardex registrar - No se encontró ProductoAlmacen:', $data);
         }
         
-        // Calcular stock actual después de esta transacción
+        // 3. Registrar el usuario que realiza el movimiento
+        if (!isset($data['usuario_id'])) {
+            $data['usuario_id'] = auth()->id();
+        }
+        
+        // 4. Calcular stock actual después de esta transacción
         $cantIngreso = (float) ($data['entrada'] ?? 0);
         $cantSalida = (float) ($data['salida'] ?? 0);
         $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
         
-        // Agregar los valores calculados a los datos
+        // 5. Agregar los valores calculados a los datos
         $data['stock_anterior'] = $stockAnterior;
         $data['cant_ingreso'] = $cantIngreso;
         $data['cant_salida'] = $cantSalida;
@@ -42,17 +61,9 @@ class KardexInventarioService
             'cant_ingreso' => $data['cant_ingreso'],
             'cant_salida' => $data['cant_salida'],
             'stock_actual' => $data['stock_actual'],
-            'entrada' => $data['entrada'] ?? 0,
-            'salida' => $data['salida'] ?? 0,
         ]);
         
         $resultado = KardexInventario::create($data);
-        
-        \Log::info('Kardex registrado - resultado:', [
-            'id' => $resultado->id,
-            'stock_anterior' => $resultado->stock_anterior,
-            'stock_actual' => $resultado->stock_actual,
-        ]);
         
         return $resultado;
     }
