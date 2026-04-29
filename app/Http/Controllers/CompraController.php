@@ -305,6 +305,20 @@ class CompraController extends Controller
     {
         \Log::info('Compra store request:', $request->all());
         
+        // Mapear tipo_documento del frontend (nombre) al valor del enum PHP ANTES de validar
+        $tipoDocumentoMap = [
+            'Factura'         => '01',
+            'Boleta'          => '03',
+            'NotaDeVenta'     => 'nv',
+            'Ingreso'         => 'in',
+            'Salida'          => 'sa',
+            'RecepcionAlmacen'=> 'rc',
+        ];
+        
+        if ($request->has('tipo_documento') && isset($tipoDocumentoMap[$request->input('tipo_documento')])) {
+            $request->merge(['tipo_documento' => $tipoDocumentoMap[$request->input('tipo_documento')]]);
+        }
+        
         $esEnEspera = $request->input('estado_de_compra') === 'ee';
 
         $validated = $request->validate([
@@ -384,19 +398,6 @@ class CompraController extends Controller
                 \Log::error('Error en validación:', ['error' => $e->getMessage()]);
                 throw $e;
             }
-
-            // Mapear tipo_documento del frontend (nombre) al valor del enum PHP
-            $tipoDocumentoMap = [
-                'Factura'         => '01',
-                'Boleta'          => '03',
-                'NotaDeVenta'     => 'nv',
-                'Ingreso'         => 'in',
-                'Salida'          => 'sa',
-                'RecepcionAlmacen'=> 'rc',
-            ];
-            $validated['tipo_documento'] = isset($validated['tipo_documento'])
-                ? ($tipoDocumentoMap[$validated['tipo_documento']] ?? $validated['tipo_documento'])
-                : null;
 
             // Convert enums
             $estadoEnum = EstadoDeCompraDefinitiva::from($validated['estado_de_compra']);
@@ -591,6 +592,20 @@ class CompraController extends Controller
      */
     public function update(Request $request, string $id)
     {
+        // Mapear tipo_documento del frontend (nombre) al valor del enum PHP ANTES de validar
+        $tipoDocumentoMap = [
+            'Factura'         => '01',
+            'Boleta'          => '03',
+            'NotaDeVenta'     => 'nv',
+            'Ingreso'         => 'in',
+            'Salida'          => 'sa',
+            'RecepcionAlmacen'=> 'rc',
+        ];
+        
+        if ($request->has('tipo_documento') && isset($tipoDocumentoMap[$request->input('tipo_documento')])) {
+            $request->merge(['tipo_documento' => $tipoDocumentoMap[$request->input('tipo_documento')]]);
+        }
+        
         $validated = $request->validate([
             'tipo_documento' => 'sometimes|string',
             'serie' => 'nullable|string',
