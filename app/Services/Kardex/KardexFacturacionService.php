@@ -157,19 +157,92 @@ class KardexFacturacionService
     }
 
     /**
-     * Marca una venta como editada en kardex facturación
+     * Actualiza el kardex cuando se edita una venta
+     * Elimina los registros antiguos y crea nuevos con las cantidades actualizadas
+     */
+    public function actualizarKardexVentaEditada($ventaId)
+    {
+        // Eliminar registros antiguos de kardex de esta venta
+        KardexFacturacion::where('referencia_id', $ventaId)
+            ->where('tipo', 'venta')
+            ->whereIn('movimiento', ['VENTA', 'VENTA EDITADA'])
+            ->delete();
+
+        // Obtener la venta actualizada con todas sus relaciones
+        $venta = \App\Models\Venta::with([
+            'productosPorAlmacen.productoAlmacen.producto',
+            'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+        ])->findOrFail($ventaId);
+
+        // Registrar nuevamente todos los productos con movimiento "VENTA EDITADA"
+        $orden = 1;
+        foreach ($venta->productosPorAlmacen as $detalle) {
+            $productoAlmacen = $detalle->productoAlmacen;
+            if (!$productoAlmacen) continue;
+
+            foreach ($detalle->unidadesDerivadas as $ud) {
+                $costo = (float) $detalle->costo;
+                
+                // Preparar datos de la unidad en formato array
+                $unidadData = [
+                    'cantidad' => $ud->cantidad,
+                    'factor' => $ud->factor,
+                    'precio' => $ud->precio,
+                    'unidad_derivada_inmutable_name' => $ud->unidadDerivadaInmutable->name,
+                ];
+                
+                // Registrar con movimiento "VENTA EDITADA"
+                $this->registrarVentaEditada($venta, $productoAlmacen, $unidadData, $costo, $orden);
+                $orden++;
+            }
+        }
+    }
+
+    /**
+     * Registra una venta editada en kardex facturación
+     */
+    public function registrarVentaEditada($venta, $productoAlmacen, $unidad, $costo, $orden = 1)
+    {
+        $tipoDocumento = match($venta->tipo_documento->value) {
+            '01' => 'Factura',
+            '03' => 'Boleta',
+            'nv' => 'Nota de Venta',
+            default => $venta->tipo_documento->value,
+        };
+
+        $cantSalida = $unidad['cantidad'] * $unidad['factor'];
+
+        $data = [
+            'tipo' => 'venta',
+            'movimiento' => 'VENTA EDITADA',
+            'fecha' => $venta->fecha,
+            'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
+            'unidad' => $unidad['unidad_derivada_inmutable_name'],
+            'cantidad' => $unidad['cantidad'],
+            'cantidad_fraccion' => $cantSalida,
+            'precio' => $unidad['precio'],
+            'costo' => $costo,
+            'entrada' => 0,
+            'salida' => $cantSalida,
+            'referencia_id' => $venta->id,
+            'producto_id' => $productoAlmacen->producto_id,
+            'producto_nombre' => $productoAlmacen->producto->name,
+            'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'almacen_id' => $venta->almacen_id,
+            'orden' => $orden,
+        ];
+
+        return $this->registrar($data);
+    }
+
+    /**
+     * Marca una venta como editada en kardex facturación (DEPRECATED - usar actualizarKardexVentaEditada)
      * Actualiza el registro existente cambiando el movimiento a "VENTA EDITADA"
      */
     public function marcarVentaComoEditada($ventaId)
     {
-        // Actualizar todos los registros de kardex de esta venta
-        KardexFacturacion::where('referencia_id', $ventaId)
-            ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA')
-            ->update([
-                'movimiento' => 'VENTA EDITADA',
-                'updated_at' => now(),
-            ]);
+        // Este método ahora llama al nuevo método que recalcula todo
+        $this->actualizarKardexVentaEditada($ventaId);
     }
 
     public function getPaginated(
