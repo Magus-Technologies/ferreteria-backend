@@ -73,6 +73,8 @@ class KardexFacturacionService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'cliente_id' => $venta->cliente_id,
+            'cliente_nombre' => $venta->cliente?->razon_social ?? $venta->cliente?->nombre_comercial ?? 'Sin cliente',
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ];
@@ -143,6 +145,8 @@ class KardexFacturacionService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'cliente_id' => $venta->cliente_id,
+            'cliente_nombre' => $venta->cliente?->razon_social ?? $venta->cliente?->nombre_comercial ?? 'Sin cliente',
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ]);
@@ -180,6 +184,8 @@ class KardexFacturacionService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'cliente_id' => $venta->cliente_id,
+            'cliente_nombre' => $venta->cliente?->razon_social ?? $venta->cliente?->nombre_comercial ?? 'Sin cliente',
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ]);
@@ -311,10 +317,14 @@ class KardexFacturacionService
                 // Producto fue eliminado: devolver todo al stock
                 $cantidadAntiguaFraccion = (float) $registroAntiguo->salida;
                 
+                // Determinar el tipo de venta para el ajuste
+                $tipoVenta = $venta->forma_de_pago->value === 'co' ? 'CONTADO' : 'CRÉDITO';
+                $movimiento = "AJUSTE POR EDICIÓN ({$tipoVenta})";
+                
                 // Crear ajuste de ENTRADA para devolver al stock
                 $data = [
                     'tipo' => 'venta',
-                    'movimiento' => 'AJUSTE POR EDICIÓN',
+                    'movimiento' => $movimiento,
                     'fecha' => now(),
                     'documento' => "Ajuste {$tipoDocumento} {$venta->serie}-{$venta->numero} (Producto eliminado)",
                     'unidad' => $registroAntiguo->unidad,
@@ -345,9 +355,13 @@ class KardexFacturacionService
     {
         $cantidadUnidad = $cantidadFraccion / $unidad->factor;
 
+        // Determinar el tipo de venta para el ajuste
+        $tipoVenta = $venta->forma_de_pago->value === 'co' ? 'CONTADO' : 'CRÉDITO';
+        $movimiento = "AJUSTE POR EDICIÓN ({$tipoVenta})";
+
         $data = [
             'tipo' => 'venta',
-            'movimiento' => 'AJUSTE POR EDICIÓN',
+            'movimiento' => $movimiento,
             'fecha' => now(),
             'documento' => "Ajuste {$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad->unidadDerivadaInmutable->name,

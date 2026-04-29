@@ -35,6 +35,8 @@ class KardexFacturacion extends Model
         'producto_id',
         'producto_nombre',
         'producto_codigo',
+        'cliente_nombre',
+        'cliente_id',
         'orden',
     ];
 

@@ -90,6 +90,8 @@ class KardexInventarioService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'proveedor_id' => $compra->proveedor_id,
+            'proveedor_nombre' => $compra->proveedor?->razon_social ?? $compra->proveedor?->nombre_comercial ?? 'Sin proveedor',
             'almacen_id' => $compra->almacen_id,
             'orden' => $orden,
         ]);
@@ -127,6 +129,8 @@ class KardexInventarioService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'proveedor_id' => $compra->proveedor_id,
+            'proveedor_nombre' => $compra->proveedor?->razon_social ?? $compra->proveedor?->nombre_comercial ?? 'Sin proveedor',
             'almacen_id' => $compra->almacen_id,
             'orden' => $orden,
         ]);
@@ -321,6 +325,8 @@ class KardexInventarioService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'proveedor_id' => $compra->proveedor_id,
+            'proveedor_nombre' => $compra->proveedor?->razon_social ?? $compra->proveedor?->nombre_comercial ?? 'Sin proveedor',
             'almacen_id' => $compra->almacen_id,
             'orden' => $orden,
         ]);
