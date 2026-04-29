@@ -158,15 +158,24 @@ class KardexFacturacionService
 
     /**
      * Actualiza el kardex cuando se edita una venta
-     * Elimina los registros antiguos y crea nuevos con las cantidades actualizadas
+     * Mantiene los registros originales y crea ajustes por las diferencias
      */
     public function actualizarKardexVentaEditada($ventaId)
     {
-        // Eliminar registros antiguos de kardex de esta venta
+        // Marcar los registros originales como editados
         KardexFacturacion::where('referencia_id', $ventaId)
             ->where('tipo', 'venta')
-            ->whereIn('movimiento', ['VENTA', 'VENTA EDITADA'])
-            ->delete();
+            ->where('movimiento', 'VENTA')
+            ->update(['movimiento' => 'VENTA (EDITADA)']);
+
+        // Obtener registros antiguos del kardex (antes de la edición)
+        $registrosAntiguos = KardexFacturacion::where('referencia_id', $ventaId)
+            ->where('tipo', 'venta')
+            ->where('movimiento', 'VENTA (EDITADA)')
+            ->get()
+            ->keyBy(function($item) {
+                return $item->producto_id . '_' . $item->unidad;
+            });
 
         // Obtener la venta actualizada con todas sus relaciones
         $venta = \App\Models\Venta::with([
@@ -174,35 +183,22 @@ class KardexFacturacionService
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
         ])->findOrFail($ventaId);
 
-        // Registrar nuevamente todos los productos con movimiento "VENTA EDITADA"
-        $orden = 1;
+        // Construir mapa de cantidades nuevas
+        $cantidadesNuevas = [];
         foreach ($venta->productosPorAlmacen as $detalle) {
             $productoAlmacen = $detalle->productoAlmacen;
             if (!$productoAlmacen) continue;
 
             foreach ($detalle->unidadesDerivadas as $ud) {
-                $costo = (float) $detalle->costo;
-                
-                // Preparar datos de la unidad en formato array
-                $unidadData = [
-                    'cantidad' => $ud->cantidad,
-                    'factor' => $ud->factor,
-                    'precio' => $ud->precio,
-                    'unidad_derivada_inmutable_name' => $ud->unidadDerivadaInmutable->name,
+                $key = $productoAlmacen->producto_id . '_' . $ud->unidadDerivadaInmutable->name;
+                $cantidadesNuevas[$key] = [
+                    'producto_almacen' => $productoAlmacen,
+                    'unidad' => $ud,
+                    'costo' => (float) $detalle->costo,
                 ];
-                
-                // Registrar con movimiento "VENTA EDITADA"
-                $this->registrarVentaEditada($venta, $productoAlmacen, $unidadData, $costo, $orden);
-                $orden++;
             }
         }
-    }
 
-    /**
-     * Registra una venta editada en kardex facturación
-     */
-    public function registrarVentaEditada($venta, $productoAlmacen, $unidad, $costo, $orden = 1)
-    {
         $tipoDocumento = match($venta->tipo_documento->value) {
             '01' => 'Factura',
             '03' => 'Boleta',
@@ -210,20 +206,123 @@ class KardexFacturacionService
             default => $venta->tipo_documento->value,
         };
 
-        $cantSalida = $unidad['cantidad'] * $unidad['factor'];
+        // Obtener el último orden usado en kardex para esta venta
+        $ultimoOrden = KardexFacturacion::where('referencia_id', $ventaId)
+            ->where('tipo', 'venta')
+            ->max('orden') ?? 0;
+        $orden = $ultimoOrden + 1;
+
+        // Comparar y crear ajustes
+        foreach ($cantidadesNuevas as $key => $datos) {
+            $productoAlmacen = $datos['producto_almacen'];
+            $unidadNueva = $datos['unidad'];
+            $costo = $datos['costo'];
+
+            $cantidadNuevaFraccion = $unidadNueva->cantidad * $unidadNueva->factor;
+
+            if (isset($registrosAntiguos[$key])) {
+                // Producto existía en la venta original
+                $registroAntiguo = $registrosAntiguos[$key];
+                $cantidadAntiguaFraccion = (float) $registroAntiguo->salida;
+
+                $diferencia = $cantidadNuevaFraccion - $cantidadAntiguaFraccion;
+
+                if (abs($diferencia) > 0.001) { // Hay cambio en cantidad
+                    if ($diferencia > 0) {
+                        // Aumentó la cantidad: crear ajuste de SALIDA
+                        $this->registrarAjustePorEdicion(
+                            $venta,
+                            $productoAlmacen,
+                            $unidadNueva,
+                            $costo,
+                            abs($diferencia),
+                            'salida',
+                            $orden,
+                            $tipoDocumento
+                        );
+                    } else {
+                        // Disminuyó la cantidad: crear ajuste de ENTRADA (devolución)
+                        $this->registrarAjustePorEdicion(
+                            $venta,
+                            $productoAlmacen,
+                            $unidadNueva,
+                            $costo,
+                            abs($diferencia),
+                            'entrada',
+                            $orden,
+                            $tipoDocumento
+                        );
+                    }
+                    $orden++;
+                }
+            } else {
+                // Producto nuevo agregado en la edición
+                $this->registrarAjustePorEdicion(
+                    $venta,
+                    $productoAlmacen,
+                    $unidadNueva,
+                    $costo,
+                    $cantidadNuevaFraccion,
+                    'salida',
+                    $orden,
+                    $tipoDocumento
+                );
+                $orden++;
+            }
+        }
+
+        // Productos eliminados en la edición (estaban antes pero ya no están)
+        foreach ($registrosAntiguos as $key => $registroAntiguo) {
+            if (!isset($cantidadesNuevas[$key])) {
+                // Producto fue eliminado: devolver todo al stock
+                $cantidadAntiguaFraccion = (float) $registroAntiguo->salida;
+                
+                // Crear ajuste de ENTRADA para devolver al stock
+                $data = [
+                    'tipo' => 'venta',
+                    'movimiento' => 'AJUSTE POR EDICIÓN',
+                    'fecha' => now(),
+                    'documento' => "Ajuste {$tipoDocumento} {$venta->serie}-{$venta->numero} (Producto eliminado)",
+                    'unidad' => $registroAntiguo->unidad,
+                    'cantidad' => $registroAntiguo->cantidad,
+                    'cantidad_fraccion' => $cantidadAntiguaFraccion,
+                    'precio' => $registroAntiguo->precio,
+                    'costo' => $registroAntiguo->costo,
+                    'entrada' => $cantidadAntiguaFraccion,
+                    'salida' => 0,
+                    'referencia_id' => $venta->id,
+                    'producto_id' => $registroAntiguo->producto_id,
+                    'producto_nombre' => $registroAntiguo->producto_nombre,
+                    'producto_codigo' => $registroAntiguo->producto_codigo,
+                    'almacen_id' => $venta->almacen_id,
+                    'orden' => $orden,
+                ];
+                
+                $this->registrar($data);
+                $orden++;
+            }
+        }
+    }
+
+    /**
+     * Registra un ajuste por edición de venta en kardex facturación
+     */
+    private function registrarAjustePorEdicion($venta, $productoAlmacen, $unidad, $costo, $cantidadFraccion, $tipo, $orden, $tipoDocumento)
+    {
+        $cantidadUnidad = $cantidadFraccion / $unidad->factor;
 
         $data = [
             'tipo' => 'venta',
-            'movimiento' => 'VENTA EDITADA',
-            'fecha' => $venta->fecha,
-            'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
-            'unidad' => $unidad['unidad_derivada_inmutable_name'],
-            'cantidad' => $unidad['cantidad'],
-            'cantidad_fraccion' => $cantSalida,
-            'precio' => $unidad['precio'],
+            'movimiento' => 'AJUSTE POR EDICIÓN',
+            'fecha' => now(),
+            'documento' => "Ajuste {$tipoDocumento} {$venta->serie}-{$venta->numero}",
+            'unidad' => $unidad->unidadDerivadaInmutable->name,
+            'cantidad' => $cantidadUnidad,
+            'cantidad_fraccion' => $cantidadFraccion,
+            'precio' => $unidad->precio,
             'costo' => $costo,
-            'entrada' => 0,
-            'salida' => $cantSalida,
+            'entrada' => $tipo === 'entrada' ? $cantidadFraccion : 0,
+            'salida' => $tipo === 'salida' ? $cantidadFraccion : 0,
             'referencia_id' => $venta->id,
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
@@ -236,12 +335,10 @@ class KardexFacturacionService
     }
 
     /**
-     * Marca una venta como editada en kardex facturación (DEPRECATED - usar actualizarKardexVentaEditada)
-     * Actualiza el registro existente cambiando el movimiento a "VENTA EDITADA"
+     * Marca una venta como editada en kardex facturación
      */
     public function marcarVentaComoEditada($ventaId)
     {
-        // Este método ahora llama al nuevo método que recalcula todo
         $this->actualizarKardexVentaEditada($ventaId);
     }
 

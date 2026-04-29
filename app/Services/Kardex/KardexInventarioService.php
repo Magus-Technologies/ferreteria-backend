@@ -191,7 +191,7 @@ class KardexInventarioService
     {
         return $this->registrar([
             'tipo' => 'ingreso',
-            'movimiento' => 'ENTRADA',
+            'movimiento' => 'CUADRE INGRESO',
             'fecha' => $ingresoSalida->fecha,
             'documento' => "Ingreso ING-{$ingresoSalida->serie}-{$ingresoSalida->numero}",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
@@ -217,7 +217,7 @@ class KardexInventarioService
     {
         return $this->registrar([
             'tipo' => 'salida',
-            'movimiento' => 'SALIDA',
+            'movimiento' => 'CUADRE SALIDA',
             'fecha' => $ingresoSalida->fecha,
             'documento' => "Salida SAL-{$ingresoSalida->serie}-{$ingresoSalida->numero}",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
