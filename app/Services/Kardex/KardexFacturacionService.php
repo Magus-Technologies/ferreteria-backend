@@ -52,11 +52,14 @@ class KardexFacturacionService
             default => $venta->tipo_documento->value,
         };
 
+        // Determinar si es contado o crédito
+        $movimiento = $venta->forma_de_pago->value === 'co' ? 'VENTA CONTADO' : 'VENTA CRÉDITO';
+
         $cantSalida = $unidad['cantidad'] * $unidad['factor'];
 
         $data = [
             'tipo' => 'venta',
-            'movimiento' => 'VENTA',
+            'movimiento' => $movimiento,
             'fecha' => $venta->fecha,
             'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad['unidad_derivada_inmutable_name'],
@@ -101,6 +104,29 @@ class KardexFacturacionService
             default => $venta->tipo_documento->value,
         };
 
+        // Primero marcar los registros originales como anulados (respetando si es CONTADO o CRÉDITO)
+        KardexFacturacion::where('referencia_id', $venta->id)
+            ->where('tipo', 'venta')
+            ->where('movimiento', 'VENTA CONTADO')
+            ->update(['movimiento' => 'VENTA CONTADO (ANULADA)']);
+
+        KardexFacturacion::where('referencia_id', $venta->id)
+            ->where('tipo', 'venta')
+            ->where('movimiento', 'VENTA CRÉDITO')
+            ->update(['movimiento' => 'VENTA CRÉDITO (ANULADA)']);
+
+        // También marcar las editadas como anuladas
+        KardexFacturacion::where('referencia_id', $venta->id)
+            ->where('tipo', 'venta')
+            ->where('movimiento', 'VENTA CONTADO (EDITADA)')
+            ->update(['movimiento' => 'VENTA CONTADO (ANULADA)']);
+
+        KardexFacturacion::where('referencia_id', $venta->id)
+            ->where('tipo', 'venta')
+            ->where('movimiento', 'VENTA CRÉDITO (EDITADA)')
+            ->update(['movimiento' => 'VENTA CRÉDITO (ANULADA)']);
+
+        // Luego registrar la devolución
         return $this->registrar([
             'tipo' => 'venta',
             'movimiento' => 'DEVOLUCIÓN',
@@ -135,9 +161,12 @@ class KardexFacturacionService
             default => $venta->tipo_documento->value,
         };
 
+        // Determinar si es contado o crédito
+        $movimiento = $venta->forma_de_pago->value === 'co' ? 'VENTA CONTADO' : 'VENTA CRÉDITO';
+
         return $this->registrar([
             'tipo' => 'venta',
-            'movimiento' => 'VENTA',
+            'movimiento' => $movimiento,
             'fecha' => $venta->fecha,
             'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
@@ -162,16 +191,21 @@ class KardexFacturacionService
      */
     public function actualizarKardexVentaEditada($ventaId)
     {
-        // Marcar los registros originales como editados
+        // Marcar los registros originales como editados (respetando si es CONTADO o CRÉDITO)
         KardexFacturacion::where('referencia_id', $ventaId)
             ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA')
-            ->update(['movimiento' => 'VENTA (EDITADA)']);
+            ->where('movimiento', 'VENTA CONTADO')
+            ->update(['movimiento' => 'VENTA CONTADO (EDITADA)']);
+
+        KardexFacturacion::where('referencia_id', $ventaId)
+            ->where('tipo', 'venta')
+            ->where('movimiento', 'VENTA CRÉDITO')
+            ->update(['movimiento' => 'VENTA CRÉDITO (EDITADA)']);
 
         // Obtener registros antiguos del kardex (antes de la edición)
         $registrosAntiguos = KardexFacturacion::where('referencia_id', $ventaId)
             ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA (EDITADA)')
+            ->whereIn('movimiento', ['VENTA CONTADO (EDITADA)', 'VENTA CRÉDITO (EDITADA)'])
             ->get()
             ->keyBy(function($item) {
                 return $item->producto_id . '_' . $item->unidad;
