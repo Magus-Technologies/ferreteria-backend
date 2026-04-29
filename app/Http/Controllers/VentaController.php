@@ -1136,6 +1136,14 @@ class VentaController extends Controller
                 userId: $validated['user_id'] ?? auth()->id(),
             );
 
+            // Marcar venta como editada en kardex facturación
+            try {
+                $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
+                $kardexFacturacionService->marcarVentaComoEditada($id);
+            } catch (\Exception $e) {
+                \Log::error('Error marcando venta como editada en kardex: ' . $e->getMessage());
+            }
+
             return response()->json([
                 'data' => $ventaFresh->load([
                     'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',

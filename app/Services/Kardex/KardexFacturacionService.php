@@ -157,64 +157,19 @@ class KardexFacturacionService
     }
 
     /**
-     * Registra una edición de venta en kardex facturación
-     * Se registra cuando se modifica una venta existente
+     * Marca una venta como editada en kardex facturación
+     * Actualiza el registro existente cambiando el movimiento a "VENTA EDITADA"
      */
-    public function registrarVentaEditada($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null)
+    public function marcarVentaComoEditada($ventaId)
     {
-        $tipoDocumento = match($venta->tipo_documento->value) {
-            '01' => 'Factura',
-            '03' => 'Boleta',
-            'nv' => 'Nota de Venta',
-            default => $venta->tipo_documento->value,
-        };
-
-        $cantSalida = $unidad['cantidad'] * $unidad['factor'];
-
-        $data = [
-            'tipo' => 'venta',
-            'movimiento' => 'VENTA EDITADA',
-            'fecha' => now(),
-            'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero} (Editada)",
-            'unidad' => $unidad['unidad_derivada_inmutable_name'],
-            'cantidad' => $unidad['cantidad'],
-            'cantidad_fraccion' => $cantSalida,
-            'precio' => $unidad['precio'],
-            'costo' => $costo,
-            'entrada' => 0,
-            'salida' => 0, // No afecta stock, solo es registro de auditoría
-            'referencia_id' => $venta->id,
-            'producto_id' => $productoAlmacen->producto_id,
-            'producto_nombre' => $productoAlmacen->producto->name,
-            'producto_codigo' => $productoAlmacen->producto->cod_producto,
-            'almacen_id' => $venta->almacen_id,
-            'orden' => $orden,
-        ];
-
-        // Si se proporciona stock anterior, usarlo directamente
-        if ($stockAnterior !== null) {
-            $data['stock_anterior'] = $stockAnterior;
-            $data['cant_ingreso'] = 0;
-            $data['cant_salida'] = 0;
-            $data['stock_actual'] = $stockAnterior; // No cambia el stock
-            
-            return KardexFacturacion::create($data);
-        }
-
-        // Si no se proporciona, obtener el stock actual
-        $productoAlmacenBD = DB::table('productoalmacen')
-            ->where('producto_id', $data['producto_id'])
-            ->where('almacen_id', $data['almacen_id'])
-            ->first();
-        
-        $stockActual = $productoAlmacenBD ? (float) $productoAlmacenBD->stock_fraccion : 0;
-        
-        $data['stock_anterior'] = $stockActual;
-        $data['cant_ingreso'] = 0;
-        $data['cant_salida'] = 0;
-        $data['stock_actual'] = $stockActual; // No cambia el stock
-        
-        return KardexFacturacion::create($data);
+        // Actualizar todos los registros de kardex de esta venta
+        KardexFacturacion::where('referencia_id', $ventaId)
+            ->where('tipo', 'venta')
+            ->where('movimiento', 'VENTA')
+            ->update([
+                'movimiento' => 'VENTA EDITADA',
+                'updated_at' => now(),
+            ]);
     }
 
     public function getPaginated(
