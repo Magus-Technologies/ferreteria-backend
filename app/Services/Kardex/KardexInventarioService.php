@@ -368,6 +368,16 @@ class KardexInventarioService
         // Obtener TODAS las filas ordenadas DESCENDENTE (más recientes primero)
         $allRows = $query->orderBy('fecha', 'desc')->orderBy('orden', 'desc')->get();
 
+        // Si proveedor_nombre está vacío pero proveedor_id existe, buscar el nombre
+        foreach ($allRows as $row) {
+            if (empty($row->proveedor_nombre) && !empty($row->proveedor_id)) {
+                $proveedor = DB::table('proveedores')->where('id', $row->proveedor_id)->first();
+                if ($proveedor) {
+                    $row->proveedor_nombre = $proveedor->razon_social ?? $proveedor->nombre_comercial ?? 'Sin proveedor';
+                }
+            }
+        }
+
         // Aplicar paginación a los resultados
         if ($perPage == -1) {
             $rowsWithStock = $allRows;
