@@ -195,7 +195,11 @@ class GananciasService implements GananciasServiceInterface
                 DB::raw("TIME_FORMAT(v.fecha, '%H:%i:%s') as hora_emision"),
                 DB::raw("DATE_FORMAT(v.fecha_vencimiento, '%d/%m/%Y') as fecha_vencimiento"),
                 DB::raw("v.tipo_documento as tipo_doc"),
-                DB::raw("CONCAT(COALESCE(ce.serie, 'S/N'), '-', LPAD(COALESCE(ce.correlativo, v.numero), 8, '0')) as numero"),
+                DB::raw("CASE 
+                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
+                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
+                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                END as numero"),
                 DB::raw("v.forma_de_pago as f_pago"),
                 DB::raw("CASE 
                     WHEN c.id IS NOT NULL THEN CONCAT(c.numero_documento, '-', COALESCE(c.razon_social, CONCAT(COALESCE(c.nombres, ''), ' ', COALESCE(c.apellidos, ''))))
