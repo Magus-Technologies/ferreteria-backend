@@ -899,6 +899,7 @@ class VentaController extends Controller
                     $ventaConRelaciones = Venta::with([
                         'productosPorAlmacen.productoAlmacen.producto',
                         'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+                        'cliente',
                     ])->findOrFail($venta->id);
 
                     foreach ($ventaConRelaciones->productosPorAlmacen as $detalle) {
@@ -1176,6 +1177,7 @@ class VentaController extends Controller
                 'productosPorAlmacen.unidadesDerivadas',
                 'productosPorAlmacen.productoAlmacen',
                 'despliegueDePagoVentas',
+                'cliente',
             ])
                 ->withCount('entregasProductos as entregas_productos_count')
                 ->findOrFail($id);

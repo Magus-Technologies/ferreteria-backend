@@ -261,7 +261,10 @@ class KardexFacturacionService
         $venta = \App\Models\Venta::with([
             'productosPorAlmacen.productoAlmacen.producto',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+            'cliente',
         ])->findOrFail($ventaId);
+
+        $clienteNombre = $this->obtenerNombreCliente($venta->cliente);
 
         // Construir mapa de cantidades nuevas
         $cantidadesNuevas = [];
@@ -318,7 +321,8 @@ class KardexFacturacionService
                             abs($diferencia),
                             'salida',
                             $orden,
-                            $tipoDocumento
+                            $tipoDocumento,
+                            $clienteNombre
                         );
                     } else {
                         // Disminuyó la cantidad: crear ajuste de ENTRADA (devolución)
@@ -330,7 +334,8 @@ class KardexFacturacionService
                             abs($diferencia),
                             'entrada',
                             $orden,
-                            $tipoDocumento
+                            $tipoDocumento,
+                            $clienteNombre
                         );
                     }
                     $orden++;
@@ -345,7 +350,8 @@ class KardexFacturacionService
                     $cantidadNuevaFraccion,
                     'salida',
                     $orden,
-                    $tipoDocumento
+                    $tipoDocumento,
+                    $clienteNombre
                 );
                 $orden++;
             }
@@ -378,6 +384,8 @@ class KardexFacturacionService
                     'producto_id' => $registroAntiguo->producto_id,
                     'producto_nombre' => $registroAntiguo->producto_nombre,
                     'producto_codigo' => $registroAntiguo->producto_codigo,
+                    'cliente_id' => $venta->cliente_id,
+                    'cliente_nombre' => $clienteNombre,
                     'almacen_id' => $venta->almacen_id,
                     'orden' => $orden,
                 ];
@@ -391,7 +399,7 @@ class KardexFacturacionService
     /**
      * Registra un ajuste por edición de venta en kardex facturación
      */
-    private function registrarAjustePorEdicion($venta, $productoAlmacen, $unidad, $costo, $cantidadFraccion, $tipo, $orden, $tipoDocumento)
+    private function registrarAjustePorEdicion($venta, $productoAlmacen, $unidad, $costo, $cantidadFraccion, $tipo, $orden, $tipoDocumento, $clienteNombre = 'Sin cliente')
     {
         $cantidadUnidad = $cantidadFraccion / $unidad->factor;
 
@@ -415,6 +423,8 @@ class KardexFacturacionService
             'producto_id' => $productoAlmacen->producto_id,
             'producto_nombre' => $productoAlmacen->producto->name,
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'cliente_id' => $venta->cliente_id,
+            'cliente_nombre' => $clienteNombre,
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ];
@@ -540,17 +550,21 @@ class KardexFacturacionService
     private function obtenerNombreCliente($cliente): string
     {
         if (!$cliente) {
-            \Log::warning('obtenerNombreCliente: cliente es null');
             return 'Sin cliente';
         }
 
+        // Obtener el valor del enum si es un objeto TipoCliente
+        $tipo = $cliente->tipo_cliente instanceof \App\Enums\TipoCliente 
+            ? $cliente->tipo_cliente->value 
+            : $cliente->tipo_cliente;
+
         // Si es persona jurídica (empresa), usar razon_social o nombre_comercial
-        if ($cliente->tipo_cliente === 'j' || $cliente->tipo_cliente === 'e') {
+        if ($tipo === 'j' || $tipo === 'e') {
             return $cliente->razon_social ?? $cliente->nombre_comercial ?? 'Sin cliente';
         }
 
         // Si es persona natural, usar nombres y apellidos
-        if ($cliente->tipo_cliente === 'p') {
+        if ($tipo === 'p') {
             $nombres = trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? ''));
             return $nombres ?: 'Sin cliente';
         }
