@@ -673,6 +673,9 @@ class VentaController extends Controller
             'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
+            // Cargar la configuración actual de unidades derivadas (precios + peso)
+            // para que el frontend pueda calcular peso_total al crear guía/cotización.
+            'productosPorAlmacen.productoAlmacen.unidadesDerivadas.unidadDerivada:id,name',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
             'productosPorAlmacen.unidadesDerivadas.detallesEntrega',
             'despliegueDePagoVentas.despliegueDePago.metodoDePago',

@@ -24,6 +24,7 @@ class ProductoAlmacenUnidadDerivada extends Model
         'producto_almacen_id',
         'unidad_derivada_id',
         'factor',
+        'peso',
         'precio_publico',
         'comision_publico',
         'precio_especial',
@@ -46,6 +47,7 @@ class ProductoAlmacenUnidadDerivada extends Model
     {
         return [
             'factor' => 'decimal:3',
+            'peso' => 'decimal:3',
             'precio_publico' => 'decimal:3',
             'comision_publico' => 'decimal:3',
             'precio_especial' => 'decimal:3',

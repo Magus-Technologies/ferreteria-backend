@@ -63,6 +63,7 @@ class ProductoPrecioRepository implements ProductoPrecioRepositoryInterface
                 'producto_almacen_id' => $productoAlmacenId,
                 'unidad_derivada_id' => $item['unidad_derivada_id'],
                 'factor' => $item['factor'],
+                'peso' => $item['peso'] ?? null,
                 'precio_publico' => $item['precio_publico'],
                 'comision_publico' => $item['comision_publico'] ?? 0,
                 'precio_especial' => $item['precio_especial'] ?? 0,
