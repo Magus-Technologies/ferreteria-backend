@@ -49,6 +49,55 @@ class EntregaProductoPdfService
             default => $entrega->tipo_despacho,
         };
 
+        // Título adaptable según estado — el blade A4 lo usa para la caja del
+        // documento (igual que venta/cotización usan "BOLETA", "Proforma", etc.).
+        $tipoDocumentoTitulo = match($entrega->estado_entrega) {
+            'pe' => 'VALE DE RECOJO',
+            'ec' => 'ENTREGA EN CAMINO',
+            'en' => 'TICKET DE ENTREGA',
+            'ca' => 'ENTREGA CANCELADA',
+            default => 'TICKET DE ENTREGA',
+        };
+
+        // Datos del cliente — formateado para info-grid del layout compartido.
+        $clienteNombre = $cliente
+            ? ($cliente->razon_social ?: trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'CLIENTES VARIOS')
+            : 'CLIENTES VARIOS';
+
+        $estadoLabel = match($entrega->estado_entrega) {
+            'pe' => 'PENDIENTE',
+            'ec' => 'EN CAMINO',
+            'en' => 'ENTREGADO',
+            'ca' => 'CANCELADO',
+            default => strtoupper($entrega->estado_entrega ?? '-'),
+        };
+
+        // Filas para info-grid (label => valor) — mismo formato que venta/cotización.
+        $filas = [
+            [
+                'CLIENTE' => $clienteNombre,
+                'DOC' => $cliente->numero_documento ?? '-',
+            ],
+            [
+                'TELEFONO' => $cliente->telefono ?? $cliente->celular ?? '-',
+                'DIRECCION' => $entrega->direccion_entrega ?? '-',
+            ],
+            [
+                'F. ENTREGA' => $entrega->fecha_entrega
+                    ? \Carbon\Carbon::parse($entrega->fecha_entrega)->format('d/m/Y H:i')
+                    : '-',
+                'ALMACEN' => $entrega->almacenSalida->name ?? '-',
+            ],
+            [
+                'TIPO ENTREGA' => $tipoEntregaLabel,
+                'DESPACHADOR' => $entrega->despachador->name ?? '-',
+            ],
+            [
+                'TIPO DESPACHO' => $tipoDespachoLabel,
+                'ESTADO' => $estadoLabel,
+            ],
+        ];
+
         $data = [
             'entrega' => $entrega,
             'empresa' => $empresa,
@@ -58,6 +107,10 @@ class EntregaProductoPdfService
             'nroVenta' => $nroVenta,
             'tipoEntregaLabel' => $tipoEntregaLabel,
             'tipoDespachoLabel' => $tipoDespachoLabel,
+            // Campos para el layout compartido (header + info-grid)
+            'tipoDocumentoTitulo' => $tipoDocumentoTitulo,
+            'numeroDocumento' => $nroVenta,
+            'filas' => $filas,
         ];
 
         // Nombre del archivo según el estado de la entrega — coincide con el
