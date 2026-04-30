@@ -756,10 +756,57 @@ class VentaController extends Controller
             $venta = Venta::with([
                 'productosPorAlmacen.unidadesDerivadas',
                 'despliegueDePagoVentas',
+                'comprobanteElectronico:id,venta_id,estado_sunat',
+                'entregasProductos:id,venta_id,estado_entrega',
             ])->findOrFail($id);
 
             // Add id to validated data for validation
             $validated['id'] = $id;
+
+            // ✅ FASE 1 — Bloquear edición cuando ya no es seguro modificar.
+            // Ver plan-edicion-entregas.md (Escenario 1 vs 2/3).
+            //
+            // Caso A: SUNAT ya aceptó el comprobante → cualquier cambio rompe
+            //   la trazabilidad fiscal. Para correcciones se debe usar Nota
+            //   de Crédito (Escenario 3).
+            $comprobante = $venta->comprobanteElectronico;
+            $sunatAceptado = $comprobante && in_array(
+                $comprobante->estado_sunat,
+                ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES']
+            );
+            if ($sunatAceptado) {
+                return response()->json([
+                    'message' => 'No se puede editar: el comprobante ya fue aceptado por SUNAT. Para cambios usa Nota de Crédito.',
+                    'error' => 'VENTA_SUNAT_ACEPTADA',
+                ], 422);
+            }
+
+            // Caso B: existe una entrega activa (pendiente, en camino o entregada).
+            //   - Pendiente ('pe'): el update borra los DetalleEntregaProducto al
+            //     recrear productos y deja la EntregaProducto huérfana. Para
+            //     evitar inconsistencias se bloquea — el usuario debe anular
+            //     la entrega antes de editar la venta.
+            //   - En camino ('ec'): el chofer ya salió, no se puede cambiar.
+            //   - Entregado ('en'): el cliente ya recibió, no se puede cambiar
+            //     el documento sin Cambio en Entrega o NC.
+            //
+            //   Solo se permite editar si todas las entregas están canceladas
+            //   ('ca') o si la venta nunca tuvo entregas.
+            $tieneEntregaActiva = $venta->entregasProductos->contains(
+                fn ($e) => in_array($e->estado_entrega, ['pe', 'ec', 'en'])
+            );
+            if ($tieneEntregaActiva) {
+                $entregada = $venta->entregasProductos->contains(
+                    fn ($e) => in_array($e->estado_entrega, ['ec', 'en'])
+                );
+                $msg = $entregada
+                    ? 'No se puede editar: la entrega ya fue completada o está en camino. Para cambios físicos usa Cambio en Entrega o Nota de Crédito.'
+                    : 'No se puede editar: hay una entrega pendiente. Anula primero la entrega desde Mis Entregas y luego edita la venta.';
+                return response()->json([
+                    'message' => $msg,
+                    'error' => $entregada ? 'VENTA_YA_ENTREGADA' : 'VENTA_CON_ENTREGA_PENDIENTE',
+                ], 422);
+            }
 
             // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente (si se está cambiando)
             if (isset($validated['cliente_id']) || isset($validated['tipo_documento'])) {
