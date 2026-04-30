@@ -24,6 +24,7 @@ class ProductoAlmacenUnidadDerivada extends Model
         'producto_almacen_id',
         'unidad_derivada_id',
         'factor',
+        'orden',
         'peso',
         'precio_publico',
         'comision_publico',

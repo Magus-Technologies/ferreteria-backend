@@ -82,6 +82,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                                         'unidadDerivada:id,name',
                                         'productoComplementario:id,name,cod_producto',
                                     ])
+                                    ->orderBy('orden', 'asc')
                                     ->orderBy('factor', 'desc');
                             },
                         ]);

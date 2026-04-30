@@ -25,6 +25,7 @@ class ProductoPrecioRepository implements ProductoPrecioRepositoryInterface
     {
         return ProductoAlmacenUnidadDerivada::where('producto_almacen_id', $productoAlmacenId)
             ->with('unidadDerivada')
+            ->orderBy('orden', 'asc')
             ->orderBy('factor', 'desc')
             ->get();
     }
@@ -58,11 +59,16 @@ class ProductoPrecioRepository implements ProductoPrecioRepositoryInterface
      */
     public function createBatch(int $productoAlmacenId, array $prices): bool
     {
-        $preciosData = array_map(function ($item) use ($productoAlmacenId) {
-            return [
+        $preciosData = [];
+        $i = 0;
+        foreach ($prices as $item) {
+            $preciosData[] = [
                 'producto_almacen_id' => $productoAlmacenId,
                 'unidad_derivada_id' => $item['unidad_derivada_id'],
                 'factor' => $item['factor'],
+                // Persistimos el orden visual definido por el usuario (drag-and-drop).
+                // Si el cliente envía 'orden' lo respetamos; si no, usamos el índice del array.
+                'orden' => $item['orden'] ?? $i,
                 'peso' => $item['peso'] ?? null,
                 'precio_publico' => $item['precio_publico'],
                 'comision_publico' => $item['comision_publico'] ?? 0,
@@ -78,7 +84,8 @@ class ProductoPrecioRepository implements ProductoPrecioRepositoryInterface
                 'producto_complementario_id' => $item['producto_complementario_id'] ?? null,
                 'producto_complementario_cantidad' => $item['producto_complementario_cantidad'] ?? null,
             ];
-        }, $prices);
+            $i++;
+        }
 
         return ProductoAlmacenUnidadDerivada::insert($preciosData);
     }

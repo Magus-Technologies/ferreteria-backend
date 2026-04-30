@@ -50,6 +50,7 @@ class CreateProductoRequest extends FormRequest
             'unidades_derivadas' => 'required|array|min:1',
             'unidades_derivadas.*.unidad_derivada_id' => 'required|exists:unidadderivada,id',
             'unidades_derivadas.*.factor' => 'required|numeric|min:0',
+            'unidades_derivadas.*.orden' => 'nullable|integer|min:0',
             'unidades_derivadas.*.peso' => 'nullable|numeric|min:0',
             'unidades_derivadas.*.precio_publico' => 'required|numeric|min:0',
             'unidades_derivadas.*.comision_publico' => 'nullable|numeric',

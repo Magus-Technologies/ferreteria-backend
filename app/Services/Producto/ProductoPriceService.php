@@ -33,6 +33,7 @@ class ProductoPriceService implements ProductoPriceServiceInterface
                             'ubicacion:id,name',
                             'unidadesDerivadas' => function ($udq) {
                                 $udq->with('unidadDerivada:id,name')
+                                    ->orderBy('orden', 'asc')
                                     ->orderBy('factor', 'desc');
                             },
                         ]);
