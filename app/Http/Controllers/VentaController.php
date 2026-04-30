@@ -210,6 +210,7 @@ class VentaController extends Controller
             'fecha' => 'required|date',
             'estado_de_venta' => 'required|string',
             'tipo_despacho' => 'nullable|string|in:et,do,pa',
+            'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
             'omitir_entrega' => 'sometimes|boolean',
             'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
@@ -471,7 +472,11 @@ class VentaController extends Controller
                     'fecha_entrega' => now(),
                     'almacen_salida_id' => $validated['almacen_id'],
                     'user_id' => $validated['user_id'],
-                    'quien_entrega' => 'vendedor',
+                    // Usar quien_entrega del request (Almacén/Vendedor); por
+                    // defecto Almacén ya que es lo más común en recojo en tienda.
+                    // Antes estaba hardcoded 'vendedor' lo que ignoraba la
+                    // selección del usuario en el modal "Configurar Entrega".
+                    'quien_entrega' => $validated['quien_entrega'] ?? 'almacen',
                     'tipo_pedido' => 'interno',
                 ]);
 
@@ -711,6 +716,7 @@ class VentaController extends Controller
             'fecha' => 'sometimes|date',
             'estado_de_venta' => 'sometimes|string',
             'tipo_despacho' => 'nullable|string|in:et,do,pa',
+            'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
             'omitir_entrega' => 'sometimes|boolean',
             'cliente_id' => 'sometimes|integer',
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
