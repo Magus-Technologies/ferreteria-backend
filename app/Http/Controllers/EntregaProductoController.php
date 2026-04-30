@@ -54,6 +54,7 @@ class EntregaProductoController extends Controller
                 'despachador:id,name',
                 'vehiculo:id,name,tipo,placa',
                 'user:id,name',
+                'userEntregado:id,name',
                 'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
                 'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
             ]);
@@ -238,6 +239,12 @@ class EntregaProductoController extends Controller
             // Verificar que la venta existe
             $venta = Venta::findOrFail($validated['venta_id']);
 
+            // Si la entrega nace ya como ENTREGADO (caso EnTienda inmediato),
+            // el creador es también quien entregó — registrar para auditoría.
+            $userEntregadoId = $validated['estado_entrega'] === 'en'
+                ? $validated['user_id']
+                : null;
+
             // Crear entrega
             $entrega = EntregaProducto::create([
                 'venta_id' => $validated['venta_id'],
@@ -257,6 +264,7 @@ class EntregaProductoController extends Controller
                 'chofer_id' => $validated['chofer_id'] ?? null,
                 'quien_entrega' => $validated['quien_entrega'] ?? null,
                 'user_id' => $validated['user_id'],
+                'user_entregado_id' => $userEntregadoId,
                 'tipo_pedido' => $validated['tipo_pedido'] ?? 'interno',
                 'cargo_destino' => $validated['cargo_destino'] ?? null,
                 'vehiculo_id' => $validated['vehiculo_id'] ?? null,
@@ -483,6 +491,14 @@ class EntregaProductoController extends Controller
         return DB::transaction(function () use ($id, $validated) {
             $entrega = EntregaProducto::with('productosEntregados')->findOrFail($id);
 
+            // Si el estado pasa a ENTREGADO ahora (no estaba antes), registrar
+            // al usuario que lo marcó. No sobrescribir si ya estaba en 'en'.
+            $estadoNuevo = $validated['estado_entrega'] ?? null;
+            $estadoAnterior = $entrega->estado_entrega;
+            if ($estadoNuevo === 'en' && $estadoAnterior !== 'en') {
+                $validated['user_entregado_id'] = auth()->id();
+            }
+
             // Update entrega
             $entrega->update($validated);
 
@@ -494,6 +510,7 @@ class EntregaProductoController extends Controller
                     'despachador:id,name',
                     'vehiculo:id,name,tipo,placa',
                     'user:id,name',
+                    'userEntregado:id,name',
                     'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
                     'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
                 ]),

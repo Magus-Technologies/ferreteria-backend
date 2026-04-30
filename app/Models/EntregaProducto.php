@@ -41,6 +41,7 @@ class EntregaProducto extends Model
         'vehiculo_id',
         'quien_entrega',
         'user_id',
+        'user_entregado_id',
         'tipo_pedido',
         'cargo_destino',
         'aceptado_at',
@@ -113,11 +114,20 @@ class EntregaProducto extends Model
     }
 
     /**
-     * Relación: Pertenece a un usuario
+     * Relación: Pertenece a un usuario (quien CREÓ la entrega)
      */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Relación: Usuario que marcó la entrega como ENTREGADO.
+     * Distinto de `user` (creador). Se setea cuando estado pasa a 'en'.
+     */
+    public function userEntregado(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_entregado_id');
     }
 
     /**
