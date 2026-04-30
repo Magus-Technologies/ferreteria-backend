@@ -77,6 +77,11 @@ class VentaController extends Controller
                 'entregasProductos:id,venta_id,tipo_entrega,tipo_despacho,estado_entrega',
             ])
             ->withCount('entregasProductos as entregas_productos_count')
+            ->withCount(['historial as total_ediciones' => function ($q) {
+                // Solo cuenta acciones de tipo 'edicion' — ignora otras
+                // entradas del historial (cambios de estado, anulación, etc.).
+                $q->where('accion', 'edicion');
+            }])
             ->withSum('despliegueDePagoVentas as total_pagado', 'monto');
 
         // Filter by almacen_id
@@ -166,6 +171,21 @@ class VentaController extends Controller
             } elseif ($request->entrega === 'completa') {
                 $query->whereDoesntHave('productosPorAlmacen.unidadesDerivadas', function ($q) {
                     $q->where('cantidad_pendiente', '>', 0);
+                });
+            }
+        }
+
+        // Filter por ediciones — `?editada=si` muestra solo ventas que tienen
+        // al menos una edición en el historial; `?editada=no` muestra las
+        // que nunca se editaron.
+        if ($request->has('editada')) {
+            if ($request->editada === 'si') {
+                $query->whereHas('historial', function ($q) {
+                    $q->where('accion', 'edicion');
+                });
+            } elseif ($request->editada === 'no') {
+                $query->whereDoesntHave('historial', function ($q) {
+                    $q->where('accion', 'edicion');
                 });
             }
         }
@@ -794,30 +814,24 @@ class VentaController extends Controller
                 ], 422);
             }
 
-            // Caso B: existe una entrega activa (pendiente, en camino o entregada).
-            //   - Pendiente ('pe'): el update borra los DetalleEntregaProducto al
-            //     recrear productos y deja la EntregaProducto huérfana. Para
-            //     evitar inconsistencias se bloquea — el usuario debe anular
-            //     la entrega antes de editar la venta.
-            //   - En camino ('ec'): el chofer ya salió, no se puede cambiar.
-            //   - Entregado ('en'): el cliente ya recibió, no se puede cambiar
-            //     el documento sin Cambio en Entrega o NC.
+            // Caso B: solo se bloquea si la entrega ya pasó del punto de no
+            // retorno físico — chofer salió ('ec') o cliente ya recibió ('en').
             //
-            //   Solo se permite editar si todas las entregas están canceladas
-            //   ('ca') o si la venta nunca tuvo entregas.
+            //   Estados permitidos para editar:
+            //   - 'pe' (pendiente): cliente no recibió nada, los productos
+            //     siguen en el almacén. La edición regenera los detalles de
+            //     entrega para reflejar los productos nuevos (ver bloque al
+            //     final del update donde se recrea productos_por_almacen).
+            //   - 'ca' (cancelada): nadie movió producto, no afecta.
+            //
+            //   Para 'ec'/'en' se requiere otro flujo (Cambio en Entrega o NC).
             $tieneEntregaActiva = $venta->entregasProductos->contains(
-                fn ($e) => in_array($e->estado_entrega, ['pe', 'ec', 'en'])
+                fn ($e) => in_array($e->estado_entrega, ['ec', 'en'])
             );
             if ($tieneEntregaActiva) {
-                $entregada = $venta->entregasProductos->contains(
-                    fn ($e) => in_array($e->estado_entrega, ['ec', 'en'])
-                );
-                $msg = $entregada
-                    ? 'No se puede editar: la entrega ya fue completada o está en camino. Para cambios físicos usa Cambio en Entrega o Nota de Crédito.'
-                    : 'No se puede editar: hay una entrega pendiente. Anula primero la entrega desde Mis Entregas y luego edita la venta.';
                 return response()->json([
-                    'message' => $msg,
-                    'error' => $entregada ? 'VENTA_YA_ENTREGADA' : 'VENTA_CON_ENTREGA_PENDIENTE',
+                    'message' => 'No se puede editar: la entrega ya fue completada o está en camino. Para cambios físicos usa Cambio en Entrega o Nota de Crédito.',
+                    'error' => 'VENTA_YA_ENTREGADA',
                 ], 422);
             }
 
@@ -1046,6 +1060,38 @@ class VentaController extends Controller
                             'descuento' => $unidad['descuento'] ?? 0,
                             'comision' => $unidad['comision'] ?? 0,
                         ]);
+                    }
+                }
+
+                // FASE 1.2 — Regenerar DetalleEntregaProducto para entregas
+                // pendientes. Al recrear productos, los detalles viejos se
+                // borraron por FK cascade (ver inicio del bloque). Para que
+                // la entrega siga consistente, recreamos sus detalles
+                // apuntando a las nuevas UnidadDerivadaInmutableVenta.
+                //
+                // Asume "entregar todo": cada nueva UDV genera un detalle
+                // con cantidad_entregada = cantidad. Funciona para entrega
+                // EnTienda/Domicilio simples. Las 'ec'/'en' ya están
+                // bloqueadas arriba, así que solo aplica a 'pe'.
+                $entregasPendientes = EntregaProducto::where('venta_id', $id)
+                    ->where('estado_entrega', 'pe')
+                    ->get();
+
+                if ($entregasPendientes->isNotEmpty()) {
+                    $nuevasUdv = UnidadDerivadaInmutableVenta::whereHas(
+                        'productoAlmacenVenta',
+                        fn ($q) => $q->where('venta_id', $id)
+                    )->get();
+
+                    foreach ($entregasPendientes as $entrega) {
+                        foreach ($nuevasUdv as $udv) {
+                            DetalleEntregaProducto::create([
+                                'entrega_producto_id' => $entrega->id,
+                                'unidad_derivada_venta_id' => $udv->id,
+                                'cantidad_entregada' => $udv->cantidad,
+                                'ubicacion' => null,
+                            ]);
+                        }
                     }
                 }
             }
