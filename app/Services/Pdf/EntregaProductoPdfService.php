@@ -7,12 +7,13 @@ use Illuminate\Http\Response;
 
 class EntregaProductoPdfService
 {
-    public function generar(int $id): Response
+    public function generar(int $id, string $formato = 'ticket'): Response
     {
         $entrega = EntregaProducto::with([
             'venta.cliente',
             'almacenSalida',
             'despachador',
+            'vehiculo',
             'user',
             'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
             'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
@@ -59,10 +60,30 @@ class EntregaProductoPdfService
             'tipoDespachoLabel' => $tipoDespachoLabel,
         ];
 
+        // Nombre del archivo según el estado de la entrega — coincide con el
+        // título que el blade renderiza adentro.
+        $nombreArchivo = match($entrega->estado_entrega) {
+            'pe' => "VALE-RECOJO-{$entrega->id}.pdf",
+            'ec' => "ENTREGA-EN-CAMINO-{$entrega->id}.pdf",
+            'ca' => "ENTREGA-CANCELADA-{$entrega->id}.pdf",
+            default => "TICKET-ENTREGA-{$entrega->id}.pdf",
+        };
+
+        // Formato A4 (carta) — sin tamaño custom, usa A4 por defecto.
+        // Formato ticket (80mm) — tamaño térmico custom.
+        if ($formato === 'a4') {
+            return PdfService::render(
+                'pdf.entrega-a4',
+                $data,
+                $nombreArchivo,
+                'portrait',
+            );
+        }
+
         return PdfService::render(
             'pdf.entrega-ticket',
             $data,
-            "TICKET-ENTREGA-{$entrega->id}.pdf",
+            $nombreArchivo,
             'portrait',
             [0, 0, 226.77, 841.89],
         );

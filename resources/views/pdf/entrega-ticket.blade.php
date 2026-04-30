@@ -56,8 +56,20 @@
 
     <div class="separator"></div>
 
+    {{-- Título adaptable: si la entrega aún no ocurrió ('pe' o 'ec'), el PDF
+         es un "Vale de Recojo" (papel que el cliente lleva al almacén).
+         Si ya fue entregada o cancelada es el "Ticket de Entrega" formal. --}}
+    @php
+        $tituloPdf = match($entrega->estado_entrega) {
+            'pe' => 'VALE DE RECOJO',
+            'ec' => 'ENTREGA EN CAMINO',
+            'en' => 'TICKET DE ENTREGA',
+            'ca' => 'ENTREGA CANCELADA',
+            default => 'TICKET DE ENTREGA',
+        };
+    @endphp
     <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        TICKET DE ENTREGA<br>
+        {{ $tituloPdf }}<br>
         <span style="font-size: 7pt;">Venta: {{ $nroVenta }}</span>
     </div>
 

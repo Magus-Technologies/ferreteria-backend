@@ -114,9 +114,12 @@ class PdfController extends Controller
         return $service->generar($id);
     }
 
-    public function entregaProducto(int $id, EntregaProductoPdfService $service): Response
+    public function entregaProducto(int $id, Request $request, EntregaProductoPdfService $service): Response
     {
-        return $service->generar($id);
+        // Formato por defecto = ticket (80mm térmico) — es el formato más usado.
+        // Si el usuario pide ?formato=a4, se renderiza la versión carta.
+        $formato = $request->query('formato', 'ticket');
+        return $service->generar($id, $formato);
     }
 
     public function cobroVenta(string $id, CobroVentaPdfService $service): Response
