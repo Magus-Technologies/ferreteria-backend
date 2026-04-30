@@ -459,24 +459,37 @@ class VentaController extends Controller
             $venta->save();
 
             // Auto-crear entrega para ventas de Recojo en Tienda (tipo_despacho='et').
-            // El cliente se lleva el producto en el momento, así que la entrega
-            // queda marcada como 'en' (entregado) y la cantidad pendiente se cierra.
-            // Esto permite que la venta aparezca en /mis-entregas.
+            //
+            // Estado inicial según quien_entrega:
+            //  - vendedor: el vendedor ya está con el cliente en caja, la
+            //    entrega ocurre AHORA → 'en' (entregado).
+            //  - almacen / chofer: el cliente debe pasar al almacén, alguien
+            //    de allá le entrega físicamente → 'pe' (pendiente) hasta que
+            //    se marque desde Mis Entregas. user_entregado_id queda null.
+            //
+            //  Antes estaba hardcoded 'en' siempre, lo que hacía que la venta
+            //  apareciera ya entregada aunque el cliente todavía no hubiera
+            //  pasado al almacén.
             $autoCrearEntrega = $tipoDespacho === 'et' && $estadoVentaStr !== 'ee' && ! $omitirEntrega;
             if ($autoCrearEntrega) {
+                $quienEntregaAuto = $validated['quien_entrega'] ?? 'almacen';
+                $estadoEntregaAuto = $quienEntregaAuto === 'vendedor' ? 'en' : 'pe';
+
                 $entregaAuto = EntregaProducto::create([
                     'venta_id' => $venta->id,
                     'tipo_entrega' => 'rt',
                     'tipo_despacho' => 'in',
-                    'estado_entrega' => 'en',
+                    'estado_entrega' => $estadoEntregaAuto,
                     'fecha_entrega' => now(),
                     'almacen_salida_id' => $validated['almacen_id'],
                     'user_id' => $validated['user_id'],
-                    // Usar quien_entrega del request (Almacén/Vendedor); por
-                    // defecto Almacén ya que es lo más común en recojo en tienda.
-                    // Antes estaba hardcoded 'vendedor' lo que ignoraba la
-                    // selección del usuario en el modal "Configurar Entrega".
-                    'quien_entrega' => $validated['quien_entrega'] ?? 'almacen',
+                    // Si nace ya como ENTREGADO el creador es también quien
+                    // entregó. Si nace PENDIENTE queda null hasta que alguien
+                    // la marque desde Mis Entregas.
+                    'user_entregado_id' => $estadoEntregaAuto === 'en'
+                        ? $validated['user_id']
+                        : null,
+                    'quien_entrega' => $quienEntregaAuto,
                     'tipo_pedido' => 'interno',
                 ]);
 
