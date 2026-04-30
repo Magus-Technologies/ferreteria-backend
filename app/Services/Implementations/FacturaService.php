@@ -38,24 +38,12 @@ class FacturaService implements FacturaServiceInterface
     public function generarComprobanteDesdeVenta(FacturaDTO $dto): array
     {
         try {
-            Log::info('🔍 [FacturaService] Iniciando generación de comprobante', [
-                'venta_id' => $dto->ventaId,
-                'usuario_id' => $dto->usuarioId,
-            ]);
 
             DB::beginTransaction();
 
-            Log::info('🔍 [FacturaService] Validando y obteniendo venta...');
             $venta = $this->validarYObtenerVenta($dto->ventaId);
             $cliente = $venta->cliente;
 
-            Log::info('🔍 [FacturaService] Venta obtenida', [
-                'venta_id' => $venta->id,
-                'serie' => $venta->serie,
-                'numero' => $venta->numero,
-                'cliente_id' => $cliente->id,
-                'cliente_doc' => $cliente->numero_documento,
-            ]);
 
             // Convertir enum a string
             $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum 
@@ -63,18 +51,12 @@ class FacturaService implements FacturaServiceInterface
                 : $venta->tipo_documento;
 
             // Verificar si ya existe comprobante con la misma serie y correlativo
-            Log::info('🔍 [FacturaService] Verificando si ya existe comprobante...');
             $comprobanteExistente = $this->comprobanteRepository->findBySerieCorrelativo(
                 $venta->serie,
                 $venta->numero
             );
 
             if ($comprobanteExistente) {
-                Log::warning('⚠️ [FacturaService] Ya existe comprobante con esta serie/número', [
-                    'serie' => $venta->serie,
-                    'numero' => $venta->numero,
-                    'comprobante_id' => $comprobanteExistente->id,
-                ]);
                 DB::rollBack();
                 return [
                     'success' => false,
@@ -84,23 +66,11 @@ class FacturaService implements FacturaServiceInterface
             }
 
             // Preparar datos para generar XML
-            Log::info('🔍 [FacturaService] Preparando datos para Greenter...');
             $dataGreenter = $this->prepararDatosParaGreenter($venta, false); // false = NO validar aún (solo generar XML)
 
-            Log::info('🔍 [FacturaService] Datos preparados', [
-                'tipo_doc' => $dataGreenter['tipo_doc'],
-                'serie' => $dataGreenter['serie'],
-                'numero' => $dataGreenter['numero'],
-                'total' => $dataGreenter['total'],
-                'items_count' => count($dataGreenter['items']),
-            ]);
 
             // SOLO GENERAR XML (NO ENVIAR A SUNAT)
-            Log::info('🔍 [FacturaService] Generando XML...');
             $xml = $this->greenterService->generarXmlFactura($dataGreenter);
-            Log::info('✅ [FacturaService] XML generado exitosamente', [
-                'xml_length' => strlen($xml),
-            ]);
 
             $hashCpe = hash('sha256', $xml);
 
@@ -114,13 +84,9 @@ class FacturaService implements FacturaServiceInterface
             );
 
             // Guardar XML
-            Log::info('🔍 [FacturaService] Guardando XML en storage...');
             $ruc = config('greenter.ruc');
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, $tipoDocumento, $venta->serie, $venta->numero);
             $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
-            Log::info('✅ [FacturaService] XML guardado', [
-                'path' => $xmlPath,
-            ]);
 
             // Calcular totales desde dataGreenter
             $operacionGravada = $dataGreenter['mto_oper_gravadas'];
@@ -141,13 +107,6 @@ class FacturaService implements FacturaServiceInterface
             // Usar el user_id directamente (ahora soporta ULIDs)
             $userId = auth()->id() ?? $venta->user_id;
 
-            Log::info('🔍 [FacturaService] Creando registro en comprobantes_electronicos...', [
-                'user_id' => $userId,
-                'user_id_type' => gettype($userId),
-                'cliente_id' => $cliente->id,
-                'serie' => $venta->serie,
-                'correlativo' => $venta->numero,
-            ]);
 
             $comprobante = $this->comprobanteRepository->create([
                 'venta_id' => $venta->id,
@@ -186,29 +145,12 @@ class FacturaService implements FacturaServiceInterface
                 'user_id' => $userId,
             ]);
 
-            Log::info('✅ [FacturaService] Comprobante creado exitosamente', [
-                'comprobante_id' => $comprobante->id,
-                'serie' => $comprobante->serie,
-                'correlativo' => $comprobante->correlativo,
-            ]);
 
             // Guardar detalles del comprobante
-            Log::info('🔍 [FacturaService] Guardando detalles del comprobante...');
             $this->guardarDetallesComprobante($comprobante, $venta, $dataGreenter['items']);
-            Log::info('✅ [FacturaService] Detalles guardados exitosamente');
 
             DB::commit();
 
-            Log::info('✅ [FacturaService] Transacción completada exitosamente', [
-                'comprobante_id' => $comprobante->id,
-                'venta_id' => $venta->id,
-                'tipo' => $tipoDocumento,
-                'serie' => $venta->serie,
-                'correlativo' => $venta->numero,
-                'importe_total' => $importeTotal,
-                'xml_generado' => true,
-                'enviado_sunat' => false,
-            ]);
 
             return [
                 'success' => true,
@@ -365,13 +307,6 @@ class FacturaService implements FacturaServiceInterface
 
             DB::commit();
 
-            Log::info('Factura enviada a SUNAT', [
-                'venta_id' => $ventaId,
-                'comprobante_id' => $comprobante->id,
-                'tipo' => $venta->tipo_documento,
-                'modo' => $resultado['modo'] ?? 'DESCONOCIDO',
-                'modo_envio' => $modoEnvio,
-            ]);
 
             // NO devolver XML ni CDR en la respuesta para evitar problemas de encoding
             return [
@@ -442,7 +377,6 @@ class FacturaService implements FacturaServiceInterface
 
     public function obtenerCdr(string $ventaId): string
     {
-        Log::info('🔍 [FacturaService] Obteniendo CDR', ['venta_id' => $ventaId]);
         
         $venta = $this->validarYObtenerVenta($ventaId);
         $comprobante = $this->comprobanteRepository->findBySerieCorrelativo(
@@ -450,24 +384,14 @@ class FacturaService implements FacturaServiceInterface
             $venta->numero
         );
 
-        Log::info('🔍 [FacturaService] Comprobante encontrado', [
-            'comprobante_id' => $comprobante ? $comprobante->id : null,
-            'cdr_path' => $comprobante ? $comprobante->cdr_path : null,
-        ]);
 
         if (!$comprobante || !$comprobante->cdr_path) {
             throw FacturaException::datosIncompletos('CDR no disponible');
         }
 
-        Log::info('🔍 [FacturaService] Intentando leer CDR desde storage', [
-            'cdr_path' => $comprobante->cdr_path,
-        ]);
 
         $cdr = $this->xmlStorageService->obtenerCdr($comprobante->cdr_path);
         
-        Log::info('✅ [FacturaService] CDR obtenido exitosamente', [
-            'size' => strlen($cdr),
-        ]);
         
         return $cdr;
     }
@@ -592,10 +516,6 @@ class FacturaService implements FacturaServiceInterface
             $unidadesDerivadas = $detalle->unidadesDerivadas;
             
             if ($unidadesDerivadas->isEmpty()) {
-                Log::warning('Producto sin unidades derivadas', [
-                    'producto_almacen_venta_id' => $detalle->id,
-                    'producto' => $producto->nombre ?? 'SIN NOMBRE',
-                ]);
                 continue;
             }
             
@@ -624,17 +544,7 @@ class FacturaService implements FacturaServiceInterface
             $codigoUnidadSunat = 'NIU'; // Default
             if ($producto->unidadMedida && $producto->unidadMedida->codigo_sunat) {
                 $codigoUnidadSunat = $producto->unidadMedida->codigo_sunat;
-                Log::info('✅ Código SUNAT obtenido', [
-                    'producto' => $producto->name,
-                    'unidad' => $producto->unidadMedida->name,
-                    'codigo_sunat' => $codigoUnidadSunat,
-                ]);
             } else {
-                Log::warning('⚠️ No se pudo obtener código SUNAT', [
-                    'producto' => $producto->name,
-                    'tiene_unidadMedida' => $producto->unidadMedida !== null,
-                    'codigo_sunat' => $producto->unidadMedida?->codigo_sunat ?? 'NULL',
-                ]);
             }
 
             $items[] = [
@@ -780,10 +690,6 @@ class FacturaService implements FacturaServiceInterface
             $productoVenta = $venta->productosAlmacenVenta[$index] ?? null;
             
             if (!$productoVenta) {
-                Log::warning('No se encontró producto en venta para item', [
-                    'index' => $index,
-                    'item' => $item,
-                ]);
                 continue;
             }
 
@@ -855,7 +761,6 @@ class FacturaService implements FacturaServiceInterface
 
             return $result->getDataUri();
         } catch (\Exception $e) {
-            Log::warning('No se pudo generar el código QR', ['error' => $e->getMessage()]);
             return null;
         }
     }

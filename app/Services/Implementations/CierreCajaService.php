@@ -37,23 +37,15 @@ class CierreCajaService implements CierreCajaServiceInterface
 
     public function obtenerCajaActivaConResumen(string $userId): CajaActivaDTO
     {
-        \Log::info('=== CierreCajaService::obtenerCajaActivaConResumen ===', [
-            'userId' => $userId,
-            'type' => gettype($userId)
-        ]);
 
         $apertura = $this->aperturaRepository->findCajaActiva($userId);
-        \Log::info('Apertura obtenida del repositorio', ['apertura' => $apertura ? 'encontrada' : 'null']);
 
         if (!$apertura) {
-            \Log::warning('No se encontró apertura activa');
             throw new AperturaNoEncontradaException();
         }
 
-        \Log::info('Calculando resumen SOLO DEL DÍA ACTUAL (arqueo diario)');
         // Pasar $soloDiaActual = true para filtrar solo movimientos de HOY
         $resumen = $this->calculadorResumen->calcular($apertura, true);
-        \Log::info('Resumen calculado');
 
         return new CajaActivaDTO($apertura, $resumen);
     }

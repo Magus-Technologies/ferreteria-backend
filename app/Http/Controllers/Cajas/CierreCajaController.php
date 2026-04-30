@@ -29,13 +29,10 @@ class CierreCajaController extends Controller
     public function obtenerCajaActiva(): JsonResponse
     {
         try {
-            \Log::info('=== INICIO obtenerCajaActiva ===');
 
             $userId = auth()->id();
-            \Log::info('User ID obtenido', ['userId' => $userId, 'type' => gettype($userId)]);
 
             if (!$userId) {
-                \Log::warning('Usuario no autenticado');
                 return response()->json([
                     'success' => false,
                     'message' => 'Usuario no autenticado',
@@ -44,9 +41,7 @@ class CierreCajaController extends Controller
 
             // Intentar obtener caja como encargado
             try {
-                \Log::info('Intentando obtener caja como encargado');
                 $cajaActiva = $this->cierreCajaService->obtenerCajaActivaConResumen($userId);
-                \Log::info('Caja activa obtenida como encargado', ['apertura_id' => $cajaActiva->apertura->id ?? 'null']);
 
                 // Cargar las relaciones necesarias
                 $cajaActiva->apertura->load([
@@ -61,7 +56,6 @@ class CierreCajaController extends Controller
                 $data['resumen'] = $cajaActiva->resumen->toArray();
                 $data['tipo_usuario'] = 'encargado';
 
-                \Log::info('=== FIN obtenerCajaActiva SUCCESS (Encargado) ===');
 
                 return response()->json([
                     'success' => true,
@@ -69,7 +63,6 @@ class CierreCajaController extends Controller
                 ]);
             } catch (AperturaNoEncontradaException $e) {
                 // No es encargado, intentar como vendedor
-                \Log::info('No es encargado, intentando como vendedor');
 
                 // Buscar distribuciones activas del vendedor (SOLO HOY para forzar nueva distribución diaria)
                 $hoy = now()->startOfDay();
@@ -92,7 +85,6 @@ class CierreCajaController extends Controller
                 // Calcular resumen del vendedor
                 $resumenVendedor = $this->calcularResumenVendedor($userId, $apertura);
 
-                \Log::info('=== FIN obtenerCajaActiva SUCCESS (Vendedor) ===');
 
                 return response()->json([
                     'success' => true,
@@ -105,7 +97,6 @@ class CierreCajaController extends Controller
                 ]);
             }
         } catch (AperturaNoEncontradaException $e) {
-            \Log::warning('AperturaNoEncontradaException', ['message' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
@@ -779,12 +770,6 @@ class CierreCajaController extends Controller
             });
 
             // Registrar el envío
-            \Log::info("Ticket de cierre enviado por correo", [
-                'cierre_id' => $id,
-                'email' => $request->email,
-                'user_id' => auth()->id(),
-                'estado' => $apertura->estado
-            ]);
 
             return response()->json([
                 'success' => true,

@@ -211,10 +211,6 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 
     public function obtenerVendedoresConEfectivo(string $aperturaId, int|string $vendedorActualId): array
     {
-        Log::info('🔍 Obteniendo vendedores con efectivo', [
-            'apertura_id' => $aperturaId,
-            'vendedor_actual_id' => $vendedorActualId,
-        ]);
 
         try {
             $apertura = \App\Models\AperturaCierreCaja::find($aperturaId);
@@ -225,9 +221,6 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 
             $cajaPrincipalId = $apertura->caja_principal_id;
             
-            Log::info('✅ Apertura encontrada', [
-                'caja_principal_id' => $cajaPrincipalId,
-            ]);
             
             // Obtener todos los vendedores con distribución de efectivo (excepto el actual)
             $distribuciones = DistribucionEfectivoVendedor::with('vendedor')
@@ -235,25 +228,14 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                 ->where('user_id', '!=', $vendedorActualId)
                 ->get();
 
-            Log::info('📊 Distribuciones encontradas', [
-                'count' => $distribuciones->count(),
-            ]);
 
             $vendedoresConEfectivo = [];
 
             foreach ($distribuciones as $dist) {
-                Log::info('🔍 Calculando efectivo para vendedor', [
-                    'vendedor_id' => $dist->user_id,
-                    'vendedor_nombre' => $dist->vendedor->name,
-                ]);
 
                 // Calcular efectivo disponible en Caja Chica del vendedor
                 $efectivoDisponible = $this->calcularEfectivoEnCajaChica($cajaPrincipalId, $dist->user_id);
 
-                Log::info('💰 Efectivo calculado', [
-                    'vendedor_id' => $dist->user_id,
-                    'efectivo_disponible' => $efectivoDisponible,
-                ]);
 
                 if ($efectivoDisponible > 0) {
                     $vendedoresConEfectivo[] = [
@@ -265,10 +247,6 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                 }
             }
 
-            Log::info('✅ Vendedores con efectivo', [
-                'count' => count($vendedoresConEfectivo),
-                'vendedores' => $vendedoresConEfectivo,
-            ]);
 
             return $vendedoresConEfectivo;
         } catch (\Exception $e) {

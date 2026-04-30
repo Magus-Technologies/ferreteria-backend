@@ -81,12 +81,6 @@ class LogProductoActivity implements ShouldQueue
             'context' => $event->context
         ], $event->userId);
 
-        Log::info("Product created", [
-            'producto_id' => $event->producto->id,
-            'cod_producto' => $event->producto->cod_producto,
-            'name' => $event->producto->name,
-            'user_id' => $event->userId
-        ]);
     }
 
     /**
@@ -101,11 +95,6 @@ class LogProductoActivity implements ShouldQueue
             'import_id' => $event->importId
         ], $event->userId);
 
-        Log::info("Product imported", [
-            'producto_id' => $event->productoId,
-            'import_id' => $event->importId,
-            'user_id' => $event->userId
-        ]);
     }
 
     /**
@@ -118,11 +107,6 @@ class LogProductoActivity implements ShouldQueue
             'summary' => $event->summary
         ], $event->userId);
 
-        Log::info("Import completed", [
-            'import_id' => $event->importId,
-            'summary' => $event->summary,
-            'user_id' => $event->userId
-        ]);
     }
 
     /**
@@ -135,11 +119,6 @@ class LogProductoActivity implements ShouldQueue
             'error_message' => $event->errorMessage
         ], $event->userId);
 
-        Log::warning("Import failed", [
-            'import_id' => $event->importId,
-            'error' => $event->errorMessage,
-            'user_id' => $event->userId
-        ]);
     }
 
     /**
@@ -154,12 +133,6 @@ class LogProductoActivity implements ShouldQueue
             'processing_id' => $event->processingId
         ], $event->userId);
 
-        Log::info("Product file processed", [
-            'producto_id' => $event->productId,
-            'file_type' => $event->fileType,
-            'processing_id' => $event->processingId,
-            'user_id' => $event->userId
-        ]);
     }
 
     /**
@@ -183,12 +156,6 @@ class LogProductoActivity implements ShouldQueue
             ]);
         } catch (\Exception $e) {
             // Fallback to file logging if database logging fails
-            Log::warning("Failed to create activity log in database", [
-                'action' => $action,
-                'data' => $data,
-                'user_id' => $userId,
-                'error' => $e->getMessage()
-            ]);
         }
     }
 

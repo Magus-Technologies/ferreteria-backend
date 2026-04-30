@@ -17,10 +17,6 @@ class CalculadorResumenCaja
 
     public function calcular(AperturaCierreCaja $apertura, bool $soloDiaActual = false, ?\Carbon\Carbon $fechaFiltro = null): ResumenCajaDTO
     {
-        \Log::info(' CalculadorResumenCaja::calcular - Inicio', [
-            'apertura_id' => $apertura->id,
-            'solo_dia_actual' => $soloDiaActual,
-        ]);
 
         // Obtener ventas usando el repositorio existente
         $ventas = $this->ventaRepository->obtenerPorApertura($apertura->id);
@@ -33,24 +29,10 @@ class CalculadorResumenCaja
             });
         }
 
-        \Log::info(' Ventas obtenidas del repositorio', [
-            'total_ventas' => $ventas->count(),
-            'ventas_ids' => $ventas->pluck('id')->toArray(),
-            'ventas_user_ids' => $ventas->pluck('user_id')->unique()->toArray(),
-        ]);
 
         // Consolidar información de todas las subcajas
         $clasificacion = $this->clasificador->clasificarPorTodasLasSubCajas($apertura->id, $ventas, $soloDiaActual, $fechaFiltro);
 
-        \Log::info(' Clasificación obtenida', [
-            'efectivo_inicial' => $clasificacion['efectivo_inicial'],
-            'ventas_count' => $clasificacion['ventas']->count(),
-            'cobros_por_metodo_count' => $clasificacion['cobros_por_metodo']->count(),
-            'cobros_por_metodo' => $clasificacion['cobros_por_metodo']->toArray(),
-            'total_cobros' => $clasificacion['total_cobros'],
-            'total_otros_ingresos' => $clasificacion['total_otros_ingresos'],
-            'total_gastos' => $clasificacion['total_gastos'],
-        ]);
 
         // FÓRMULA DEL CIERRE (SOLO EFECTIVO):
         // Total en Caja = Efectivo Inicial + Cobros en Efectivo + Otros Ingresos en Efectivo + Préstamos Recibidos - Gastos en Efectivo - Préstamos Dados
@@ -141,11 +123,6 @@ class CalculadorResumenCaja
             detalleGastosExtras: $detalleGastosExtras
         );
 
-        \Log::info('🔍 ResumenCajaDTO creado', [
-            'total_ventas' => $resultado->totalVentas,
-            'detalle_ventas_count' => $resultado->detalleVentas->count(),
-            'detalle_metodos_pago_count' => $resultado->detalleMetodosPago->count(),
-        ]);
 
         return $resultado;
     }

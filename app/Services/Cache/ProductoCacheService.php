@@ -75,7 +75,6 @@ class ProductoCacheService
         $size = strlen($serialized);
         
         if ($size > self::MAX_CACHE_SIZE) {
-            Log::warning("Respuesta muy grande para cachear: " . round($size / 1024 / 1024, 2) . "MB");
             return $result;
         }
         

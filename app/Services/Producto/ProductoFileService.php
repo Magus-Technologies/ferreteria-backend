@@ -43,10 +43,6 @@ class ProductoFileService implements ProductoFileServiceInterface
                 $producto->img = $imgPath;
                 $updated = true;
 
-                Log::info("Product image uploaded", [
-                    'product_id' => $productId,
-                    'image_path' => $imgPath
-                ]);
             }
 
             // Process technical sheet
@@ -61,10 +57,6 @@ class ProductoFileService implements ProductoFileServiceInterface
                 $producto->ficha_tecnica = $fichaPath;
                 $updated = true;
 
-                Log::info("Product technical sheet uploaded", [
-                    'product_id' => $productId,
-                    'ficha_path' => $fichaPath
-                ]);
             }
 
             if ($updated) {
@@ -243,19 +235,10 @@ class ProductoFileService implements ProductoFileServiceInterface
                     Storage::disk('public')->delete($oldFile);
                 } catch (\Exception $e) {
                     // No es crítico si falla la eliminación del archivo antiguo
-                    Log::warning("No se pudo eliminar archivo antiguo: {$oldFile}", [
-                        'error' => $e->getMessage()
-                    ]);
                 }
             }
 
             // Log solo el resumen (no cada archivo)
-            Log::info("Bulk file upload completed", [
-                'file_type' => $tipo,
-                'uploaded_count' => count($uploaded),
-                'not_found_count' => count($notFound),
-                'errors_count' => count($errors)
-            ]);
 
             return response()->json([
                 'data' => [
@@ -318,11 +301,6 @@ class ProductoFileService implements ProductoFileServiceInterface
             // Update product record
             $producto->update([$fieldName => null]);
 
-            Log::info("Product file deleted", [
-                'product_id' => $productId,
-                'file_type' => $fileType,
-                'file_path' => $filePath
-            ]);
 
             return response()->json([
                 'message' => 'Archivo eliminado exitosamente'
@@ -468,10 +446,6 @@ class ProductoFileService implements ProductoFileServiceInterface
                 }
             }
 
-            Log::info("Orphaned files cleanup completed", [
-                'deleted_count' => count($deletedFiles),
-                'errors_count' => count($errors)
-            ]);
 
             return response()->json([
                 'message' => 'Limpieza completada',

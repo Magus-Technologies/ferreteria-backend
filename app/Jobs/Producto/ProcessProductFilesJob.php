@@ -60,12 +60,6 @@ class ProcessProductFilesJob implements ShouldQueue
      */
     public function handle(): void
     {
-        Log::info("Starting ProcessProductFilesJob", [
-            'processing_id' => $this->processingId,
-            'user_id' => $this->userId,
-            'file_count' => count($this->files),
-            'file_type' => $this->fileType
-        ]);
 
         // Initialize progress tracking
         $this->initializeProgress();
@@ -133,10 +127,6 @@ class ProcessProductFilesJob implements ShouldQueue
             // Dispatch completion event
             FileProcessingCompleted::dispatch($this->processingId, $summary, $this->userId);
 
-            Log::info("ProcessProductFilesJob completed successfully", [
-                'processing_id' => $this->processingId,
-                'summary' => $summary
-            ]);
 
         } catch (\Exception $e) {
             $this->handleFailure($e);
@@ -187,12 +177,6 @@ class ProcessProductFilesJob implements ShouldQueue
 
         Cache::put("file_processing_{$this->processingId}", $progress, 3600);
 
-        Log::debug("File processing progress updated", [
-            'processing_id' => $this->processingId,
-            'progress' => $percent,
-            'message' => $message,
-            'status' => $status
-        ]);
     }
 
     /**
@@ -259,11 +243,6 @@ class ProcessProductFilesJob implements ShouldQueue
                     'error' => $e->getMessage()
                 ];
 
-                Log::warning("Error processing file in batch", [
-                    'batch_index' => $batchIndex,
-                    'file_name' => $fileInfo['original_name'] ?? 'unknown',
-                    'error' => $e->getMessage()
-                ]);
             }
         }
 
@@ -488,10 +467,6 @@ class ProcessProductFilesJob implements ShouldQueue
                 try {
                     Storage::disk('public')->delete($fileInfo['temp_path']);
                 } catch (\Exception $e) {
-                    Log::warning("Failed to cleanup temp file", [
-                        'temp_path' => $fileInfo['temp_path'],
-                        'error' => $e->getMessage()
-                    ]);
                 }
             }
         }

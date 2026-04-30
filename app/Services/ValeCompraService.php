@@ -27,12 +27,6 @@ class ValeCompraService
             $categorias = $this->extraerCategorias($detallesVenta);
             $productos = $this->extraerProductos($detallesVenta);
 
-            Log::info('Buscando vales aplicables', [
-                'venta_id' => $venta->id,
-                'cantidad_total' => $cantidadTotal,
-                'categorias' => $categorias,
-                'productos' => $productos,
-            ]);
 
             // 2. Buscar vales potencialmente aplicables
             $valesPotenciales = $this->buscarValesPotenciales($cantidadTotal);
@@ -42,10 +36,6 @@ class ValeCompraService
                 return $this->validarVale($vale, $categorias, $productos, $venta->cliente_id);
             });
 
-            Log::info('Vales aplicables encontrados', [
-                'count' => $valesAplicables->count(),
-                'vales' => $valesAplicables->pluck('id', 'codigo'),
-            ]);
 
             // 4. Aplicar cada vale
             $valesAplicados = collect();
@@ -152,13 +142,11 @@ class ValeCompraService
     ): bool {
         // Verificar stock
         if (!$vale->tieneStockDisponible()) {
-            Log::debug("Vale {$vale->codigo}: Sin stock disponible");
             return false;
         }
 
         // Verificar límite por cliente
         if ($clienteId && !$vale->clientePuedeUsar($clienteId)) {
-            Log::debug("Vale {$vale->codigo}: Cliente {$clienteId} excedió límite de usos");
             return false;
         }
 
@@ -173,10 +161,6 @@ class ValeCompraService
                 $valido = count($interseccion) > 0;
                 
                 if (!$valido) {
-                    Log::debug("Vale {$vale->codigo}: No cumple POR_CATEGORIA", [
-                        'categorias_vale' => $categoriasVale,
-                        'categorias_venta' => $categoriasVenta,
-                    ]);
                 }
                 
                 return $valido;
@@ -187,10 +171,6 @@ class ValeCompraService
                 $valido = count($interseccion) > 0;
                 
                 if (!$valido) {
-                    Log::debug("Vale {$vale->codigo}: No cumple POR_PRODUCTOS", [
-                        'productos_vale' => $productosVale,
-                        'productos_venta' => $productosVenta,
-                    ]);
                 }
                 
                 return $valido;
@@ -204,10 +184,6 @@ class ValeCompraService
                 $valido = $tieneCategoria && $tieneProducto;
                 
                 if (!$valido) {
-                    Log::debug("Vale {$vale->codigo}: No cumple MIXTO", [
-                        'tiene_categoria' => $tieneCategoria,
-                        'tiene_producto' => $tieneProducto,
-                    ]);
                 }
                 
                 return $valido;
@@ -262,11 +238,6 @@ class ValeCompraService
 
             DB::commit();
 
-            Log::info("Vale {$vale->codigo} aplicado exitosamente", [
-                'venta_id' => $venta->id,
-                'descuento' => $vale->descuento_valor,
-                'tipo_descuento' => $vale->descuento_tipo,
-            ]);
 
             return $aplicado;
 
@@ -327,9 +298,6 @@ class ValeCompraService
 
             DB::commit();
 
-            Log::info("Vale generado {$codigo} aplicado exitosamente", [
-                'venta_id' => $venta->id,
-            ]);
 
             return true;
 

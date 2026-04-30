@@ -133,10 +133,6 @@ class GuiaRemisionService
                 try {
                     $this->generarXml($guia);
                 } catch (\Exception $e) {
-                    Log::warning('No se pudo generar XML al emitir guía', [
-                        'guia_id' => $guia->id,
-                        'error' => $e->getMessage(),
-                    ]);
                 }
             }
 
@@ -441,12 +437,6 @@ class GuiaRemisionService
 
             DB::commit();
 
-            Log::info('Guía de remisión enviada a SUNAT', [
-                'guia_id' => $guia->id,
-                'serie' => $guia->serie,
-                'numero' => $guia->numero,
-                'modo' => $resultado['modo'] ?? 'DESCONOCIDO',
-            ]);
 
             return [
                 'success' => true,
@@ -492,7 +482,6 @@ class GuiaRemisionService
 
             return $result->getDataUri();
         } catch (\Exception $e) {
-            Log::warning('No se pudo generar QR para guía', ['error' => $e->getMessage()]);
             return null;
         }
     }

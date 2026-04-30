@@ -62,12 +62,6 @@ class ImportProductosJob implements ShouldQueue
      */
     public function handle(ProductoImportServiceInterface $importService): void
     {
-        Log::info("Starting ImportProductosJob", [
-            'import_id' => $this->importId,
-            'user_id' => $this->userId,
-            'total_products' => count($this->data),
-            'file_name' => $this->fileName
-        ]);
 
         // Initialize progress tracking
         $this->initializeProgress();
@@ -162,10 +156,6 @@ class ImportProductosJob implements ShouldQueue
             // Dispatch completion event
             ImportCompleted::dispatch($this->importId, $summary, $this->userId);
 
-            Log::info("ImportProductosJob completed successfully", [
-                'import_id' => $this->importId,
-                'summary' => $summary
-            ]);
 
         } catch (\Exception $e) {
             $this->handleFailure($e);
@@ -215,12 +205,6 @@ class ImportProductosJob implements ShouldQueue
 
         Cache::put("import_progress_{$this->importId}", $progress, 3600);
 
-        Log::debug("Import progress updated", [
-            'import_id' => $this->importId,
-            'progress' => $percent,
-            'message' => $message,
-            'status' => $status
-        ]);
     }
 
     /**
@@ -291,11 +275,6 @@ class ImportProductosJob implements ShouldQueue
                             'error' => $e->getMessage()
                         ];
 
-                        Log::warning("Error importing single product in batch", [
-                            'batch_index' => $batchIndex,
-                            'product_name' => $item['name'] ?? 'unknown',
-                            'error' => $e->getMessage()
-                        ]);
                     }
                 }
             }, 3); // 3 retry attempts for deadlocks

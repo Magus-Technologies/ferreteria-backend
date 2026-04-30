@@ -124,10 +124,6 @@ class OrdenCompraService implements OrdenCompraServiceInterface
 
             DB::commit();
 
-            Log::info('Orden de compra creada', [
-                'orden_id' => $orden->id,
-                'codigo' => $codigo,
-            ]);
 
             return $this->repository->findById($orden->id);
 
@@ -196,10 +192,6 @@ class OrdenCompraService implements OrdenCompraServiceInterface
 
             DB::commit();
 
-            Log::info('Orden de compra actualizada', [
-                'orden_id' => $orden->id,
-                'codigo' => $orden->codigo,
-            ]);
 
             return $this->repository->findById($orden->id);
 
@@ -250,10 +242,6 @@ class OrdenCompraService implements OrdenCompraServiceInterface
 
             DB::commit();
 
-            Log::info('Orden de compra anulada', [
-                'orden_id' => $id,
-                'codigo' => $orden->codigo,
-            ]);
 
             return $this->repository->findById($id);
 
@@ -356,11 +344,6 @@ class OrdenCompraService implements OrdenCompraServiceInterface
 
             DB::commit();
 
-            Log::info('Orden de compra autorizada y convertida a Compra', [
-                'orden_id' => $id,
-                'codigo' => $orden->codigo,
-                'compra_id' => $compra->id,
-            ]);
 
             return $this->repository->findById($id);
 
@@ -415,10 +398,6 @@ class OrdenCompraService implements OrdenCompraServiceInterface
             $productoAlmacen = $productosAlmacen->get($prod->producto_id);
 
             if (!$productoAlmacen) {
-                Log::warning('ProductoAlmacen no encontrado al crear recepción automática', [
-                    'producto_id' => $prod->producto_id,
-                    'almacen_id'  => $orden->almacen_id,
-                ]);
                 continue;
             }
 
@@ -469,11 +448,5 @@ class OrdenCompraService implements OrdenCompraServiceInterface
         // Invalidar caché una sola vez para todo el almacén
         app(ProductoCacheService::class)->invalidateProductosAlmacen($orden->almacen_id);
 
-        Log::info('Recepción automática creada para OrdenCompra', [
-            'orden_id'  => $ordenId,
-            'codigo'    => $orden->codigo,
-            'numero'    => $numero,
-            'productos' => $orden->productos->count(),
-        ]);
     }
 }

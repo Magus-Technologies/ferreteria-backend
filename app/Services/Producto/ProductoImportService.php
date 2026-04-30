@@ -32,9 +32,6 @@ class ProductoImportService implements ProductoImportServiceInterface
         try {
             $totalProductos = count($data);
 
-            Log::info("Starting product import", [
-                "total_products" => $totalProductos,
-            ]);
 
             // OPTIMIZACIÓN: Reducir validación - solo validar primeros 5 productos
             // La validación completa causa timeout con muchos productos
@@ -70,14 +67,6 @@ class ProductoImportService implements ProductoImportServiceInterface
             // Procesar directamente aquí (convertir user_id a int)
             $result = $this->processImportSync($data, $importId, (int) $user->id);
 
-            Log::info("Import completed synchronously", [
-                "import_id" => $importId,
-                "user_id" => $user->id,
-                "total_products" => $totalProductos,
-                "imported" => $result['imported'],
-                "duplicates" => $result['duplicates'],
-                "errors" => $result['errors'],
-            ]);
 
             return response()->json(
                 [
@@ -179,10 +168,6 @@ class ProductoImportService implements ProductoImportServiceInterface
                 $progress["cancellation_requested_at"] = now()->toISOString();
                 Cache::put("import_progress_{$importId}", $progress, 3600);
 
-                Log::info("Import cancellation requested", [
-                    "import_id" => $importId,
-                    "user_id" => $progress["user_id"] ?? null,
-                ]);
             }
 
             return response()->json([
@@ -370,11 +355,6 @@ class ProductoImportService implements ProductoImportServiceInterface
             }
         }
 
-        Log::info("Catalog cache prepared", [
-            "categorias" => count($cache["categorias"]),
-            "marcas" => count($cache["marcas"]),
-            "unidades_medida" => count($cache["unidades_medida"]),
-        ]);
 
         return $cache;
     }
@@ -683,10 +663,6 @@ class ProductoImportService implements ProductoImportServiceInterface
                                 }
                             } catch (\Exception $e) {
                                 $errors++;
-                                Log::warning("Error importing product", [
-                                    'product_name' => $item['name'] ?? 'unknown',
-                                    'error' => $e->getMessage()
-                                ]);
                             }
                         }
                     }, 2); // 2 intentos en caso de deadlock

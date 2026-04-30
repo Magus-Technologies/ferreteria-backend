@@ -47,36 +47,22 @@ class CajaService implements CajaServiceInterface
 
     private function crearCajaChicaAutomatica(int $cajaPrincipalId, string $codigoCajaPrincipal, ?string $metodoPagoId = null, ?string $nombreMetodoPago = null): SubCaja
     {
-        Log::info('=== crearCajaChicaAutomatica ===', [
-            'cajaPrincipalId' => $cajaPrincipalId,
-            'codigoCajaPrincipal' => $codigoCajaPrincipal,
-            'desplieguePagoId' => $metodoPagoId,
-            'nombreMetodoPago' => $nombreMetodoPago,
-        ]);
 
         // Si se proporciona un nombre personalizado, siempre crear uno nuevo con ese nombre
         if ($nombreMetodoPago) {
-            Log::info("Creando método de pago con nombre personalizado: {$nombreMetodoPago}");
             $desplieguePagoEfectivo = $this->crearNuevoDespliegueEfectivo($nombreMetodoPago);
         } elseif ($metodoPagoId) {
             // Si se proporciona un desplieguePagoId existente, usarlo directamente
-            Log::info('Buscando despliegue de pago con ID: ' . $metodoPagoId);
             $desplieguePagoEfectivo = DespliegueDePago::where('id', $metodoPagoId)
                 ->where('activo', true)
                 ->first();
 
-            Log::info('Despliegue encontrado:', [
-                'id' => $desplieguePagoEfectivo?->id,
-                'name' => $desplieguePagoEfectivo?->name,
-            ]);
         } else {
-            Log::info('No se proporcionó desplieguePagoId ni nombre, buscando uno disponible');
             $desplieguePagoEfectivo = $this->encontrarDespliegueEfectivoDisponible();
         }
 
         // Solo crear uno nuevo autogenerado si no se obtuvo ninguno aún
         if (!$desplieguePagoEfectivo) {
-            Log::info('Creando nuevo despliegue de pago por defecto (nombre incremental)');
             $desplieguePagoEfectivo = $this->crearNuevoDespliegueEfectivo();
         }
 
@@ -136,7 +122,6 @@ class CajaService implements CajaServiceInterface
             $nuevoNombre = $count > 0 ? 'Efectivo' . ($count + 1) : 'Efectivo';
         }
 
-        Log::info("Creando nuevo método de pago efectivo: {$nuevoNombre}");
 
         $metodoPago = \App\Models\MetodoDePago::create([
             'id'           => (string) Str::ulid(),
@@ -255,10 +240,6 @@ class CajaService implements CajaServiceInterface
             $esEfectivo = $this->esMetodoEfectivo($metodoPago);
             
             if ($esEfectivo) {
-                Log::info('Saltando monto_inicial para método efectivo', [
-                    'metodo_pago_id' => $metodoPago->id,
-                    'name' => $metodoPago->name,
-                ]);
                 continue;
             }
 
@@ -276,10 +257,6 @@ class CajaService implements CajaServiceInterface
                 ->exists();
 
             if ($yaRegistrado) {
-                Log::info('Monto inicial ya registrado para este banco en otra sub-caja', [
-                    'caja_principal_id' => $subCaja->caja_principal_id,
-                    'metodo_pago_id' => $metodoPago->id,
-                ]);
                 continue;
             }
 
@@ -319,12 +296,6 @@ class CajaService implements CajaServiceInterface
                 $subCaja->saldo_actual = $saldoNuevo;
                 $subCaja->save();
 
-                Log::info('Monto inicial registrado exitosamente', [
-                    'sub_caja_id' => $subCaja->id,
-                    'metodo_pago_id' => $metodoPagoId,
-                    'monto' => $info['monto'],
-                    'transaccion_id' => $transaccion->id,
-                ]);
             } catch (\Exception $e) {
                 Log::error('Error al registrar monto inicial', [
                     'sub_caja_id' => $subCaja->id,

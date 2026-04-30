@@ -104,29 +104,13 @@ class NotaCreditoService implements NotaCreditoServiceInterface
                         'user_id' => $notaCredito->usuario_id,
                     ]);
 
-                    Log::info('✅ XML generado automáticamente para nota de crédito', [
-                        'nota_credito_id' => $notaCredito->id,
-                        'serie' => $notaCredito->serie,
-                        'numero' => $notaCredito->numero,
-                        'hash_cpe' => substr($hashCpe, 0, 16) . '...',
-                    ]);
                 }
             } catch (\Exception $e) {
                 // No fallar la creación si hay error al generar XML
-                Log::warning('❌ No se pudo generar XML automáticamente', [
-                    'nota_credito_id' => $notaCredito->id,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
             }
 
             DB::commit();
 
-            Log::info('Nota de crédito creada exitosamente', [
-                'nota_credito_id' => $notaCredito->id,
-                'serie' => $notaCredito->serie,
-                'numero' => $notaCredito->numero,
-            ]);
 
             return $notaCredito->fresh(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico']);
 
@@ -197,7 +181,6 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
             DB::commit();
 
-            Log::info('Nota de crédito actualizada', ['nota_credito_id' => $id]);
 
             return $notaCreditoActualizada;
 
@@ -236,10 +219,6 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
             DB::commit();
 
-            Log::info('Nota de crédito cancelada', [
-                'nota_credito_id' => $id,
-                'motivo' => $motivo,
-            ]);
 
             return true;
 
@@ -361,11 +340,6 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
             DB::commit();
 
-            Log::info('Nota de crédito enviada a SUNAT', [
-                'nota_credito_id' => $id,
-                'modo' => $resultado['modo'] ?? 'DESCONOCIDO',
-                'modo_envio' => $modoEnvio,
-            ]);
 
             return [
                 'success' => true,
@@ -648,11 +622,6 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             }
             
             // Log para debugging
-            Log::info('✅ Permitiendo múltiple NC para venta', [
-                'venta_id' => $venta->id,
-                'motivo_codigo' => $motivo->codigo_sunat,
-                'notas_existentes' => $notasExistentes->count(),
-            ]);
         }
     }
 

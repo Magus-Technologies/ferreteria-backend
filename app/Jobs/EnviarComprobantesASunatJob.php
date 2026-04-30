@@ -36,14 +36,12 @@ class EnviarComprobantesASunatJob implements ShouldQueue
 
     public function handle(FacturaServiceInterface $facturaService): void
     {
-        Log::info('=== Iniciando proceso de envío automático SUNAT ===');
 
         // 1. PROCESAR FACTURAS (01)
         if (Cache::get('greenter_auto_send_factura_enabled', config('greenter.auto_send_factura_enabled', false))) {
             $afterDays = (int) Cache::get('greenter_auto_send_factura_after_days', config('greenter.auto_send_factura_after_days', 3));
             $this->procesarTipoDocumento($facturaService, '01', 'factura', $afterDays);
         } else {
-            Log::info('Envío automático de FACTURAS está DESACTIVADO.');
         }
 
         // 2. PROCESAR BOLETAS (03)
@@ -51,10 +49,8 @@ class EnviarComprobantesASunatJob implements ShouldQueue
             $afterDays = (int) Cache::get('greenter_auto_send_boleta_after_days', config('greenter.auto_send_boleta_after_days', 0));
             $this->procesarTipoDocumento($facturaService, '03', 'boleta', $afterDays);
         } else {
-            Log::info('Envío automático de BOLETAS está DESACTIVADO.');
         }
 
-        Log::info('=== Finalizado proceso de envío automático SUNAT ===');
     }
 
     private function procesarTipoDocumento(FacturaServiceInterface $facturaService, string $tipoDoc, string $configKey, int $diasAntiguedad): void
@@ -77,17 +73,13 @@ class EnviarComprobantesASunatJob implements ShouldQueue
             ->get();
 
         if ($pendientes->isEmpty()) {
-            Log::info("No hay {$configKey}s pendientes dentro del plazo legal ({$maxDiasPlazo} días) con antigüedad >= {$diasAntiguedad} días.");
             return;
         }
 
-        Log::info("Encontrados {$pendientes->count()} {$configKey}s para enviar (Plazo legal: {$maxDiasPlazo} días, Antigüedad config: {$diasAntiguedad} días).");
 
         foreach ($pendientes as $comprobante) {
             try {
-                Log::info("Enviando {$configKey} a SUNAT: {$comprobante->serie}-{$comprobante->correlativo} (Venta ID: {$comprobante->venta_id})");
                 $facturaService->enviarASunat($comprobante->venta_id, 'automatico');
-                Log::info("{$configKey} {$comprobante->serie}-{$comprobante->correlativo} enviado.");
             } catch (\Exception $e) {
                 Log::error("Error enviando {$configKey} {$comprobante->id}: {$e->getMessage()}");
             }

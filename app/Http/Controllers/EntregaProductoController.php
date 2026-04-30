@@ -44,7 +44,6 @@ class EntregaProductoController extends Controller
         ]);
 
         // 🔍 DEBUG: Log de parámetros recibidos
-        \Log::info('📥 EntregaProductoController@index - Parámetros recibidos:', $request->all());
 
         $query = EntregaProducto::query()
             ->with([
@@ -179,19 +178,6 @@ class EntregaProductoController extends Controller
             $entregas = $query->orderBy('created_at', 'desc')->limit(1000)->get();
             
             // 🔍 DEBUG: Log de resultados
-            \Log::info('📤 EntregaProductoController@index - Total entregas encontradas:', ['count' => $entregas->count()]);
-            \Log::info('📤 EntregaProductoController@index - Primera entrega (si existe):', [
-                'entrega' => $entregas->first() ? [
-                    'id' => $entregas->first()->id,
-                    'fecha_programada' => $entregas->first()->fecha_programada,
-                    'hora_inicio' => $entregas->first()->hora_inicio,
-                    'hora_fin' => $entregas->first()->hora_fin,
-                    'despachador' => $entregas->first()->despachador ? [
-                        'id' => $entregas->first()->despachador->id,
-                        'name' => $entregas->first()->despachador->name,
-                    ] : null,
-                ] : null
-            ]);
             
             return response()->json([
                 'data' => $entregas,

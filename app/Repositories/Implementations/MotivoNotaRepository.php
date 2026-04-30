@@ -13,16 +13,7 @@ class MotivoNotaRepository implements MotivoNotaRepositoryInterface
         $motivo = MotivoNota::find($id);
         
         if ($motivo) {
-            \Log::info('🔍 [DEBUG MotivoNotaRepository::findById] Motivo encontrado:', [
-                'id' => $motivo->id,
-                'tipo' => $motivo->tipo,
-                'codigo_sunat' => $motivo->codigo_sunat,
-                'descripcion' => $motivo->descripcion,
-                'estado' => $motivo->estado,
-                'estado_type' => gettype($motivo->estado),
-            ]);
         } else {
-            \Log::warning('⚠️ [DEBUG MotivoNotaRepository::findById] Motivo NO encontrado para ID: ' . $id);
         }
         
         return $motivo;

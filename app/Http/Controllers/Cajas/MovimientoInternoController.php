@@ -61,10 +61,6 @@ class MovimientoInternoController extends Controller
     public function store(CrearMovimientoInternoRequest $request): JsonResponse
     {
         try {
-            \Log::info('📥 MovimientoInternoController::store - Inicio');
-            \Log::info('📥 Request data', ['data' => $request->all()]);
-            \Log::info('📥 Validated data', ['validated' => $request->validated()]);
-            \Log::info('📥 User ID', ['user_id' => auth()->id()]);
             
             $userId = auth()->id();
             if (!$userId) {
@@ -76,17 +72,9 @@ class MovimientoInternoController extends Controller
             }
             
             $dto = CrearMovimientoInternoDTO::fromRequest($request->validated());
-            \Log::info('📥 DTO creado', [
-                'sub_caja_origen_id' => $dto->subCajaOrigenId,
-                'sub_caja_destino_id' => $dto->subCajaDestinoId,
-                'monto' => $dto->monto,
-                'despliegue_de_pago_origen_id' => $dto->despliegueDePagoOrigenId,
-                'despliegue_de_pago_destino_id' => $dto->despliegueDePagoDestinoId,
-            ]);
             
             $resultado = $this->movimientoInternoService->crearMovimiento($dto, $userId);
             
-            \Log::info('✅ Movimiento interno creado exitosamente');
 
             return response()->json([
                 'success' => true,

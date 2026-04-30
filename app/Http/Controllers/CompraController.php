@@ -304,7 +304,6 @@ class CompraController extends Controller
     public function store(Request $request)
     {
         try {
-            \Log::info('Compra store request:', $request->all());
             
             // Mapear tipo_documento del frontend (nombre) al valor del enum PHP ANTES de validar
             $tipoDocumentoMap = [
@@ -364,10 +363,8 @@ class CompraController extends Controller
             'productos_por_almacen.*.unidades_derivadas.*.bonificacion' => 'nullable|boolean',
         ]);
         
-        \Log::info('Validated data:', $validated);
 
         return DB::transaction(function () use ($validated) {
-            \Log::info('=== INICIO TRANSACCIÓN COMPRA ===');
             
             // Extraer el despliegue_id del formato "sub_caja_id-despliegue_id" si es necesario
             if (isset($validated['despliegue_de_pago_id']) && str_contains($validated['despliegue_de_pago_id'], '-')) {
@@ -390,11 +387,9 @@ class CompraController extends Controller
                 }
             }
 
-            \Log::info('Validando nueva compra...');
             // Validar nueva compra
             try {
                 $this->validarNuevaCompra($validated);
-                \Log::info('Validación exitosa');
             } catch (\Exception $e) {
                 \Log::error('Error en validación:', ['error' => $e->getMessage()]);
                 throw $e;
@@ -405,11 +400,6 @@ class CompraController extends Controller
             $formaDePagoEnum = isset($validated['forma_de_pago']) ? FormaDePago::from($validated['forma_de_pago']) : null;
             $tipoMonedaEnum = TipoMoneda::from($validated['tipo_moneda']);
 
-            \Log::info('Creando compra...', [
-                'tipo_documento' => $validated['tipo_documento'],
-                'serie' => $validated['serie'],
-                'numero' => $validated['numero'],
-            ]);
 
             // Create compra
             $compra = Compra::create([
@@ -446,23 +436,13 @@ class CompraController extends Controller
             }
 
             // Create productos_por_almacen and unidades_derivadas
-            \Log::info('Procesando productos_por_almacen...', ['count' => count($validated['productos_por_almacen'])]);
             
             foreach ($validated['productos_por_almacen'] as $index => $producto) {
-                \Log::info("Procesando producto #{$index}", [
-                    'producto_id' => $producto['producto_id'] ?? null,
-                    'producto_almacen_id' => $producto['producto_almacen_id'] ?? null,
-                    'costo' => $producto['costo'],
-                ]);
                 
                 // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
                 $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
 
                 if (!$productoAlmacenId && isset($producto['producto_id'])) {
-                    \Log::info("Buscando ProductoAlmacen", [
-                        'producto_id' => $producto['producto_id'],
-                        'almacen_id' => $validated['almacen_id'],
-                    ]);
                     
                     $productoAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
                         ->where('almacen_id', $validated['almacen_id'])
@@ -477,7 +457,6 @@ class CompraController extends Controller
                     }
 
                     $productoAlmacenId = $productoAlmacen->id;
-                    \Log::info("ProductoAlmacen encontrado", ['producto_almacen_id' => $productoAlmacenId]);
                 }
 
                 $productoAlmacenCompra = ProductoAlmacenCompra::create([
@@ -486,14 +465,8 @@ class CompraController extends Controller
                     'producto_almacen_id' => $productoAlmacenId,
                 ]);
                 
-                \Log::info("ProductoAlmacenCompra creado", ['id' => $productoAlmacenCompra->id]);
 
                 foreach ($producto['unidades_derivadas'] as $udIndex => $unidad) {
-                    \Log::info("Procesando unidad derivada #{$udIndex}", [
-                        'unidad_derivada_inmutable_id' => $unidad['unidad_derivada_inmutable_id'] ?? null,
-                        'unidad_derivada_inmutable_name' => $unidad['unidad_derivada_inmutable_name'] ?? null,
-                        'cantidad' => $unidad['cantidad'],
-                    ]);
                     
                     // Get unidad_derivada_inmutable_id (either provided or firstOrCreate by name)
                     $unidadDerivadaInmutableId = $unidad['unidad_derivada_inmutable_id'] ?? null;
@@ -504,7 +477,6 @@ class CompraController extends Controller
                             ['name' => $unidad['unidad_derivada_inmutable_name']]
                         );
                         $unidadDerivadaInmutableId = $unidadDerivadaInmutable->id;
-                        \Log::info("UnidadDerivadaInmutable creada/encontrada", ['id' => $unidadDerivadaInmutableId]);
                     }
 
                     UnidadDerivadaInmutableCompra::create([
@@ -519,7 +491,6 @@ class CompraController extends Controller
                         'bonificacion' => $unidad['bonificacion'] ?? false,
                     ]);
                     
-                    \Log::info("UnidadDerivadaInmutableCompra creada");
                 }
             }
 
@@ -733,14 +704,8 @@ class CompraController extends Controller
             // Registrar en kardex si la compra cambió de 'ee' a otro estado
             $estadoNuevo = $compra->estado_de_compra->value;
             
-            \Log::info('Compra update - Verificando cambio de estado:', [
-                'compra_id' => $compra->id,
-                'estado_anterior' => $estadoAnterior,
-                'estado_nuevo' => $estadoNuevo,
-            ]);
             
             if ($estadoAnterior === 'ee' && $estadoNuevo !== 'ee') {
-                \Log::info('Compra update - Registrando en kardex porque cambió de ee a ' . $estadoNuevo);
                 // La compra pasó de en espera a registrada/procesada
                 $kardexInventarioService = app(\App\Services\Kardex\KardexInventarioService::class);
                 
@@ -757,9 +722,6 @@ class CompraController extends Controller
                     }
                 }
             } else {
-                \Log::info('Compra update - NO registrando en kardex', [
-                    'razon' => $estadoAnterior !== 'ee' ? 'No era en espera' : 'Sigue siendo en espera',
-                ]);
             }
 
             // If productos_por_almacen is provided, update them
@@ -1067,22 +1029,16 @@ class CompraController extends Controller
 
             // Procesar múltiples métodos de pago del modal
             if (!empty($compra['metodos_de_pago'])) {
-                \Log::info('Procesando metodos_de_pago:', $compra['metodos_de_pago']);
                 
                 foreach ($compra['metodos_de_pago'] as $metodo) {
                     $desplieguePagoId = $metodo['despliegue_de_pago_id'];
                     
-                    \Log::info('Procesando metodo de pago:', [
-                        'despliegue_de_pago_id_original' => $desplieguePagoId,
-                        'monto' => $metodo['monto'],
-                    ]);
                     
                     // NO extraer el ID si ya viene en formato correcto (sin guión)
                     // Solo extraer si tiene el formato "subcaja_id-despliegue_id"
                     if (str_contains($desplieguePagoId, '-')) {
                         $parts = explode('-', $desplieguePagoId);
                         $desplieguePagoId = $parts[1] ?? $desplieguePagoId;
-                        \Log::info('ID extraído:', ['despliegue_de_pago_id' => $desplieguePagoId]);
                     }
 
                     $despliegue = DespliegueDePago::where('id', $desplieguePagoId)
@@ -1094,11 +1050,6 @@ class CompraController extends Controller
                         throw new \Exception("El método de pago seleccionado (ID: {$desplieguePagoId}) no existe o no está activo.");
                     }
 
-                    \Log::info('Creando pago de compra:', [
-                        'compra_id' => $compraModel->id,
-                        'despliegue_de_pago_id' => $desplieguePagoId,
-                        'monto' => $metodo['monto'],
-                    ]);
 
                     try {
                         $pagoCreado = $compraModel->pagosDeCompras()->create([
@@ -1109,7 +1060,6 @@ class CompraController extends Controller
                             'estado'                => true,
                         ]);
                         
-                        \Log::info('Pago de compra creado exitosamente:', ['id' => $pagoCreado->id]);
                     } catch (\Exception $e) {
                         \Log::error('Error al crear pago de compra:', [
                             'error' => $e->getMessage(),

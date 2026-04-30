@@ -289,7 +289,6 @@ class SubCajaController extends Controller
         try {
             $userId = auth()->id();
             
-            \Log::info('🔍 getTodasConSaldoVendedor', ['user_id' => $userId]);
             
             // Obtener TODAS las sub-cajas activas
             $subCajas = \App\Models\SubCaja::where('estado', true)->get();
@@ -301,11 +300,6 @@ class SubCajaController extends Controller
                 // Obtener métodos de pago con sus saldos individuales
                 $metodosPago = $this->obtenerMetodosPagoConSaldo($subCaja, $userId);
                 
-                \Log::info('📊 Sub-caja procesada', [
-                    'sub_caja' => $subCaja->nombre,
-                    'saldo_total' => $saldoVendedor,
-                    'metodos_count' => count($metodosPago),
-                ]);
                 
                 return [
                     'id' => $subCaja->id,
@@ -346,12 +340,10 @@ class SubCajaController extends Controller
         try {
             $userId = auth()->id();
             
-            \Log::info('🔍 Buscando vendedores con efectivo', ['user_actual' => $userId]);
             
             // Obtener TODAS las Cajas Chicas
             $cajasChicas = \App\Models\SubCaja::where('tipo_caja', 'CC')->get();
             
-            \Log::info('📊 Cajas Chicas encontradas', ['total' => $cajasChicas->count()]);
             
             // Obtener todos los vendedores que tienen transacciones
             $vendedoresConTransacciones = \App\Models\TransaccionCaja::whereIn('sub_caja_id', $cajasChicas->pluck('id'))
@@ -359,7 +351,6 @@ class SubCajaController extends Controller
                 ->distinct()
                 ->pluck('user_id');
             
-            \Log::info('👥 Vendedores con transacciones', ['total' => $vendedoresConTransacciones->count()]);
             
             $vendedoresConEfectivo = [];
 
@@ -370,7 +361,6 @@ class SubCajaController extends Controller
                     continue;
                 }
                 
-                \Log::info('🔍 Revisando vendedor', ['vendedor' => $vendedor->name]);
                 
                 // Calcular efectivo total del vendedor en TODAS las Cajas Chicas
                 $efectivoTotal = 0;
@@ -380,18 +370,9 @@ class SubCajaController extends Controller
                     $efectivoTotal += $efectivoEnCaja;
                     
                     if ($efectivoEnCaja > 0) {
-                        \Log::info('💰 Efectivo en caja', [
-                            'vendedor' => $vendedor->name,
-                            'caja' => $cajaChica->nombre,
-                            'efectivo' => $efectivoEnCaja
-                        ]);
                     }
                 }
                 
-                \Log::info('💰 Efectivo total calculado', [
-                    'vendedor' => $vendedor->name,
-                    'efectivo_total' => $efectivoTotal
-                ]);
                 
                 // Solo incluir si tiene efectivo > 0
                 if ($efectivoTotal > 0) {
@@ -403,7 +384,6 @@ class SubCajaController extends Controller
                 }
             }
             
-            \Log::info('✅ Vendedores con efectivo', ['total' => count($vendedoresConEfectivo)]);
 
             return response()->json([
                 'success' => true,
@@ -428,14 +408,9 @@ class SubCajaController extends Controller
      */
     private function calcularEfectivoEnSubCaja(int $subCajaId, string|int $vendedorId): float
     {
-        \Log::info('=== Calculando efectivo en sub-caja ===', [
-            'sub_caja_id' => $subCajaId,
-            'vendedor_id' => $vendedorId,
-        ]);
         
         $subCaja = \App\Models\SubCaja::find($subCajaId);
         if (!$subCaja) {
-            \Log::warning('Sub-caja no encontrada');
             return 0;
         }
         
@@ -456,19 +431,12 @@ class SubCajaController extends Controller
                 
                 $montoInicial = $distribuciones->sum('monto');
                 
-                \Log::info('Distribución inicial encontrada', [
-                    'monto_inicial' => $montoInicial,
-                    'distribuciones_count' => $distribuciones->count(),
-                ]);
             }
         }
         
         // Obtener IDs de despliegues de pago tipo EFECTIVO de esta sub-caja
         $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
         
-        \Log::info('Despliegues de pago en sub-caja', [
-            'despliegue_ids' => $desplieguePagoIds,
-        ]);
         
         // Filtrar solo los que son efectivo
         // Efectivo = sin cuenta bancaria (NULL o "SIN-CUENTA") Y nombre contiene "efectivo"
@@ -486,13 +454,9 @@ class SubCajaController extends Controller
             ->pluck('id')
             ->toArray();
         
-        \Log::info('Despliegues de efectivo filtrados', [
-            'efectivo_ids' => $desplieguePagoEfectivoIds,
-        ]);
         
         // Si no hay métodos de efectivo en esta sub-caja, retornar solo el monto inicial
         if (empty($desplieguePagoEfectivoIds)) {
-            \Log::warning('No hay despliegues de efectivo en esta sub-caja');
             return $montoInicial;
         }
         
@@ -507,30 +471,12 @@ class SubCajaController extends Controller
             })
             ->get();
         
-        \Log::info('Transacciones encontradas', [
-            'total_transacciones' => $transacciones->count(),
-            'transacciones' => $transacciones->map(function ($t) {
-                return [
-                    'id' => $t->id,
-                    'tipo' => $t->tipo_transaccion,
-                    'monto' => $t->monto,
-                    'referencia_tipo' => $t->referencia_tipo,
-                    'descripcion' => $t->descripcion,
-                ];
-            })->toArray(),
-        ]);
         
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
         $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
         
         $saldoFinal = $montoInicial + $ingresos - $egresos;
         
-        \Log::info('Cálculo final', [
-            'monto_inicial' => $montoInicial,
-            'ingresos' => $ingresos,
-            'egresos' => $egresos,
-            'saldo_final' => $saldoFinal,
-        ]);
         
         return $saldoFinal;
     }
@@ -603,21 +549,15 @@ class SubCajaController extends Controller
         try {
             $userId = auth()->id();
             
-            \Log::info('=== INICIO getTodasConSaldoEfectivo ===', ['user_id' => $userId]);
             
             // Obtener TODAS las sub-cajas activas
             $subCajas = \App\Models\SubCaja::where('estado', true)->get();
             
-            \Log::info('Sub-cajas encontradas', ['total' => $subCajas->count()]);
             
             $subCajasConSaldo = $subCajas->map(function ($subCaja) use ($userId) {
                 // Calcular saldo EN EFECTIVO del vendedor en esta sub-caja
                 $saldoEfectivo = $this->calcularEfectivoEnSubCaja($subCaja->id, $userId);
                 
-                \Log::info('Saldo calculado', [
-                    'sub_caja' => $subCaja->nombre,
-                    'saldo' => $saldoEfectivo,
-                ]);
                 
                 return [
                     'id' => $subCaja->id,
@@ -631,18 +571,9 @@ class SubCajaController extends Controller
             })->filter(function ($subCaja) {
                 // Filtrar solo las que tienen efectivo > 0
                 $tiene = floatval($subCaja['saldo_efectivo']) > 0;
-                \Log::info('Filtro', [
-                    'sub_caja' => $subCaja['nombre'],
-                    'saldo' => $subCaja['saldo_efectivo'],
-                    'incluir' => $tiene,
-                ]);
                 return $tiene;
             })->values();
 
-            \Log::info('=== FIN getTodasConSaldoEfectivo ===', [
-                'total_con_saldo' => $subCajasConSaldo->count(),
-                'data' => $subCajasConSaldo->toArray(),
-            ]);
 
             return response()->json([
                 'success' => true,

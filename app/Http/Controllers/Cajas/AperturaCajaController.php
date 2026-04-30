@@ -214,18 +214,8 @@ class AperturaCajaController extends Controller
                                     ]);
                             });
 
-                            Log::info("Email de apertura con PDF enviado automáticamente (apertura existente)", [
-                                'apertura_id' => $aperturaActiva->id,
-                                'email' => $emailDestino,
-                                'monto_operacion' => $montoTotal,
-                            ]);
                         } catch (\Exception $emailError) {
                             // No fallar la apertura si el email falla
-                            Log::warning("Error al enviar email de apertura automático (apertura existente): " . $emailError->getMessage(), [
-                                'apertura_id' => $aperturaActiva->id,
-                                'email' => $emailDestino,
-                                'trace' => $emailError->getTraceAsString(),
-                            ]);
                         }
                     }
 
@@ -346,18 +336,8 @@ class AperturaCajaController extends Controller
                                 ]);
                         });
 
-                        Log::info("Email de apertura con PDF enviado automáticamente", [
-                            'apertura_id' => $apertura->id,
-                            'email' => $emailDestino,
-                            'monto_operacion' => $montoTotal,
-                        ]);
                     } catch (\Exception $emailError) {
                         // No fallar la apertura si el email falla
-                        Log::warning("Error al enviar email de apertura automático: " . $emailError->getMessage(), [
-                            'apertura_id' => $apertura->id,
-                            'email' => $emailDestino,
-                            'trace' => $emailError->getTraceAsString(),
-                        ]);
                     }
                 }
 
@@ -702,11 +682,6 @@ class AperturaCajaController extends Controller
             });
 
             // Registrar el envío
-            Log::info("Ticket de apertura enviado por correo", [
-                'apertura_id' => $id,
-                'email' => $request->email,
-                'user_id' => auth()->id(),
-            ]);
 
             return response()->json([
                 'success' => true,
@@ -747,11 +722,6 @@ class AperturaCajaController extends Controller
                     ->subject($subject);
             });
 
-            Log::info("TEST: Email de apertura enviado", [
-                'apertura_id' => $id,
-                'email' => $emailDestino,
-                'fecha' => now(),
-            ]);
 
             return response()->json([
                 'success' => true,

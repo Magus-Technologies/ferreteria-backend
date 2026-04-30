@@ -125,22 +125,10 @@ class NotaDebitoService implements NotaDebitoServiceInterface
                         'user_id' => $dto->usuarioId ?? auth()->id(),
                     ]);
                     
-                    Log::info('✅ XML generado automáticamente para nota de débito', [
-                        'nota_debito_id' => $notaDebito->id,
-                        'serie' => $notaDebito->serie,
-                        'numero' => $notaDebito->numero,
-                        'xml_path' => $xmlPath,
-                        'hash_cpe' => $hashCpe,
-                    ]);
                 }
             } catch (\Exception $e) {
                 // Si falla la generación del XML, solo logueamos el error
                 // pero no impedimos la creación de la nota
-                Log::warning('No se pudo generar XML al crear nota de débito', [
-                    'nota_debito_id' => $notaDebito->id,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
             }
 
             // 9. Actualizar correlativo de serie
@@ -148,11 +136,6 @@ class NotaDebitoService implements NotaDebitoServiceInterface
 
             DB::commit();
 
-            Log::info('Nota de débito creada exitosamente', [
-                'nota_debito_id' => $notaDebito->id,
-                'serie' => $notaDebito->serie,
-                'numero' => $notaDebito->numero,
-            ]);
 
             return $notaDebito->fresh(['venta', 'motivo', 'usuario', 'almacen']);
 
@@ -225,7 +208,6 @@ class NotaDebitoService implements NotaDebitoServiceInterface
 
             DB::commit();
 
-            Log::info('Nota de débito actualizada', ['nota_debito_id' => $id]);
 
             return $notaDebitoActualizada;
 
@@ -264,10 +246,6 @@ class NotaDebitoService implements NotaDebitoServiceInterface
 
             DB::commit();
 
-            Log::info('Nota de débito cancelada', [
-                'nota_debito_id' => $id,
-                'motivo' => $motivo,
-            ]);
 
             return true;
 
@@ -385,11 +363,6 @@ class NotaDebitoService implements NotaDebitoServiceInterface
 
             DB::commit();
 
-            Log::info('Nota de débito enviada a SUNAT', [
-                'nota_debito_id' => $id,
-                'modo' => $resultado['modo'] ?? 'DESCONOCIDO',
-                'modo_envio' => $modoEnvio,
-            ]);
 
             return [
                 'success' => true,

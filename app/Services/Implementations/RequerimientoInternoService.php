@@ -123,17 +123,10 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                     ]
                 );
             } catch (\Exception $e) {
-                Log::warning('No se pudo enviar la notificación del requerimiento', [
-                    'error' => $e->getMessage()
-                ]);
             }
 
             DB::commit();
 
-            Log::info('Requerimiento interno creado', [
-                'requerimiento_id' => $requerimiento->id,
-                'codigo' => $codigo,
-            ]);
 
             return $this->repository->findById($requerimiento->id);
 
@@ -142,9 +135,6 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
             throw $e;
         } catch (\InvalidArgumentException $e) {
             DB::rollBack();
-            Log::warning('Validación fallida al crear requerimiento', [
-                'error' => $e->getMessage(),
-            ]);
             throw RequerimientoInternoException::errorAlCrear($e->getMessage());
         } catch (\Exception $e) {
             DB::rollBack();
@@ -184,11 +174,6 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
 
             $this->repository->cambiarEstado($id, $nuevoEstado);
 
-            Log::info('Estado de requerimiento cambiado', [
-                'requerimiento_id' => $id,
-                'estado_anterior' => $requerimiento->estado,
-                'estado_nuevo' => $nuevoEstado,
-            ]);
 
             return $this->repository->findById($id);
 
@@ -216,12 +201,6 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                 'orden_compra_codigo' => $ordenCompraCodigo,
             ]);
 
-            Log::info('Cantidad ordenada actualizada', [
-                'producto_id' => $productoId,
-                'cantidad_ordenada' => $cantidadOrdenada,
-                'orden_compra_id' => $ordenCompraId,
-                'orden_compra_codigo' => $ordenCompraCodigo,
-            ]);
 
         } catch (\Exception $e) {
             Log::error('Error al actualizar cantidad ordenada', [
