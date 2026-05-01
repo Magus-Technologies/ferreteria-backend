@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\GuiaRemision;
 use App\Models\DetalleGuiaRemision;
 use App\Models\ProductoAlmacen;
-use App\Services\Interfaces\GreenterServiceInterface;
+use App\Services\Interfaces\SunatApiServiceInterface;
 use App\Services\Interfaces\XmlStorageServiceInterface;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Encoding\Encoding;
@@ -18,7 +18,7 @@ use Illuminate\Support\Str;
 class GuiaRemisionService
 {
     public function __construct(
-        private GreenterServiceInterface $greenterService,
+        private SunatApiServiceInterface $sunatApiService,
         private XmlStorageServiceInterface $xmlStorageService,
     ) {}
     /**
@@ -242,8 +242,8 @@ class GuiaRemisionService
         if ($codigoMotivo === '08') {
             $destinatario = [
                 'tipo_doc' => '6', // RUC
-                'num_doc' => config('greenter.ruc'),
-                'razon_social' => config('greenter.razon_social'),
+                'num_doc' => config('sunat-api.ruc'),
+                'razon_social' => config('sunat-api.razon_social'),
             ];
         } elseif ($cliente) {
             $tipoDoc = '1'; // DNI
@@ -309,9 +309,9 @@ class GuiaRemisionService
         if ($esTransportista) {
             $transportista = [
                 'tipo_doc' => '6', // RUC
-                'num_doc' => config('greenter.ruc'),
-                'razon_social' => config('greenter.razon_social'),
-                'nro_mtc' => config('greenter.nro_mtc', null),
+                'num_doc' => config('sunat-api.ruc'),
+                'razon_social' => config('sunat-api.razon_social'),
+                'nro_mtc' => config('sunat-api.nro_mtc', null),
             ];
         }
 
@@ -325,9 +325,9 @@ class GuiaRemisionService
             'des_traslado' => $guia->motivoTraslado->descripcion ?? 'Venta',
             'mod_traslado' => $guia->modalidad_transporte === 'PRIVADO' ? '02' : '01',
             'peso_total' => max(0.01, (float) $guia->detalles->sum('peso_total')),
-            'ubigeo_partida' => config('greenter.ubigeo'),
+            'ubigeo_partida' => config('sunat-api.ubigeo'),
             'direccion_partida' => $guia->punto_partida,
-            'ubigeo_llegada' => config('greenter.ubigeo'),
+            'ubigeo_llegada' => config('sunat-api.ubigeo'),
             'direccion_llegada' => $guia->punto_llegada,
             'vehiculo_placa' => $guia->vehiculo_placa,
             'destinatario' => $destinatario,
@@ -357,14 +357,14 @@ class GuiaRemisionService
         $tipoDocSunat = $this->getTipoDocSunat($guia);
 
         // Generar XML
-        $xml = $this->greenterService->generarXmlGuiaRemision($dataGreenter);
+        $xml = $this->sunatApiService->generarXmlGuiaRemision($dataGreenter);
         $hashCpe = hash('sha256', $xml);
 
         // Generar QR
         $codigoQr = $this->generarCodigoQR($guia, $hashCpe);
 
         // Guardar XML en storage
-        $ruc = config('greenter.ruc');
+            $ruc = config('sunat-api.ruc');
         $nombreXml = $this->xmlStorageService->generarNombreXml(
             $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
         );
@@ -402,14 +402,14 @@ class GuiaRemisionService
 
             $dataGreenter = $this->prepararDatosParaGreenter($guia);
             $tipoDocSunat = $this->getTipoDocSunat($guia);
-            $resultado = $this->greenterService->generarYEnviarGuiaRemision($dataGreenter);
+            $resultado = $this->sunatApiService->generarYEnviarGuiaRemision($dataGreenter);
 
             if (!$resultado['success']) {
                 throw new \Exception('Error al enviar guía a SUNAT');
             }
 
             // Guardar XML y CDR
-            $ruc = config('greenter.ruc');
+        $ruc = config('sunat-api.ruc');
             $nombreXml = $this->xmlStorageService->generarNombreXml(
                 $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
             );
@@ -463,7 +463,7 @@ class GuiaRemisionService
     {
         try {
             $qrText = implode('|', [
-                config('greenter.ruc'),
+                config('sunat-api.ruc'),
                 $this->getTipoDocSunat($guia),
                 $guia->serie ?? 'T001',
                 $guia->numero ?? '0',

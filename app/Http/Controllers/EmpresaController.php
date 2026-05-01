@@ -3,22 +3,23 @@
 namespace App\Http\Controllers;
 
 use App\Models\Empresa;
+use App\Models\ContactoEmpresa;
+use App\Models\TerminoEmpresa;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
-
 class EmpresaController extends Controller
 {
-    /**
-     * Obtener la empresa (normalmente solo hay una)
-     */
     public function index(): JsonResponse
     {
         $empresa = Empresa::with([
             'almacenPredeterminado',
             'marcaPredeterminada',
-            'ubigeo'
+            'ubigeo',
+            'contactos',
+            'terminos',
+            'direcciones',
         ])->first();
 
         if (!$empresa) {
@@ -30,17 +31,17 @@ class EmpresaController extends Controller
         return response()->json(['data' => $empresa]);
     }
 
-    /**
-     * Obtener la empresa por ID
-     */
     public function show($id): JsonResponse
     {
         $empresa = Empresa::with([
             'almacenPredeterminado',
             'marcaPredeterminada',
-            'ubigeo'
+            'ubigeo',
+            'contactos',
+            'terminos',
+            'direcciones',
         ])->findOrFail($id);
-        // Agregar URL completa del logo si existe
+
         if ($empresa->logo) {
             $empresa->logo_url = asset('storage/' . $empresa->logo);
         }
@@ -48,9 +49,6 @@ class EmpresaController extends Controller
         return response()->json(['data' => $empresa]);
     }
 
-    /**
-     * Crear una nueva empresa
-     */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -73,30 +71,15 @@ class EmpresaController extends Controller
             'telefono' => 'required|string|max:191',
             'celular' => 'nullable|string|max:50',
             'email' => 'required|email|max:191',
-            // Logo
             'logo' => 'nullable|string|max:500',
-            // Gerente o Administrador
-            'gerente_nombre' => 'nullable|string|max:191',
-            'gerente_email' => 'nullable|email|max:191',
-            'gerente_celular' => 'nullable|string|max:50',
-            // Facturación
-            'facturacion_nombre' => 'nullable|string|max:191',
-            'facturacion_email' => 'nullable|email|max:191',
-            'facturacion_celular' => 'nullable|string|max:50',
-            // Contabilidad
-            'contabilidad_nombre' => 'nullable|string|max:191',
-            'contabilidad_email' => 'nullable|email|max:191',
-            'contabilidad_celular' => 'nullable|string|max:50',
-            // Términos de impresión
-            'terminos_comprobantes_ventas' => 'nullable|string',
-            'terminos_letras_cambio' => 'nullable|string',
-            'terminos_guias_remision' => 'nullable|string',
-            'terminos_cotizaciones' => 'nullable|string',
-            'terminos_ordenes_compras' => 'nullable|string',
             'imprimir_impuestos_boleta' => 'nullable|boolean',
+            'sol_user' => 'nullable|string|max:50',
+            'sol_pass' => 'nullable|string|max:100',
+            'sunat_client_id' => 'nullable|string|max:100',
+            'sunat_secret_client' => 'nullable|string|max:255',
+            'sunat_modo' => 'nullable|in:beta,produccion',
         ]);
 
-        // Asignar valores por defecto para las series
         $validated['serie_ingreso'] = $validated['serie_ingreso'] ?? 1;
         $validated['serie_salida'] = $validated['serie_salida'] ?? 1;
         $validated['serie_recepcion_almacen'] = $validated['serie_recepcion_almacen'] ?? 1;
@@ -104,15 +87,30 @@ class EmpresaController extends Controller
 
         $empresa = Empresa::create($validated);
 
+        if ($request->has('contactos')) {
+            foreach ($request->input('contactos', []) as $contacto) {
+                $empresa->contactos()->create($contacto);
+            }
+        }
+
+        if ($request->has('terminos')) {
+            foreach ($request->input('terminos', []) as $termino) {
+                $empresa->terminos()->create($termino);
+            }
+        }
+
+        if ($request->has('direcciones')) {
+            foreach ($request->input('direcciones', []) as $direccion) {
+                $empresa->direcciones()->create($direccion);
+            }
+        }
+
         return response()->json([
-            'data' => $empresa->load(['almacenPredeterminado', 'marcaPredeterminada', 'ubigeo']),
+            'data' => $empresa->load(['almacenPredeterminado', 'marcaPredeterminada', 'ubigeo', 'contactos', 'terminos', 'direcciones']),
             'message' => 'Empresa creada exitosamente',
         ], 201);
     }
 
-    /**
-     * Actualizar la empresa
-     */
     public function update(Request $request, $id): JsonResponse
     {
         $empresa = Empresa::findOrFail($id);
@@ -137,54 +135,71 @@ class EmpresaController extends Controller
             'telefono' => 'sometimes|required|string|max:191',
             'celular' => 'nullable|string|max:50',
             'email' => 'sometimes|required|email|max:191',
-            // Logo
             'logo' => 'nullable|file|image|max:2048',
-            // Gerente o Administrador
-            'gerente_nombre' => 'nullable|string|max:191',
-            'gerente_email' => 'nullable|email|max:191',
-            'gerente_celular' => 'nullable|string|max:50',
-            // Facturación
-            'facturacion_nombre' => 'nullable|string|max:191',
-            'facturacion_email' => 'nullable|email|max:191',
-            'facturacion_celular' => 'nullable|string|max:50',
-            // Contabilidad
-            'contabilidad_nombre' => 'nullable|string|max:191',
-            'contabilidad_email' => 'nullable|email|max:191',
-            'contabilidad_celular' => 'nullable|string|max:50',
-            // Términos de impresión
-            'terminos_comprobantes_ventas' => 'nullable|string',
-            'terminos_letras_cambio' => 'nullable|string',
-            'terminos_guias_remision' => 'nullable|string',
-            'terminos_cotizaciones' => 'nullable|string',
-            'terminos_ordenes_compras' => 'nullable|string',
             'imprimir_impuestos_boleta' => 'nullable|boolean',
+            'sol_user' => 'nullable|string|max:50',
+            'sol_pass' => 'nullable|string|max:100',
+            'sunat_client_id' => 'nullable|string|max:100',
+            'sunat_secret_client' => 'nullable|string|max:255',
+            'sunat_modo' => 'nullable|in:beta,produccion',
+            'contactos' => 'nullable|array',
+            'contactos.*.cargo' => 'required|in:gerente,facturacion,contabilidad',
+            'contactos.*.nombre' => 'nullable|string|max:191',
+            'contactos.*.email' => 'nullable|email|max:191',
+            'contactos.*.celular' => 'nullable|string|max:50',
+            'terminos' => 'nullable|array',
+            'terminos.*.tipo' => 'required|in:comprobantes_ventas,letras_cambio,guias_remision,cotizaciones,ordenes_compras',
+            'terminos.*.contenido' => 'nullable|string',
+            'direcciones' => 'nullable|array',
+            'direcciones.*.alias' => 'nullable|string|max:100',
+            'direcciones.*.direccion' => 'required|string|max:191',
+            'direcciones.*.ubigeo_id' => 'nullable|exists:ubigeo_inei,id_ubigeo',
+            'direcciones.*.departamento' => 'nullable|string|max:100',
+            'direcciones.*.provincia' => 'nullable|string|max:100',
+            'direcciones.*.distrito' => 'nullable|string|max:100',
         ]);
-        // manejar subida del logo 
+
         if ($request->hasFile('logo')) {
-            // Eliminar el logo anterior si existe
             if ($empresa->logo && Storage::disk('public')->exists($empresa->logo)) {
                 Storage::disk('public')->delete($empresa->logo);
             }
-
             $logoPath = $request->file('logo')->store('logos', 'public');
             $validated['logo'] = $logoPath;
         }
 
         $empresa->update($validated);
-        // Agregar URL completa del logo
+
+        if ($request->has('contactos')) {
+            $empresa->contactos()->delete();
+            foreach ($request->input('contactos', []) as $contacto) {
+                $empresa->contactos()->create($contacto);
+            }
+        }
+
+        if ($request->has('terminos')) {
+            $empresa->terminos()->delete();
+            foreach ($request->input('terminos', []) as $termino) {
+                $empresa->terminos()->create($termino);
+            }
+        }
+
+        if ($request->has('direcciones')) {
+            $empresa->direcciones()->delete();
+            foreach ($request->input('direcciones', []) as $direccion) {
+                $empresa->direcciones()->create($direccion);
+            }
+        }
+
         if ($empresa->logo) {
             $empresa->logo_url = asset('storage/' . $empresa->logo);
         }
 
         return response()->json([
-            'data' => $empresa->load(['almacenPredeterminado', 'marcaPredeterminada', 'ubigeo']),
+            'data' => $empresa->load(['almacenPredeterminado', 'marcaPredeterminada', 'ubigeo', 'contactos', 'terminos', 'direcciones']),
             'message' => 'Empresa actualizada exitosamente',
         ]);
     }
 
-    /**
-     * Eliminar la empresa
-     */
     public function destroy($id): JsonResponse
     {
         $empresa = Empresa::findOrFail($id);
@@ -195,13 +210,8 @@ class EmpresaController extends Controller
         ]);
     }
 
-    /**
-     * Obtener datos públicos de la empresa para PDFs
-     * Esta ruta es pública y no requiere autenticación
-     */
     public function getDatosPublicos(): JsonResponse
     {
-        // Obtener la primera empresa (normalmente solo hay una)
         $empresa = Empresa::first();
 
         if (!$empresa) {
@@ -210,7 +220,6 @@ class EmpresaController extends Controller
             ], 404);
         }
 
-        // Devolver solo los datos necesarios para el PDF
         return response()->json([
             'data' => [
                 'id' => $empresa->id,

@@ -220,14 +220,14 @@ class GuiaRemisionController extends Controller
             'data' => [
                 'guia' => $guia,
                 'empresa' => [
-                    'ruc' => config('greenter.ruc'),
-                    'razon_social' => config('greenter.razon_social'),
-                    'nombre_comercial' => config('greenter.nombre_comercial'),
-                    'direccion' => config('greenter.direccion'),
-                    'ubigeo' => config('greenter.ubigeo'),
-                    'departamento' => config('greenter.departamento'),
-                    'provincia' => config('greenter.provincia'),
-                    'distrito' => config('greenter.distrito'),
+                    'ruc' => config('sunat-api.ruc'),
+                    'razon_social' => config('sunat-api.razon_social'),
+                    'nombre_comercial' => config('sunat-api.nombre_comercial'),
+                    'direccion' => config('sunat-api.direccion'),
+                    'ubigeo' => config('sunat-api.ubigeo'),
+                    'departamento' => config('sunat-api.departamento'),
+                    'provincia' => config('sunat-api.provincia'),
+                    'distrito' => config('sunat-api.distrito'),
                 ],
             ],
         ]);

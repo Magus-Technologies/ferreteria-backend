@@ -38,15 +38,15 @@ class EnviarComprobantesASunatJob implements ShouldQueue
     {
 
         // 1. PROCESAR FACTURAS (01)
-        if (Cache::get('greenter_auto_send_factura_enabled', config('greenter.auto_send_factura_enabled', false))) {
-            $afterDays = (int) Cache::get('greenter_auto_send_factura_after_days', config('greenter.auto_send_factura_after_days', 3));
+        if (Cache::get('sunat_api_auto_send_factura_enabled', config('sunat-api.auto_send_factura_enabled', false))) {
+            $afterDays = (int) Cache::get('sunat_api_auto_send_factura_after_days', config('sunat-api.auto_send_factura_after_days', 3));
             $this->procesarTipoDocumento($facturaService, '01', 'factura', $afterDays);
         } else {
         }
 
         // 2. PROCESAR BOLETAS (03)
-        if (Cache::get('greenter_auto_send_boleta_enabled', config('greenter.auto_send_boleta_enabled', false))) {
-            $afterDays = (int) Cache::get('greenter_auto_send_boleta_after_days', config('greenter.auto_send_boleta_after_days', 0));
+        if (Cache::get('sunat_api_auto_send_boleta_enabled', config('sunat-api.auto_send_boleta_enabled', false))) {
+            $afterDays = (int) Cache::get('sunat_api_auto_send_boleta_after_days', config('sunat-api.auto_send_boleta_after_days', 0));
             $this->procesarTipoDocumento($facturaService, '03', 'boleta', $afterDays);
         } else {
         }

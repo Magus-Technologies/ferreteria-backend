@@ -8,7 +8,7 @@ use App\Models\Venta;
 use App\Models\ComprobanteElectronico;
 use App\Repositories\Interfaces\ComprobanteElectronicoRepositoryInterface;
 use App\Services\Interfaces\FacturaServiceInterface;
-use App\Services\Interfaces\GreenterServiceInterface;
+use App\Services\Interfaces\SunatApiServiceInterface;
 use App\Services\Interfaces\XmlStorageServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -31,7 +31,7 @@ class FacturaService implements FacturaServiceInterface
 {
     public function __construct(
         private ComprobanteElectronicoRepositoryInterface $comprobanteRepository,
-        private GreenterServiceInterface $greenterService,
+        private SunatApiServiceInterface $sunatApiService,
         private XmlStorageServiceInterface $xmlStorageService
     ) {}
 
@@ -70,7 +70,7 @@ class FacturaService implements FacturaServiceInterface
 
 
             // SOLO GENERAR XML (NO ENVIAR A SUNAT)
-            $xml = $this->greenterService->generarXmlFactura($dataGreenter);
+            $xml = $this->sunatApiService->generarXmlFactura($dataGreenter);
 
             $hashCpe = hash('sha256', $xml);
 
@@ -84,7 +84,7 @@ class FacturaService implements FacturaServiceInterface
             );
 
             // Guardar XML
-            $ruc = config('greenter.ruc');
+            $ruc = config('sunat-api.ruc');
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, $tipoDocumento, $venta->serie, $venta->numero);
             $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
 
@@ -248,14 +248,14 @@ class FacturaService implements FacturaServiceInterface
             $dataGreenter = $this->prepararDatosParaGreenter($venta, true); // true = validar para SUNAT
 
             // Generar y enviar a SUNAT
-            $resultado = $this->greenterService->generarYEnviarFactura($dataGreenter);
+            $resultado = $this->sunatApiService->generarYEnviarFactura($dataGreenter);
 
             if (!$resultado['success']) {
                 throw FacturaException::facturaNoEnviable('Error al generar XML o enviar a SUNAT');
             }
 
             // Guardar archivos XML y CDR
-            $ruc = config('greenter.ruc');
+            $ruc = config('sunat-api.ruc');
             $tipoDoc = $venta->tipo_documento === '01' ? '01' : '03';
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, $tipoDoc, $venta->serie, $venta->numero);
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, $tipoDoc, $venta->serie, $venta->numero);
@@ -349,10 +349,10 @@ class FacturaService implements FacturaServiceInterface
     public function consultarEstadoSunat(string $ventaId): array
     {
         $venta = $this->validarYObtenerVenta($ventaId);
-        $ruc = config('greenter.ruc');
+        $ruc = config('sunat-api.ruc');
         $tipoDoc = $venta->tipo_documento === '01' ? '01' : '03';
         
-        return $this->greenterService->consultarEstado(
+        return $this->sunatApiService->consultarEstado(
             $ruc,
             $tipoDoc,
             $venta->serie,
@@ -738,7 +738,7 @@ class FacturaService implements FacturaServiceInterface
             $clienteTipoDoc = $cliente->tipo_documento === 'ruc' ? '6' : '1';
 
             $qrText = implode('|', [
-                config('greenter.ruc'),
+                config('sunat-api.ruc'),
                 $tipoDocumento,
                 $venta->serie,
                 $venta->numero,

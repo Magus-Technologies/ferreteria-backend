@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Empresa extends Model
 {
-    protected $table = 'empresa'; // Tabla en singular
+    protected $table = 'empresa';
     public $timestamps = false;
 
     protected $fillable = [
@@ -31,27 +31,13 @@ class Empresa extends Model
         'celular',
         'email',
         'tipo_identificacion',
-        // Logo
         'logo',
-        // Gerente o Administrador
-        'gerente_nombre',
-        'gerente_email',
-        'gerente_celular',
-        // Facturación
-        'facturacion_nombre',
-        'facturacion_email',
-        'facturacion_celular',
-        // Contabilidad
-        'contabilidad_nombre',
-        'contabilidad_email',
-        'contabilidad_celular',
-        // Términos de impresión
-        'terminos_comprobantes_ventas',
-        'terminos_letras_cambio',
-        'terminos_guias_remision',
-        'terminos_cotizaciones',
-        'terminos_ordenes_compras',
         'imprimir_impuestos_boleta',
+        'sol_user',
+        'sol_pass',
+        'sunat_client_id',
+        'sunat_secret_client',
+        'sunat_modo',
     ];
 
     protected function casts(): array
@@ -61,6 +47,7 @@ class Empresa extends Model
             'serie_salida' => 'integer',
             'serie_recepcion_almacen' => 'integer',
             'imprimir_impuestos_boleta' => 'boolean',
+            'sunat_modo' => 'string',
         ];
     }
 
@@ -82,5 +69,20 @@ class Empresa extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    public function contactos(): HasMany
+    {
+        return $this->hasMany(ContactoEmpresa::class, 'empresa_id');
+    }
+
+    public function terminos(): HasMany
+    {
+        return $this->hasMany(TerminoEmpresa::class, 'empresa_id');
+    }
+
+    public function direcciones(): HasMany
+    {
+        return $this->hasMany(DireccionEmpresa::class, 'empresa_id');
     }
 }
