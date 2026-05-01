@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Empresa;
 use App\Services\Interfaces\SunatApiServiceInterface;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -9,24 +10,52 @@ use Illuminate\Support\Facades\Log;
 class SunatApiService implements SunatApiServiceInterface
 {
     private string $baseUrl;
-    private string $endpoint;
-    private array $empresa;
 
     public function __construct()
     {
         $this->baseUrl = rtrim(config('sunat-api.url'), '/') . '/api/v1';
-        $this->endpoint = config('sunat-api.endpoint', 'beta');
-        $this->empresa = [
-            'ruc' => config('sunat-api.ruc'),
-            'usuario' => config('sunat-api.sol_user'),
-            'clave' => config('sunat-api.sol_pass'),
-            'razon_social' => config('sunat-api.razon_social'),
-            'nombreComercial' => config('sunat-api.nombre_comercial'),
-            'direccion' => config('sunat-api.direccion'),
-            'ubigeo' => config('sunat-api.ubigeo'),
-            'distrito' => config('sunat-api.distrito'),
-            'provincia' => config('sunat-api.provincia'),
-            'departamento' => config('sunat-api.departamento'),
+    }
+
+    private function getEmpresa(): array
+    {
+        $empresa = Empresa::first();
+
+        if (!$empresa) {
+            $modo = 'beta';
+            return [
+                'ruc' => '20000000001',
+                'usuario' => 'MODDATOS',
+                'clave' => 'moddatos',
+                'razon_social' => 'MI EMPRESA SAC',
+                'nombreComercial' => 'MI EMPRESA',
+                'direccion' => 'AV. EJEMPLO 123',
+                'ubigeo' => '150101',
+                'distrito' => 'LIMA',
+                'provincia' => 'LIMA',
+                'departamento' => 'LIMA',
+                'modo' => $modo,
+                'client_id' => '',
+                'secret_client' => '',
+            ];
+        }
+
+        $modo = $empresa->sunat_modo ?? 'beta';
+        $ruc = $modo === 'beta' ? '20000000001' : $empresa->ruc;
+
+        return [
+            'ruc' => $ruc,
+            'usuario' => $modo === 'beta' ? 'MODDATOS' : ($empresa->sol_user ?? ''),
+            'clave' => $modo === 'beta' ? 'moddatos' : ($empresa->sol_pass ?? ''),
+            'razon_social' => $empresa->razon_social,
+            'nombreComercial' => $empresa->nombre_comercial,
+            'direccion' => $empresa->direccion,
+            'ubigeo' => $empresa->ubigeo ?? '150101',
+            'distrito' => $empresa->distrito ?? 'LIMA',
+            'provincia' => $empresa->provincia ?? 'LIMA',
+            'departamento' => $empresa->departamento ?? 'LIMA',
+            'modo' => $modo,
+            'client_id' => $empresa->sunat_client_id ?? '',
+            'secret_client' => $empresa->sunat_secret_client ?? '',
         ];
     }
 
@@ -66,22 +95,15 @@ class SunatApiService implements SunatApiServiceInterface
                 'hash_cdr' => hash('sha256', base64_decode($cdrContent) ?: $cdrContent),
                 'codigo_sunat' => '0',
                 'mensaje_sunat' => $sendResult['mensaje'] ?: 'La Factura ha sido aceptada',
-                'modo' => $this->obtenerModo(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
             ];
         } catch (\Exception $e) {
-            Log::error('[SunatApiService] Error generarYEnviarFactura', [
-                'error' => $e->getMessage(),
-            ]);
-
+            Log::error('[SunatApiService] Error generarYEnviarFactura', ['error' => $e->getMessage()]);
             return [
-                'success' => false,
-                'xml' => '',
-                'cdr' => '',
-                'hash_cpe' => '',
-                'hash_cdr' => '',
-                'codigo_sunat' => '98',
-                'mensaje_sunat' => $e->getMessage(),
-                'modo' => $this->obtenerModo(),
+                'success' => false, 'xml' => '', 'cdr' => '',
+                'hash_cpe' => '', 'hash_cdr' => '',
+                'codigo_sunat' => '98', 'mensaje_sunat' => $e->getMessage(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
             ];
         }
     }
@@ -133,22 +155,15 @@ class SunatApiService implements SunatApiServiceInterface
                 'hash_cdr' => hash('sha256', base64_decode($cdrContent) ?: $cdrContent),
                 'codigo_sunat' => '0',
                 'mensaje_sunat' => $sendResult['mensaje'] ?: 'Nota de Crédito aceptada',
-                'modo' => $this->obtenerModo(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
             ];
         } catch (\Exception $e) {
-            Log::error('[SunatApiService] Error generarYEnviarNotaCredito', [
-                'error' => $e->getMessage(),
-            ]);
-
+            Log::error('[SunatApiService] Error generarYEnviarNotaCredito', ['error' => $e->getMessage()]);
             return [
-                'success' => false,
-                'xml' => '',
-                'cdr' => '',
-                'hash_cpe' => '',
-                'hash_cdr' => '',
-                'codigo_sunat' => '98',
-                'mensaje_sunat' => $e->getMessage(),
-                'modo' => $this->obtenerModo(),
+                'success' => false, 'xml' => '', 'cdr' => '',
+                'hash_cpe' => '', 'hash_cdr' => '',
+                'codigo_sunat' => '98', 'mensaje_sunat' => $e->getMessage(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
             ];
         }
     }
@@ -200,22 +215,15 @@ class SunatApiService implements SunatApiServiceInterface
                 'hash_cdr' => hash('sha256', base64_decode($cdrContent) ?: $cdrContent),
                 'codigo_sunat' => '0',
                 'mensaje_sunat' => $sendResult['mensaje'] ?: 'Nota de Débito aceptada',
-                'modo' => $this->obtenerModo(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
             ];
         } catch (\Exception $e) {
-            Log::error('[SunatApiService] Error generarYEnviarNotaDebito', [
-                'error' => $e->getMessage(),
-            ]);
-
+            Log::error('[SunatApiService] Error generarYEnviarNotaDebito', ['error' => $e->getMessage()]);
             return [
-                'success' => false,
-                'xml' => '',
-                'cdr' => '',
-                'hash_cpe' => '',
-                'hash_cdr' => '',
-                'codigo_sunat' => '98',
-                'mensaje_sunat' => $e->getMessage(),
-                'modo' => $this->obtenerModo(),
+                'success' => false, 'xml' => '', 'cdr' => '',
+                'hash_cpe' => '', 'hash_cdr' => '',
+                'codigo_sunat' => '98', 'mensaje_sunat' => $e->getMessage(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
             ];
         }
     }
@@ -252,13 +260,15 @@ class SunatApiService implements SunatApiServiceInterface
                 throw new \Exception($xmlResult['mensaje'] ?? 'Error al generar XML');
             }
 
+            $empresa = $this->getEmpresa();
+
             $sendPayload = [
-                'endpoint' => $this->endpoint,
-                'ruc' => (int) $this->empresa['ruc'],
-                'usuario' => $this->empresa['usuario'],
-                'clave' => $this->empresa['clave'],
-                'client_id' => config('sunat-api.client_id'),
-                'secret_client' => config('sunat-api.secret_client'),
+                'endpoint' => $empresa['modo'],
+                'ruc' => (int) $empresa['ruc'],
+                'usuario' => $empresa['usuario'],
+                'clave' => $empresa['clave'],
+                'client_id' => $empresa['client_id'],
+                'secret_client' => $empresa['secret_client'],
                 'nombre_documento' => $xmlResult['data']['nombre_archivo'],
                 'contenido_documento' => $xmlResult['data']['contenido_xml'],
             ];
@@ -285,23 +295,16 @@ class SunatApiService implements SunatApiServiceInterface
                 'hash_cdr' => $cdrContent ? hash('sha256', base64_decode($cdrContent) ?: $cdrContent) : '',
                 'codigo_sunat' => '0',
                 'mensaje_sunat' => $sendResult['mensaje'] ?: 'Guía aceptada',
-                'modo' => $this->obtenerModo(),
+                'modo' => strtoupper($empresa['modo']),
                 'ticker' => $sendResult['ticker'] ?? null,
             ];
         } catch (\Exception $e) {
-            Log::error('[SunatApiService] Error generarYEnviarGuiaRemision', [
-                'error' => $e->getMessage(),
-            ]);
-
+            Log::error('[SunatApiService] Error generarYEnviarGuiaRemision', ['error' => $e->getMessage()]);
             return [
-                'success' => false,
-                'xml' => '',
-                'cdr' => '',
-                'hash_cpe' => '',
-                'hash_cdr' => '',
-                'codigo_sunat' => '98',
-                'mensaje_sunat' => $e->getMessage(),
-                'modo' => $this->obtenerModo(),
+                'success' => false, 'xml' => '', 'cdr' => '',
+                'hash_cpe' => '', 'hash_cdr' => '',
+                'codigo_sunat' => '98', 'mensaje_sunat' => $e->getMessage(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
             ];
         }
     }
@@ -311,7 +314,7 @@ class SunatApiService implements SunatApiServiceInterface
         return [
             'success' => false,
             'estado' => 'NO_DISPONIBLE',
-            'mensaje' => 'Consulta directa a SUNAT no disponible con API externa. Verifique el estado en el CDR almacenado.',
+            'mensaje' => 'Consulta directa a SUNAT no disponible con API externa.',
         ];
     }
 
@@ -322,7 +325,7 @@ class SunatApiService implements SunatApiServiceInterface
 
     public function obtenerDatosEmpresa(): array
     {
-        return $this->empresa;
+        return $this->getEmpresa();
     }
 
     private function callGenerarComprobante(array $data): array
@@ -344,11 +347,13 @@ class SunatApiService implements SunatApiServiceInterface
 
     private function callEnviarDocumento(string $nombreDocumento, string $contenidoDocumento): array
     {
+        $empresa = $this->getEmpresa();
+
         $payload = [
-            'endpoint' => $this->endpoint,
-            'ruc' => (int) $this->empresa['ruc'],
-            'usuario' => $this->empresa['usuario'],
-            'clave' => $this->empresa['clave'],
+            'endpoint' => $empresa['modo'],
+            'ruc' => (int) $empresa['ruc'],
+            'usuario' => $empresa['usuario'],
+            'clave' => $empresa['clave'],
             'nombre_documento' => $nombreDocumento,
             'contenido_documento' => $contenidoDocumento,
         ];
@@ -372,6 +377,7 @@ class SunatApiService implements SunatApiServiceInterface
 
     private function buildComprobantePayload(array $data): array
     {
+        $empresa = $this->getEmpresa();
         $cliente = $data['cliente'] ?? [];
         $items = $data['items'] ?? [];
 
@@ -387,9 +393,20 @@ class SunatApiService implements SunatApiServiceInterface
         }
 
         return [
-            'endpoint' => $this->endpoint,
+            'endpoint' => $empresa['modo'],
             'documento' => ($data['tipo_doc'] ?? '01') === '01' ? 'factura' : 'boleta',
-            'empresa' => $this->empresa,
+            'empresa' => [
+                'ruc' => (int) $empresa['ruc'],
+                'usuario' => $empresa['usuario'],
+                'clave' => $empresa['clave'],
+                'razon_social' => $empresa['razon_social'],
+                'nombreComercial' => $empresa['nombreComercial'],
+                'direccion' => $empresa['direccion'],
+                'ubigeo' => $empresa['ubigeo'],
+                'distrito' => $empresa['distrito'],
+                'provincia' => $empresa['provincia'],
+                'departamento' => $empresa['departamento'],
+            ],
             'cliente' => [
                 'num_doc' => $cliente['num_doc'] ?? '',
                 'rzn_social' => $cliente['razon_social'] ?? '',
@@ -406,6 +423,7 @@ class SunatApiService implements SunatApiServiceInterface
 
     private function buildNotaPayload(array $data, string $tipo): array
     {
+        $empresa = $this->getEmpresa();
         $cliente = $data['cliente'] ?? [];
         $items = $data['items'] ?? [];
 
@@ -421,9 +439,20 @@ class SunatApiService implements SunatApiServiceInterface
         }
 
         return [
-            'endpoint' => $this->endpoint,
+            'endpoint' => $empresa['modo'],
             'documento' => $tipo,
-            'empresa' => $this->empresa,
+            'empresa' => [
+                'ruc' => (int) $empresa['ruc'],
+                'usuario' => $empresa['usuario'],
+                'clave' => $empresa['clave'],
+                'razon_social' => $empresa['razon_social'],
+                'nombreComercial' => $empresa['nombreComercial'],
+                'direccion' => $empresa['direccion'],
+                'ubigeo' => $empresa['ubigeo'],
+                'distrito' => $empresa['distrito'],
+                'provincia' => $empresa['provincia'],
+                'departamento' => $empresa['departamento'],
+            ],
             'cliente' => [
                 'num_doc' => $cliente['num_doc'] ?? '',
                 'rzn_social' => $cliente['razon_social'] ?? '',
@@ -444,6 +473,7 @@ class SunatApiService implements SunatApiServiceInterface
 
     private function buildGuiaPayload(array $data): array
     {
+        $empresa = $this->getEmpresa();
         $cliente = $data['destinatario'] ?? $data['cliente'] ?? [];
         $items = $data['items'] ?? [];
         $transportista = $data['transportista'] ?? null;
@@ -464,16 +494,27 @@ class SunatApiService implements SunatApiServiceInterface
             'fecha_traslado' => $data['fecha_traslado'] ?? $data['fecha'] ?? now()->format('Y-m-d'),
             'peso_total' => (float) ($data['peso_total'] ?? 0.1),
             'unidad_medida' => 'KGM',
-            'ubigeo_salida' => $data['ubigeo_partida'] ?? $this->empresa['ubigeo'],
-            'direccion_salida' => $data['direccion_partida'] ?? $this->empresa['direccion'],
-            'ubigeo_llegada' => $data['ubigeo_llegada'] ?? $this->empresa['ubigeo'],
+            'ubigeo_salida' => $data['ubigeo_partida'] ?? $empresa['ubigeo'],
+            'direccion_salida' => $data['direccion_partida'] ?? $empresa['direccion'],
+            'ubigeo_llegada' => $data['ubigeo_llegada'] ?? $empresa['ubigeo'],
             'direccion_llegada' => $data['direccion_llegada'] ?? '',
         ];
 
         $payload = [
-            'endpoint' => $this->endpoint,
+            'endpoint' => $empresa['modo'],
             'documento' => $data['tipo_guia'] ?? 'remitente',
-            'empresa' => $this->empresa,
+            'empresa' => [
+                'ruc' => (int) $empresa['ruc'],
+                'usuario' => $empresa['usuario'],
+                'clave' => $empresa['clave'],
+                'razon_social' => $empresa['razon_social'],
+                'nombreComercial' => $empresa['nombreComercial'],
+                'direccion' => $empresa['direccion'],
+                'ubigeo' => $empresa['ubigeo'],
+                'distrito' => $empresa['distrito'],
+                'provincia' => $empresa['provincia'],
+                'departamento' => $empresa['departamento'],
+            ],
             'cliente' => [
                 'num_doc' => $cliente['num_doc'] ?? '',
                 'rzn_social' => $cliente['razon_social'] ?? '',
@@ -507,11 +548,6 @@ class SunatApiService implements SunatApiServiceInterface
         }
 
         return $payload;
-    }
-
-    private function obtenerModo(): string
-    {
-        return 'PRODUCCION';
     }
 
     private function extraerCodigoSunat(string $cdrBase64): string
