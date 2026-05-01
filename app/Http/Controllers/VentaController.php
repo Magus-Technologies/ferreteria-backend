@@ -2185,7 +2185,7 @@ class VentaController extends Controller
             $cobro = $venta->cobrosVenta()->create([
                 'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
                 'monto'                 => $validated['monto'],
-                'fecha'                 => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
+                'fecha'                 => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d H:i:s'),
                 'observacion'           => $validated['observacion'] ?? null,
                 'numero_letra'          => $validated['numero_letra'] ?? null,
                 'numero_operacion'      => $validated['numero_operacion'] ?? null,
@@ -2269,7 +2269,7 @@ class VentaController extends Controller
                 $cobro = $venta->cobrosVenta()->create([
                     'despliegue_de_pago_id' => $desplieguePagoId,
                     'monto'                 => $item['monto'],
-                    'fecha'                 => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
+                    'fecha'                 => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d H:i:s'),
                     'observacion'           => $validated['observacion'] ?? null,
                     'numero_operacion'      => $validated['numero_operacion'] ?? null,
                     'estado'                => true,
