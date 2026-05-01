@@ -39,6 +39,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{id}/historial', [VentaController::class, 'getHistorial']);
         Route::get('/{id}/cobros', [VentaController::class, 'getCobros']);   // Listar cobros de una venta
         Route::post('/{id}/cobros', [VentaController::class, 'storeCobro']); // Registrar un cobro
+        Route::put('/{ventaId}/cobros/{cobroId}/anular', [VentaController::class, 'anularCobro']); // Anular un cobro
     });
     Route::apiResource('ventas', VentaController::class)->middleware(['caja.abierta', 'broadcast:ventas']);
 

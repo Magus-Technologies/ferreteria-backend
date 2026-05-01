@@ -2300,4 +2300,55 @@ class VentaController extends Controller
             ], 201);
         });
     }
+
+    /**
+     * Anular un cobro de venta
+     */
+    public function anularCobro(Request $request, string $ventaId, string $cobroId)
+    {
+        $validated = $request->validate([
+            'motivo' => 'nullable|string|max:500',
+        ]);
+
+        return DB::transaction(function () use ($ventaId, $cobroId, $validated) {
+            $venta = Venta::with([
+                'productosPorAlmacen.unidadesDerivadas',
+                'cobrosVenta' => fn($q) => $q->where('estado', true),
+            ])->findOrFail($ventaId);
+
+            $cobro = \App\Models\CobroVenta::where('id', $cobroId)
+                ->where('venta_id', $ventaId)
+                ->firstOrFail();
+
+            // Validar que el cobro no esté ya anulado
+            if (!$cobro->estado) {
+                return response()->json([
+                    'error' => ['message' => 'El cobro ya está anulado'],
+                ], 422);
+            }
+
+            // Anular el cobro (cambiar estado a false)
+            $cobro->update([
+                'estado' => false,
+                'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '') . 
+                                 'ANULADO: ' . ($validated['motivo'] ?? 'Sin motivo especificado'),
+            ]);
+
+            // Recalcular el total cobrado (solo cobros activos)
+            $totalVenta = $this->getTotalVenta($venta);
+            $totalCobradoActivo = $venta->cobrosVenta()->where('estado', true)->sum('monto');
+            $saldoPendiente = $totalVenta - $totalCobradoActivo;
+
+            // Si había quedado como Procesado pero ahora tiene saldo pendiente, volver a Pendiente
+            if ($venta->estado_de_venta === EstadoDeVenta::Procesado && $saldoPendiente > 0.01) {
+                $venta->update(['estado_de_venta' => EstadoDeVenta::Pendiente]);
+            }
+
+            return response()->json([
+                'data'    => $cobro->fresh(),
+                'message' => 'Cobro anulado correctamente',
+                'saldo_pendiente' => $saldoPendiente,
+            ], 200);
+        });
+    }
 }
