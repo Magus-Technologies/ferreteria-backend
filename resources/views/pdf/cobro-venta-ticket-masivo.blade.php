@@ -22,10 +22,14 @@
             width: 74mm;
             margin: 0 auto;
             padding: 3mm 0;
-            page-break-after: always;
+            /* Removed page-break-after for continuous thermal printing */
+            border-bottom: 2px dashed #000;
+            padding-bottom: 5mm;
+            margin-bottom: 5mm;
         }
         .ticket:last-child {
-            page-break-after: auto;
+            border-bottom: none;
+            margin-bottom: 0;
         }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
