@@ -23,4 +23,14 @@ interface GananciasServiceInterface
      * Enviar reporte por correo electrónico
      */
     public function enviarReportePorCorreo(string $email, array $filtros): void;
+
+    /**
+     * Obtener pagos de compras
+     */
+    public function obtenerPagosCompras(array $filtros): array;
+
+    /**
+     * Obtener detalle de pérdidas
+     */
+    public function obtenerPerdidasDetalle(array $filtros): array;
 }

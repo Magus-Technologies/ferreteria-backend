@@ -28,5 +28,11 @@ Route::middleware('auth:sanctum')->group(function () {
         
         // Enviar por correo
         Route::post('/enviar-correo', [GananciasController::class, 'enviarCorreo']);
+
+        // Obtener pagos de compras
+        Route::get('/pagos-compras', [GananciasController::class, 'pagosCompras']);
+
+        // Obtener detalle de pérdidas
+        Route::get('/perdidas-detalle', [GananciasController::class, 'perdidasDetalle']);
     });
 });

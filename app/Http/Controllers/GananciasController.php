@@ -148,4 +148,43 @@ class GananciasController extends Controller
             'message' => 'Reporte enviado por correo exitosamente'
         ]);
     }
+    /**
+     * Obtener listado de pagos de compras
+     */
+    public function pagosCompras(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'required|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'search' => 'sometimes|string',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta', 'search']);
+        $pagos = $this->gananciasService->obtenerPagosCompras($filtros);
+
+        return response()->json([
+            'data' => $pagos
+        ]);
+    }
+
+    /**
+     * Obtener detalle de pérdidas
+     */
+    public function perdidasDetalle(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'required|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'search' => 'sometimes|string',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta', 'search']);
+        $perdidas = $this->gananciasService->obtenerPerdidasDetalle($filtros);
+
+        return response()->json([
+            'data' => $perdidas
+        ]);
+    }
 }

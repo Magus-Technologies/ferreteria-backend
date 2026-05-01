@@ -116,7 +116,7 @@ class GananciasService implements GananciasServiceInterface
                 SUM(CASE WHEN udiv.precio < (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) THEN ((CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) - udiv.precio) * udiv.cantidad ELSE 0 END) as total_perdida
             ')->first();
 
-        $gastosU = DB::table('unidadderivadainmutablecompra as udic')
+        $gastosUQuery = DB::table('unidadderivadainmutablecompra as udic')
             ->join('productoalmacencompra as pac', 'udic.producto_almacen_compra_id', '=', 'pac.id')
             ->join('compra as comp', 'pac.compra_id', '=', 'comp.id')
             ->where('comp.estado_de_compra', '!=', 'an')
@@ -129,12 +129,35 @@ class GananciasService implements GananciasServiceInterface
             ->when(!empty($filtros['hasta']), function ($q) use ($filtros) {
                 return $q->whereDate('comp.fecha', '<=', $filtros['hasta']);
             })
-            ->sum(DB::raw('udic.cantidad * pac.costo'));
+            ->selectRaw('SUM(udic.cantidad * pac.costo) as subtotal, ANY_VALUE(comp.percepcion) as percepcion')
+            ->groupBy('comp.id')
+            ->get();
+
+        $gastosU = $gastosUQuery->sum('subtotal') + $gastosUQuery->sum('percepcion');
 
         $totalVentas = $resumen->total_ventas ?? 0;
         $totalCosto = $resumen->total_costo ?? 0;
         $totalGanancia = $resumen->total_ganancia ?? 0;
-        $totalPerdida = $resumen->total_perdida ?? 0;
+        $totalPerdidaVentas = $resumen->total_perdida ?? 0;
+
+        // Calcular pérdidas por salidas de almacén
+        $totalPerdidaSalidas = DB::table('unidadderivadainmutableingresosalida as udis')
+            ->join('productoalmaceningresosalida as pais', 'udis.producto_almacen_ingreso_salida_id', '=', 'pais.id')
+            ->join('ingresosalida as is', 'pais.ingreso_id', '=', 'is.id')
+            ->where('is.tipo_documento', 'sa') // Salida
+            ->where('is.estado', true)
+            ->when(!empty($filtros['almacen_id']), function ($q) use ($filtros) {
+                return $q->where('is.almacen_id', $filtros['almacen_id']);
+            })
+            ->when(!empty($filtros['desde']), function ($q) use ($filtros) {
+                return $q->whereDate('is.fecha', '>=', $filtros['desde']);
+            })
+            ->when(!empty($filtros['hasta']), function ($q) use ($filtros) {
+                return $q->whereDate('is.fecha', '<=', $filtros['hasta']);
+            })
+            ->sum(DB::raw('udis.cantidad * pais.costo'));
+
+        $totalPerdida = $totalPerdidaVentas + $totalPerdidaSalidas;
         $neto = $totalGanancia - $gastosU - $totalPerdida;
 
         return [
@@ -324,6 +347,186 @@ class GananciasService implements GananciasServiceInterface
             'neto' => round($neto, 2),
             'perdida' => round($totalPerdida, 2),
             'total_registros' => $datos->count()
+        ];
+    }
+
+    /**
+     * Obtener pagos de compras detallados
+     */
+    public function obtenerPagosCompras(array $filtros): array
+    {
+        $pagos = DB::table('pagodecompra as p')
+            ->join('compra as c', 'p.compra_id', '=', 'c.id')
+            ->join('proveedor as prov', 'c.proveedor_id', '=', 'prov.id')
+            ->leftJoin('desplieguedepago as dp', 'p.despliegue_de_pago_id', '=', 'dp.id')
+            ->select([
+                'p.id',
+                'p.fecha',
+                'p.monto',
+                'p.numero_operacion',
+                'p.observacion',
+                'prov.razon_social as proveedor',
+                'c.serie',
+                'c.numero',
+                'dp.id as despliegue_id',
+                'dp.name as metodo_pago'
+            ])
+            ->where('p.estado', true)
+            ->where('c.estado_de_compra', '!=', 'an')
+            ->when(!empty($filtros['almacen_id']), function ($q) use ($filtros) {
+                return $q->where('c.almacen_id', $filtros['almacen_id']);
+            })
+            ->when(!empty($filtros['desde']), function ($q) use ($filtros) {
+                return $q->whereDate('p.fecha', '>=', $filtros['desde']);
+            })
+            ->when(!empty($filtros['hasta']), function ($q) use ($filtros) {
+                return $q->whereDate('p.fecha', '<=', $filtros['hasta']);
+            })
+            ->when(!empty($filtros['search']), function ($q) use ($filtros) {
+                $search = $filtros['search'];
+                return $q->where(function ($query) use ($search) {
+                    $query->where('prov.razon_social', 'like', "%{$search}%")
+                        ->orWhere('c.serie', 'like', "%{$search}%")
+                        ->orWhere('c.numero', 'like', "%{$search}%")
+                        ->orWhere('p.numero_operacion', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('p.fecha', 'desc')
+            ->get();
+
+        // Calcular resumen para el modal
+        // Obtenemos las compras que se realizaron en este periodo
+        $comprasPeriodo = DB::table('compra as comp')
+            ->where('comp.estado_de_compra', '!=', 'an')
+            ->when(!empty($filtros['almacen_id']), function ($q) use ($filtros) {
+                return $q->where('comp.almacen_id', $filtros['almacen_id']);
+            })
+            ->when(!empty($filtros['desde']), function ($q) use ($filtros) {
+                return $q->whereDate('comp.fecha', '>=', $filtros['desde']);
+            })
+            ->when(!empty($filtros['hasta']), function ($q) use ($filtros) {
+                return $q->whereDate('comp.fecha', '<=', $filtros['hasta']);
+            })
+            ->select('comp.id', 'comp.percepcion')
+            ->get();
+
+        $compraIds = $comprasPeriodo->pluck('id');
+
+        // Total bruto de las compras (items + percepcion)
+        $totalComprasBruto = DB::table('unidadderivadainmutablecompra as udic')
+            ->join('productoalmacencompra as pac', 'udic.producto_almacen_compra_id', '=', 'pac.id')
+            ->whereIn('pac.compra_id', $compraIds)
+            ->sum(DB::raw('udic.cantidad * pac.costo'));
+        
+        $totalPercepciones = $comprasPeriodo->sum('percepcion');
+        $totalCompras = $totalComprasBruto + $totalPercepciones;
+
+        // Total Pagado EN EL PERIODO (lo que se muestra en la tabla)
+        $totalPagadoPeriodo = $pagos->sum('monto');
+
+        // Para el saldo pendiente, necesitamos saber cuánto se debe de las compras realizadas en este periodo
+        // Independientemente de cuándo se hicieron los pagos
+        $totalPagadoDeEstasCompras = DB::table('pagodecompra')
+            ->whereIn('compra_id', $compraIds)
+            ->where('estado', true)
+            ->sum('monto');
+
+        $pendiente = $totalCompras - $totalPagadoDeEstasCompras;
+
+        return [
+            'pagos' => $pagos->toArray(),
+            'resumen' => [
+                'total_compras' => round($totalCompras, 2),
+                'total_pagado' => round($totalPagadoPeriodo, 2),
+                'pendiente' => round(max(0, $pendiente), 2),
+            ]
+        ];
+    }
+
+    /**
+     * Obtener detalle de pérdidas (Ventas bajo costo y Salidas de Almacén)
+     */
+    public function obtenerPerdidasDetalle(array $filtros): array
+    {
+        // 1. Pérdidas por Ventas bajo costo
+        $perdidasVentas = DB::table('unidadderivadainmutableventa as udiv')
+            ->join('productoalmacenventa as pav', 'udiv.producto_almacen_venta_id', '=', 'pav.id')
+            ->join('venta as v', 'pav.venta_id', '=', 'v.id')
+            ->leftJoin('productoalmacen as pa', 'pav.producto_almacen_id', '=', 'pa.id')
+            ->leftJoin('producto as p', 'pa.producto_id', '=', 'p.id')
+            ->select([
+                'v.fecha',
+                'p.name as producto',
+                DB::raw("'VENTA BAJO COSTO' as motivo"),
+                DB::raw("((CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) - udiv.precio) * udiv.cantidad as monto"),
+                DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
+                'udiv.cantidad'
+            ])
+            ->where('v.estado_de_venta', '!=', 'an')
+            ->whereRaw('udiv.precio < (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)')
+            ->when(!empty($filtros['almacen_id']), function ($q) use ($filtros) {
+                return $q->where('v.almacen_id', $filtros['almacen_id']);
+            })
+            ->when(!empty($filtros['desde']), function ($q) use ($filtros) {
+                return $q->whereDate('v.fecha', '>=', $filtros['desde']);
+            })
+            ->when(!empty($filtros['hasta']), function ($q) use ($filtros) {
+                return $q->whereDate('v.fecha', '<=', $filtros['hasta']);
+            })
+            ->when(!empty($filtros['search']), function ($q) use ($filtros) {
+                $search = $filtros['search'];
+                return $q->where(function ($query) use ($search) {
+                    $query->where('p.name', 'like', "%{$search}%")
+                        ->orWhere('v.numero', 'like', "%{$search}%");
+                });
+            })
+            ->get();
+
+        // 2. Pérdidas por Salidas de Almacén (Tipo Salida)
+        $perdidasSalidas = DB::table('unidadderivadainmutableingresosalida as udis')
+            ->join('productoalmaceningresosalida as pais', 'udis.producto_almacen_ingreso_salida_id', '=', 'pais.id')
+            ->join('ingresosalida as is', 'pais.ingreso_id', '=', 'is.id')
+            ->leftJoin('productoalmacen as pa', 'pais.producto_almacen_id', '=', 'pa.id')
+            ->leftJoin('producto as p', 'pa.producto_id', '=', 'p.id')
+            ->leftJoin('tipoingresosalida as tis', 'is.tipo_ingreso_id', '=', 'tis.id')
+            ->select([
+                'is.fecha',
+                'p.name as producto',
+                DB::raw("UPPER(tis.name) as motivo"),
+                DB::raw("pais.costo * udis.cantidad as monto"),
+                DB::raw("CONCAT('SALIDA #', is.numero) as referencia"),
+                'udis.cantidad'
+            ])
+            ->where('is.tipo_documento', 'sa') // Salida
+            ->where('is.estado', true)
+            ->when(!empty($filtros['almacen_id']), function ($q) use ($filtros) {
+                return $q->where('is.almacen_id', $filtros['almacen_id']);
+            })
+            ->when(!empty($filtros['desde']), function ($q) use ($filtros) {
+                return $q->whereDate('is.fecha', '>=', $filtros['desde']);
+            })
+            ->when(!empty($filtros['hasta']), function ($q) use ($filtros) {
+                return $q->whereDate('is.fecha', '<=', $filtros['hasta']);
+            })
+            ->when(!empty($filtros['search']), function ($q) use ($filtros) {
+                $search = $filtros['search'];
+                return $q->where(function ($query) use ($search) {
+                    $query->where('p.name', 'like', "%{$search}%")
+                        ->orWhere('is.numero', 'like', "%{$search}%")
+                        ->orWhere('tis.name', 'like', "%{$search}%");
+                });
+            })
+            ->get();
+
+        $merged = $perdidasVentas->concat($perdidasSalidas)->sortByDesc('fecha');
+
+        return [
+            'detalles' => $merged->values()->toArray(),
+            'resumen' => [
+                'total_ventas_bajo_costo' => round($perdidasVentas->sum('monto'), 2),
+                'total_salidas_almacen' => round($perdidasSalidas->sum('monto'), 2),
+                'total_perdida' => round($perdidasVentas->sum('monto') + $perdidasSalidas->sum('monto'), 2),
+            ]
         ];
     }
 }
