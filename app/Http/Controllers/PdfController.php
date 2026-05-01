@@ -126,4 +126,13 @@ class PdfController extends Controller
     {
         return $service->generar($id);
     }
+
+    public function cobroVentaMultiple(Request $request, CobroVentaPdfService $service): Response
+    {
+        $ids = $request->input('ids');
+        if (!is_array($ids)) {
+            $ids = explode(',', (string) $ids);
+        }
+        return $service->generarMasivo($ids);
+    }
 }

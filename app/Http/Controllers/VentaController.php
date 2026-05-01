@@ -2296,6 +2296,7 @@ class VentaController extends Controller
                 'data'    => $ventasActualizadas,
                 'message' => 'Cobro múltiple registrado correctamente (' . count($cobrosCreados) . ' ventas)',
                 'total_cobrado' => array_sum(array_column($validated['distribucion'], 'monto')),
+                'cobros_ids' => collect($cobrosCreados)->pluck('id'),
             ], 201);
         });
     }

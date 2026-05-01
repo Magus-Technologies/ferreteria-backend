@@ -75,6 +75,87 @@ class CobroVentaPdfService
     }
 
     /**
+     * Generar PDF masivo de varios cobros.
+     */
+    public function generarMasivo(array $cobrosIds): Response
+    {
+        $cobros = CobroVenta::with([
+            'venta.cliente',
+            'venta.user.empresa',
+            'despliegueDePago.metodoDePago',
+            'user',
+        ])->whereIn('id', $cobrosIds)->get();
+
+        if ($cobros->isEmpty()) {
+            abort(404, 'No se encontraron cobros');
+        }
+
+        $items = [];
+        $logoPath = null;
+
+        foreach ($cobros as $cobro) {
+            $venta = $cobro->venta;
+            $empresa = $venta->user->empresa;
+            $cliente = $venta->cliente;
+
+            if (!$logoPath) {
+                $logoPath = PdfService::getLogoPath($empresa->logo);
+            }
+
+            $clienteNombre = $cliente?->razon_social
+                ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
+                ?: 'CLIENTES VARIOS';
+
+            $clienteDoc = $cliente?->numero_documento ?? '-';
+
+            $tipoDocMap = [
+                '01' => 'FACTURA',
+                '03' => 'BOLETA',
+                'nv' => 'NOTA DE VENTA',
+            ];
+            $tipoDoc = $tipoDocMap[$venta->tipo_documento->value ?? ''] ?? $venta->tipo_documento->value ?? '';
+            $nroDocumento = $venta->serie . '-' . str_pad($venta->numero, 8, '0', STR_PAD_LEFT);
+
+            // Calcular totales de cobros para saldo
+            $totalVenta = $venta->cobrosVenta()->where('estado', true)->sum('monto');
+            $totalNeto = $this->calcularTotalVenta($venta);
+            $saldoPendiente = $totalNeto - $totalVenta;
+
+            $metodoPago = $cobro->despliegueDePago?->metodoDePago?->name
+                ? $cobro->despliegueDePago->metodoDePago->name . ' / ' . $cobro->despliegueDePago->name
+                : $cobro->despliegueDePago?->name ?? '-';
+
+            $items[] = [
+                'empresa' => $empresa,
+                'cobro' => $cobro,
+                'venta' => $venta,
+                'clienteNombre' => $clienteNombre,
+                'clienteDoc' => $clienteDoc,
+                'tipoDoc' => $tipoDoc,
+                'nroDocumento' => $nroDocumento,
+                'metodoPago' => $metodoPago,
+                'totalNeto' => number_format($totalNeto, 2),
+                'totalCobrado' => number_format($totalVenta, 2),
+                'saldoPendiente' => number_format(max(0, $saldoPendiente), 2),
+                'registradoPor' => $cobro->user?->name ?? '-',
+            ];
+        }
+
+        $data = [
+            'cobros' => $items,
+            'logoPath' => $logoPath,
+        ];
+
+        return PdfService::render(
+            'pdf.cobro-venta-ticket-masivo',
+            $data,
+            'cobros-masivos.pdf',
+            'portrait',
+            [0, 0, 226.77, 841.89]
+        );
+    }
+
+    /**
      * Calcular el total neto de la venta desde sus productos.
      */
     private function calcularTotalVenta($venta): float
