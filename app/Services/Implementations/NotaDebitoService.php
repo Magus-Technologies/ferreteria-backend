@@ -12,7 +12,7 @@ use App\Repositories\Interfaces\NotaDebitoRepositoryInterface;
 use App\Repositories\Interfaces\ComprobanteElectronicoRepositoryInterface;
 use App\Repositories\Interfaces\MotivoNotaRepositoryInterface;
 use App\Services\Interfaces\NotaDebitoServiceInterface;
-use App\Services\Interfaces\GreenterServiceInterface;
+use App\Services\Interfaces\SunatApiServiceInterface;
 use App\Services\Interfaces\XmlStorageServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -34,7 +34,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
         private NotaDebitoRepositoryInterface $notaDebitoRepository,
         private ComprobanteElectronicoRepositoryInterface $comprobanteRepository,
         private MotivoNotaRepositoryInterface $motivoRepository,
-        private GreenterServiceInterface $greenterService,
+        private SunatApiServiceInterface $sunatApiService,
         private XmlStorageServiceInterface $xmlStorageService
     ) {}
 
@@ -89,11 +89,11 @@ class NotaDebitoService implements NotaDebitoServiceInterface
                 $dataGreenter = $this->prepararDatosParaGreenter($notaDebitoFresh);
                 
                 // Generar solo el XML (sin enviar a SUNAT)
-                $xml = $this->greenterService->generarXmlNotaDebito($dataGreenter);
+                $xml = $this->sunatApiService->generarXmlNotaDebito($dataGreenter);
                 
                 if (!empty($xml)) {
                     // Guardar XML
-                    $ruc = config('greenter.ruc');
+                    $ruc = config('sunat-api.ruc');
                     $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, '08', $notaDebito->serie, $notaDebito->numero);
                     $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
                     
@@ -281,14 +281,14 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             $dataGreenter = $this->prepararDatosParaGreenter($notaDebito);
 
             // Generar y enviar a SUNAT
-            $resultado = $this->greenterService->generarYEnviarNotaDebito($dataGreenter);
+            $resultado = $this->sunatApiService->generarYEnviarNotaDebito($dataGreenter);
 
             if (!$resultado['success']) {
                 throw NotaDebitoException::notaDebitoNoEnviable('Error al generar XML o enviar a SUNAT');
             }
 
             // Guardar archivos XML y CDR
-            $ruc = config('greenter.ruc');
+            $ruc = config('sunat-api.ruc');
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, '08', $notaDebito->serie, $notaDebito->numero);
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, '08', $notaDebito->serie, $notaDebito->numero);
 
@@ -408,9 +408,9 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             throw NotaDebitoException::notaDebitoNoEncontrada($id);
         }
 
-        $ruc = config('greenter.ruc');
+        $ruc = config('sunat-api.ruc');
         
-        return $this->greenterService->consultarEstado(
+        return $this->sunatApiService->consultarEstado(
             $ruc,
             '08',
             $notaDebito->serie,

@@ -12,7 +12,7 @@ use App\Repositories\Interfaces\NotaCreditoRepositoryInterface;
 use App\Repositories\Interfaces\ComprobanteElectronicoRepositoryInterface;
 use App\Repositories\Interfaces\MotivoNotaRepositoryInterface;
 use App\Services\Interfaces\NotaCreditoServiceInterface;
-use App\Services\Interfaces\GreenterServiceInterface;
+use App\Services\Interfaces\SunatApiServiceInterface;
 use App\Services\Interfaces\XmlStorageServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -25,7 +25,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
         private NotaCreditoRepositoryInterface $notaCreditoRepository,
         private ComprobanteElectronicoRepositoryInterface $comprobanteRepository,
         private MotivoNotaRepositoryInterface $motivoRepository,
-        private GreenterServiceInterface $greenterService,
+        private SunatApiServiceInterface $sunatApiService,
         private XmlStorageServiceInterface $xmlStorageService
     ) {}
 
@@ -72,7 +72,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             // ✅ GENERAR XML AUTOMÁTICAMENTE (sin enviar a SUNAT)
             try {
                 $dataGreenter = $this->prepararDatosParaGreenter($notaCredito->fresh(['venta.cliente', 'motivo']));
-                $xmlContent = $this->greenterService->generarXmlNotaCredito($dataGreenter);
+                $xmlContent = $this->sunatApiService->generarXmlNotaCredito($dataGreenter);
 
                 if ($xmlContent) {
                     $hashCpe = hash('sha256', $xmlContent);
@@ -256,13 +256,13 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             $motivo = $notaCredito->motivo;
 
             $dataGreenter = $this->prepararDatosParaGreenter($notaCredito);
-            $resultado = $this->greenterService->generarYEnviarNotaCredito($dataGreenter);
+            $resultado = $this->sunatApiService->generarYEnviarNotaCredito($dataGreenter);
 
             if (!$resultado['success']) {
                 throw NotaCreditoException::notaCreditoNoEnviable('Error al generar XML o enviar a SUNAT');
             }
 
-            $ruc = config('greenter.ruc');
+            $ruc = config('sunat-api.ruc');
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, '07', $notaCredito->serie, $notaCredito->numero);
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, '07', $notaCredito->serie, $notaCredito->numero);
 
@@ -384,9 +384,9 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             throw NotaCreditoException::notaCreditoNoEncontrada($id);
         }
 
-        $ruc = config('greenter.ruc');
+        $ruc = config('sunat-api.ruc');
         
-        return $this->greenterService->consultarEstado(
+        return $this->sunatApiService->consultarEstado(
             $ruc,
             '07',
             $notaCredito->serie,

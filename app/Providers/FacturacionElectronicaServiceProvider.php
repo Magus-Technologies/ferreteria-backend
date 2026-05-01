@@ -20,14 +20,14 @@ use App\Repositories\Implementations\MotivoNotaRepository;
 use App\Services\Interfaces\NotaDebitoServiceInterface;
 use App\Services\Interfaces\NotaCreditoServiceInterface;
 use App\Services\Interfaces\FacturaServiceInterface;
-use App\Services\Interfaces\GreenterServiceInterface;
+use App\Services\Interfaces\SunatApiServiceInterface;
 use App\Services\Interfaces\XmlStorageServiceInterface;
 
 // Service Implementations
 use App\Services\Implementations\NotaDebitoService;
 use App\Services\Implementations\NotaCreditoService;
 use App\Services\Implementations\FacturaService;
-use App\Services\GreenterService;
+use App\Services\SunatApiService;
 use App\Services\Implementations\XmlStorageService;
 
 /**
@@ -56,7 +56,7 @@ class FacturacionElectronicaServiceProvider extends ServiceProvider
         $this->app->bind(NotaDebitoServiceInterface::class, NotaDebitoService::class);
         $this->app->bind(NotaCreditoServiceInterface::class, NotaCreditoService::class);
         $this->app->bind(FacturaServiceInterface::class, FacturaService::class);
-        $this->app->bind(GreenterServiceInterface::class, GreenterService::class);
+        $this->app->bind(SunatApiServiceInterface::class, SunatApiService::class);
         $this->app->bind(XmlStorageServiceInterface::class, XmlStorageService::class);
     }
 
