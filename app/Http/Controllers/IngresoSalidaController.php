@@ -399,7 +399,8 @@ class IngresoSalidaController extends Controller
     {
         return DB::transaction(function () use ($id) {
             $ingresoSalida = IngresoSalida::with([
-                "productosPorAlmacen.unidadesDerivadas",
+                "productosPorAlmacen.productoAlmacen.producto",
+                "productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable",
             ])->findOrFail($id);
 
             // Verificar si ya está anulado
@@ -411,6 +412,7 @@ class IngresoSalidaController extends Controller
             }
 
             $esIngreso = $ingresoSalida->tipo_documento === TipoDocumento::Ingreso;
+            $kardexService = app(\App\Services\Kardex\KardexInventarioService::class);
 
             foreach ($ingresoSalida->productosPorAlmacen as $detalle) {
                 $productoAlmacen = $detalle->productoAlmacen;
@@ -441,6 +443,14 @@ class IngresoSalidaController extends Controller
                         "stock_anterior" => $stockAnterior,
                         "stock_nuevo" => $stockNuevo,
                     ]);
+
+                    // Registrar anulación en kardex inventario
+                    $costo = (float) $detalle->costo;
+                    if ($esIngreso) {
+                        $kardexService->registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $ud, $costo);
+                    } else {
+                        $kardexService->registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $ud, $costo);
+                    }
 
                     // Revertir producto complementario (inverso al original)
                     ComplementarioStockService::procesarComplementarioPorFactor(

@@ -26,15 +26,22 @@ class KardexInventarioService
                 ->first();
         }
 
-        // 2. Obtener el stock actual real (o usar el override si se proporciona)
+        // 2. Calcular el factor de conversión de la unidad derivada
+        // El factor se obtiene de: cantidad_fraccion / cantidad
+        $cantidad = (float) ($data['cantidad'] ?? 1);
+        $cantidadFraccion = (float) ($data['cantidad_fraccion'] ?? $cantidad);
+        $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
+
+        // 3. Obtener el stock actual real en fracción (o usar el override si se proporciona)
+        $stockAnteriorFraccion = 0;
         if (isset($data['stock_anterior_override'])) {
             // Usar el stock anterior proporcionado explícitamente
-            $stockAnterior = (float) $data['stock_anterior_override'];
+            $stockAnteriorFraccion = (float) $data['stock_anterior_override'];
             unset($data['stock_anterior_override']); // Remover para no guardarlo en la BD
         } elseif ($productoAlmacen) {
-            $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+            $stockAnteriorFraccion = (float) $productoAlmacen->stock_fraccion;
         } else {
-            $stockAnterior = 0;
+            $stockAnteriorFraccion = 0;
             \Log::warning('Kardex registrar - No se encontró ProductoAlmacen:', $data);
         }
         
@@ -45,29 +52,38 @@ class KardexInventarioService
             $data['almacen_id'] = $productoAlmacen->almacen_id;
         }
         
-        // 3. Registrar el usuario que realiza el movimiento
+        // 4. Registrar el usuario que realiza el movimiento
         if (!isset($data['usuario_id'])) {
             $data['usuario_id'] = auth()->id();
         }
         
-        // 4. Calcular stock actual después de esta transacción
+        // 5. Calcular stock en fracción después de esta transacción
         $cantIngreso = (float) ($data['entrada'] ?? 0);
         $cantSalida = (float) ($data['salida'] ?? 0);
-        $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
+        $stockActualFraccion = $stockAnteriorFraccion + $cantIngreso - $cantSalida;
         
-        // 5. Agregar los valores calculados a los datos
-        $data['stock_anterior'] = $stockAnterior;
+        // 6. Convertir stocks de fracción a unidad derivada
+        // Dividir el stock en fracción por el factor para obtener el stock en la unidad derivada
+        $stockAnteriorUnidadDerivada = $factor > 0 ? ($stockAnteriorFraccion / $factor) : 0;
+        $stockActualUnidadDerivada = $factor > 0 ? ($stockActualFraccion / $factor) : 0;
+        
+        // 7. Agregar los valores calculados a los datos (en unidad derivada)
+        $data['stock_anterior'] = $stockAnteriorUnidadDerivada;
         $data['cant_ingreso'] = $cantIngreso;
         $data['cant_salida'] = $cantSalida;
-        $data['stock_actual'] = $stockActual;
+        $data['stock_actual'] = $stockActualUnidadDerivada;
         
         \Log::info('Kardex registrar - datos a guardar:', [
             'producto_id' => $data['producto_id'],
             'almacen_id' => $data['almacen_id'],
-            'stock_anterior' => $data['stock_anterior'],
+            'unidad' => $data['unidad'] ?? 'N/A',
+            'factor' => $factor,
+            'stock_anterior_fraccion' => $stockAnteriorFraccion,
+            'stock_anterior_unidad_derivada' => $stockAnteriorUnidadDerivada,
             'cant_ingreso' => $data['cant_ingreso'],
             'cant_salida' => $data['cant_salida'],
-            'stock_actual' => $data['stock_actual'],
+            'stock_actual_fraccion' => $stockActualFraccion,
+            'stock_actual_unidad_derivada' => $stockActualUnidadDerivada,
         ]);
         
         $resultado = KardexInventario::create($data);
