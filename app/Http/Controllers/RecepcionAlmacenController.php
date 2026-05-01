@@ -461,6 +461,8 @@ class RecepcionAlmacenController extends Controller
                 ]);
 
                 // 3. Procesar cada producto
+                $stocksAnteriores = []; // Guardar stocks anteriores para kardex
+                
                 foreach ($request->productos_por_almacen as $productoData) {
                     $productoId = $productoData['producto_id'];
                     $almacenId = $productoData['almacen_id'];
@@ -575,14 +577,14 @@ class RecepcionAlmacenController extends Controller
                         // Guardar el stock anterior ANTES de incrementar para el kardex
                         $stockAntesDeRecepcion = $productoAlmacenModel->stock_fraccion;
                         
+                        // Guardar en array para usar después en kardex
+                        $stocksAnteriores["{$productoId}_{$almacenId}"] = $stockAntesDeRecepcion;
+                        
                         $productoAlmacenModel->increment('stock_fraccion', $cantidadTotalProducto);
                         if ($nuevoCosto !== null) {
                             $productoAlmacenModel->update(['costo' => $nuevoCosto]);
                         }
                         \Illuminate\Support\Facades\Log::info("Stock actualizado en store (Recepcion): AlmacenProducto {$productoAlmacen->id}, Incremento: {$cantidadTotalProducto}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}");
-                        
-                        // Guardar el stock anterior para usarlo en kardex
-                        $productoData['stock_anterior_recepcion'] = $stockAntesDeRecepcion;
                     }
 
                     app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
@@ -595,7 +597,9 @@ class RecepcionAlmacenController extends Controller
                     $productoId = $productoData['producto_id'];
                     $almacenId = $productoData['almacen_id'];
                     $costo = $productoData['costo'];
-                    $stockAnteriorRecepcion = $productoData['stock_anterior_recepcion'] ?? null;
+                    
+                    // Obtener el stock anterior guardado
+                    $stockAnteriorRecepcion = $stocksAnteriores["{$productoId}_{$almacenId}"] ?? null;
 
                     $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $productoId)
                         ->where('almacen_id', $almacenId)
