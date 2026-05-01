@@ -814,26 +814,11 @@ class VentaController extends Controller
                 ], 422);
             }
 
-            // Caso B: solo se bloquea si la entrega ya pasó del punto de no
-            // retorno físico — chofer salió ('ec') o cliente ya recibió ('en').
-            //
-            //   Estados permitidos para editar:
-            //   - 'pe' (pendiente): cliente no recibió nada, los productos
-            //     siguen en el almacén. La edición regenera los detalles de
-            //     entrega para reflejar los productos nuevos (ver bloque al
-            //     final del update donde se recrea productos_por_almacen).
-            //   - 'ca' (cancelada): nadie movió producto, no afecta.
-            //
-            //   Para 'ec'/'en' se requiere otro flujo (Cambio en Entrega o NC).
-            $tieneEntregaActiva = $venta->entregasProductos->contains(
-                fn ($e) => in_array($e->estado_entrega, ['ec', 'en'])
-            );
-            if ($tieneEntregaActiva) {
-                return response()->json([
-                    'message' => 'No se puede editar: la entrega ya fue completada o está en camino. Para cambios físicos usa Cambio en Entrega o Nota de Crédito.',
-                    'error' => 'VENTA_YA_ENTREGADA',
-                ], 422);
-            }
+            // Caso B: antes se bloqueaba si había entregas en 'ec' o 'en' —
+            // ahora se permite editar siempre. Los detalles de entrega se
+            // regeneran para todas las entregas no canceladas (ver bloque al
+            // final del update). El usuario asume el riesgo de inconsistencia
+            // si quita productos que ya fueron entregados físicamente.
 
             // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente (si se está cambiando)
             if (isset($validated['cliente_id']) || isset($validated['tipo_documento'])) {
@@ -1063,27 +1048,28 @@ class VentaController extends Controller
                     }
                 }
 
-                // FASE 1.2 — Regenerar DetalleEntregaProducto para entregas
-                // pendientes. Al recrear productos, los detalles viejos se
-                // borraron por FK cascade (ver inicio del bloque). Para que
-                // la entrega siga consistente, recreamos sus detalles
+                // Regenerar DetalleEntregaProducto para todas las entregas
+                // no canceladas — incluye 'pe', 'ec' y 'en'. Al recrear
+                // productos, los detalles viejos se borraron por FK cascade
+                // (ver inicio del bloque), así que recreamos sus detalles
                 // apuntando a las nuevas UnidadDerivadaInmutableVenta.
                 //
                 // Asume "entregar todo": cada nueva UDV genera un detalle
-                // con cantidad_entregada = cantidad. Funciona para entrega
-                // EnTienda/Domicilio simples. Las 'ec'/'en' ya están
-                // bloqueadas arriba, así que solo aplica a 'pe'.
-                $entregasPendientes = EntregaProducto::where('venta_id', $id)
-                    ->where('estado_entrega', 'pe')
+                // con cantidad_entregada = cantidad. Si el usuario edita una
+                // venta con entregas en 'ec'/'en', los detalles quedan
+                // sincronizados con los productos nuevos — el usuario asume
+                // el riesgo de inconsistencia con lo entregado físicamente.
+                $entregasActivas = EntregaProducto::where('venta_id', $id)
+                    ->whereIn('estado_entrega', ['pe', 'ec', 'en'])
                     ->get();
 
-                if ($entregasPendientes->isNotEmpty()) {
+                if ($entregasActivas->isNotEmpty()) {
                     $nuevasUdv = UnidadDerivadaInmutableVenta::whereHas(
                         'productoAlmacenVenta',
                         fn ($q) => $q->where('venta_id', $id)
                     )->get();
 
-                    foreach ($entregasPendientes as $entrega) {
+                    foreach ($entregasActivas as $entrega) {
                         foreach ($nuevasUdv as $udv) {
                             DetalleEntregaProducto::create([
                                 'entrega_producto_id' => $entrega->id,
