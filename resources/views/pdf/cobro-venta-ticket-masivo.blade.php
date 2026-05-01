@@ -6,7 +6,6 @@
     <title>Comprobantes de Cobro Masivos</title>
     <style>
         @page {
-            size: 80mm auto;
             margin: 0;
         }
         body {
@@ -22,7 +21,7 @@
             width: 74mm;
             margin: 0 auto;
             padding: 3mm 0;
-            /* Removed page-break-after for continuous thermal printing */
+            page-break-inside: avoid;
             border-bottom: 2px dashed #000;
             padding-bottom: 5mm;
             margin-bottom: 5mm;

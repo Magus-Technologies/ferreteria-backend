@@ -146,12 +146,14 @@ class CobroVentaPdfService
             'logoPath' => $logoPath,
         ];
 
+        // Usar altura fija muy grande (3000mm) para papel térmico continuo
+        // Esto evita cortes y permite imprimir muchos tickets en una sola "hoja"
         return PdfService::render(
             'pdf.cobro-venta-ticket-masivo',
             $data,
             'cobros-masivos.pdf',
             'portrait',
-            [0, 0, 226.77, 841.89]
+            [0, 0, 226.77, 8503.94] // 80mm x 3000mm (3 metros) en puntos
         );
     }
 
