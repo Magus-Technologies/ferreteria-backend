@@ -82,18 +82,17 @@ class GananciasQueryFilter
     public function applyGastosExtras($query, string $prefijo = 'ge'): void
     {
         if (!empty($this->filtros['desde'])) {
-            $query->whereDate("{$prefijo}.fecha", '>=', $this->filtros['desde']);
+            $query->whereDate("{$prefijo}.created_at", '>=', $this->filtros['desde']);
         }
 
         if (!empty($this->filtros['hasta'])) {
-            $query->whereDate("{$prefijo}.fecha", '<=', $this->filtros['hasta']);
+            $query->whereDate("{$prefijo}.created_at", '<=', $this->filtros['hasta']);
         }
 
         if (!empty($this->filtros['search'])) {
             $search = $this->filtros['search'];
             $query->where(function ($q) use ($search, $prefijo) {
-                $q->where("{$prefijo}.descripcion", 'like', "%{$search}%")
-                    ->orWhere('tg.name', 'like', "%{$search}%");
+                $q->where("{$prefijo}.concepto", 'like', "%{$search}%");
             });
         }
     }
@@ -108,11 +107,11 @@ class GananciasQueryFilter
         }
 
         if (!empty($this->filtros['desde'])) {
-            $query->whereDate('ge.fecha', '>=', $this->filtros['desde']);
+            $query->whereDate('ge.created_at', '>=', $this->filtros['desde']);
         }
 
         if (!empty($this->filtros['hasta'])) {
-            $query->whereDate('ge.fecha', '<=', $this->filtros['hasta']);
+            $query->whereDate('ge.created_at', '<=', $this->filtros['hasta']);
         }
 
         if (!empty($this->filtros['search'])) {
@@ -121,8 +120,7 @@ class GananciasQueryFilter
                 $q->where('prov.razon_social', 'like', "%{$search}%")
                     ->orWhere('c.serie', 'like', "%{$search}%")
                     ->orWhere('c.numero', 'like', "%{$search}%")
-                    ->orWhere('ge.descripcion', 'like', "%{$search}%")
-                    ->orWhere('tg.name', 'like', "%{$search}%");
+                    ->orWhere('ge.concepto', 'like', "%{$search}%");
             });
         }
     }

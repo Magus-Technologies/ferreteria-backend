@@ -269,7 +269,7 @@ class AnalisisPerdidasService
      */
     private function calcularPerdidasNotasCredito(GananciasQueryFilter $filter): array
     {
-        $query = DB::table('notacredito as nc')
+        $query = DB::table('nota_credito as nc')
             ->join('venta as v', 'nc.venta_id', '=', 'v.id')
             ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
             ->leftJoin('user as u', 'nc.user_id', '=', 'u.id')

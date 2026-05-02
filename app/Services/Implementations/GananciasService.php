@@ -163,24 +163,36 @@ class GananciasService implements GananciasServiceInterface
         $pagos = $queryPagos->get();
 
         // Gastos extras
-        $queryGastosExtras = DB::table('gastoextra as ge')
-            ->leftJoin('tipogasto as tg', 'ge.tipo_gasto_id', '=', 'tg.id')
-            ->select(['ge.id', 'ge.fecha', 'ge.monto', 'ge.descripcion', 'tg.name as tipo_gasto', DB::raw("'gasto_extra' as tipo")])
-            ->where('ge.estado', true);
+        $queryGastosExtras = DB::table('gastos_extras as ge')
+            ->select([
+                'ge.id', 
+                DB::raw('DATE(ge.created_at) as fecha'), 
+                'ge.monto', 
+                'ge.concepto as descripcion', 
+                DB::raw("'GASTO OPERATIVO' as tipo_gasto"), 
+                DB::raw("'gasto_extra' as tipo")
+            ])
+            ->where('ge.estado', '!=', 'anulado');
 
         $filter->applyGastosExtras($queryGastosExtras);
         $gastosExtras = $queryGastosExtras->get();
 
         // Gastos de compras
         $queryGastosCompras = DB::table('compra as c')
-            ->join('gastoextra as ge', 'c.gasto_extra_id', '=', 'ge.id')
+            ->join('gastos_extras as ge', 'c.gasto_extra_id', '=', 'ge.id')
             ->join('proveedor as prov', 'c.proveedor_id', '=', 'prov.id')
-            ->leftJoin('tipogasto as tg', 'ge.tipo_gasto_id', '=', 'tg.id')
             ->select([
-                'ge.id', 'ge.fecha', 'ge.monto', 'ge.descripcion', 'tg.name as tipo_gasto',
-                'prov.razon_social as proveedor', 'c.serie', 'c.numero', DB::raw("'gasto_compra' as tipo")
+                'ge.id', 
+                DB::raw('DATE(ge.created_at) as fecha'), 
+                'ge.monto', 
+                'ge.concepto as descripcion', 
+                DB::raw("'GASTO DE COMPRA' as tipo_gasto"),
+                'prov.razon_social as proveedor', 
+                'c.serie', 
+                'c.numero', 
+                DB::raw("'gasto_compra' as tipo")
             ])
-            ->where('ge.estado', true)
+            ->where('ge.estado', '!=', 'anulado')
             ->where('c.estado_de_compra', '!=', 'an')
             ->whereNotNull('c.gasto_extra_id');
 

@@ -27,25 +27,25 @@ class AnalisisPerdidasController extends Controller
                 'desde' => 'nullable|date',
                 'hasta' => 'nullable|date',
                 'search' => 'nullable|string',
-                'tipo_perdida' => 'nullable|string|in:ventas_bajo_costo,descuentos,comisiones,salidas,notas_credito,todos',
+                'tipo_perdida' => 'nullable|string|in:ventas_bajo_costo,descuentos,comisiones,salidas,notas_credito,todas',
             ]);
 
             $resultado = $this->analisisPerdidasService->obtenerAnalisisPerdidas($filtros);
 
             // Filtrar por tipo de pérdida si se especifica
-            if (!empty($filtros['tipo_perdida']) && $filtros['tipo_perdida'] !== 'todos') {
+            if (!empty($filtros['tipo_perdida']) && $filtros['tipo_perdida'] !== 'todas') {
                 $resultado['detalles'] = array_filter($resultado['detalles'], function($detalle) use ($filtros) {
-                    $tipoPerdida = strtoupper($detalle->tipo_perdida ?? '');
+                    $categoria = strtoupper($detalle['categoria'] ?? '');
                     
                     return match($filtros['tipo_perdida']) {
-                        'ventas_bajo_costo' => str_contains($tipoPerdida, 'VENTA BAJO COSTO'),
-                        'descuentos' => str_contains($tipoPerdida, 'DESCUENTO'),
-                        'comisiones' => str_contains($tipoPerdida, 'COMISIÓN'),
-                        'salidas' => !str_contains($tipoPerdida, 'VENTA') && 
-                                    !str_contains($tipoPerdida, 'DESCUENTO') && 
-                                    !str_contains($tipoPerdida, 'COMISIÓN') &&
-                                    !str_contains($tipoPerdida, 'NOTA DE CRÉDITO'),
-                        'notas_credito' => str_contains($tipoPerdida, 'NOTA DE CRÉDITO'),
+                        'ventas_bajo_costo' => str_contains($categoria, 'VENTA BAJO COSTO'),
+                        'descuentos' => str_contains($categoria, 'DESCUENTO'),
+                        'comisiones' => str_contains($categoria, 'COMISIÓN'),
+                        'salidas' => !str_contains($categoria, 'VENTA') && 
+                                    !str_contains($categoria, 'DESCUENTO') && 
+                                    !str_contains($categoria, 'COMISIÓN') &&
+                                    !str_contains($categoria, 'NOTA'),
+                        'notas_credito' => str_contains($categoria, 'NOTA'),
                         default => true,
                     };
                 });
@@ -69,6 +69,7 @@ class AnalisisPerdidasController extends Controller
         } catch (\Exception $e) {
             \Log::error('Error al obtener análisis de pérdidas: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
+                'filtros' => $filtros ?? [],
             ]);
 
             return response()->json([
