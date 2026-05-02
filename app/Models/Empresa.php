@@ -20,11 +20,6 @@ class Empresa extends Model
         'ruc',
         'razon_social',
         'nombre_comercial',
-        'direccion',
-        'ubigeo_id',
-        'departamento',
-        'provincia',
-        'distrito',
         'regimen',
         'actividad_economica',
         'telefono',
@@ -38,6 +33,15 @@ class Empresa extends Model
         'sunat_client_id',
         'sunat_secret_client',
         'sunat_modo',
+    ];
+
+    protected $appends = [
+        'direccion',
+        'departamento',
+        'provincia',
+        'distrito',
+        'ubigeo_id',
+        'ubigeo',
     ];
 
     protected function casts(): array
@@ -61,11 +65,6 @@ class Empresa extends Model
         return $this->belongsTo(Marca::class, 'marca_id');
     }
 
-    public function ubigeo(): BelongsTo
-    {
-        return $this->belongsTo(Distrito::class, 'ubigeo_id', 'id_ubigeo');
-    }
-
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
@@ -84,5 +83,46 @@ class Empresa extends Model
     public function direcciones(): HasMany
     {
         return $this->hasMany(DireccionEmpresa::class, 'empresa_id');
+    }
+
+    public function getPrincipalAttribute(): ?DireccionEmpresa
+    {
+        return $this->direcciones->firstWhere('es_principal', true);
+    }
+
+    // Accessors para compatibilidad con código existente
+    public function getDireccionAttribute(): ?string
+    {
+        return $this->principal?->direccion;
+    }
+
+    public function getDepartamentoAttribute(): ?string
+    {
+        return $this->principal?->departamento;
+    }
+
+    public function getProvinciaAttribute(): ?string
+    {
+        return $this->principal?->provincia;
+    }
+
+    public function getDistritoAttribute(): ?string
+    {
+        return $this->principal?->distrito;
+    }
+
+    public function getUbigeoIdAttribute(): ?int
+    {
+        return $this->principal?->ubigeo_id;
+    }
+
+    public function getUbigeoAttribute(): ?string
+    {
+        $dir = $this->principal;
+        if (!$dir?->ubigeo_id) return null;
+        $ubigeo = \App\Models\Distrito::find($dir->ubigeo_id);
+        return $ubigeo
+            ? $ubigeo->departamento . $ubigeo->provincia . $ubigeo->distrito
+            : null;
     }
 }

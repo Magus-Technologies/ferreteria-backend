@@ -16,7 +16,6 @@ class EmpresaController extends Controller
         $empresa = Empresa::with([
             'almacenPredeterminado',
             'marcaPredeterminada',
-            'ubigeo',
             'contactos',
             'terminos',
             'direcciones',
@@ -36,7 +35,6 @@ class EmpresaController extends Controller
         $empresa = Empresa::with([
             'almacenPredeterminado',
             'marcaPredeterminada',
-            'ubigeo',
             'contactos',
             'terminos',
             'direcciones',
@@ -61,11 +59,6 @@ class EmpresaController extends Controller
             'ruc' => 'required|string|max:191',
             'razon_social' => 'required|string|max:191',
             'nombre_comercial' => 'nullable|string|max:191',
-            'direccion' => 'required|string|max:191',
-            'ubigeo_id' => 'nullable|exists:ubigeo_inei,id_ubigeo',
-            'departamento' => 'nullable|string|max:100',
-            'provincia' => 'nullable|string|max:100',
-            'distrito' => 'nullable|string|max:100',
             'regimen' => 'nullable|string|max:100',
             'actividad_economica' => 'nullable|string|max:191',
             'telefono' => 'required|string|max:191',
@@ -101,12 +94,16 @@ class EmpresaController extends Controller
 
         if ($request->has('direcciones')) {
             foreach ($request->input('direcciones', []) as $direccion) {
-                $empresa->direcciones()->create($direccion);
+                $empresa->direcciones()->create(['es_principal' => false] + $direccion);
             }
         }
 
+        $this->sincronizarDireccionPrincipal($empresa, $request);
+
+        $empresa = $empresa->fresh(['almacenPredeterminado', 'marcaPredeterminada', 'contactos', 'terminos', 'direcciones']);
+
         return response()->json([
-            'data' => $empresa->load(['almacenPredeterminado', 'marcaPredeterminada', 'ubigeo', 'contactos', 'terminos', 'direcciones']),
+            'data' => $empresa,
             'message' => 'Empresa creada exitosamente',
         ], 201);
     }
@@ -125,11 +122,6 @@ class EmpresaController extends Controller
             'ruc' => 'sometimes|required|string|max:191',
             'razon_social' => 'sometimes|required|string|max:191',
             'nombre_comercial' => 'nullable|string|max:191',
-            'direccion' => 'sometimes|required|string|max:191',
-            'ubigeo_id' => 'nullable|exists:ubigeo_inei,id_ubigeo',
-            'departamento' => 'nullable|string|max:100',
-            'provincia' => 'nullable|string|max:100',
-            'distrito' => 'nullable|string|max:100',
             'regimen' => 'nullable|string|max:100',
             'actividad_economica' => 'nullable|string|max:191',
             'telefono' => 'sometimes|required|string|max:191',
@@ -184,18 +176,20 @@ class EmpresaController extends Controller
         }
 
         if ($request->has('direcciones')) {
-            $empresa->direcciones()->delete();
+            $empresa->direcciones()->where('es_principal', false)->delete();
             foreach ($request->input('direcciones', []) as $direccion) {
-                $empresa->direcciones()->create($direccion);
+                $empresa->direcciones()->create(['es_principal' => false] + $direccion);
             }
         }
+
+        $this->sincronizarDireccionPrincipal($empresa, $request);
 
         if ($empresa->logo) {
             $empresa->logo_url = asset('storage/' . $empresa->logo);
         }
 
         return response()->json([
-            'data' => $empresa->load(['almacenPredeterminado', 'marcaPredeterminada', 'ubigeo', 'contactos', 'terminos', 'direcciones']),
+            'data' => $empresa->load(['almacenPredeterminado', 'marcaPredeterminada', 'contactos', 'terminos', 'direcciones']),
             'message' => 'Empresa actualizada exitosamente',
         ]);
     }
@@ -212,7 +206,10 @@ class EmpresaController extends Controller
 
     public function getDatosPublicos(): JsonResponse
     {
-        $empresa = Empresa::first();
+        // Cargar direcciones — el frontend las usa para selectores como
+        // "Punto de Partida" en guías de remisión donde se necesita
+        // elegir entre direcciones (D1..DN) de la empresa.
+        $empresa = Empresa::with('direcciones')->first();
 
         if (!$empresa) {
             return response()->json([
@@ -234,7 +231,32 @@ class EmpresaController extends Controller
                 'celular' => $empresa->celular,
                 'email' => $empresa->email,
                 'logo' => $empresa->logo,
+                'direcciones' => $empresa->direcciones,
             ]
         ]);
+    }
+
+    private function sincronizarDireccionPrincipal(Empresa $empresa, Request $request): void
+    {
+        if (!$request->has('direccion')) {
+            return;
+        }
+
+        $data = [
+            'alias' => 'Principal',
+            'direccion' => $request->input('direccion', ''),
+            'ubigeo_id' => $request->input('ubigeo_id'),
+            'departamento' => $request->input('departamento'),
+            'provincia' => $request->input('provincia'),
+            'distrito' => $request->input('distrito'),
+        ];
+
+        $principal = $empresa->direcciones()->where('es_principal', true)->first();
+
+        if ($principal) {
+            $principal->update($data);
+        } else {
+            $empresa->direcciones()->create(array_merge($data, ['es_principal' => true]));
+        }
     }
 }

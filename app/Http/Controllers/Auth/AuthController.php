@@ -25,7 +25,7 @@ class AuthController extends Controller
             ->with([
                 'empresa' => function ($query) {
                     $query->select([
-                        'id', 'ruc', 'razon_social', 'direccion', 'telefono', 'email',
+                        'id', 'ruc', 'razon_social', 'telefono', 'email',
                         'serie_ingreso', 'serie_salida', 'serie_recepcion_almacen',
                         'almacen_id', 'marca_id', 'logo'
                     ]);
@@ -79,7 +79,7 @@ class AuthController extends Controller
         $user = $request->user()->load([
             'empresa' => function ($query) {
                 $query->select([
-                    'id', 'ruc', 'razon_social', 'direccion', 'telefono', 'email',
+                    'id', 'ruc', 'razon_social', 'telefono', 'email',
                     'serie_ingreso', 'serie_salida', 'serie_recepcion_almacen',
                     'almacen_id', 'marca_id', 'logo'
                 ]);
