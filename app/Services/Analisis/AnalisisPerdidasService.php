@@ -266,6 +266,7 @@ class AnalisisPerdidasService
 
     /**
      * Calcular pérdidas por notas de crédito
+     * Nota: Usar tabla 'nota_credito' con underscore, no 'notacredito'
      */
     private function calcularPerdidasNotasCredito(GananciasQueryFilter $filter): array
     {
