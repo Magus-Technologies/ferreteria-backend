@@ -162,8 +162,9 @@ class GananciasService implements GananciasServiceInterface
         $filter->applyPagosCompras($queryPagos);
         $pagos = $queryPagos->get();
 
-        // Gastos extras
+        // Gastos extras (excluir los que están asociados a compras)
         $queryGastosExtras = DB::table('gastos_extras as ge')
+            ->leftJoin('compra as c', 'ge.id', '=', 'c.gasto_extra_id')
             ->select([
                 'ge.id', 
                 DB::raw('DATE(ge.created_at) as fecha'), 
@@ -171,7 +172,8 @@ class GananciasService implements GananciasServiceInterface
                 'ge.concepto as descripcion', 
                 DB::raw("'GASTO OPERATIVO' as tipo_gasto"), 
                 DB::raw("'gasto_extra' as tipo")
-            ]);
+            ])
+            ->whereNull('c.id'); // Solo gastos que NO están asociados a compras
 
         $filter->applyGastosExtras($queryGastosExtras);
         $gastosExtras = $queryGastosExtras->get();
