@@ -45,6 +45,11 @@ class EntregaProducto extends Model
         'tipo_pedido',
         'cargo_destino',
         'aceptado_at',
+        // Auditoría de anulación: cuando un usuario marca como entregada
+        // por error y luego anula, se guarda el quién/cuándo/por qué.
+        'fecha_anulacion',
+        'motivo_anulacion',
+        'user_anulacion_id',
     ];
 
     /**
@@ -56,6 +61,7 @@ class EntregaProducto extends Model
             'fecha_entrega' => 'datetime',
             'fecha_programada' => 'datetime',
             'aceptado_at' => 'datetime',
+            'fecha_anulacion' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
@@ -136,5 +142,16 @@ class EntregaProducto extends Model
     public function productosEntregados(): HasMany
     {
         return $this->hasMany(DetalleEntregaProducto::class, 'entrega_producto_id');
+    }
+
+    /**
+     * Relación: Usuario que anuló la entrega (cuando se deshizo un
+     * "marcar entregada" hecho por error). Solo presente mientras la
+     * entrega esté en `'pe'` con `fecha_anulacion` cargada — al volver
+     * a marcarse como `'en'`, los 3 campos de anulación se limpian.
+     */
+    public function userAnulacion(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_anulacion_id');
     }
 }

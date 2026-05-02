@@ -151,6 +151,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ENTREGAS DE PRODUCTOS
     // ============================================
     Route::post('entregas-productos/{id}/aceptar', [EntregaProductoController::class, 'aceptar'])->middleware('broadcast:entregas-productos');
+    Route::post('entregas-productos/{id}/anular', [EntregaProductoController::class, 'anular'])->middleware('broadcast:entregas-productos');
     Route::apiResource('entregas-productos', EntregaProductoController::class)->middleware('broadcast:entregas-productos');
 
     // ============================================

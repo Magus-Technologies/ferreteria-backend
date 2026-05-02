@@ -138,21 +138,23 @@
         </tr>
     </table>
 
-    {{-- Tabla productos --}}
-    <div class="section-title">PRODUCTOS A ENTREGAR</div>
+    {{-- Tabla productos — muestra entregado vs pendiente según estado --}}
+    <div class="section-title">PRODUCTOS</div>
     <table style="font-size: 5pt;">
         <tr style="border-bottom: 1px solid #000;">
-            <td class="text-bold" style="width: 35px;">Cód.</td>
+            <td class="text-bold" style="width: 30px;">Cód.</td>
             <td class="text-bold">Producto</td>
-            <td class="text-bold text-center" style="width: 40px;">Unidad</td>
-            <td class="text-bold text-center" style="width: 30px;">Cant.</td>
+            <td class="text-bold text-center" style="width: 30px;">Unidad</td>
+            <td class="text-bold text-center" style="width: 25px;">Entreg.</td>
+            <td class="text-bold text-center" style="width: 25px;">Pend.</td>
         </tr>
         @foreach($productos as $i => $p)
         <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
             <td>{{ $p['codigo'] }}</td>
             <td>{{ $p['nombre'] }}</td>
             <td class="text-center">{{ $p['unidad'] }}</td>
-            <td class="text-center">{{ number_format($p['cantidad'], 0) }}</td>
+            <td class="text-center">{{ number_format($p['entregado'], 0) }}</td>
+            <td class="text-center">{{ number_format($p['pendiente'], 0) }}</td>
         </tr>
         @endforeach
     </table>

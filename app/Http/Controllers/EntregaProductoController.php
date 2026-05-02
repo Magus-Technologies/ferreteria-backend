@@ -497,6 +497,11 @@ class EntregaProductoController extends Controller
             $estadoAnterior = $entrega->estado_entrega;
             if ($estadoNuevo === 'en' && $estadoAnterior !== 'en') {
                 $validated['user_entregado_id'] = auth()->id();
+                // Si la entrega tenía una anulación previa registrada, se
+                // limpia ahora que vuelve a entregarse correctamente.
+                $validated['fecha_anulacion'] = null;
+                $validated['motivo_anulacion'] = null;
+                $validated['user_anulacion_id'] = null;
             }
 
             // Update entrega
@@ -515,6 +520,58 @@ class EntregaProductoController extends Controller
                     'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
                 ]),
                 'message' => 'Entrega de producto actualizada exitosamente',
+            ]);
+        });
+    }
+
+    /**
+     * Anular una entrega que se marcó como entregada por error.
+     *
+     * Vuelve `estado_entrega` a `'pe'` (pendiente) y registra `fecha_anulacion`,
+     * `motivo_anulacion`, `user_anulacion_id` para auditoría. NO toca stock,
+     * NO modifica el comprobante SUNAT — la venta sigue válida, solo se
+     * deshace la marca física de entregado.
+     *
+     * Si la entrega vuelve a marcarse como `'en'` después, los 3 campos de
+     * anulación se limpian automáticamente (ver `update()`).
+     */
+    public function anular(Request $request, string $id)
+    {
+        $validated = $request->validate([
+            'motivo' => 'required|string|min:5|max:500',
+        ], [
+            'motivo.required' => 'Debes ingresar un motivo de anulación.',
+            'motivo.min' => 'El motivo debe tener al menos 5 caracteres.',
+        ]);
+
+        return DB::transaction(function () use ($id, $validated) {
+            $entrega = EntregaProducto::findOrFail($id);
+
+            if (!in_array($entrega->estado_entrega, ['en', 'ec'])) {
+                return response()->json([
+                    'message' => 'Solo se pueden anular entregas que estén En Camino o Entregadas.',
+                    'error' => 'ESTADO_NO_ANULABLE',
+                ], 422);
+            }
+
+            $entrega->update([
+                'estado_entrega' => 'pe',
+                'fecha_anulacion' => now(),
+                'motivo_anulacion' => $validated['motivo'],
+                'user_anulacion_id' => auth()->id(),
+                // Limpiar el "entregado por" anterior — ya no aplica.
+                'user_entregado_id' => null,
+            ]);
+
+            return response()->json([
+                'data' => $entrega->fresh([
+                    'venta:id,serie,numero,cliente_id',
+                    'venta.cliente:id,nombres,apellidos,razon_social,numero_documento',
+                    'almacenSalida:id,name',
+                    'despachador:id,name',
+                    'userAnulacion:id,name',
+                ]),
+                'message' => 'Entrega anulada — vuelve a estado Pendiente.',
             ]);
         });
     }

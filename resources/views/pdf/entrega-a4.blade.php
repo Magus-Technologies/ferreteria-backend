@@ -14,15 +14,15 @@
          (color tema #fadc06) igual que las ventas. --}}
     @include('pdf.layout.info-grid', ['filas' => $filas])
 
-    {{-- Tabla de productos — sin precios porque la entrega es interna,
-         no fiscal. Solo muestra qué productos salen físicamente. --}}
+    {{-- Tabla de productos — muestra entregado vs pendiente según estado --}}
     @include('pdf.layout.table', [
         'columnas' => [
-            ['label' => 'ITEM', 'width' => '6%', 'align' => 'center'],
-            ['label' => 'CODIGO', 'width' => '14%', 'align' => 'center'],
-            ['label' => 'DESCRIPCION', 'width' => '50%', 'align' => 'left'],
-            ['label' => 'UNIDAD', 'width' => '15%', 'align' => 'center'],
-            ['label' => 'CANTIDAD', 'width' => '15%', 'align' => 'center'],
+            ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
+            ['label' => 'CODIGO', 'width' => '13%', 'align' => 'center'],
+            ['label' => 'DESCRIPCION', 'width' => '42%', 'align' => 'left'],
+            ['label' => 'UNIDAD', 'width' => '12%', 'align' => 'center'],
+            ['label' => 'ENTREGADO', 'width' => '14%', 'align' => 'center'],
+            ['label' => 'PENDIENTE', 'width' => '14%', 'align' => 'center'],
         ],
         'filas' => collect($productos)->map(function ($p, $i) {
             return [
@@ -30,7 +30,8 @@
                 $p['codigo'],
                 $p['nombre'],
                 $p['unidad'],
-                number_format($p['cantidad'], 2),
+                number_format($p['entregado'], 2),
+                number_format($p['pendiente'], 2),
             ];
         })->toArray(),
         'minFilas' => 10,
