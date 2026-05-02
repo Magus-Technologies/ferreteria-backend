@@ -2011,7 +2011,7 @@ class VentaController extends Controller
         $perPage = (int) $request->input('per_page', 50);
 
         if ($perPage === -1) {
-            $ventas = $query->orderBy('fecha', 'asc')->limit(200)->get();
+            $ventas = $query->orderBy('id', 'desc')->limit(200)->get();
 
             // Filtrar solo las que tienen saldo > 0
             $ventasConSaldo = $ventas->filter(function ($venta) {
@@ -2026,7 +2026,7 @@ class VentaController extends Controller
             ]);
         }
 
-        $ventas = $query->orderBy('fecha', 'asc')->paginate($perPage);
+        $ventas = $query->orderBy('id', 'desc')->paginate($perPage);
 
         // Filtrar solo las que tienen saldo pendiente
         $ventasConSaldo = $ventas->getCollection()->filter(function ($venta) {
