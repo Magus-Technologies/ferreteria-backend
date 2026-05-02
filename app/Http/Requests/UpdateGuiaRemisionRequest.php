@@ -48,6 +48,7 @@ class UpdateGuiaRemisionRequest extends FormRequest
             'modalidad_transporte' => 'sometimes|string|in:PRIVADO,PUBLICO',
             'vehiculo_placa' => 'nullable|string|max:20',
             'chofer_id' => 'nullable|integer|exists:chofer,id',
+            'user_chofer_id' => 'nullable|string|exists:user,id',
             'punto_partida' => 'sometimes|string',
             'punto_llegada' => 'sometimes|string',
             'almacen_origen_id' => 'sometimes|integer|exists:almacen,id',

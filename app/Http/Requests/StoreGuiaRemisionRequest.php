@@ -53,6 +53,9 @@ class StoreGuiaRemisionRequest extends FormRequest
             'modalidad_transporte' => 'required|string|in:PRIVADO,PUBLICO',
             'vehiculo_placa' => 'nullable|string|max:20',
             'chofer_id' => 'nullable|integer|exists:chofer,id',
+            // user_chofer_id: USER (despachador interno) que cumple rol de
+            // chofer cuando es transporte PRIVADO.
+            'user_chofer_id' => 'nullable|string|exists:user,id',
             'punto_partida' => 'required|string',
             'punto_llegada' => 'required|string',
             'almacen_origen_id' => 'required|integer|exists:almacen,id',

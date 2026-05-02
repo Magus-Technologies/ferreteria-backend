@@ -259,9 +259,30 @@ class GuiaRemisionService
             ];
         }
 
-        // Chofer
+        // Chofer — hay dos fuentes posibles:
+        //   1) `chofer` (tabla externa) → se usa para transporte PÚBLICO
+        //      o GRE-Transportista. Tiene DNI + licencia + MTC.
+        //   2) `userChofer` (USER de la empresa, despachador interno) → se
+        //      usa para transporte PRIVADO. Sus datos viven en la tabla
+        //      `user` (numero_documento, name, licencia_conducir).
+        //
+        // Si el usuario llenó ambos por error, prioridad: chofer externo
+        // gana en PÚBLICO/Transportista; user gana en PRIVADO.
         $choferes = [];
-        if ($guia->chofer) {
+        $esTransportePrivado = $guia->modalidad_transporte === 'PRIVADO';
+
+        if ($esTransportePrivado && $guia->userChofer) {
+            $user = $guia->userChofer;
+            $nameParts = explode(' ', trim($user->name ?? ''), 2);
+            $choferes[] = [
+                'tipo' => 'Principal',
+                'tipo_doc' => '1', // DNI
+                'nro_doc' => $user->numero_documento ?? '',
+                'nombres' => $nameParts[0] ?? '',
+                'apellidos' => $nameParts[1] ?? '',
+                'licencia' => $user->licencia_conducir ?? null,
+            ];
+        } elseif ($guia->chofer) {
             $nameParts = explode(' ', trim($guia->chofer->name), 2);
             $choferes[] = [
                 'tipo' => 'Principal',

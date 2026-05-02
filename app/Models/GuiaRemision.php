@@ -31,6 +31,7 @@ class GuiaRemision extends Model
         'modalidad_transporte',
         'vehiculo_placa',
         'chofer_id',
+        'user_chofer_id',
         'punto_partida',
         'punto_llegada',
         'almacen_origen_id',
@@ -112,11 +113,26 @@ class GuiaRemision extends Model
     }
 
     /**
-     * Chofer (proveedor de transporte)
+     * Chofer (proveedor de transporte EXTERNO con DNI/licencia/MTC).
+     * Se usa cuando la modalidad es PÚBLICO (transporte tercerizado) o
+     * cuando es GRE-Transportista. La tabla `chofer` es independiente
+     * del sistema de usuarios.
      */
     public function chofer(): BelongsTo
     {
         return $this->belongsTo(Chofer::class);
+    }
+
+    /**
+     * User que hace de chofer (despachador interno) — solo aplica a
+     * transporte PRIVADO. Es el mismo user que se asignó como
+     * `chofer_id` en la entrega-producto al crear la venta. Tiene los
+     * datos SUNAT necesarios (`numero_documento`, `name`,
+     * `licencia_conducir`, `vehiculo_id`).
+     */
+    public function userChofer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_chofer_id');
     }
 
     /**
