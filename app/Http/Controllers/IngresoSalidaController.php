@@ -328,16 +328,9 @@ class IngresoSalidaController extends Controller
                 }
             }
 
-            // PASO 13: Actualizar ProductoAlmacen (stock y costo)
-            $nuevoCosto = $productoAlmacen->costo;
-            if ($stockAnterior <= 0 && $esIngreso) {
-                // Si el stock era 0 o negativo y es un ingreso, usar el costo actual
-                $nuevoCosto = $productoAlmacen->costo;
-            }
-
+            // PASO 13: Actualizar stock del ProductoAlmacen
             $productoAlmacen->update([
                 "stock_fraccion" => $stockNuevo,
-                "costo" => $nuevoCosto,
             ]);
 
             // Descontar/incrementar producto complementario si existe
@@ -346,7 +339,8 @@ class IngresoSalidaController extends Controller
                 $unidadDerivada->unidad_derivada_id,
                 $cantidad,
                 $almacenId,
-                $esIngreso
+                $esIngreso,
+                $ingresoSalidaConRelaciones
             );
 
             // Invalidar cache de productos del almacén
@@ -444,12 +438,13 @@ class IngresoSalidaController extends Controller
                         "stock_nuevo" => $stockNuevo,
                     ]);
 
-                    // Registrar anulación en kardex inventario
+                    // Registrar anulación en kardex inventario (stock fue actualizado arriba,
+                    // pasamos el stock anterior capturado para que kardex muestre el valor correcto)
                     $costo = (float) $detalle->costo;
                     if ($esIngreso) {
-                        $kardexService->registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $ud, $costo);
+                        $kardexService->registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $ud, $costo, 6, $stockAnterior);
                     } else {
-                        $kardexService->registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $ud, $costo);
+                        $kardexService->registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $ud, $costo, 7, $stockAnterior);
                     }
 
                     // Revertir producto complementario (inverso al original)
@@ -458,7 +453,8 @@ class IngresoSalidaController extends Controller
                         $factor,
                         $cantidad,
                         $productoAlmacen->almacen_id,
-                        !$esIngreso // Invertir: si era ingreso (se sumó compl.), ahora restar
+                        !$esIngreso, // Invertir: si era ingreso (se sumó compl.), ahora restar
+                        $ingresoSalida
                     );
                 }
 

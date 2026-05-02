@@ -606,6 +606,8 @@ class RecepcionAlmacenController extends Controller
                         ->first();
 
                     if ($productoAlmacen) {
+                        $acumuladoKardex = 0; // fracciones acumuladas para stock_anterior correcto por unidad
+
                         foreach ($productoData['unidades_derivadas'] as $udData) {
                             $unidadInmutable = \App\Models\UnidadDerivadaInmutable::firstOrCreate(
                                 ['name' => $udData['unidad_derivada_name']],
@@ -619,14 +621,20 @@ class RecepcionAlmacenController extends Controller
                                 'factor' => (float) $udData['factor'],
                             ];
 
+                            $stockOverride = $stockAnteriorRecepcion !== null
+                                ? $stockAnteriorRecepcion + $acumuladoKardex
+                                : null;
+
                             $kardexInventarioService->registrarRecepcion(
                                 $recepcion,
                                 $productoAlmacen,
                                 $unidadTemporal,
                                 $costo,
-                                2, // orden = 2 para recepción
-                                $stockAnteriorRecepcion // Pasar el stock anterior guardado
+                                2,
+                                $stockOverride
                             );
+
+                            $acumuladoKardex += (float) $udData['cantidad'] * (float) $udData['factor'];
                         }
                     }
                 }
@@ -932,12 +940,14 @@ class RecepcionAlmacenController extends Controller
                         ->keyBy('producto_id');
                 }
 
+                $stocksAnterioresAnulacion = []; // stocks capturados antes de decrementar para kardex correcto
+
                 foreach ($productosRecepcion as $productoRecepcion) {
                     $productoAlmacenId = $productoRecepcion->producto_almacen_id;
                     $productoId = $productoRecepcion->productoAlmacen->producto_id;
-                    
+
                     // Encontrar el producto correspondiente en el documento padre
-                    $productoDocPadre = $recepcion->compra_id 
+                    $productoDocPadre = $recepcion->compra_id
                         ? $productosDocPadreMap->get($productoAlmacenId)
                         : $productosDocPadreMap->get($productoId);
 
@@ -948,6 +958,7 @@ class RecepcionAlmacenController extends Controller
                     }
 
                     $stockBase = (float) $productoRecepcion->productoAlmacen->stock_fraccion;
+                    $stocksAnterioresAnulacion[$productoRecepcion->id] = $stockBase; // guardar antes del decremento
                     $acumulado = 0;
 
                     foreach ($productoRecepcion->unidadesDerivadas as $unidadDerivada) {
@@ -1002,10 +1013,12 @@ class RecepcionAlmacenController extends Controller
 
                 // 4. Registrar anulación en kardex inventario
                 $kardexInventarioService = app(\App\Services\Kardex\KardexInventarioService::class);
-                
+
                 foreach ($productosRecepcion as $productoRecepcion) {
                     $productoAlmacen = $productoRecepcion->productoAlmacen;
-                    
+                    $stockAnteriorAnulacion = $stocksAnterioresAnulacion[$productoRecepcion->id] ?? null;
+                    $acumuladoKardexAnulacion = 0;
+
                     foreach ($productoRecepcion->unidadesDerivadas as $unidadDerivada) {
                         // Crear objeto temporal con la estructura esperada
                         $unidadTemporal = (object) [
@@ -1014,13 +1027,21 @@ class RecepcionAlmacenController extends Controller
                             'factor' => (float) $unidadDerivada->factor,
                         ];
 
+                        // stock_anterior correcto: stock antes del decremento, menos lo ya procesado
+                        $stockOverride = $stockAnteriorAnulacion !== null
+                            ? $stockAnteriorAnulacion - $acumuladoKardexAnulacion
+                            : null;
+
                         $kardexInventarioService->registrarAnulacionRecepcion(
                             $recepcion,
                             $productoAlmacen,
                             $unidadTemporal,
                             $productoRecepcion->costo,
-                            5 // orden = 5 para anulación
+                            5,
+                            $stockOverride
                         );
+
+                        $acumuladoKardexAnulacion += (float) $unidadDerivada->cantidad * (float) $unidadDerivada->factor;
                     }
                 }
 

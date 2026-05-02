@@ -27,10 +27,16 @@ class KardexInventarioService
         }
 
         // 2. Calcular el factor de conversión de la unidad derivada
-        // El factor se obtiene de: cantidad_fraccion / cantidad
         $cantidad = (float) ($data['cantidad'] ?? 1);
         $cantidadFraccion = (float) ($data['cantidad_fraccion'] ?? $cantidad);
-        $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
+        if (isset($data['factor'])) {
+            $factor = (float) $data['factor'];
+        } else {
+            $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
+        }
+        if ($factor <= 0) {
+            $factor = 1;
+        }
 
         // 3. Obtener el stock actual real en fracción (o usar el override si se proporciona)
         $stockAnteriorFraccion = 0;
@@ -220,12 +226,12 @@ class KardexInventarioService
     /**
      * Registra una anulación de recepción en kardex inventario
      */
-    public function registrarAnulacionRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 5)
+    public function registrarAnulacionRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 5, $stockAnteriorOverride = null)
     {
         // Obtener proveedor de la compra asociada a la recepción
         $proveedorId = null;
         $proveedorNombre = null;
-        
+
         if ($recepcion->compra_id) {
             $compra = \App\Models\Compra::with('proveedor')->find($recepcion->compra_id);
             if ($compra && $compra->proveedor) {
@@ -234,7 +240,7 @@ class KardexInventarioService
             }
         }
 
-        return $this->registrar([
+        $dataToRegister = [
             'tipo' => 'recepcion_anulada',
             'movimiento' => 'ANULACION',
             'fecha' => now(),
@@ -254,15 +260,21 @@ class KardexInventarioService
             'proveedor_nombre' => $proveedorNombre,
             'almacen_id' => $productoAlmacen->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+
+        if ($stockAnteriorOverride !== null) {
+            $dataToRegister['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+
+        return $this->registrar($dataToRegister);
     }
 
     /**
      * Registra un ingreso en kardex inventario
      */
-    public function registrarIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 3)
+    public function registrarIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 3, $stockAnteriorOverride = null)
     {
-        return $this->registrar([
+        $data = [
             'tipo' => 'ingreso',
             'movimiento' => 'CUADRE INGRESO',
             'fecha' => $ingresoSalida->fecha,
@@ -280,15 +292,19 @@ class KardexInventarioService
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'almacen_id' => $ingresoSalida->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+        if ($stockAnteriorOverride !== null) {
+            $data['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+        return $this->registrar($data);
     }
 
     /**
      * Registra una salida en kardex inventario
      */
-    public function registrarSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 4)
+    public function registrarSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 4, $stockAnteriorOverride = null)
     {
-        return $this->registrar([
+        $data = [
             'tipo' => 'salida',
             'movimiento' => 'CUADRE SALIDA',
             'fecha' => $ingresoSalida->fecha,
@@ -306,15 +322,19 @@ class KardexInventarioService
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'almacen_id' => $ingresoSalida->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+        if ($stockAnteriorOverride !== null) {
+            $data['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+        return $this->registrar($data);
     }
 
     /**
      * Registra una anulación de ingreso en kardex inventario
      */
-    public function registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 6)
+    public function registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 6, $stockAnteriorOverride = null)
     {
-        return $this->registrar([
+        $data = [
             'tipo' => 'ingreso_anulado',
             'movimiento' => 'ANULACION',
             'fecha' => now(),
@@ -332,15 +352,19 @@ class KardexInventarioService
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'almacen_id' => $ingresoSalida->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+        if ($stockAnteriorOverride !== null) {
+            $data['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+        return $this->registrar($data);
     }
 
     /**
      * Registra una anulación de salida en kardex inventario
      */
-    public function registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 7)
+    public function registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 7, $stockAnteriorOverride = null)
     {
-        return $this->registrar([
+        $data = [
             'tipo' => 'salida_anulada',
             'movimiento' => 'ANULACION',
             'fecha' => now(),
@@ -358,7 +382,11 @@ class KardexInventarioService
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'almacen_id' => $ingresoSalida->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+        if ($stockAnteriorOverride !== null) {
+            $data['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+        return $this->registrar($data);
     }
 
     /**

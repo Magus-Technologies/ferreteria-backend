@@ -9,25 +9,47 @@ class KardexFacturacionService
 {
     /**
      * Registra un movimiento en kardex de facturación
+     * CORRECCIÓN: Usa el factor explícitamente pasado en lugar de recalcularlo
      */
     public function registrar(array $data)
     {
-        // 1. Calcular el factor de conversión de la unidad derivada
-        // El factor se obtiene de: cantidad_fraccion / cantidad
+        // 1. Obtener el factor explícitamente (CORRECCIÓN: no recalcular)
+        // El factor debe venir en los datos o calcularse desde cantidad_fraccion / cantidad
         $cantidad = (float) ($data['cantidad'] ?? 1);
         $cantidadFraccion = (float) ($data['cantidad_fraccion'] ?? $cantidad);
-        $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
-
-        // 2. Obtener el saldo actual del producto_almacen en la BD (en fracción)
-        // Este es el saldo REAL en ese momento
-        $productoAlmacen = DB::table('productoalmacen')
-            ->where('producto_id', $data['producto_id'])
-            ->where('almacen_id', $data['almacen_id'])
-            ->first();
         
+        // Usar factor explícito si viene, si no calcularlo
+        $factor = (float) ($data['factor'] ?? 0);
+        if ($factor <= 0) {
+            // Solo recalcular si no viene explícitamente
+            $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
+        }
+        
+        // Validar que factor sea válido (> 0)
+        if ($factor <= 0) {
+            \Log::warning('KardexFacturacionService::registrar - Factor inválido', [
+                'factor' => $factor,
+                'cantidad' => $cantidad,
+                'cantidad_fraccion' => $cantidadFraccion,
+            ]);
+            $factor = 1;
+        }
+
+        // 2. Obtener el saldo anterior del producto_almacen en la BD (en fracción)
+        // CORRECCIÓN: Usar stock_anterior_override si se proporciona
         $saldoAnteriorFraccion = 0;
-        if ($productoAlmacen) {
-            $saldoAnteriorFraccion = (float) $productoAlmacen->stock_fraccion;
+        if (isset($data['stock_anterior_override'])) {
+            $saldoAnteriorFraccion = (float) $data['stock_anterior_override'];
+            unset($data['stock_anterior_override']); // Remover para no guardarlo en la BD
+        } else {
+            $productoAlmacen = DB::table('productoalmacen')
+                ->where('producto_id', $data['producto_id'])
+                ->where('almacen_id', $data['almacen_id'])
+                ->first();
+            
+            if ($productoAlmacen) {
+                $saldoAnteriorFraccion = (float) $productoAlmacen->stock_fraccion;
+            }
         }
         
         // 3. Calcular saldo en fracción después de esta transacción
@@ -45,6 +67,21 @@ class KardexFacturacionService
         $data['cant_ingreso'] = $cantIngreso;
         $data['cant_salida'] = $cantSalida;
         $data['stock_actual'] = $saldoActualUnidadDerivada;
+        $data['factor'] = $factor; // Guardar el factor usado
+        
+        \Log::info('KardexFacturacionService::registrar - Datos guardados', [
+            'producto_id' => $data['producto_id'],
+            'unidad' => $data['unidad'] ?? 'N/A',
+            'factor' => $factor,
+            'cantidad' => $cantidad,
+            'cantidad_fraccion' => $cantidadFraccion,
+            'stock_anterior_fraccion' => $saldoAnteriorFraccion,
+            'stock_anterior_unidad_derivada' => $saldoAnteriorUnidadDerivada,
+            'cant_ingreso' => $cantIngreso,
+            'cant_salida' => $cantSalida,
+            'stock_actual_fraccion' => $saldoActualFraccion,
+            'stock_actual_unidad_derivada' => $saldoActualUnidadDerivada,
+        ]);
         
         return KardexFacturacion::create($data);
     }
@@ -52,6 +89,7 @@ class KardexFacturacionService
     /**
      * Registra una venta en kardex facturación (cuando se crea)
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
+     * CORRECCIÓN: Pasar factor explícitamente
      */
     public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null)
     {
@@ -89,6 +127,7 @@ class KardexFacturacionService
             'unidad' => $unidad['unidad_derivada_inmutable_name'],
             'cantidad' => $unidad['cantidad'],
             'cantidad_fraccion' => $cantSalida,
+            'factor' => (float) $unidad['factor'], // CORRECCIÓN: Pasar factor explícitamente
             'precio' => $unidad['precio'],
             'costo' => $costo,
             'entrada' => 0,
@@ -103,33 +142,18 @@ class KardexFacturacionService
             'orden' => $orden,
         ];
 
-        // Si se proporciona stock anterior en fracción, convertirlo a unidad derivada
+        // Si se proporciona stock anterior en fracción, usarlo
         if ($stockAnterior !== null) {
-            // Calcular el factor de conversión
-            $cantidad = (float) $unidad['cantidad'];
-            $cantidadFraccion = (float) $cantSalida;
-            $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
-            
-            // Convertir stock de fracción a unidad derivada
-            $stockAnteriorUnidadDerivada = $factor > 0 ? ($stockAnterior / $factor) : 0;
-            $stockActualFraccion = $stockAnterior - $cantSalida;
-            $stockActualUnidadDerivada = $factor > 0 ? ($stockActualFraccion / $factor) : 0;
-            
-            $data['stock_anterior'] = $stockAnteriorUnidadDerivada;
-            $data['cant_ingreso'] = 0;
-            $data['cant_salida'] = $cantSalida;
-            $data['stock_actual'] = $stockActualUnidadDerivada;
-            
-            return KardexFacturacion::create($data);
+            $data['stock_anterior_override'] = $stockAnterior;
         }
 
-        // Si no se proporciona, usar el método registrar que consulta la BD
         return $this->registrar($data);
     }
 
     /**
      * Registra una devolución de venta en kardex facturación (cuando se anula)
      * Se registra cuando estado_de_venta cambia a 'an' (anulada)
+     * CORRECCIÓN: Pasar factor explícitamente
      */
     public function registrarDevolucionVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 2)
     {
@@ -184,6 +208,7 @@ class KardexFacturacionService
             'unidad' => $unidad->unidadDerivadaInmutable->name,
             'cantidad' => $unidad->cantidad,
             'cantidad_fraccion' => $unidad->cantidad * $unidad->factor,
+            'factor' => (float) $unidad->factor, // CORRECCIÓN: Pasar factor explícitamente
             'precio' => $unidad->precio,
             'costo' => $costo,
             'entrada' => $unidad->cantidad * $unidad->factor,
@@ -202,6 +227,7 @@ class KardexFacturacionService
     /**
      * Registra una venta cuando cambia de 'ee' (en espera) a otro estado
      * Se registra cuando la venta pasa de borrador a creada
+     * CORRECCIÓN: Pasar factor explícitamente
      */
     public function registrarVentaDesdeEspera($venta, $productoAlmacen, $unidad, $costo, $orden = 1)
     {
@@ -236,6 +262,7 @@ class KardexFacturacionService
             'unidad' => $unidad->unidadDerivadaInmutable->name,
             'cantidad' => $unidad->cantidad,
             'cantidad_fraccion' => $unidad->cantidad * $unidad->factor,
+            'factor' => (float) $unidad->factor, // CORRECCIÓN: Pasar factor explícitamente
             'precio' => $unidad->precio,
             'costo' => $costo,
             'entrada' => 0,
@@ -418,6 +445,7 @@ class KardexFacturacionService
 
     /**
      * Registra un ajuste por edición de venta en kardex facturación
+     * CORRECCIÓN: Pasar factor explícitamente
      */
     private function registrarAjustePorEdicion($venta, $productoAlmacen, $unidad, $costo, $cantidadFraccion, $tipo, $orden, $tipoDocumento, $clienteNombre = 'Sin cliente')
     {
@@ -435,6 +463,7 @@ class KardexFacturacionService
             'unidad' => $unidad->unidadDerivadaInmutable->name,
             'cantidad' => $cantidadUnidad,
             'cantidad_fraccion' => $cantidadFraccion,
+            'factor' => (float) $unidad->factor, // CORRECCIÓN: Pasar factor explícitamente
             'precio' => $unidad->precio,
             'costo' => $costo,
             'entrada' => $tipo === 'entrada' ? $cantidadFraccion : 0,
