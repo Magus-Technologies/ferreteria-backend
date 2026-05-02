@@ -11,6 +11,7 @@ class DireccionEmpresa extends Model
 
     protected $fillable = [
         'empresa_id',
+        'es_principal',
         'alias',
         'direccion',
         'ubigeo_id',
