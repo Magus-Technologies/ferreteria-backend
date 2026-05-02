@@ -232,6 +232,9 @@ class VentaController extends Controller
             'tipo_despacho' => 'nullable|string|in:et,do,pa',
             'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
             'omitir_entrega' => 'sometimes|boolean',
+            // descontar_stock=no significa "el cliente ya tiene el producto":
+            // NO descontar stock pero SÍ crear la entrega como ENTREGADA.
+            'descontar_stock' => 'sometimes|string|in:si,no',
             'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
@@ -417,10 +420,16 @@ class VentaController extends Controller
             // No descontar si la venta está "en espera" (no es una venta finalizada)
             // No descontar si se omite la entrega: el stock se descontará cuando
             // se cree la entrega manualmente desde Mis Ventas.
+            // No descontar si descontar_stock='no' (caso: el cliente ya tiene
+            // el producto físicamente; solo se registra la venta administrativa).
             $tipoDespacho = $validated['tipo_despacho'] ?? null;
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
-            $debeDescontar = in_array($tipoDespacho, ['et', 'do']) && $estadoVentaStr !== 'ee' && ! $omitirEntrega;
+            $noDescontarStock = ($validated['descontar_stock'] ?? 'si') === 'no';
+            $debeDescontar = in_array($tipoDespacho, ['et', 'do'])
+                && $estadoVentaStr !== 'ee'
+                && ! $omitirEntrega
+                && ! $noDescontarStock;
             
             // CAPTURAR STOCK ANTERIOR ANTES DE DECREMENTAR (para kardex)
             // Capturar SIEMPRE si no está en espera (porque se registrará en kardex)
@@ -490,10 +499,22 @@ class VentaController extends Controller
             //  Antes estaba hardcoded 'en' siempre, lo que hacía que la venta
             //  apareciera ya entregada aunque el cliente todavía no hubiera
             //  pasado al almacén.
-            $autoCrearEntrega = $tipoDespacho === 'et' && $estadoVentaStr !== 'ee' && ! $omitirEntrega;
+            // Crear entrega automática para En Tienda. Casos:
+            //  - Flujo normal (descontar_stock=si, no omitir): se crea con
+            //    estado según quien_entrega (vendedor='en', almacen/chofer='pe').
+            //  - descontar_stock=no: se crea SIEMPRE como 'en' (el cliente
+            //    ya tiene el producto). NO descuenta stock pero registra la
+            //    entrega completada.
+            //  - omitir_entrega=true: NO se crea (queda pendiente para que
+            //    el usuario la programe manualmente desde Mis Ventas).
+            $autoCrearEntrega = $tipoDespacho === 'et'
+                && $estadoVentaStr !== 'ee'
+                && ! $omitirEntrega;
             if ($autoCrearEntrega) {
                 $quienEntregaAuto = $validated['quien_entrega'] ?? 'almacen';
-                $estadoEntregaAuto = $quienEntregaAuto === 'vendedor' ? 'en' : 'pe';
+                $estadoEntregaAuto = $noDescontarStock
+                    ? 'en'  // descontar_stock=no → ya entregado siempre
+                    : ($quienEntregaAuto === 'vendedor' ? 'en' : 'pe');
 
                 $entregaAuto = EntregaProducto::create([
                     'venta_id' => $venta->id,
@@ -1103,7 +1124,11 @@ class VentaController extends Controller
             // Aplicar nuevo descuento de stock si corresponde
             $tipoDespachoNuevo = $validated['tipo_despacho'] ?? $tipoDespachoAnterior;
             $omitirEntregaUpdate = (bool) ($validated['omitir_entrega'] ?? false);
-            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do']) && $estadoNuevo !== 'ee' && ! $omitirEntregaUpdate;
+            $noDescontarStockUpdate = ($validated['descontar_stock'] ?? 'si') === 'no';
+            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do'])
+                && $estadoNuevo !== 'ee'
+                && ! $omitirEntregaUpdate
+                && ! $noDescontarStockUpdate;
             if ($descontarStockAhora && isset($validated['productos_por_almacen'])) {
                 foreach ($validated['productos_por_almacen'] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
