@@ -35,7 +35,7 @@ class AnalisisPerdidasController extends Controller
             // Filtrar por tipo de pérdida si se especifica
             if (!empty($filtros['tipo_perdida']) && $filtros['tipo_perdida'] !== 'todas') {
                 $resultado['detalles'] = array_filter($resultado['detalles'], function($detalle) use ($filtros) {
-                    $categoria = strtoupper($detalle['categoria'] ?? '');
+                    $categoria = strtoupper(is_array($detalle) ? ($detalle['categoria'] ?? '') : ($detalle->categoria ?? ''));
                     
                     return match($filtros['tipo_perdida']) {
                         'ventas_bajo_costo' => str_contains($categoria, 'VENTA BAJO COSTO'),

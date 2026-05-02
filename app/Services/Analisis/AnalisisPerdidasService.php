@@ -234,26 +234,26 @@ class AnalisisPerdidasService
     {
         $query = DB::table('unidadderivadainmutableingresosalida as udis')
             ->join('productoalmaceningresosalida as pais', 'udis.producto_almacen_ingreso_salida_id', '=', 'pais.id')
-            ->join('ingresosalida as is', 'pais.ingreso_id', '=', 'is.id')
+            ->join('ingresosalida as isa', 'pais.ingreso_id', '=', 'isa.id')
             ->leftJoin('productoalmacen as pa', 'pais.producto_almacen_id', '=', 'pa.id')
             ->leftJoin('producto as p', 'pa.producto_id', '=', 'p.id')
-            ->leftJoin('tipoingresosalida as tis', 'is.tipo_ingreso_id', '=', 'tis.id')
-            ->leftJoin('user as u', 'is.user_id', '=', 'u.id')
+            ->leftJoin('tipoingresosalida as tis', 'isa.tipo_ingreso_id', '=', 'tis.id')
+            ->leftJoin('user as u', 'isa.user_id', '=', 'u.id')
             ->select([
-                'is.id as salida_id',
-                'is.fecha',
+                'isa.id as salida_id',
+                'isa.fecha',
                 DB::raw("'SALIDA' as tipo_documento"),
-                'is.numero',
+                'isa.numero',
                 'p.name as producto',
                 DB::raw("UPPER(tis.name) as categoria"),
                 DB::raw("COALESCE(u.name, 'SISTEMA') as cliente"),
                 'udis.cantidad',
                 'pais.costo as costo_producto',
                 DB::raw("pais.costo * udis.cantidad as monto"),
-                DB::raw("CONCAT('SALIDA #', is.numero) as referencia"),
+                DB::raw("CONCAT('SALIDA #', isa.numero) as referencia"),
             ])
-            ->where('is.tipo_documento', 'sa')
-            ->where('is.estado', true);
+            ->where('isa.tipo_documento', 'sa')
+            ->where('isa.estado', true);
 
         $filter->applyPerdidas($query, 'salida');
         $detalles = $query->get();

@@ -152,22 +152,22 @@ class GananciasQueryFilter
             }
         } elseif ($tipo === 'salida') {
             if (!empty($this->filtros['almacen_id'])) {
-                $query->where('is.almacen_id', $this->filtros['almacen_id']);
+                $query->where('isa.almacen_id', $this->filtros['almacen_id']);
             }
 
             if (!empty($this->filtros['desde'])) {
-                $query->whereDate('is.fecha', '>=', $this->filtros['desde']);
+                $query->whereDate('isa.fecha', '>=', $this->filtros['desde']);
             }
 
             if (!empty($this->filtros['hasta'])) {
-                $query->whereDate('is.fecha', '<=', $this->filtros['hasta']);
+                $query->whereDate('isa.fecha', '<=', $this->filtros['hasta']);
             }
 
             if (!empty($this->filtros['search'])) {
                 $search = $this->filtros['search'];
                 $query->where(function ($q) use ($search) {
                     $q->where('p.name', 'like', "%{$search}%")
-                        ->orWhere('is.numero', 'like', "%{$search}%")
+                        ->orWhere('isa.numero', 'like', "%{$search}%")
                         ->orWhere('tis.name', 'like', "%{$search}%");
                 });
             }
