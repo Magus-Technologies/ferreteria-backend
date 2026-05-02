@@ -315,6 +315,25 @@ class GuiaRemisionService
             ];
         }
 
+        // Remitente — solo en GRE-Transportista. Es el cliente que contrata
+        // el servicio de transporte (dueño de la mercadería). Se mapea a
+        // Greenter setTercero al armar el XML SUNAT '31'.
+        $remitente = null;
+        if ($esTransportista && $guia->remitente) {
+            $remitenteCliente = $guia->remitente;
+            $tipoDocRem = '1'; // DNI
+            if ($remitenteCliente->tipo_cliente?->value === 'e') {
+                $tipoDocRem = '6'; // RUC
+            }
+            $remitente = [
+                'tipo_doc' => $tipoDocRem,
+                'num_doc' => $remitenteCliente->numero_documento ?? '00000000',
+                'razon_social' => $remitenteCliente->razon_social
+                    ? $remitenteCliente->razon_social
+                    : (trim(($remitenteCliente->nombres ?? '') . ' ' . ($remitenteCliente->apellidos ?? '')) ?: 'VARIOS'),
+            ];
+        }
+
         return [
             'tipo_guia' => $guia->tipo_guia,
             'serie' => $guia->serie ?? ($esTransportista ? 'V001' : 'T001'),
@@ -332,6 +351,7 @@ class GuiaRemisionService
             'vehiculo_placa' => $guia->vehiculo_placa,
             'destinatario' => $destinatario,
             'comprador' => $comprador,
+            'remitente' => $remitente,
             'transportista' => $transportista,
             'choferes' => $choferes,
             'items' => $items,

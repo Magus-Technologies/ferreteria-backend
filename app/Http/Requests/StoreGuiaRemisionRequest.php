@@ -25,10 +25,30 @@ class StoreGuiaRemisionRequest extends FormRequest
             'serie' => 'nullable|string|max:10',
             'numero' => 'nullable|integer',
             'fecha_emision' => 'required|date',
-            'fecha_traslado' => 'required|date|after_or_equal:fecha_emision',
+            // Compara solo la parte de fecha (sin hora). El frontend envía
+            // `fecha_emision` con timestamp completo (`YYYY-MM-DD HH:mm:ss`)
+            // y `fecha_traslado` solo como `YYYY-MM-DD` — usar `after_or_equal`
+            // de Laravel hacía que el mismo día fallara porque interpretaba
+            // `fecha_traslado` como medianoche < hora de emisión.
+            'fecha_traslado' => [
+                'required',
+                'date',
+                function ($attribute, $value, $fail) {
+                    $emisionRaw = $this->input('fecha_emision');
+                    if (!$emisionRaw) return;
+                    $emision = \Illuminate\Support\Carbon::parse($emisionRaw)->startOfDay();
+                    $traslado = \Illuminate\Support\Carbon::parse($value)->startOfDay();
+                    if ($traslado->lt($emision)) {
+                        $fail('La fecha de traslado debe ser igual o posterior a la fecha de emisión');
+                    }
+                },
+            ],
             'afecta_stock' => 'sometimes|boolean',
             'cliente_id' => 'nullable|integer|exists:cliente,id',
             'comprador_id' => 'nullable|integer|exists:cliente,id',
+            // remitente_id: solo aplica a GRE-Transportista (tipo_guia = ELECTRONICA_TRANSPORTISTA).
+            // Es el cliente que contrata el servicio de transporte.
+            'remitente_id' => 'nullable|integer|exists:cliente,id',
             'motivo_traslado_id' => 'required|integer|exists:motivos_traslado,id',
             'modalidad_transporte' => 'required|string|in:PRIVADO,PUBLICO',
             'vehiculo_placa' => 'nullable|string|max:20',

@@ -24,9 +24,26 @@ class UpdateGuiaRemisionRequest extends FormRequest
             'serie' => 'nullable|string|max:10',
             'numero' => 'nullable|integer',
             'fecha_emision' => 'sometimes|date',
-            'fecha_traslado' => 'sometimes|date|after_or_equal:fecha_emision',
+            // Compara solo la parte de fecha (sin hora) — ver comentario en
+            // StoreGuiaRemisionRequest sobre por qué el `after_or_equal` de
+            // Laravel falla cuando fecha_emision incluye HH:mm:ss.
+            'fecha_traslado' => [
+                'sometimes',
+                'date',
+                function ($attribute, $value, $fail) {
+                    $emisionRaw = $this->input('fecha_emision');
+                    if (!$emisionRaw) return;
+                    $emision = \Illuminate\Support\Carbon::parse($emisionRaw)->startOfDay();
+                    $traslado = \Illuminate\Support\Carbon::parse($value)->startOfDay();
+                    if ($traslado->lt($emision)) {
+                        $fail('La fecha de traslado debe ser igual o posterior a la fecha de emisión');
+                    }
+                },
+            ],
             'afecta_stock' => 'sometimes|boolean',
             'cliente_id' => 'nullable|integer|exists:cliente,id',
+            'comprador_id' => 'nullable|integer|exists:cliente,id',
+            'remitente_id' => 'nullable|integer|exists:cliente,id',
             'motivo_traslado_id' => 'sometimes|integer|exists:motivos_traslado,id',
             'modalidad_transporte' => 'sometimes|string|in:PRIVADO,PUBLICO',
             'vehiculo_placa' => 'nullable|string|max:20',

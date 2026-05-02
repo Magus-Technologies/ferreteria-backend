@@ -477,6 +477,8 @@ class SunatApiService implements SunatApiServiceInterface
         $cliente = $data['destinatario'] ?? $data['cliente'] ?? [];
         $items = $data['items'] ?? [];
         $transportista = $data['transportista'] ?? null;
+        // Remitente — solo aplica a GRE-Transportista (lo arma el caller).
+        $remitente = $data['remitente'] ?? null;
 
         $detalles = [];
         foreach ($items as $item) {
@@ -527,6 +529,17 @@ class SunatApiService implements SunatApiServiceInterface
             'datos_envio' => $datosEnvio,
             'detalles' => $detalles,
         ];
+
+        // Remitente — solo se incluye si es GRE-Transportista. La API SUNAT
+        // externa lo mapea a Greenter `setTercero` (tipoDoc='31').
+        if ($remitente) {
+            $payload['remitente'] = [
+                'num_doc' => (string) ($remitente['num_doc'] ?? ''),
+                'rzn_social' => $remitente['razon_social'] ?? '',
+                'tipo_doc' => $remitente['tipo_doc'] ?? '6',
+                'direccion' => $remitente['direccion'] ?? '-',
+            ];
+        }
 
         if ($transportista) {
             $payload['transportista'] = [
