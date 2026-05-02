@@ -2176,6 +2176,7 @@ class VentaController extends Controller
             'desde' => 'sometimes|date',
             'hasta' => 'sometimes|date',
             'cliente_id' => 'sometimes|integer',
+            'estado' => 'sometimes|in:todos,activos,anulados',
             'per_page' => 'sometimes|integer|min:-1|max:100', // -1 = todos los registros
         ]);
 
@@ -2185,8 +2186,16 @@ class VentaController extends Controller
                 'venta:id,tipo_documento,serie,numero,fecha,fecha_vencimiento,almacen_id,cliente_id',
                 'despliegueDePago.metodoDePago',
                 'user:id,name'
-            ])
-            ->where('estado', true);
+            ]);
+
+        // Filtrar por estado del cobro
+        $estadoFiltro = $request->input('estado', 'activos');
+        if ($estadoFiltro === 'activos') {
+            $query->where('estado', true);
+        } elseif ($estadoFiltro === 'anulados') {
+            $query->where('estado', false);
+        }
+        // Si es 'todos', no filtrar por estado
 
         // Filtrar por almacén (a través de la venta)
         if ($request->has('almacen_id')) {
