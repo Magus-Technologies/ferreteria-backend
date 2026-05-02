@@ -173,6 +173,28 @@ class GananciasQueryFilter
                         ->orWhere('tis.name', 'like', "%{$search}%");
                 });
             }
+        } elseif ($tipo === 'nota_credito') {
+            if (!empty($this->filtros['almacen_id'])) {
+                $query->where('v.almacen_id', $this->filtros['almacen_id']);
+            }
+
+            if (!empty($this->filtros['desde'])) {
+                $query->whereDate('nc.fecha', '>=', $this->filtros['desde']);
+            }
+
+            if (!empty($this->filtros['hasta'])) {
+                $query->whereDate('nc.fecha', '<=', $this->filtros['hasta']);
+            }
+
+            if (!empty($this->filtros['search'])) {
+                $search = $this->filtros['search'];
+                $query->where(function ($q) use ($search) {
+                    $q->where('nc.serie', 'like', "%{$search}%")
+                        ->orWhere('nc.correlativo', 'like', "%{$search}%")
+                        ->orWhere('v.numero', 'like', "%{$search}%")
+                        ->orWhere('mn.descripcion', 'like', "%{$search}%");
+                });
+            }
         }
     }
 
