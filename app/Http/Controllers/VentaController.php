@@ -1033,13 +1033,13 @@ class VentaController extends Controller
                 $entregasActivas = EntregaProducto::where('venta_id', $id)
                     ->whereIn('estado_entrega', ['pe', 'ec', 'en'])
                     ->with([
-                        'detallesEntrega.unidadDerivadaVenta.productoAlmacenVenta',
-                        'detallesEntrega.unidadDerivadaVenta.unidadDerivadaInmutable',
+                        'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta',
+                        'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
                     ])
                     ->get();
 
                 foreach ($entregasActivas as $entrega) {
-                    foreach ($entrega->detallesEntrega as $detalle) {
+                    foreach ($entrega->productosEntregados as $detalle) {
                         $udv = $detalle->unidadDerivadaVenta;
                         if (! $udv) continue;
                         $pav = $udv->productoAlmacenVenta;
@@ -1159,6 +1159,17 @@ class VentaController extends Controller
                         ]);
                     }
                 }
+
+                // Forzar re-confirmación de entregas tras editar la venta:
+                // las entregas que estaban 'en' (entregado) o 'ec' (en camino)
+                // pasan a 'pe' (pendiente) para que el usuario re-valide
+                // físicamente antes de marcarlas como entregadas otra vez.
+                // La `cantidad_entregada` de los detalles se preserva (arriba),
+                // así que al re-entregar el sistema sabe cuánto quedó por
+                // entregar realmente. Las canceladas ('ca') no se tocan.
+                EntregaProducto::where('venta_id', $id)
+                    ->whereIn('estado_entrega', ['en', 'ec'])
+                    ->update(['estado_entrega' => 'pe']);
             }
 
             // Ajustar stock según transición de estado + tipo_despacho
