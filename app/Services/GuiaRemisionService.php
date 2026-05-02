@@ -242,7 +242,7 @@ class GuiaRemisionService
         if ($codigoMotivo === '08') {
             $destinatario = [
                 'tipo_doc' => '6', // RUC
-                'num_doc' => config('sunat-api.ruc'),
+                'num_doc' => \App\Models\Empresa::getRucEmisor(),
                 'razon_social' => config('sunat-api.razon_social'),
             ];
         } elseif ($cliente) {
@@ -330,7 +330,7 @@ class GuiaRemisionService
         if ($esTransportista) {
             $transportista = [
                 'tipo_doc' => '6', // RUC
-                'num_doc' => config('sunat-api.ruc'),
+                'num_doc' => \App\Models\Empresa::getRucEmisor(),
                 'razon_social' => config('sunat-api.razon_social'),
                 'nro_mtc' => config('sunat-api.nro_mtc', null),
             ];
@@ -405,7 +405,7 @@ class GuiaRemisionService
         $codigoQr = $this->generarCodigoQR($guia, $hashCpe);
 
         // Guardar XML en storage
-            $ruc = config('sunat-api.ruc');
+            $ruc = \App\Models\Empresa::getRucEmisor();
         $nombreXml = $this->xmlStorageService->generarNombreXml(
             $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
         );
@@ -450,7 +450,7 @@ class GuiaRemisionService
             }
 
             // Guardar XML y CDR
-        $ruc = config('sunat-api.ruc');
+        $ruc = \App\Models\Empresa::getRucEmisor();
             $nombreXml = $this->xmlStorageService->generarNombreXml(
                 $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
             );
@@ -504,7 +504,7 @@ class GuiaRemisionService
     {
         try {
             $qrText = implode('|', [
-                config('sunat-api.ruc'),
+                \App\Models\Empresa::getRucEmisor(),
                 $this->getTipoDocSunat($guia),
                 $guia->serie ?? 'T001',
                 $guia->numero ?? '0',

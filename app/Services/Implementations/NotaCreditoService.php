@@ -262,7 +262,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
                 throw NotaCreditoException::notaCreditoNoEnviable('Error al generar XML o enviar a SUNAT');
             }
 
-            $ruc = config('sunat-api.ruc');
+            $ruc = \App\Models\Empresa::getRucEmisor();
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, '07', $notaCredito->serie, $notaCredito->numero);
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, '07', $notaCredito->serie, $notaCredito->numero);
 
@@ -384,7 +384,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             throw NotaCreditoException::notaCreditoNoEncontrada($id);
         }
 
-        $ruc = config('sunat-api.ruc');
+        $ruc = \App\Models\Empresa::getRucEmisor();
         
         return $this->sunatApiService->consultarEstado(
             $ruc,

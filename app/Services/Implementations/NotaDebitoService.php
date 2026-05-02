@@ -93,7 +93,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
                 
                 if (!empty($xml)) {
                     // Guardar XML
-                    $ruc = config('sunat-api.ruc');
+                    $ruc = \App\Models\Empresa::getRucEmisor();
                     $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, '08', $notaDebito->serie, $notaDebito->numero);
                     $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
                     
@@ -288,7 +288,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             }
 
             // Guardar archivos XML y CDR
-            $ruc = config('sunat-api.ruc');
+            $ruc = \App\Models\Empresa::getRucEmisor();
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, '08', $notaDebito->serie, $notaDebito->numero);
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, '08', $notaDebito->serie, $notaDebito->numero);
 
@@ -408,7 +408,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             throw NotaDebitoException::notaDebitoNoEncontrada($id);
         }
 
-        $ruc = config('sunat-api.ruc');
+        $ruc = \App\Models\Empresa::getRucEmisor();
         
         return $this->sunatApiService->consultarEstado(
             $ruc,

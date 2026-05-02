@@ -320,7 +320,7 @@ class NotaDebitoController extends Controller
             $cdr = $this->notaDebitoService->obtenerCdr($id);
             $notaDebito = $this->notaDebitoService->obtenerPorId($id);
 
-            $nombreArchivo = "R-" . config('sunat-api.ruc') . "-08-{$notaDebito->serie}-{$notaDebito->numero}.xml";
+            $nombreArchivo = "R-" . \App\Models\Empresa::getRucEmisor() . "-08-{$notaDebito->serie}-{$notaDebito->numero}.xml";
 
             return response($cdr, 200)
                 ->header('Content-Type', 'application/xml')

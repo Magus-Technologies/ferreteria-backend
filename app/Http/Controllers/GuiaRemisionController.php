@@ -220,7 +220,7 @@ class GuiaRemisionController extends Controller
             'data' => [
                 'guia' => $guia,
                 'empresa' => [
-                    'ruc' => config('sunat-api.ruc'),
+                    'ruc' => \App\Models\Empresa::getRucEmisor(),
                     'razon_social' => config('sunat-api.razon_social'),
                     'nombre_comercial' => config('sunat-api.nombre_comercial'),
                     'direccion' => config('sunat-api.direccion'),

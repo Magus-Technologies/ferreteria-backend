@@ -84,7 +84,7 @@ class FacturaService implements FacturaServiceInterface
             );
 
             // Guardar XML
-            $ruc = config('sunat-api.ruc');
+            $ruc = \App\Models\Empresa::getRucEmisor();
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, $tipoDocumento, $venta->serie, $venta->numero);
             $xmlPath = $this->xmlStorageService->guardarXml($xml, $nombreXml);
 
@@ -255,7 +255,7 @@ class FacturaService implements FacturaServiceInterface
             }
 
             // Guardar archivos XML y CDR
-            $ruc = config('sunat-api.ruc');
+            $ruc = \App\Models\Empresa::getRucEmisor();
             $tipoDoc = $venta->tipo_documento === '01' ? '01' : '03';
             $nombreXml = $this->xmlStorageService->generarNombreXml($ruc, $tipoDoc, $venta->serie, $venta->numero);
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, $tipoDoc, $venta->serie, $venta->numero);
@@ -349,7 +349,7 @@ class FacturaService implements FacturaServiceInterface
     public function consultarEstadoSunat(string $ventaId): array
     {
         $venta = $this->validarYObtenerVenta($ventaId);
-        $ruc = config('sunat-api.ruc');
+        $ruc = \App\Models\Empresa::getRucEmisor();
         $tipoDoc = $venta->tipo_documento === '01' ? '01' : '03';
         
         return $this->sunatApiService->consultarEstado(
@@ -738,7 +738,7 @@ class FacturaService implements FacturaServiceInterface
             $clienteTipoDoc = $cliente->tipo_documento === 'ruc' ? '6' : '1';
 
             $qrText = implode('|', [
-                config('sunat-api.ruc'),
+                \App\Models\Empresa::getRucEmisor(),
                 $tipoDocumento,
                 $venta->serie,
                 $venta->numero,

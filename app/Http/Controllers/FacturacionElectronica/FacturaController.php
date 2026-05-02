@@ -161,7 +161,7 @@ class FacturaController extends Controller
             $factura = $this->facturaService->obtenerPorVentaId($ventaId);
             $venta = $factura['venta'];
             $tipoDoc = $venta->tipo_documento === '01' ? '01' : '03';
-            $nombreArchivo = "R-" . config('sunat-api.ruc') . "-{$tipoDoc}-{$venta->serie}-{$venta->numero}.zip";
+            $nombreArchivo = "R-" . \App\Models\Empresa::getRucEmisor() . "-{$tipoDoc}-{$venta->serie}-{$venta->numero}.zip";
             
             Log::info('✅ [FacturaController] CDR descargado exitosamente', [
                 'venta_id' => $ventaId,

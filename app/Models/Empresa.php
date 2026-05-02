@@ -125,4 +125,24 @@ class Empresa extends Model
             ? $ubigeo->departamento . $ubigeo->provincia . $ubigeo->distrito
             : null;
     }
+
+    /**
+     * RUC del emisor para SUNAT. En modo `beta` SUNAT exige el RUC de pruebas
+     * `20000000001` aunque la empresa tenga otro RUC; en `produccion` se usa
+     * el RUC real de la tabla `empresa`. Si no hay empresa registrada, cae a
+     * beta.
+     *
+     * Replica la lógica de `SunatApiService::getEmpresa()` para que cualquier
+     * lugar que arme nombres de archivo (XML/CDR) o payloads SUNAT use el
+     * mismo RUC sin tener que duplicarlo en `.env`.
+     */
+    public static function getRucEmisor(): string
+    {
+        $empresa = static::first();
+        if (!$empresa) {
+            return '20000000001';
+        }
+        $modo = $empresa->sunat_modo ?? 'beta';
+        return $modo === 'beta' ? '20000000001' : (string) $empresa->ruc;
+    }
 }

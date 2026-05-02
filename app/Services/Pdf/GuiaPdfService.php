@@ -51,7 +51,7 @@ class GuiaPdfService
         // Destinatario: motivo 08 = misma empresa, otros = cliente
         if ($esEntreEstablecimientos) {
             $clienteNombre = $empresa->razon_social ?? config('sunat-api.razon_social');
-            $clienteDocumento = $empresa->ruc ?? config('sunat-api.ruc');
+            $clienteDocumento = $empresa->ruc ?? \App\Models\Empresa::getRucEmisor();
         } else {
             $cliente = $guia->cliente;
             $clienteNombre = $cliente?->razon_social
@@ -167,7 +167,7 @@ class GuiaPdfService
         // Destinatario según motivo
         if ($esEntreEstablecimientos) {
             $clienteNombre = $empresa?->razon_social ?? config('sunat-api.razon_social');
-            $clienteDocumento = $empresa?->ruc ?? config('sunat-api.ruc');
+            $clienteDocumento = $empresa?->ruc ?? \App\Models\Empresa::getRucEmisor();
         } else {
             $cliente = $guia->cliente;
             $clienteNombre = $cliente?->razon_social
