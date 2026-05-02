@@ -135,4 +135,110 @@ class PdfController extends Controller
         }
         return $service->generarMasivo($ids);
     }
+
+    public function reporteVentasPorCobrar(Request $request): Response
+    {
+        $request->validate([
+            'venta_ids' => 'required|array',
+        ]);
+
+        $ventaIds = $request->input('venta_ids');
+
+        // Obtener todos los cobros de las ventas filtradas
+        $cobros = \App\Models\CobroVenta::whereIn('venta_id', $ventaIds)
+            ->where('estado', '!=', 0) // Solo cobros activos
+            ->with(['venta.cliente', 'despliegueDePago.metodoDePago', 'user'])
+            ->orderBy('venta_id')
+            ->orderBy('fecha')
+            ->get();
+
+        if ($cobros->isEmpty()) {
+            return response()->json(['message' => 'No hay cobros registrados para las ventas seleccionadas'], 404);
+        }
+
+        // Obtener empresa y logo
+        $empresa = \App\Models\Empresa::first();
+        $logoPath = null;
+        if ($empresa && $empresa->logo) {
+            $logoPath = storage_path('app/public/' . $empresa->logo);
+            if (!file_exists($logoPath)) {
+                $logoPath = null;
+            }
+        }
+
+        // Preparar datos para cada cobro (igual que el ticket masivo)
+        $cobrosData = [];
+        foreach ($cobros as $cobro) {
+            $venta = $cobro->venta;
+            
+            // Calcular total de la venta
+            $totalNeto = 0;
+            foreach ($venta->productos_por_almacen ?? [] as $item) {
+                foreach ($item->unidades_derivadas ?? [] as $u) {
+                    $precio = floatval($u->precio ?? 0);
+                    $cantidad = floatval($u->cantidad ?? 0);
+                    $descuento = floatval($u->descuento ?? 0);
+                    $bonificacion = boolval($u->bonificacion ?? false);
+                    $montoLinea = $bonificacion ? 0 : ($precio * $cantidad) - $descuento;
+                    $totalNeto += $montoLinea;
+                }
+            }
+
+            // Calcular total cobrado hasta este cobro
+            $totalCobrado = \App\Models\CobroVenta::where('venta_id', $venta->id)
+                ->where('estado', '!=', 0)
+                ->sum('monto');
+
+            $saldoPendiente = $totalNeto - $totalCobrado;
+
+            // Tipo de documento
+            $tipoDocMap = ['01' => 'FACTURA', '03' => 'BOLETA', 'nv' => 'NOTA DE VENTA'];
+            $tipoDocValue = $venta->tipo_documento instanceof \App\Enums\TipoDocumento 
+                ? $venta->tipo_documento->value 
+                : $venta->tipo_documento;
+            $tipoDoc = $tipoDocMap[$tipoDocValue ?? ''] ?? $tipoDocValue ?? '';
+            $nroDocumento = "{$venta->serie}-{$venta->numero}";
+
+            // Cliente
+            $clienteNombre = $venta->cliente->razon_social ?? 
+                trim(($venta->cliente->nombres ?? '') . ' ' . ($venta->cliente->apellidos ?? '')) ?: 'Sin cliente';
+            $clienteDoc = $venta->cliente->numero_documento ?? '-';
+
+            // Método de pago
+            $metodoPago = $cobro->despliegueDePago->metodoDePago->name ?? 'Efectivo';
+            if ($cobro->despliegueDePago) {
+                $metodoPago .= ' / ' . ($cobro->despliegueDePago->name ?? '');
+            }
+
+            // Usuario que registró
+            $registradoPor = $cobro->user->name ?? 'Sistema';
+
+            $cobrosData[] = [
+                'cobro' => $cobro,
+                'empresa' => $empresa,
+                'metodoPago' => $metodoPago,
+                'registradoPor' => $registradoPor,
+                'tipoDoc' => $tipoDoc,
+                'nroDocumento' => $nroDocumento,
+                'clienteNombre' => $clienteNombre,
+                'clienteDoc' => $clienteDoc,
+                'totalNeto' => number_format($totalNeto, 2),
+                'totalCobrado' => number_format($totalCobrado, 2),
+                'saldoPendiente' => number_format($saldoPendiente, 2),
+            ];
+        }
+
+        // Usar el mismo blade que los tickets masivos
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.cobro-venta-ticket-masivo', [
+            'cobros' => $cobrosData,
+            'logoPath' => $logoPath,
+        ]);
+
+        $pdf->setPaper([0, 0, 226.77, 841.89], 'portrait'); // 80mm width
+
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="tickets-cobros-ventas-filtradas.pdf"',
+        ]);
+    }
 }

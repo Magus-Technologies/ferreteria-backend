@@ -17,6 +17,13 @@
             margin: 0;
             padding: 0;
         }
+        .header-logo {
+            width: 74mm;
+            margin: 0 auto;
+            padding: 3mm 0;
+            text-align: center;
+            margin-bottom: 5mm;
+        }
         .ticket {
             width: 74mm;
             margin: 0 auto;
@@ -42,21 +49,17 @@
     </style>
 </head>
 <body>
+    {{-- Header: Logo único al inicio --}}
+    @if(count($cobros) > 0)
+    <div class="header-logo">
+        @if($logoPath)
+            <img src="{{ $logoPath }}" style="max-height: 100px; max-width: 150px;" alt="Logo">
+        @endif
+    </div>
+    @endif
+
     @foreach($cobros as $item)
     <div class="ticket">
-        {{-- Header: Logo + Empresa --}}
-        <div class="text-center" style="margin-bottom: 4px;">
-            @if($logoPath)
-                <img src="{{ $logoPath }}" style="max-height: 100px; max-width: 150px;" alt="Logo">
-            @endif
-            <div style="margin-top: 2px;">
-                <div class="text-bold" style="font-size: 9pt;">{{ $item['empresa']->razon_social }}</div>
-                <div class="text-bold">R.U.C. {{ $item['empresa']->ruc }}</div>
-                <div style="font-size: 6pt;">{{ $item['empresa']->direccion }}</div>
-                <div style="font-size: 6pt;"><span class="text-bold">Cel:</span> {{ $item['empresa']->telefono }}</div>
-            </div>
-        </div>
-
         <div class="separator-double"></div>
 
         {{-- Titulo --}}

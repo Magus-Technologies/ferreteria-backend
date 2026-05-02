@@ -30,17 +30,11 @@
     </style>
 </head>
 <body>
-    {{-- Header: Logo + Empresa --}}
+    {{-- Header: Solo Logo --}}
     <div class="text-center" style="margin-bottom: 4px;">
         @if($logoPath)
             <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
         @endif
-        <div style="margin-top: 2px;">
-            <div class="text-bold" style="font-size: 9pt;">{{ $empresa->razon_social }}</div>
-            <div class="text-bold">R.U.C. {{ $empresa->ruc }}</div>
-            <div>{{ $empresa->direccion }}</div>
-            <div><span class="text-bold">Cel:</span> {{ $empresa->telefono }}</div>
-        </div>
     </div>
 
     <div class="separator-double"></div>
