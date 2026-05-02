@@ -26,6 +26,7 @@ class GuiaRemision extends Model
         'afecta_stock',
         'cliente_id',
         'comprador_id',
+        'remitente_id',
         'motivo_traslado_id',
         'modalidad_transporte',
         'vehiculo_placa',
@@ -89,6 +90,17 @@ class GuiaRemision extends Model
     public function comprador(): BelongsTo
     {
         return $this->belongsTo(Cliente::class, 'comprador_id');
+    }
+
+    /**
+     * Cliente remitente — solo aplica a GRE-Transportista
+     * (tipo_guia = ELECTRONICA_TRANSPORTISTA). Es el dueño de la mercadería
+     * que CONTRATA el servicio de transporte. Se mapea a Greenter
+     * `setTercero` al armar el XML SUNAT (tipoDoc '31').
+     */
+    public function remitente(): BelongsTo
+    {
+        return $this->belongsTo(Cliente::class, 'remitente_id');
     }
 
     /**
