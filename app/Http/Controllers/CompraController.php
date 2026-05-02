@@ -14,6 +14,7 @@ use App\Models\GastoExtra;
 use App\Models\MetodoDePago;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenCompra;
+use App\Models\ProductoAlmacenUnidadDerivada;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableCompra;
 use App\Models\PagoDeCompra;
@@ -490,7 +491,24 @@ class CompraController extends Controller
                         'flete' => $unidad['flete'] ?? 0,
                         'bonificacion' => $unidad['bonificacion'] ?? false,
                     ]);
-                    
+
+                    // Actualizar precios de venta si el costo subió y el usuario los ajustó
+                    if (!empty($unidad['nuevos_precios']) && isset($unidad['nuevos_precios']['unidad_derivada_id'])) {
+                        $np = $unidad['nuevos_precios'];
+                        $update = array_filter([
+                            'precio_publico'  => isset($np['precio_publico'])  ? (float) $np['precio_publico']  : null,
+                            'precio_especial' => isset($np['precio_especial']) ? (float) $np['precio_especial'] : null,
+                            'precio_minimo'   => isset($np['precio_minimo'])   ? (float) $np['precio_minimo']   : null,
+                            'precio_ultimo'   => isset($np['precio_ultimo'])   ? (float) $np['precio_ultimo']   : null,
+                        ], fn($v) => !is_null($v));
+
+                        if (!empty($update)) {
+                            ProductoAlmacenUnidadDerivada::where('producto_almacen_id', $productoAlmacenId)
+                                ->where('unidad_derivada_id', (int) $np['unidad_derivada_id'])
+                                ->update($update);
+                        }
+                    }
+
                 }
             }
 
