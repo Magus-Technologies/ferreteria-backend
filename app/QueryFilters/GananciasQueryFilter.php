@@ -188,7 +188,7 @@ class GananciasQueryFilter
                 $search = $this->filtros['search'];
                 $query->where(function ($q) use ($search) {
                     $q->where('nc.serie', 'like', "%{$search}%")
-                        ->orWhere('nc.correlativo', 'like', "%{$search}%")
+                        ->orWhere('nc.numero', 'like', "%{$search}%")
                         ->orWhere('v.numero', 'like', "%{$search}%")
                         ->orWhere('mn.descripcion', 'like', "%{$search}%");
                 });
