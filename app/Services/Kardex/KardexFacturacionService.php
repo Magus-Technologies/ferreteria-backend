@@ -12,29 +12,39 @@ class KardexFacturacionService
      */
     public function registrar(array $data)
     {
-        // Obtener el saldo actual del producto_almacen en la BD
+        // 1. Calcular el factor de conversión de la unidad derivada
+        // El factor se obtiene de: cantidad_fraccion / cantidad
+        $cantidad = (float) ($data['cantidad'] ?? 1);
+        $cantidadFraccion = (float) ($data['cantidad_fraccion'] ?? $cantidad);
+        $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
+
+        // 2. Obtener el saldo actual del producto_almacen en la BD (en fracción)
         // Este es el saldo REAL en ese momento
         $productoAlmacen = DB::table('productoalmacen')
             ->where('producto_id', $data['producto_id'])
             ->where('almacen_id', $data['almacen_id'])
             ->first();
         
+        $saldoAnteriorFraccion = 0;
         if ($productoAlmacen) {
-            $saldoAnterior = (float) $productoAlmacen->stock_fraccion;
-        } else {
-            $saldoAnterior = 0;
+            $saldoAnteriorFraccion = (float) $productoAlmacen->stock_fraccion;
         }
         
-        // Calcular saldo actual después de esta transacción
+        // 3. Calcular saldo en fracción después de esta transacción
         $cantIngreso = (float) ($data['entrada'] ?? 0);
         $cantSalida = (float) ($data['salida'] ?? 0);
-        $saldoActual = $saldoAnterior + $cantIngreso - $cantSalida;
+        $saldoActualFraccion = $saldoAnteriorFraccion + $cantIngreso - $cantSalida;
         
-        // Agregar los valores calculados a los datos
-        $data['stock_anterior'] = $saldoAnterior;
+        // 4. Convertir saldos de fracción a unidad derivada
+        // Dividir el saldo en fracción por el factor para obtener el saldo en la unidad derivada
+        $saldoAnteriorUnidadDerivada = $factor > 0 ? ($saldoAnteriorFraccion / $factor) : 0;
+        $saldoActualUnidadDerivada = $factor > 0 ? ($saldoActualFraccion / $factor) : 0;
+        
+        // 5. Agregar los valores calculados a los datos (en unidad derivada)
+        $data['stock_anterior'] = $saldoAnteriorUnidadDerivada;
         $data['cant_ingreso'] = $cantIngreso;
         $data['cant_salida'] = $cantSalida;
-        $data['stock_actual'] = $saldoActual;
+        $data['stock_actual'] = $saldoActualUnidadDerivada;
         
         return KardexFacturacion::create($data);
     }
@@ -93,12 +103,22 @@ class KardexFacturacionService
             'orden' => $orden,
         ];
 
-        // Si se proporciona stock anterior, usarlo directamente
+        // Si se proporciona stock anterior en fracción, convertirlo a unidad derivada
         if ($stockAnterior !== null) {
-            $data['stock_anterior'] = $stockAnterior;
+            // Calcular el factor de conversión
+            $cantidad = (float) $unidad['cantidad'];
+            $cantidadFraccion = (float) $cantSalida;
+            $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
+            
+            // Convertir stock de fracción a unidad derivada
+            $stockAnteriorUnidadDerivada = $factor > 0 ? ($stockAnterior / $factor) : 0;
+            $stockActualFraccion = $stockAnterior - $cantSalida;
+            $stockActualUnidadDerivada = $factor > 0 ? ($stockActualFraccion / $factor) : 0;
+            
+            $data['stock_anterior'] = $stockAnteriorUnidadDerivada;
             $data['cant_ingreso'] = 0;
             $data['cant_salida'] = $cantSalida;
-            $data['stock_actual'] = $stockAnterior - $cantSalida;
+            $data['stock_actual'] = $stockActualUnidadDerivada;
             
             return KardexFacturacion::create($data);
         }
