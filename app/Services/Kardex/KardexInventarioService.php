@@ -38,7 +38,22 @@ class KardexInventarioService
             $factor = 1;
         }
 
-        // 3. Obtener el stock actual real en fracción (o usar el override si se proporciona)
+        // 3. Ajustar valores por factor para que coincidan con la unidad mostrada
+        // Primero capturamos los valores originales (fracciones) para el cálculo de stock
+        $cantIngresoFraccion = (float) ($data['entrada'] ?? 0);
+        $cantSalidaFraccion = (float) ($data['salida'] ?? 0);
+
+        if (isset($data['costo'])) {
+            $data['costo'] = (float) $data['costo'] * $factor;
+        }
+        if (isset($data['entrada'])) {
+            $data['entrada'] = (float) $data['entrada'] / $factor;
+        }
+        if (isset($data['salida'])) {
+            $data['salida'] = (float) $data['salida'] / $factor;
+        }
+
+        // 4. Obtener el stock actual real en fracción (o usar el override si se proporciona)
         $stockAnteriorFraccion = 0;
         if (isset($data['stock_anterior_override'])) {
             // Usar el stock anterior proporcionado explícitamente
@@ -63,10 +78,8 @@ class KardexInventarioService
             $data['usuario_id'] = auth()->id();
         }
         
-        // 5. Calcular stock en fracción después de esta transacción
-        $cantIngreso = (float) ($data['entrada'] ?? 0);
-        $cantSalida = (float) ($data['salida'] ?? 0);
-        $stockActualFraccion = $stockAnteriorFraccion + $cantIngreso - $cantSalida;
+        // 5. Calcular stock en fracción después de esta transacción usando las FRACCIONES capturadas
+        $stockActualFraccion = $stockAnteriorFraccion + $cantIngresoFraccion - $cantSalidaFraccion;
         
         // 6. Convertir stocks de fracción a unidad derivada
         // Dividir el stock en fracción por el factor para obtener el stock en la unidad derivada
@@ -75,8 +88,8 @@ class KardexInventarioService
         
         // 7. Agregar los valores calculados a los datos (en unidad derivada)
         $data['stock_anterior'] = $stockAnteriorUnidadDerivada;
-        $data['cant_ingreso'] = $cantIngreso;
-        $data['cant_salida'] = $cantSalida;
+        $data['cant_ingreso'] = (float) ($data['entrada'] ?? 0);
+        $data['cant_salida'] = (float) ($data['salida'] ?? 0);
         $data['stock_actual'] = $stockActualUnidadDerivada;
         
         \Log::info('Kardex registrar - datos a guardar:', [
@@ -275,8 +288,8 @@ class KardexInventarioService
     public function registrarIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 3, $stockAnteriorOverride = null)
     {
         $data = [
-            'tipo' => 'ingreso',
-            'movimiento' => 'CUADRE INGRESO',
+            'tipo' => 'cuadre',
+            'movimiento' => 'ENTRADA',
             'fecha' => $ingresoSalida->fecha,
             'documento' => "Ingreso ING-{$ingresoSalida->serie}-{$ingresoSalida->numero}",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
@@ -305,8 +318,8 @@ class KardexInventarioService
     public function registrarSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 4, $stockAnteriorOverride = null)
     {
         $data = [
-            'tipo' => 'salida',
-            'movimiento' => 'CUADRE SALIDA',
+            'tipo' => 'cuadre',
+            'movimiento' => 'SALIDA',
             'fecha' => $ingresoSalida->fecha,
             'documento' => "Salida SAL-{$ingresoSalida->serie}-{$ingresoSalida->numero}",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
