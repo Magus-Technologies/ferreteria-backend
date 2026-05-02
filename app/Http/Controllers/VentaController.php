@@ -1007,6 +1007,52 @@ class VentaController extends Controller
 
             // If productos_por_almacen is provided, update them
             if (isset($validated['productos_por_almacen'])) {
+                // ──────────────────────────────────────────────────────────
+                // SNAPSHOT antes de borrar — preservar lo entregado.
+                //
+                // Al recrear los productos perdemos las UDV viejas (y por FK
+                // cascade los detalles de entrega). Para mantener la
+                // trazabilidad de cuánto se entregó realmente en cada entrega
+                // activa, capturamos:
+                //
+                //   $entregadoAcumulado["$productoAlmacenId:$unidadName"] =
+                //       total entregado en TODAS las entregas no canceladas
+                //       (sirve para calcular cantidad_pendiente nuevo).
+                //
+                //   $detallesPorEntrega[$entregaId]["$productoAlmacenId:$unidadName"] =
+                //       cantidad entregada en ESA entrega (sirve para
+                //       regenerar el detalle preservando el valor real).
+                //
+                // Antes el código sobrescribía `cantidad_entregada = cantidad`
+                // total y `cantidad_pendiente = cantidad`, con lo que al
+                // editar una venta con entregas previas el sistema "olvidaba"
+                // qué se había entregado y reseteaba el pendiente al total.
+                // ──────────────────────────────────────────────────────────
+                $entregadoAcumulado = [];
+                $detallesPorEntrega = [];
+                $entregasActivas = EntregaProducto::where('venta_id', $id)
+                    ->whereIn('estado_entrega', ['pe', 'ec', 'en'])
+                    ->with([
+                        'detallesEntrega.unidadDerivadaVenta.productoAlmacenVenta',
+                        'detallesEntrega.unidadDerivadaVenta.unidadDerivadaInmutable',
+                    ])
+                    ->get();
+
+                foreach ($entregasActivas as $entrega) {
+                    foreach ($entrega->detallesEntrega as $detalle) {
+                        $udv = $detalle->unidadDerivadaVenta;
+                        if (! $udv) continue;
+                        $pav = $udv->productoAlmacenVenta;
+                        $unidadInmutable = $udv->unidadDerivadaInmutable;
+                        if (! $pav || ! $unidadInmutable) continue;
+
+                        $clave = $pav->producto_almacen_id . ':' . $unidadInmutable->name;
+                        $cantEntregada = (float) $detalle->cantidad_entregada;
+                        $entregadoAcumulado[$clave] = ($entregadoAcumulado[$clave] ?? 0.0) + $cantEntregada;
+                        $detallesPorEntrega[$entrega->id][$clave] = $cantEntregada;
+                    }
+                }
+
                 // Eliminar registros hijos en orden correcto para evitar FK constraint
                 $productoAlmacenVentaIds = ProductoAlmacenVenta::where('venta_id', $id)->pluck('id');
                 $unidadDerivadaVentaIds = UnidadDerivadaInmutableVenta::whereIn('producto_almacen_venta_id', $productoAlmacenVentaIds)->pluck('id');
@@ -1014,6 +1060,10 @@ class VentaController extends Controller
 
                 // Delete existing productos_por_almacen (cascades to unidadderivadainmutableventa)
                 ProductoAlmacenVenta::where('venta_id', $id)->delete();
+
+                // Track de las UDV nuevas por clave (productoAlmacenId:unidadName)
+                // para poder regenerar los detalles después.
+                $nuevasUdvPorClave = [];
 
                 // Create new productos_por_almacen
                 foreach ($validated['productos_por_almacen'] as $producto) {
@@ -1045,60 +1095,68 @@ class VentaController extends Controller
                     foreach ($producto['unidades_derivadas'] as $unidad) {
                         // Get unidad_derivada_inmutable_id (either provided or firstOrCreate by name)
                         $unidadDerivadaInmutableId = $unidad['unidad_derivada_inmutable_id'] ?? null;
+                        $unidadName = $unidad['unidad_derivada_inmutable_name'] ?? null;
 
-                        if (! $unidadDerivadaInmutableId && isset($unidad['unidad_derivada_inmutable_name'])) {
+                        if (! $unidadDerivadaInmutableId && $unidadName) {
                             $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
-                                ['name' => $unidad['unidad_derivada_inmutable_name']],
-                                ['name' => $unidad['unidad_derivada_inmutable_name']]
+                                ['name' => $unidadName],
+                                ['name' => $unidadName]
                             );
                             $unidadDerivadaInmutableId = $unidadDerivadaInmutable->id;
+                        } elseif ($unidadDerivadaInmutableId && ! $unidadName) {
+                            // Si solo vino el id, recuperamos el nombre para la clave del snapshot.
+                            $unidadName = optional(UnidadDerivadaInmutable::find($unidadDerivadaInmutableId))->name;
                         }
 
-                        UnidadDerivadaInmutableVenta::create([
+                        // cantidad_pendiente correcto = cantidad nueva − lo ya
+                        // entregado en entregas activas para esta combinación
+                        // (producto, unidad). Si el usuario reduce la cantidad
+                        // por debajo de lo entregado, queda 0 (no negativo) —
+                        // el frontend debería bloquear esto pero el backend
+                        // protege igual.
+                        $clave = $productoAlmacenId . ':' . $unidadName;
+                        $cantidadNueva = (float) $unidad['cantidad'];
+                        $entregadoYa = (float) ($entregadoAcumulado[$clave] ?? 0.0);
+                        $cantidadPendiente = max(0.0, $cantidadNueva - $entregadoYa);
+
+                        $udvNueva = UnidadDerivadaInmutableVenta::create([
                             'producto_almacen_venta_id' => $productoAlmacenVenta->id,
                             'unidad_derivada_inmutable_id' => $unidadDerivadaInmutableId,
                             'factor' => $unidad['factor'],
-                            'cantidad' => $unidad['cantidad'],
-                            'cantidad_pendiente' => $unidad['cantidad_pendiente'],
+                            'cantidad' => $cantidadNueva,
+                            'cantidad_pendiente' => $cantidadPendiente,
                             'precio' => $unidad['precio'],
                             'recargo' => $unidad['recargo'] ?? 0,
                             'descuento_tipo' => $unidad['descuento_tipo'] ?? 'm',
                             'descuento' => $unidad['descuento'] ?? 0,
                             'comision' => $unidad['comision'] ?? 0,
                         ]);
+
+                        $nuevasUdvPorClave[$clave] = $udvNueva;
                     }
                 }
 
-                // Regenerar DetalleEntregaProducto para todas las entregas
-                // no canceladas — incluye 'pe', 'ec' y 'en'. Al recrear
-                // productos, los detalles viejos se borraron por FK cascade
-                // (ver inicio del bloque), así que recreamos sus detalles
-                // apuntando a las nuevas UnidadDerivadaInmutableVenta.
+                // Regenerar DetalleEntregaProducto preservando lo entregado.
                 //
-                // Asume "entregar todo": cada nueva UDV genera un detalle
-                // con cantidad_entregada = cantidad. Si el usuario edita una
-                // venta con entregas en 'ec'/'en', los detalles quedan
-                // sincronizados con los productos nuevos — el usuario asume
-                // el riesgo de inconsistencia con lo entregado físicamente.
-                $entregasActivas = EntregaProducto::where('venta_id', $id)
-                    ->whereIn('estado_entrega', ['pe', 'ec', 'en'])
-                    ->get();
-
-                if ($entregasActivas->isNotEmpty()) {
-                    $nuevasUdv = UnidadDerivadaInmutableVenta::whereHas(
-                        'productoAlmacenVenta',
-                        fn ($q) => $q->where('venta_id', $id)
-                    )->get();
-
-                    foreach ($entregasActivas as $entrega) {
-                        foreach ($nuevasUdv as $udv) {
-                            DetalleEntregaProducto::create([
-                                'entrega_producto_id' => $entrega->id,
-                                'unidad_derivada_venta_id' => $udv->id,
-                                'cantidad_entregada' => $udv->cantidad,
-                                'ubicacion' => null,
-                            ]);
-                        }
+                // Para cada entrega activa, recreamos los detalles que existían
+                // antes de borrar, manteniendo `cantidad_entregada` original.
+                // Si el producto/unidad ya no existe en la venta editada
+                // (el usuario lo eliminó), su detalle no se recrea — la
+                // entrega queda con menos detalles. Si el usuario AGREGÓ una
+                // unidad nueva (no estaba antes), tampoco se le agrega un
+                // detalle a las entregas viejas: esa cantidad queda en
+                // `cantidad_pendiente` para que el usuario la programe via
+                // "Entregar Restante".
+                foreach ($detallesPorEntrega as $entregaId => $clavesEntregadas) {
+                    foreach ($clavesEntregadas as $clave => $cantEntregada) {
+                        $udvNueva = $nuevasUdvPorClave[$clave] ?? null;
+                        if (! $udvNueva) continue; // Producto eliminado en la edición.
+                        DetalleEntregaProducto::create([
+                            'entrega_producto_id' => $entregaId,
+                            'unidad_derivada_venta_id' => $udvNueva->id,
+                            'cantidad_entregada' => $cantEntregada,
+                            'ubicacion' => null,
+                        ]);
                     }
                 }
             }
