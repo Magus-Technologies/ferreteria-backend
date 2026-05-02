@@ -234,7 +234,8 @@ class PdfController extends Controller
             'logoPath' => $logoPath,
         ]);
 
-        $pdf->setPaper([0, 0, 226.77, 841.89], 'portrait'); // 80mm width
+        // Configurar papel continuo (80mm de ancho, altura automática según contenido)
+        $pdf->setPaper([0, 0, 226.77, 99999], 'portrait'); // 80mm width, altura muy grande para evitar saltos
 
         return response($pdf->output(), 200, [
             'Content-Type' => 'application/pdf',
