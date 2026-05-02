@@ -273,7 +273,7 @@ class AnalisisPerdidasService
             ->join('venta as v', 'nc.venta_id', '=', 'v.id')
             ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
             ->leftJoin('user as u', 'nc.user_id', '=', 'u.id')
-            ->leftJoin('motivonota as mn', 'nc.motivo_nota_id', '=', 'mn.id')
+            ->leftJoin('motivo_nota as mn', 'nc.motivo_id', '=', 'mn.id')
             ->select([
                 'nc.id as nota_credito_id',
                 'nc.fecha',
