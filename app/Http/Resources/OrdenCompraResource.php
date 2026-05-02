@@ -53,7 +53,13 @@ class OrdenCompraResource extends JsonResource
             'almacen_id' => $this->almacen_id,
             'compra_id' => \App\Models\Compra::where('orden_compra_id', $this->id)->value('id'),
             'productos' => $this->whenLoaded('productos', function () {
-                return $this->productos->map(function ($prod) {
+                $almacenId = $this->almacen_id;
+                return $this->productos->map(function ($prod) use ($almacenId) {
+                    $costoActual = $almacenId && $prod->producto_id
+                        ? \App\Models\ProductoAlmacen::where('producto_id', $prod->producto_id)
+                            ->where('almacen_id', $almacenId)
+                            ->value('costo')
+                        : null;
                     return [
                         'id' => $prod->id,
                         'producto_id' => $prod->producto_id,
@@ -68,6 +74,7 @@ class OrdenCompraResource extends JsonResource
                         'flete' => (float) $prod->flete,
                         'vencimiento' => $prod->vencimiento?->format('Y-m-d'),
                         'lote' => $prod->lote,
+                        'costo_actual' => $costoActual !== null ? (float) $costoActual : null,
                     ];
                 });
             }),
