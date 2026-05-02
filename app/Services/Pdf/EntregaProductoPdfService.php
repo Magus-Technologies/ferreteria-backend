@@ -145,6 +145,7 @@ class EntregaProductoPdfService
     private function prepararProductos(EntregaProducto $entrega): array
     {
         $productos = [];
+        $yaEntregada = $entrega->estado_entrega === 'en';
 
         foreach ($entrega->productosEntregados as $detalle) {
             $udv = $detalle->unidadDerivadaVenta;
@@ -152,10 +153,16 @@ class EntregaProductoPdfService
             $pa = $pav?->productoAlmacen;
             $producto = $pa?->producto;
 
+            $total = (float) ($udv->cantidad ?? $detalle->cantidad_entregada ?? 0);
+            $entregado = $yaEntregada ? $total : 0;
+            $pendiente = $total - $entregado;
+
             $productos[] = [
                 'codigo' => $producto->cod_producto ?? '',
                 'nombre' => $producto->name ?? '',
-                'cantidad' => (float) $detalle->cantidad_entregada,
+                'cantidad' => $total,
+                'entregado' => $entregado,
+                'pendiente' => $pendiente,
                 'unidad' => $udv?->unidadDerivadaInmutable?->name ?? '',
                 'ubicacion' => $detalle->ubicacion ?? '',
             ];
