@@ -1,0 +1,302 @@
+<?php
+
+namespace App\QueryFilters;
+
+use Illuminate\Support\Facades\DB;
+
+class GananciasQueryFilter
+{
+    public function __construct(private array $filtros)
+    {
+    }
+
+    /**
+     * Aplicar todos los filtros comunes a una query
+     */
+    public function apply($query, string $prefijo = 'v'): void
+    {
+        $this->porAlmacen($query, $prefijo);
+        $this->porFechas($query, $prefijo);
+        $this->porCliente($query);
+        $this->porUsuario($query);
+        $this->porBusqueda($query);
+        $this->porProductoServicio($query);
+        $this->porMarca($query);
+        $this->porFormaPago($query, $prefijo);
+        $this->porTipoDocumento($query, $prefijo);
+        $this->porSerieNumero($query);
+        $this->porConfirmarCaja($query);
+        $this->porIncluir($query);
+    }
+
+    /**
+     * Aplicar solo filtros básicos (almacén, fechas, búsqueda)
+     */
+    public function applyBasic($query, string $prefijo = 'v'): void
+    {
+        $this->porAlmacen($query, $prefijo);
+        $this->porFechas($query, $prefijo);
+        $this->porBusqueda($query);
+    }
+
+    /**
+     * Aplicar filtros para compras
+     */
+    public function applyCompras($query, string $prefijo = 'comp'): void
+    {
+        $this->porAlmacen($query, $prefijo);
+        $this->porFechas($query, $prefijo);
+    }
+
+    /**
+     * Aplicar filtros para pagos de compras
+     */
+    public function applyPagosCompras($query, string $prefijoCompra = 'c', string $prefijoPago = 'p'): void
+    {
+        if (!empty($this->filtros['almacen_id'])) {
+            $query->where("{$prefijoCompra}.almacen_id", $this->filtros['almacen_id']);
+        }
+
+        if (!empty($this->filtros['desde'])) {
+            $query->whereDate("{$prefijoPago}.fecha", '>=', $this->filtros['desde']);
+        }
+
+        if (!empty($this->filtros['hasta'])) {
+            $query->whereDate("{$prefijoPago}.fecha", '<=', $this->filtros['hasta']);
+        }
+
+        if (!empty($this->filtros['search'])) {
+            $search = $this->filtros['search'];
+            $query->where(function ($q) use ($search, $prefijoCompra, $prefijoPago) {
+                $q->where('prov.razon_social', 'like', "%{$search}%")
+                    ->orWhere("{$prefijoCompra}.serie", 'like', "%{$search}%")
+                    ->orWhere("{$prefijoCompra}.numero", 'like', "%{$search}%")
+                    ->orWhere("{$prefijoPago}.numero_operacion", 'like', "%{$search}%");
+            });
+        }
+    }
+
+    /**
+     * Aplicar filtros para gastos extras
+     */
+    public function applyGastosExtras($query, string $prefijo = 'ge'): void
+    {
+        if (!empty($this->filtros['desde'])) {
+            $query->whereDate("{$prefijo}.created_at", '>=', $this->filtros['desde']);
+        }
+
+        if (!empty($this->filtros['hasta'])) {
+            $query->whereDate("{$prefijo}.created_at", '<=', $this->filtros['hasta']);
+        }
+
+        if (!empty($this->filtros['search'])) {
+            $search = $this->filtros['search'];
+            $query->where(function ($q) use ($search, $prefijo) {
+                $q->where("{$prefijo}.concepto", 'like', "%{$search}%");
+            });
+        }
+    }
+
+    /**
+     * Aplicar filtros para gastos de compras
+     */
+    public function applyGastosCompras($query): void
+    {
+        if (!empty($this->filtros['almacen_id'])) {
+            $query->where('c.almacen_id', $this->filtros['almacen_id']);
+        }
+
+        if (!empty($this->filtros['desde'])) {
+            $query->whereDate('ge.created_at', '>=', $this->filtros['desde']);
+        }
+
+        if (!empty($this->filtros['hasta'])) {
+            $query->whereDate('ge.created_at', '<=', $this->filtros['hasta']);
+        }
+
+        if (!empty($this->filtros['search'])) {
+            $search = $this->filtros['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('prov.razon_social', 'like', "%{$search}%")
+                    ->orWhere('c.serie', 'like', "%{$search}%")
+                    ->orWhere('c.numero', 'like', "%{$search}%")
+                    ->orWhere('ge.concepto', 'like', "%{$search}%");
+            });
+        }
+    }
+
+    /**
+     * Aplicar filtros para pérdidas (ventas y salidas)
+     */
+    public function applyPerdidas($query, string $tipo = 'venta'): void
+    {
+        if ($tipo === 'venta') {
+            if (!empty($this->filtros['almacen_id'])) {
+                $query->where('v.almacen_id', $this->filtros['almacen_id']);
+            }
+
+            if (!empty($this->filtros['desde'])) {
+                $query->whereDate('v.fecha', '>=', $this->filtros['desde']);
+            }
+
+            if (!empty($this->filtros['hasta'])) {
+                $query->whereDate('v.fecha', '<=', $this->filtros['hasta']);
+            }
+
+            if (!empty($this->filtros['search'])) {
+                $search = $this->filtros['search'];
+                $query->where(function ($q) use ($search) {
+                    $q->where('p.name', 'like', "%{$search}%")
+                        ->orWhere('v.numero', 'like', "%{$search}%");
+                });
+            }
+        } elseif ($tipo === 'salida') {
+            if (!empty($this->filtros['almacen_id'])) {
+                $query->where('is.almacen_id', $this->filtros['almacen_id']);
+            }
+
+            if (!empty($this->filtros['desde'])) {
+                $query->whereDate('is.fecha', '>=', $this->filtros['desde']);
+            }
+
+            if (!empty($this->filtros['hasta'])) {
+                $query->whereDate('is.fecha', '<=', $this->filtros['hasta']);
+            }
+
+            if (!empty($this->filtros['search'])) {
+                $search = $this->filtros['search'];
+                $query->where(function ($q) use ($search) {
+                    $q->where('p.name', 'like', "%{$search}%")
+                        ->orWhere('is.numero', 'like', "%{$search}%")
+                        ->orWhere('tis.name', 'like', "%{$search}%");
+                });
+            }
+        } elseif ($tipo === 'nota_credito') {
+            if (!empty($this->filtros['almacen_id'])) {
+                $query->where('v.almacen_id', $this->filtros['almacen_id']);
+            }
+
+            if (!empty($this->filtros['desde'])) {
+                $query->whereDate('nc.fecha', '>=', $this->filtros['desde']);
+            }
+
+            if (!empty($this->filtros['hasta'])) {
+                $query->whereDate('nc.fecha', '<=', $this->filtros['hasta']);
+            }
+
+            if (!empty($this->filtros['search'])) {
+                $search = $this->filtros['search'];
+                $query->where(function ($q) use ($search) {
+                    $q->where('nc.serie', 'like', "%{$search}%")
+                        ->orWhere('nc.correlativo', 'like', "%{$search}%")
+                        ->orWhere('v.numero', 'like', "%{$search}%")
+                        ->orWhere('mn.descripcion', 'like', "%{$search}%");
+                });
+            }
+        }
+    }
+
+    private function porAlmacen($query, string $prefijo): void
+    {
+        if (!empty($this->filtros['almacen_id'])) {
+            $query->where("{$prefijo}.almacen_id", $this->filtros['almacen_id']);
+        }
+    }
+
+    private function porFechas($query, string $prefijo): void
+    {
+        if (!empty($this->filtros['desde'])) {
+            $query->whereDate("{$prefijo}.fecha", '>=', $this->filtros['desde']);
+        }
+
+        if (!empty($this->filtros['hasta'])) {
+            $query->whereDate("{$prefijo}.fecha", '<=', $this->filtros['hasta']);
+        }
+    }
+
+    private function porCliente($query): void
+    {
+        if (!empty($this->filtros['cliente_id'])) {
+            $query->where('v.cliente_id', $this->filtros['cliente_id']);
+        }
+    }
+
+    private function porUsuario($query): void
+    {
+        if (!empty($this->filtros['user_id'])) {
+            $query->where('v.user_id', $this->filtros['user_id']);
+        }
+    }
+
+    private function porBusqueda($query): void
+    {
+        if (!empty($this->filtros['search'])) {
+            $search = '%' . $this->filtros['search'] . '%';
+            $query->where(function ($q) use ($search) {
+                $q->where('c.numero_documento', 'like', $search)
+                    ->orWhere('c.razon_social', 'like', $search)
+                    ->orWhere(DB::raw("CONCAT(c.nombres, ' ', c.apellidos)"), 'like', $search);
+            });
+        }
+    }
+
+    private function porProductoServicio($query): void
+    {
+        if (!empty($this->filtros['producto_servicio'])) {
+            $query->where('p.name', 'like', '%' . $this->filtros['producto_servicio'] . '%');
+        }
+    }
+
+    private function porMarca($query): void
+    {
+        if (!empty($this->filtros['marca'])) {
+            $query->where('m.name', 'like', '%' . $this->filtros['marca'] . '%');
+        }
+    }
+
+    private function porFormaPago($query, string $prefijo): void
+    {
+        if (!empty($this->filtros['forma_pago'])) {
+            $query->where("{$prefijo}.forma_de_pago", $this->filtros['forma_pago']);
+        }
+    }
+
+    private function porTipoDocumento($query, string $prefijo): void
+    {
+        if (!empty($this->filtros['tipo_doc'])) {
+            $query->where("{$prefijo}.tipo_documento", $this->filtros['tipo_doc']);
+        }
+    }
+
+    private function porSerieNumero($query): void
+    {
+        if (!empty($this->filtros['serie']) && !empty($this->filtros['numero'])) {
+            $query->where('ce.serie', $this->filtros['serie'])
+                ->where('ce.correlativo', $this->filtros['numero']);
+        }
+    }
+
+    private function porConfirmarCaja($query): void
+    {
+        if (!empty($this->filtros['confirmar_caja'])) {
+            $query->where('dp.id', $this->filtros['confirmar_caja']);
+        }
+    }
+
+    private function porIncluir($query): void
+    {
+        if (!empty($this->filtros['incluir'])) {
+            switch ($this->filtros['incluir']) {
+                case 'con_ganancia':
+                    $query->whereRaw('(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad > 0');
+                    break;
+                case 'con_perdida':
+                    $query->whereRaw('(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad < 0');
+                    break;
+                case 'sin_costo':
+                    $query->whereRaw('(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) = 0');
+                    break;
+            }
+        }
+    }
+}
