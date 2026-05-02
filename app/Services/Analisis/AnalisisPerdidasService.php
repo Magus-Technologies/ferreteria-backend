@@ -272,13 +272,13 @@ class AnalisisPerdidasService
         $query = DB::table('nota_credito as nc')
             ->join('venta as v', 'nc.venta_id', '=', 'v.id')
             ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
-            ->leftJoin('user as u', 'nc.user_id', '=', 'u.id')
+            ->leftJoin('user as u', 'nc.usuario_id', '=', 'u.id')
             ->leftJoin('motivo_nota as mn', 'nc.motivo_id', '=', 'mn.id')
             ->select([
                 'nc.id as nota_credito_id',
                 'nc.fecha',
                 DB::raw("'NC' as tipo_documento"),
-                DB::raw("CONCAT(nc.serie, '-', LPAD(nc.correlativo, 8, '0')) as numero"),
+                DB::raw("CONCAT(nc.serie, '-', LPAD(nc.numero, 8, '0')) as numero"),
                 DB::raw("COALESCE(mn.descripcion, 'NOTA DE CRÉDITO') as categoria"),
                 DB::raw("CASE 
                     WHEN c.id IS NOT NULL THEN CONCAT(c.numero_documento, ' - ', COALESCE(c.razon_social, CONCAT(c.nombres, ' ', c.apellidos)))
@@ -287,10 +287,11 @@ class AnalisisPerdidasService
                 DB::raw("COALESCE(u.name, 'SISTEMA') as vendedor"),
                 DB::raw("'N/A' as producto"),
                 DB::raw("1 as cantidad"),
-                DB::raw("nc.total as monto"),
+                DB::raw("nc.monto_total as monto"),
                 DB::raw("CONCAT('VENTA ', v.tipo_documento, ' ', v.numero) as referencia"),
             ])
-            ->where('nc.estado', true);
+            ->where('nc.estado', '!=', 'cancelado')
+            ->where('nc.estado', '!=', 'borrador');
 
         $filter->applyPerdidas($query, 'nota_credito');
         $detalles = $query->get();
