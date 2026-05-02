@@ -50,6 +50,44 @@
         </tr>
     </table>
 
+    {{-- Productos anteriores: si la venta fue editada, mostramos los
+         productos del snapshot previo (datos_anteriores del último
+         registro de VentaHistorial.accion='edicion'). Se renderizan
+         tachados en color tenue para que el chofer/cliente vea el
+         intercambio. --}}
+    @if(!empty($productosAnteriores))
+        <div style="margin-top: 12px; padding: 6px 8px; background-color: #fef3c7; border-left: 4px solid #d97706; font-size: 8pt;">
+            <span style="font-weight: bold; color: #b45309;">🔄 CAMBIO DE PRODUCTO</span>
+            @if(!empty($fechaUltimaEdicion))
+                <span style="color: #92400e;"> — {{ $fechaUltimaEdicion }}</span>
+            @endif
+            <div style="font-size: 7pt; color: #92400e; margin-top: 2px;">
+                Producto anterior (reemplazado en la última edición):
+            </div>
+        </div>
+        @include('pdf.layout.table', [
+            'columnas' => [
+                ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
+                ['label' => 'CODIGO', 'width' => '13%', 'align' => 'center'],
+                ['label' => 'DESCRIPCION', 'width' => '52%', 'align' => 'left'],
+                ['label' => 'UNIDAD', 'width' => '12%', 'align' => 'center'],
+                ['label' => 'CANT.', 'width' => '9%', 'align' => 'center'],
+                ['label' => 'PRECIO', 'width' => '9%', 'align' => 'right'],
+            ],
+            'filas' => collect($productosAnteriores)->map(function ($p, $i) {
+                return [
+                    $i + 1,
+                    $p['codigo'],
+                    $p['nombre'],
+                    $p['unidad'],
+                    number_format($p['cantidad'], 2),
+                    number_format($p['precio'], 2),
+                ];
+            })->toArray(),
+            'minFilas' => 0,
+        ])
+    @endif
+
     {{-- Observaciones --}}
     @if($entrega->observaciones)
         <div style="margin-top: 10px; font-size: 7pt;">

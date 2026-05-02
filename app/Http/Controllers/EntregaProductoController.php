@@ -50,6 +50,11 @@ class EntregaProductoController extends Controller
                 'venta:id,serie,numero,tipo_documento,cliente_id',
                 'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono',
                 'venta.cliente.direcciones:id,cliente_id,tipo,direccion,referencia,latitud,longitud',
+                // Historial de cambios de la venta — usado para mostrar en el
+                // modal de entrega "esta venta fue editada — ver cambios"
+                // (productos anteriores vs actuales).
+                'venta.historial' => fn ($q) => $q->where('accion', 'edicion')->orderBy('fecha', 'desc'),
+                'venta.historial.usuario:id,name',
                 'almacenSalida:id,name',
                 'despachador:id,name',
                 'vehiculo:id,name,tipo,placa',

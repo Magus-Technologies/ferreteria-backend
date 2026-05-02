@@ -11,6 +11,9 @@ class EntregaProductoPdfService
     {
         $entrega = EntregaProducto::with([
             'venta.cliente',
+            // Historial de ediciones de la venta — usado para mostrar
+            // "productos anteriores vs actuales" cuando la venta fue editada.
+            'venta.historial' => fn ($q) => $q->where('accion', 'edicion')->orderBy('fecha', 'desc'),
             'almacenSalida',
             'despachador',
             'vehiculo',
@@ -98,12 +101,26 @@ class EntregaProductoPdfService
             ],
         ];
 
+        // Productos anteriores — leemos del último registro de historial
+        // con `accion='edicion'`. Si la venta fue editada, `datos_anteriores.productos`
+        // contiene la lista que estaba ANTES del último cambio, y `datos_nuevos.productos`
+        // la lista actual. El template los muestra como "ANTES → AHORA".
+        $productosAnteriores = [];
+        $ultimaEdicion = $entrega->venta?->historial?->first();
+        if ($ultimaEdicion && is_array($ultimaEdicion->datos_anteriores ?? null)) {
+            $productosAnteriores = $this->prepararProductosHistorial(
+                $ultimaEdicion->datos_anteriores['productos'] ?? []
+            );
+        }
+
         $data = [
             'entrega' => $entrega,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo ?? null),
             'cliente' => $cliente,
             'productos' => $productos,
+            'productosAnteriores' => $productosAnteriores,
+            'fechaUltimaEdicion' => $ultimaEdicion?->fecha?->format('d/m/Y H:i'),
             'nroVenta' => $nroVenta,
             'tipoEntregaLabel' => $tipoEntregaLabel,
             'tipoDespachoLabel' => $tipoDespachoLabel,
@@ -140,6 +157,34 @@ class EntregaProductoPdfService
             'portrait',
             [0, 0, 226.77, 841.89],
         );
+    }
+
+    /**
+     * Aplana los productos del snapshot de `VentaHistorial` (datos_anteriores
+     * o datos_nuevos) a un array plano por unidad derivada, igual formato
+     * que `prepararProductos` para que el blade los pueda iterar uniforme.
+     *
+     * Shape esperado del snapshot (de `VentaController::update`):
+     *   productos: [
+     *     { nombre, codigo, costo, unidades: [{ unidad, cantidad, precio, ... }] }
+     *   ]
+     */
+    private function prepararProductosHistorial(array $productosSnapshot): array
+    {
+        $resultado = [];
+        foreach ($productosSnapshot as $prod) {
+            $unidades = $prod['unidades'] ?? [];
+            foreach ($unidades as $ud) {
+                $resultado[] = [
+                    'codigo' => $prod['codigo'] ?? '',
+                    'nombre' => $prod['nombre'] ?? '',
+                    'cantidad' => (float) ($ud['cantidad'] ?? 0),
+                    'precio' => (float) ($ud['precio'] ?? 0),
+                    'unidad' => $ud['unidad'] ?? '',
+                ];
+            }
+        }
+        return $resultado;
     }
 
     private function prepararProductos(EntregaProducto $entrega): array
