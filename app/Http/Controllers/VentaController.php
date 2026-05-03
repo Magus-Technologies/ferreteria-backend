@@ -2049,6 +2049,7 @@ class VentaController extends Controller
             'hasta'       => 'sometimes|date',
             'search'      => 'sometimes|string',
             'dias'        => 'sometimes|integer|min:1', // Ventas que vencen en X días
+            'estado_pago' => 'sometimes|in:pendientes,pagadas,todas', // Filtro de estado de pago
             'per_page'    => 'sometimes|integer|min:-1|max:200',
             'page'        => 'sometimes|integer|min:1',
         ]);
@@ -2114,37 +2115,54 @@ class VentaController extends Controller
         }
 
         $perPage = (int) $request->input('per_page', 50);
+        $estadoPago = $request->input('estado_pago', 'pendientes'); // Por defecto: pendientes
 
         if ($perPage === -1) {
             $ventas = $query->orderBy('id', 'desc')->limit(200)->get();
 
-            // Filtrar solo las que tienen saldo > 0
-            $ventasConSaldo = $ventas->filter(function ($venta) {
+            // Filtrar según el estado de pago
+            $ventasFiltradas = $ventas->filter(function ($venta) use ($estadoPago) {
                 $total        = $this->getTotalVenta($venta);
                 $totalCobrado = (float) ($venta->total_cobrado ?? 0);
-                return ($total - $totalCobrado) > 0.01;
+                $saldo        = $total - $totalCobrado;
+
+                if ($estadoPago === 'pendientes') {
+                    return $saldo > 0.01; // Solo con saldo pendiente
+                } elseif ($estadoPago === 'pagadas') {
+                    return $saldo <= 0.01; // Solo pagadas completamente
+                } else {
+                    return true; // Todas
+                }
             });
 
             return response()->json([
-                'data'  => $ventasConSaldo->values(),
-                'total' => $ventasConSaldo->count(),
+                'data'  => $ventasFiltradas->values(),
+                'total' => $ventasFiltradas->count(),
             ]);
         }
 
         $ventas = $query->orderBy('id', 'desc')->paginate($perPage);
 
-        // Filtrar solo las que tienen saldo pendiente
-        $ventasConSaldo = $ventas->getCollection()->filter(function ($venta) {
+        // Filtrar según el estado de pago
+        $ventasFiltradas = $ventas->getCollection()->filter(function ($venta) use ($estadoPago) {
             $total        = $this->getTotalVenta($venta);
             $totalCobrado = (float) ($venta->total_cobrado ?? 0);
-            return ($total - $totalCobrado) > 0.01;
+            $saldo        = $total - $totalCobrado;
+
+            if ($estadoPago === 'pendientes') {
+                return $saldo > 0.01; // Solo con saldo pendiente
+            } elseif ($estadoPago === 'pagadas') {
+                return $saldo <= 0.01; // Solo pagadas completamente
+            } else {
+                return true; // Todas
+            }
         });
 
-        $ventas->setCollection($ventasConSaldo);
+        $ventas->setCollection($ventasFiltradas);
 
         return response()->json([
             'data'         => $ventas->items(),
-            'total'        => $ventasConSaldo->count(),
+            'total'        => $ventasFiltradas->count(),
             'current_page' => $ventas->currentPage(),
             'per_page'     => $ventas->perPage(),
             'last_page'    => $ventas->lastPage(),
