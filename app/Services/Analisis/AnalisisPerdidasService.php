@@ -209,7 +209,7 @@ class AnalisisPerdidasService
                 'udiv.precio as precio_venta',
                 DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END as costo_producto"),
                 'udiv.comision',
-                DB::raw("udiv.comision as monto"),
+                DB::raw("udiv.comision * udiv.cantidad as monto"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
             ])
             ->where('v.estado_de_venta', '!=', 'an')
