@@ -167,6 +167,34 @@
         </tr>
     </table>
 
+    {{-- Producto anterior (reemplazado en la última edición de la venta) --}}
+    @if(!empty($productosAnteriores))
+    <div class="section-title" style="color: #b45309;">CAMBIO DE PRODUCTO</div>
+    @if(!empty($fechaUltimaEdicion))
+    <div class="text-center" style="font-size: 5pt; margin-bottom: 2px;">
+        {{ $fechaUltimaEdicion }}
+    </div>
+    @endif
+    <table style="font-size: 5pt;">
+        <tr style="border-bottom: 1px solid #000;">
+            <td class="text-bold" style="width: 30px;">Cód.</td>
+            <td class="text-bold">Producto</td>
+            <td class="text-bold text-center" style="width: 30px;">Unidad</td>
+            <td class="text-bold text-center" style="width: 25px;">Cant.</td>
+            <td class="text-bold text-right" style="width: 30px;">Precio</td>
+        </tr>
+        @foreach($productosAnteriores as $i => $p)
+        <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#fef3c7' }}; text-decoration: line-through; color: #6b7280;">
+            <td>{{ $p['codigo'] }}</td>
+            <td>{{ $p['nombre'] }}</td>
+            <td class="text-center">{{ $p['unidad'] }}</td>
+            <td class="text-center">{{ number_format($p['cantidad'], 0) }}</td>
+            <td class="text-right">{{ number_format($p['precio'], 2) }}</td>
+        </tr>
+        @endforeach
+    </table>
+    @endif
+
     {{-- Observaciones --}}
     @if($entrega->observaciones)
     <div style="margin-top: 4px; font-size: 6pt;">

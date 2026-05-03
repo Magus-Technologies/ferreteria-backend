@@ -1136,23 +1136,34 @@ class VentaController extends Controller
                     }
                 }
 
-                // Regenerar DetalleEntregaProducto preservando lo entregado.
+                // Regenerar DetalleEntregaProducto cubriendo todos los productos
+                // actuales de la venta para cada entrega activa.
                 //
-                // Para cada entrega activa, recreamos los detalles que existían
-                // antes de borrar, manteniendo `cantidad_entregada` original.
-                // Si el producto/unidad ya no existe en la venta editada
-                // (el usuario lo eliminó), su detalle no se recrea — la
-                // entrega queda con menos detalles. Si el usuario AGREGÓ una
-                // unidad nueva (no estaba antes), tampoco se le agrega un
-                // detalle a las entregas viejas: esa cantidad queda en
-                // `cantidad_pendiente` para que el usuario la programe via
-                // "Entregar Restante".
-                foreach ($detallesPorEntrega as $entregaId => $clavesEntregadas) {
-                    foreach ($clavesEntregadas as $clave => $cantEntregada) {
-                        $udvNueva = $nuevasUdvPorClave[$clave] ?? null;
-                        if (! $udvNueva) continue; // Producto eliminado en la edición.
+                // Lógica por producto:
+                //  - Si EXISTÍA antes (estaba en el snapshot): se preserva
+                //    `cantidad_entregada` original.
+                //  - Si es NUEVO (no estaba antes): se crea con
+                //    `cantidad_entregada = cantidad total` — la entrega ya
+                //    pasa a 'pe' (re-confirmación), así el usuario revisa
+                //    el modal antes de confirmar; si quiere entregar menos
+                //    puede ajustar via "Entregar Restante" después.
+                //  - Si el producto FUE ELIMINADO de la venta: no se
+                //    recrea su detalle (el producto ya no existe).
+                //
+                // Antes la lógica solo recreaba detalles del snapshot,
+                // dejando la entrega VACÍA si el usuario cambió todos los
+                // productos en la edición.
+                foreach ($entregasActivas as $entrega) {
+                    $clavesEntregadas = $detallesPorEntrega[$entrega->id] ?? [];
+                    foreach ($nuevasUdvPorClave as $clave => $udvNueva) {
+                        $cantEntregada = array_key_exists($clave, $clavesEntregadas)
+                            ? (float) $clavesEntregadas[$clave]
+                            // Producto nuevo agregado en la edición — presume que
+                            // se entregará todo cuando el usuario re-confirme la
+                            // entrega ('pe' → 'en').
+                            : (float) $udvNueva->cantidad;
                         DetalleEntregaProducto::create([
-                            'entrega_producto_id' => $entregaId,
+                            'entrega_producto_id' => $entrega->id,
                             'unidad_derivada_venta_id' => $udvNueva->id,
                             'cantidad_entregada' => $cantEntregada,
                             'ubicacion' => null,
