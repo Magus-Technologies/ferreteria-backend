@@ -1383,18 +1383,44 @@ class VentaController extends Controller
                 'productosPorAlmacen.unidadesDerivadas',
                 'productosPorAlmacen.productoAlmacen',
                 'despliegueDePagoVentas',
+                // Cobros activos — necesarios para revertirlos al anular
+                // una venta Procesada (crédito ya pagado).
+                'cobrosVenta' => fn ($q) => $q->where('estado', true),
                 'cliente',
             ])
                 ->withCount('entregasProductos as entregas_productos_count')
                 ->findOrFail($id);
 
-            if (
-                $venta->estado_de_venta === EstadoDeVenta::Procesado ||
-                $venta->estado_de_venta === EstadoDeVenta::Anulado
-            ) {
+            // Solo bloqueamos si ya está anulada (no se puede re-anular).
+            // Antes también bloqueaba si estaba Procesada, pero ahora se permite
+            // anular ventas a crédito ya pagadas — en ese caso revertimos los
+            // cobros activos, decrementamos los métodos de pago y devolvemos
+            // el dinero como si no se hubiera cobrado.
+            if ($venta->estado_de_venta === EstadoDeVenta::Anulado) {
                 return response()->json([
-                    'error' => ['message' => 'La venta no se puede anular'],
+                    'error' => ['message' => 'La venta ya está anulada'],
                 ], 400);
+            }
+
+            // Si la venta era Procesada (crédito 100% pagado), revertir
+            // los cobros: marcar estado=false y decrementar el monto del
+            // método de pago correspondiente (sale dinero de caja).
+            $eraProcesada = $venta->estado_de_venta === EstadoDeVenta::Procesado;
+            if ($eraProcesada) {
+                foreach ($venta->cobrosVenta as $cobro) {
+                    if ($cobro->despliegue_de_pago_id) {
+                        $despliegue = DespliegueDePago::find($cobro->despliegue_de_pago_id);
+                        if ($despliegue && $despliegue->metodo_de_pago_id) {
+                            MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
+                                ->decrement('monto', (float) $cobro->monto);
+                        }
+                    }
+                    $cobro->update([
+                        'estado' => false,
+                        'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '')
+                            . 'ANULADO POR ANULACIÓN DE VENTA',
+                    ]);
+                }
             }
 
             // Verificar entregas: si hay entregas ya entregadas, no se puede anular
