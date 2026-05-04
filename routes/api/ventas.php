@@ -54,6 +54,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{id}/pagos', [CompraController::class, 'getPagos']);
         Route::get('/{id}/detalle-completo', [CompraController::class, 'detalleCompleto']);
         Route::post('/{id}/pagos', [CompraController::class, 'storePago']);
+        Route::put('/{compraId}/pagos/{pagoId}/anular', [CompraController::class, 'anularPago']);
         Route::put('/{id}/lotes-vencimientos', [CompraController::class, 'updateLotesVencimientos']);
     });
     Route::apiResource('compras', CompraController::class)->middleware('broadcast:compras');

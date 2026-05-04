@@ -1370,6 +1370,49 @@ class CompraController extends Controller
     }
 
     /**
+     * Anular pago de compra
+     */
+    public function anularPago(Request $request, string $compraId, string $pagoId)
+    {
+        $validated = $request->validate([
+            'motivo' => 'nullable|string|max:500',
+        ]);
+
+        return DB::transaction(function () use ($compraId, $pagoId, $validated) {
+            $compra = Compra::with([
+                'productosPorAlmacen.unidadesDerivadas',
+                'pagosDeCompras' => fn($q) => $q->where('estado', true),
+            ])->findOrFail($compraId);
+
+            $pago = \App\Models\PagoDeCompra::where('id', $pagoId)
+                ->where('compra_id', $compraId)
+                ->firstOrFail();
+
+            if (!$pago->estado) {
+                return response()->json([
+                    'error' => ['message' => 'El pago ya está anulado'],
+                ], 422);
+            }
+
+            $pago->update([
+                'estado' => false,
+                'observacion' => ($pago->observacion ? $pago->observacion . ' | ' : '') .
+                                 'ANULADO: ' . ($validated['motivo'] ?? 'Sin motivo especificado'),
+            ]);
+
+            $totalCompra = $this->getTotalCompra($compra);
+            $totalPagadoActivo = $compra->pagosDeCompras()->where('estado', true)->sum('monto');
+            $saldoPendiente = $totalCompra - $totalPagadoActivo;
+
+            return response()->json([
+                'data'            => $pago->fresh(),
+                'message'         => 'Pago anulado correctamente',
+                'saldo_pendiente' => $saldoPendiente,
+            ], 200);
+        });
+    }
+
+    /**
      * Update lotes y vencimientos de unidades derivadas de una compra
      */
     public function updateLotesVencimientos(Request $request, string $id)

@@ -17,6 +17,7 @@ use App\Services\Pdf\RequerimientoInternoPdfService;
 use App\Services\Pdf\ValeCompraPdfService;
 use App\Services\Pdf\EntregaProductoPdfService;
 use App\Services\Pdf\CobroVentaPdfService;
+use App\Services\Pdf\PagoCompraPdfService;
 use App\Services\Pdf\VentaPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -123,6 +124,11 @@ class PdfController extends Controller
     }
 
     public function cobroVenta(string $id, CobroVentaPdfService $service): Response
+    {
+        return $service->generar($id);
+    }
+
+    public function pagoCompra(string $id, PagoCompraPdfService $service): Response
     {
         return $service->generar($id);
     }

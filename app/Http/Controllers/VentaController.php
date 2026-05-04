@@ -82,7 +82,12 @@ class VentaController extends Controller
                 // entradas del historial (cambios de estado, anulación, etc.).
                 $q->where('accion', 'edicion');
             }])
-            ->withSum('despliegueDePagoVentas as total_pagado', 'monto');
+            ->withSum('despliegueDePagoVentas as total_pagado', 'monto')
+            ->withSum([
+                'cobrosVenta as total_cobrado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto');
 
         // Filter by almacen_id
         if ($request->has('almacen_id')) {
