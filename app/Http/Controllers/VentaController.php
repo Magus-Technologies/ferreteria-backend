@@ -2080,6 +2080,8 @@ class VentaController extends Controller
             'page'        => 'sometimes|integer|min:1',
         ]);
 
+        $estadoPago = $request->input('estado_pago', 'pendientes');
+
         $query = Venta::query()
             ->with([
                 'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
@@ -2093,9 +2095,14 @@ class VentaController extends Controller
                     $query->where('estado', true);
                 }
             ], 'monto')
-            // Solo ventas a crédito registradas (no en espera, no anuladas, no procesadas)
             ->where('forma_de_pago', FormaDePago::Credito)
-            ->where('estado_de_venta', EstadoDeVenta::Creado);
+            ->when($estadoPago === 'pendientes', function ($q) {
+                // Pendientes: solo ventas aún abiertas (Creado)
+                $q->where('estado_de_venta', EstadoDeVenta::Creado);
+            }, function ($q) {
+                // Pagadas o Todas: incluir también las ya procesadas (completamente pagadas)
+                $q->whereIn('estado_de_venta', [EstadoDeVenta::Creado, EstadoDeVenta::Procesado]);
+            });
 
         // Filtros opcionales
         if ($request->has('almacen_id')) {
@@ -2141,7 +2148,6 @@ class VentaController extends Controller
         }
 
         $perPage = (int) $request->input('per_page', 50);
-        $estadoPago = $request->input('estado_pago', 'pendientes'); // Por defecto: pendientes
 
         if ($perPage === -1) {
             $ventas = $query->orderBy('id', 'desc')->limit(200)->get();
