@@ -26,7 +26,7 @@ interface ProductoRepositoryInterface
     /**
      * Get paginated products by warehouse with filters
      */
-    public function findByAlmacen(int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator;
+    public function findByAlmacen(?int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator;
 
     /**
      * Get all products (no pagination)

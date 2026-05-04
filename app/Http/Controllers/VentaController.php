@@ -1543,12 +1543,15 @@ class VentaController extends Controller
             foreach ($venta->productosPorAlmacen as $item) {
                 foreach ($item->unidadesDerivadas as $u) {
                     $cantidad = (float) ($u->cantidad ?? 0);
-                    $factor = (float) ($u->factor ?? 0);
                     $precio = (float) ($u->precio ?? 0);
                     $recargo = (float) ($u->recargo ?? 0);
                     $descuento = (float) ($u->descuento ?? 0);
+                    $bonificacion = (bool) ($u->bonificacion ?? false);
 
-                    $subtotal = $precio * $cantidad * $factor;
+                    if ($bonificacion) continue;
+
+                    // precio ya es por unidad derivada (no multiplicar por factor)
+                    $subtotal = $precio * $cantidad;
                     $subtotalConRecargo = $subtotal + $recargo;
 
                     if ($u->descuento_tipo === 'porcentaje') {
@@ -1569,13 +1572,16 @@ class VentaController extends Controller
             foreach ($venta['productos_por_almacen'] as $item) {
                 foreach ($item['unidades_derivadas'] as $u) {
                     $cantidad = (float) ($u['cantidad'] ?? 0);
-                    $factor = (float) ($u['factor'] ?? 0);
                     $precio = (float) ($u['precio'] ?? 0);
                     $recargo = (float) ($u['recargo'] ?? 0);
                     $descuento = (float) ($u['descuento'] ?? 0);
                     $descuentoTipo = $u['descuento_tipo'] ?? null;
+                    $bonificacion = (bool) ($u['bonificacion'] ?? false);
 
-                    $subtotal = $precio * $cantidad * $factor;
+                    if ($bonificacion) continue;
+
+                    // precio ya es por unidad derivada (no multiplicar por factor)
+                    $subtotal = $precio * $cantidad;
                     $subtotalConRecargo = $subtotal + $recargo;
 
                     if ($descuentoTipo === 'porcentaje') {

@@ -47,7 +47,7 @@ class ProductoRepository implements ProductoRepositoryInterface
     /**
      * Get paginated products by warehouse with filters
      */
-    public function findByAlmacen(int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator
+    public function findByAlmacen(?int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator
     {
         $query = Producto::select([
             'id',
@@ -72,8 +72,10 @@ class ProductoRepository implements ProductoRepositoryInterface
                 'categoria:id,name',
                 'unidadMedida:id,name',
                 'productoEnAlmacenes' => function ($q) use ($almacenId) {
-                    $q->where('almacen_id', $almacenId)
-                        ->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo')
+                    if ($almacenId) {
+                        $q->where('almacen_id', $almacenId);
+                    }
+                    $q->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo')
                         ->with([
                             'ubicacion:id,name',
                             'unidadesDerivadas' => function ($udq) {
@@ -102,10 +104,12 @@ class ProductoRepository implements ProductoRepositoryInterface
             $query->addSelect(DB::raw('0 as tiene_ingresos'));
         }
 
-        // Solo productos que existen en el almacén seleccionado
-        $query->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
-            $q->where('almacen_id', $almacenId);
-        });
+        // Solo productos que existen en el almacén seleccionado (si se proporcionó)
+        if ($almacenId) {
+            $query->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
+                $q->where('almacen_id', $almacenId);
+            });
+        }
 
         // Apply filters
         $this->applyFilters($query, $filters, $almacenId);
@@ -283,7 +287,7 @@ class ProductoRepository implements ProductoRepositoryInterface
     /**
      * Apply filters to the product query
      */
-    private function applyFilters($query, array $filters, int $almacenId): void
+    private function applyFilters($query, array $filters, ?int $almacenId): void
     {
         // Search filter - busca coincidencias parciales (contains)
         if (isset($filters['search'])) {
@@ -325,7 +329,7 @@ class ProductoRepository implements ProductoRepositoryInterface
         }
 
         // Location filter
-        if (isset($filters['ubicacion_id'])) {
+        if (isset($filters['ubicacion_id']) && $almacenId) {
             $query->whereHas('productoEnAlmacenes', function ($q) use ($almacenId, $filters) {
                 $q->where('almacen_id', $almacenId)
                     ->where('ubicacion_id', $filters['ubicacion_id']);
@@ -333,12 +337,12 @@ class ProductoRepository implements ProductoRepositoryInterface
         }
 
         // Stock filter
-        if (isset($filters['cs_stock'])) {
+        if (isset($filters['cs_stock']) && $almacenId) {
             $this->applyStockFilter($query, $filters['cs_stock'], $almacenId);
         }
 
         // Commission filter
-        if (isset($filters['cs_comision'])) {
+        if (isset($filters['cs_comision']) && $almacenId) {
             $this->applyCommissionFilter($query, $filters['cs_comision'], $almacenId);
         }
     }

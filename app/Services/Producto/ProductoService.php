@@ -38,31 +38,30 @@ class ProductoService implements ProductoServiceInterface
      */
     public function getAllByAlmacen(array $filters): JsonResponse
     {
-        if (!isset($filters["almacen_id"])) {
-            return response()->json(
-                [
-                    "error" => "El parámetro almacen_id es requerido",
-                ],
-                422,
-            );
-        }
-
-        $almacenId = $filters["almacen_id"];
+        $almacenId = $filters["almacen_id"] ?? null;
         $perPage = $filters["per_page"] ?? 100;
 
-        // Usar cache para mejorar performance
-        $productos = $this->cacheService->getProductosByAlmacen(
-            $almacenId,
-            $filters,
-            $perPage,
-            function () use ($almacenId, $filters, $perPage) {
-                return $this->productoRepository->findByAlmacen(
-                    $almacenId,
-                    $filters,
-                    $perPage,
-                );
-            },
-        );
+        // Si hay almacen_id, usar cache. Si no, listar todo (sin cache por ahora para evitar colisiones)
+        if ($almacenId) {
+            $productos = $this->cacheService->getProductosByAlmacen(
+                $almacenId,
+                $filters,
+                $perPage,
+                function () use ($almacenId, $filters, $perPage) {
+                    return $this->productoRepository->findByAlmacen(
+                        $almacenId,
+                        $filters,
+                        $perPage,
+                    );
+                },
+            );
+        } else {
+            $productos = $this->productoRepository->findByAlmacen(
+                null,
+                $filters,
+                $perPage,
+            );
+        }
 
         return response()->json($productos);
     }

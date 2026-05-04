@@ -22,7 +22,7 @@ class IndexProductoRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'almacen_id' => 'required|integer|exists:almacen,id',
+            'almacen_id' => 'nullable|integer|exists:almacen,id',
             'search' => 'nullable|string',
             'estado' => 'nullable|boolean',
             'categoria_id' => 'nullable|integer|exists:categoria,id',
