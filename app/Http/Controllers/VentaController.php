@@ -852,7 +852,13 @@ class VentaController extends Controller
                 }
 
                 // Validar que Facturas (01) solo se emitan a clientes con RUC
-                if ($tipoDocumento === '01' && $cliente->tipo_documento !== 'ruc') {
+                $clienteTipoDoc = $cliente->tipo_documento;
+                // Inferir tipo_documento del número si es null
+                if (!$clienteTipoDoc) {
+                    $numDoc = $cliente->numero_documento ?? '';
+                    $clienteTipoDoc = strlen($numDoc) === 11 ? 'ruc' : (strlen($numDoc) === 8 ? 'dni' : null);
+                }
+                if ($tipoDocumento === '01' && $clienteTipoDoc !== 'ruc') {
                     return response()->json([
                         'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
                         'error' => 'TIPO_DOCUMENTO_INVALIDO',
