@@ -79,7 +79,27 @@ class KardexFinanzasService
                 'ingreso' as movimiento,
                 v.fecha,
                 CONCAT(v.tipo_documento, ' ', v.serie, '-', v.numero) as documento,
-                m.name as metodo_pago,
+                CASE 
+                    WHEN sc.id IS NOT NULL THEN 
+                        CONCAT(
+                            sc.nombre, '/', 
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                    ELSE 
+                        CONCAT(
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                END as metodo_pago,
                 dpv.monto as entrada,
                 0 as salida,
                 v.id as referencia_id,
@@ -89,6 +109,7 @@ class KardexFinanzasService
                FROM desplieguedepagoventa dpv
                JOIN desplieguedepago m ON m.id = dpv.despliegue_de_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
+               LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                JOIN venta v ON v.id = dpv.venta_id
                WHERE v.estado_de_venta != 'an'";
         
@@ -109,7 +130,27 @@ class KardexFinanzasService
                 'ingreso' as movimiento,
                 cv.fecha,
                 CONCAT('COBRO ', v.serie, '-', v.numero) as documento,
-                m.name as metodo_pago,
+                CASE 
+                    WHEN sc.id IS NOT NULL THEN 
+                        CONCAT(
+                            sc.nombre, '/', 
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                    ELSE 
+                        CONCAT(
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                END as metodo_pago,
                 cv.monto as entrada,
                 0 as salida,
                 cv.id as referencia_id,
@@ -119,6 +160,7 @@ class KardexFinanzasService
                FROM cobroventa cv
                JOIN desplieguedepago m ON m.id = cv.despliegue_de_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
+               LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                JOIN venta v ON v.id = cv.venta_id
                WHERE cv.estado = 1";
 
@@ -139,7 +181,27 @@ class KardexFinanzasService
                 'egreso' as movimiento,
                 pdc.fecha,
                 CONCAT('PAGO COMPRA ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, '')) as documento,
-                m.name as metodo_pago,
+                CASE 
+                    WHEN sc.id IS NOT NULL THEN 
+                        CONCAT(
+                            sc.nombre, '/', 
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                    ELSE 
+                        CONCAT(
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                END as metodo_pago,
                 0 as entrada,
                 pdc.monto as salida,
                 pdc.id as referencia_id,
@@ -149,6 +211,7 @@ class KardexFinanzasService
                FROM pagodecompra pdc
                JOIN desplieguedepago m ON m.id = pdc.despliegue_de_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
+               LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                JOIN compra c ON c.id = pdc.compra_id
                WHERE pdc.estado = 1 AND c.estado_de_compra != 'an'";
 
@@ -169,7 +232,27 @@ class KardexFinanzasService
                 'ingreso' as movimiento,
                 ie.created_at as fecha,
                 ie.concepto as documento,
-                m.name as metodo_pago,
+                CASE 
+                    WHEN sc.id IS NOT NULL THEN 
+                        CONCAT(
+                            sc.nombre, '/', 
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                    ELSE 
+                        CONCAT(
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                END as metodo_pago,
                 ie.monto as entrada,
                 0 as salida,
                 ie.id as referencia_id,
@@ -179,6 +262,7 @@ class KardexFinanzasService
                FROM ingresos_extras ie
                JOIN desplieguedepago m ON m.id = ie.despliegue_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
+               LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                WHERE ie.estado = 'aprobado'";
 
         if ($metodoPagoId) { $sql .= " AND m.metodo_de_pago_id = ?"; $bindings[] = $metodoPagoId; }
@@ -198,7 +282,27 @@ class KardexFinanzasService
                 'egreso' as movimiento,
                 ge.created_at as fecha,
                 ge.concepto as documento,
-                m.name as metodo_pago,
+                CASE 
+                    WHEN sc.id IS NOT NULL THEN 
+                        CONCAT(
+                            sc.nombre, '/', 
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                    ELSE 
+                        CONCAT(
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                END as metodo_pago,
                 0 as entrada,
                 ge.monto as salida,
                 ge.id as referencia_id,
@@ -208,6 +312,7 @@ class KardexFinanzasService
                FROM gastos_extras ge
                JOIN desplieguedepago m ON m.id = ge.despliegue_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
+               LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                WHERE 1=1";
 
         if ($metodoPagoId) { $sql .= " AND m.metodo_de_pago_id = ?"; $bindings[] = $metodoPagoId; }
