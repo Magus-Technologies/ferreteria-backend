@@ -28,6 +28,8 @@ class KardexInventario extends Model
         'cant_ingreso',
         'cant_salida',
         'stock_actual',
+        'costo_anterior',
+        'costo_actual',
         'referencia_id',
         'producto_almacen_id',
         'usuario_id',
@@ -51,6 +53,8 @@ class KardexInventario extends Model
         'cant_ingreso' => 'float',
         'cant_salida' => 'float',
         'stock_actual' => 'float',
+        'costo_anterior' => 'float',
+        'costo_actual' => 'float',
     ];
 
     public function productoAlmacen(): BelongsTo

@@ -13,77 +13,78 @@ class KardexFacturacionService
      */
     public function registrar(array $data)
     {
-        // 1. Obtener el factor explícitamente (CORRECCIÓN: no recalcular)
-        // El factor debe venir en los datos o calcularse desde cantidad_fraccion / cantidad
-        $cantidad = (float) ($data['cantidad'] ?? 1);
-        $cantidadFraccion = (float) ($data['cantidad_fraccion'] ?? $cantidad);
-        
-        // Usar factor explícito si viene, si no calcularlo
-        $factor = (float) ($data['factor'] ?? 0);
+        // 1. Obtener el factor
+        $factor = (float) ($data['factor'] ?? 1);
         if ($factor <= 0) {
-            // Solo recalcular si no viene explícitamente
+            $cantidad = (float) ($data['cantidad'] ?? 1);
+            $cantidadFraccion = (float) ($data['cantidad_fraccion'] ?? $cantidad);
             $factor = $cantidad > 0 ? ($cantidadFraccion / $cantidad) : 1;
         }
-        
-        // Validar que factor sea válido (> 0)
-        if ($factor <= 0) {
-            \Log::warning('KardexFacturacionService::registrar - Factor inválido', [
-                'factor' => $factor,
-                'cantidad' => $cantidad,
-                'cantidad_fraccion' => $cantidadFraccion,
-            ]);
-            $factor = 1;
+
+        // 2. Cantidades Base (Fracciones)
+        $cantIngresoBase = (float) ($data['entrada'] ?? 0);
+        $cantSalidaBase = (float) ($data['salida'] ?? 0);
+
+        // 3. Cantidad Nominal (en la unidad del documento)
+        if (!isset($data['cantidad']) || (float) $data['cantidad'] == 0) {
+            if ($factor > 0) {
+                $data['cantidad'] = ($cantIngresoBase > 0) ? ($cantIngresoBase / $factor) : ($cantSalidaBase / $factor);
+            } else {
+                $data['cantidad'] = $cantIngresoBase + $cantSalidaBase;
+            }
         }
 
-        // 2. Obtener el saldo anterior del producto_almacen en la BD (en fracción)
-        // CORRECCIÓN: Usar stock_anterior_override si se proporciona
-        $saldoAnteriorFraccion = 0;
+        // 4. Obtener el stock actual real en fracción
+        $saldoAnteriorBase = 0;
         if (isset($data['stock_anterior_override'])) {
-            $saldoAnteriorFraccion = (float) $data['stock_anterior_override'];
-            unset($data['stock_anterior_override']); // Remover para no guardarlo en la BD
+            $saldoAnteriorBase = (float) $data['stock_anterior_override'];
+            unset($data['stock_anterior_override']);
         } else {
             $productoAlmacen = DB::table('productoalmacen')
                 ->where('producto_id', $data['producto_id'])
                 ->where('almacen_id', $data['almacen_id'])
                 ->first();
-            
             if ($productoAlmacen) {
-                $saldoAnteriorFraccion = (float) $productoAlmacen->stock_fraccion;
+                $saldoAnteriorBase = (float) $productoAlmacen->stock_fraccion;
             }
         }
-        
-        // 3. Calcular saldo en fracción después de esta transacción
-        $cantIngreso = (float) ($data['entrada'] ?? 0);
-        $cantSalida = (float) ($data['salida'] ?? 0);
-        $saldoActualFraccion = $saldoAnteriorFraccion + $cantIngreso - $cantSalida;
-        
-        // 4. Convertir saldos de fracción a unidad derivada
-        // Dividir el saldo en fracción por el factor para obtener el saldo en la unidad derivada
-        $saldoAnteriorUnidadDerivada = $factor > 0 ? ($saldoAnteriorFraccion / $factor) : 0;
-        $saldoActualUnidadDerivada = $factor > 0 ? ($saldoActualFraccion / $factor) : 0;
-        
-        // 5. Agregar los valores calculados a los datos (en unidad derivada)
-        $data['stock_anterior'] = $saldoAnteriorUnidadDerivada;
-        $data['cant_ingreso'] = $cantIngreso;
-        $data['cant_salida'] = $cantSalida;
-        $data['stock_actual'] = $saldoActualUnidadDerivada;
-        $data['factor'] = $factor; // Guardar el factor usado
-        
-        \Log::info('KardexFacturacionService::registrar - Datos guardados', [
-            'producto_id' => $data['producto_id'],
-            'unidad' => $data['unidad'] ?? 'N/A',
+
+        // 5. Capturar costos para trazabilidad
+        $costoAnteriorBase = 0;
+        $productoAlmacenRow = DB::table('productoalmacen')
+            ->where('producto_id', $data['producto_id'])
+            ->where('almacen_id', $data['almacen_id'])
+            ->first();
+        if ($productoAlmacenRow) {
+            $costoAnteriorBase = (float) $productoAlmacenRow->costo;
+        }
+
+        // El costo nominal (transacción) suele ser el precio de venta o el costo unitario
+        $costoNominal = isset($data['costo']) ? (float) $data['costo'] : 0;
+
+        // 6. Preparar datos finales para persistencia
+        $nuevoSaldoBase = $saldoAnteriorBase + $cantIngresoBase - $cantSalidaBase;
+
+        $dataToSave = array_merge($data, [
+            'stock_anterior' => $saldoAnteriorBase,
+            'cant_ingreso' => $cantIngresoBase,
+            'cant_salida' => $cantSalidaBase,
+            'stock_actual' => $nuevoSaldoBase,
+            'entrada' => $cantIngresoBase,
+            'salida' => $cantSalidaBase,
+            'costo' => $costoNominal,
+            'costo_anterior' => $costoAnteriorBase,
+            'costo_actual' => $costoAnteriorBase, // Las ventas no cambian el costo promedio
             'factor' => $factor,
-            'cantidad' => $cantidad,
-            'cantidad_fraccion' => $cantidadFraccion,
-            'stock_anterior_fraccion' => $saldoAnteriorFraccion,
-            'stock_anterior_unidad_derivada' => $saldoAnteriorUnidadDerivada,
-            'cant_ingreso' => $cantIngreso,
-            'cant_salida' => $cantSalida,
-            'stock_actual_fraccion' => $saldoActualFraccion,
-            'stock_actual_unidad_derivada' => $saldoActualUnidadDerivada,
         ]);
-        
-        return KardexFacturacion::create($data);
+
+        \Log::info('KardexFacturacion registrar:', [
+            'nominal' => $dataToSave['cantidad'],
+            'base' => $cantIngresoBase ?: $cantSalidaBase,
+            'costo_anterior' => $costoAnteriorBase,
+        ]);
+
+        return KardexFacturacion::create($dataToSave);
     }
 
     /**
@@ -93,7 +94,7 @@ class KardexFacturacionService
      */
     public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null)
     {
-        $tipoDocumento = match($venta->tipo_documento->value) {
+        $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
             '03' => 'Boleta',
             'nv' => 'Nota de Venta',
@@ -157,7 +158,7 @@ class KardexFacturacionService
      */
     public function registrarDevolucionVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 2)
     {
-        $tipoDocumento = match($venta->tipo_documento->value) {
+        $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
             '03' => 'Boleta',
             'nv' => 'Nota de Venta',
@@ -231,7 +232,7 @@ class KardexFacturacionService
      */
     public function registrarVentaDesdeEspera($venta, $productoAlmacen, $unidad, $costo, $orden = 1)
     {
-        $tipoDocumento = match($venta->tipo_documento->value) {
+        $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
             '03' => 'Boleta',
             'nv' => 'Nota de Venta',
@@ -300,7 +301,7 @@ class KardexFacturacionService
             ->where('tipo', 'venta')
             ->whereIn('movimiento', ['VENTA CONTADO (EDITADA)', 'VENTA CRÉDITO (EDITADA)'])
             ->get()
-            ->keyBy(function($item) {
+            ->keyBy(function ($item) {
                 return $item->producto_id . '_' . $item->unidad;
             });
 
@@ -317,7 +318,8 @@ class KardexFacturacionService
         $cantidadesNuevas = [];
         foreach ($venta->productosPorAlmacen as $detalle) {
             $productoAlmacen = $detalle->productoAlmacen;
-            if (!$productoAlmacen) continue;
+            if (!$productoAlmacen)
+                continue;
 
             foreach ($detalle->unidadesDerivadas as $ud) {
                 $key = $productoAlmacen->producto_id . '_' . $ud->unidadDerivadaInmutable->name;
@@ -329,7 +331,7 @@ class KardexFacturacionService
             }
         }
 
-        $tipoDocumento = match($venta->tipo_documento->value) {
+        $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
             '03' => 'Boleta',
             'nv' => 'Nota de Venta',
@@ -409,11 +411,11 @@ class KardexFacturacionService
             if (!isset($cantidadesNuevas[$key])) {
                 // Producto fue eliminado: devolver todo al stock
                 $cantidadAntiguaFraccion = (float) $registroAntiguo->salida;
-                
+
                 // Determinar el tipo de venta para el ajuste
                 $tipoVenta = $venta->forma_de_pago->value === 'co' ? 'CONTADO' : 'CRÉDITO';
                 $movimiento = "AJUSTE POR EDICIÓN ({$tipoVenta})";
-                
+
                 // Crear ajuste de ENTRADA para devolver al stock
                 $data = [
                     'tipo' => 'venta',
@@ -436,7 +438,7 @@ class KardexFacturacionService
                     'almacen_id' => $venta->almacen_id,
                     'orden' => $orden,
                 ];
-                
+
                 $this->registrar($data);
                 $orden++;
             }
@@ -498,7 +500,9 @@ class KardexFacturacionService
         int $perPage = 50,
         int $page = 1
     ) {
-        $query = DB::table('kardex_facturacions');
+        $query = DB::table('kardex_facturacions')
+            ->leftJoin('producto', 'kardex_facturacions.producto_id', '=', 'producto.id')
+            ->select('kardex_facturacions.*', 'producto.unidades_contenidas');
 
         if ($productoId) {
             $query->where('producto_id', $productoId);
@@ -532,25 +536,25 @@ class KardexFacturacionService
 
         foreach ($allRows as $row) {
             $key = "{$row->producto_id}_{$row->almacen_id}";
-            
+
             // Si el registro YA tiene stock_anterior y stock_actual guardados, usarlos
             // (esto ocurre cuando se registró correctamente al crear la venta)
             if ($row->stock_anterior !== null && $row->stock_actual !== null) {
                 // Usar los valores guardados en la BD
                 $stockAnterior = (float) $row->stock_anterior;
                 $stockActual = (float) $row->stock_actual;
-                
+
                 // Actualizar el stock actual para la siguiente iteración
                 $stockPorProductoAlmacen[$key] = $stockActual;
             } else {
                 // Si NO tiene valores guardados, calcularlos (para registros antiguos)
                 $stockAnterior = $stockPorProductoAlmacen[$key] ?? 0;
-                
+
                 $cantIngreso = (float) $row->entrada;
                 $cantSalida = (float) $row->salida;
-                
+
                 $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
-                
+
                 // Actualizar el stock actual para la siguiente iteración
                 $stockPorProductoAlmacen[$key] = $stockActual;
             }
@@ -569,7 +573,7 @@ class KardexFacturacionService
             $rowData['cant_ingreso'] = (float) $row->entrada;
             $rowData['cant_salida'] = (float) $row->salida;
             $rowData['stock_actual'] = $stockActual;
-            
+
             $rowsWithStockAll[] = (object) $rowData;
         }
 
@@ -603,8 +607,8 @@ class KardexFacturacionService
         }
 
         // Obtener el valor del enum si es un objeto TipoCliente
-        $tipo = $cliente->tipo_cliente instanceof \App\Enums\TipoCliente 
-            ? $cliente->tipo_cliente->value 
+        $tipo = $cliente->tipo_cliente instanceof \App\Enums\TipoCliente
+            ? $cliente->tipo_cliente->value
             : $cliente->tipo_cliente;
 
         // Si es persona jurídica (empresa), usar razon_social o nombre_comercial
