@@ -125,7 +125,9 @@ class KardexFinanzasService
     private function getCobrosQuery($metodoPagoId, $subCajaId, $vendedorId, $desde, $hasta)
     {
         $bindings = [];
-        $sql = "SELECT 
+        
+        // Query para cobros activos (estado = 1)
+        $sqlActivos = "SELECT 
                 'COBRO' as tipo,
                 'ingreso' as movimiento,
                 cv.fecha,
@@ -163,12 +165,64 @@ class KardexFinanzasService
                LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                JOIN venta v ON v.id = cv.venta_id
                WHERE cv.estado = 1";
+        
+        $bindingsActivos = [];
+        if ($metodoPagoId) { $sqlActivos .= " AND m.metodo_de_pago_id = ?"; $bindingsActivos[] = $metodoPagoId; }
+        if ($subCajaId) { $sqlActivos .= " AND mp.subcaja_id = ?"; $bindingsActivos[] = $subCajaId; }
+        if ($vendedorId) { $sqlActivos .= " AND cv.user_id = ?"; $bindingsActivos[] = $vendedorId; }
+        if ($desde) { $sqlActivos .= " AND cv.fecha >= ?"; $bindingsActivos[] = $desde . ' 00:00:00'; }
+        if ($hasta) { $sqlActivos .= " AND cv.fecha <= ?"; $bindingsActivos[] = $hasta . ' 23:59:59'; }
 
-        if ($metodoPagoId) { $sql .= " AND m.metodo_de_pago_id = ?"; $bindings[] = $metodoPagoId; }
-        if ($subCajaId) { $sql .= " AND mp.subcaja_id = ?"; $bindings[] = $subCajaId; }
-        if ($vendedorId) { $sql .= " AND cv.user_id = ?"; $bindings[] = $vendedorId; }
-        if ($desde) { $sql .= " AND cv.fecha >= ?"; $bindings[] = $desde . ' 00:00:00'; }
-        if ($hasta) { $sql .= " AND cv.fecha <= ?"; $bindings[] = $hasta . ' 23:59:59'; }
+        // Query para cobros anulados (estado = 0) - muestra la anulación en la fecha de anulación
+        $sqlAnulados = "SELECT 
+                'COBRO ANULADO' as tipo,
+                'egreso' as movimiento,
+                COALESCE(cv.fecha_anulacion, cv.fecha) as fecha,
+                CONCAT('COBRO ANULADO ', v.serie, '-', v.numero) as documento,
+                CASE 
+                    WHEN sc.id IS NOT NULL THEN 
+                        CONCAT(
+                            sc.nombre, '/', 
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                    ELSE 
+                        CONCAT(
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                END as metodo_pago,
+                0 as entrada,
+                cv.monto as salida,
+                cv.id as referencia_id,
+                cv.user_id,
+                m.metodo_de_pago_id,
+                mp.subcaja_id
+               FROM cobroventa cv
+               JOIN desplieguedepago m ON m.id = cv.despliegue_de_pago_id
+               JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
+               LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
+               JOIN venta v ON v.id = cv.venta_id
+               WHERE cv.estado = 0";
+        
+        $bindingsAnulados = [];
+        if ($metodoPagoId) { $sqlAnulados .= " AND m.metodo_de_pago_id = ?"; $bindingsAnulados[] = $metodoPagoId; }
+        if ($subCajaId) { $sqlAnulados .= " AND mp.subcaja_id = ?"; $bindingsAnulados[] = $subCajaId; }
+        if ($vendedorId) { $sqlAnulados .= " AND cv.user_id = ?"; $bindingsAnulados[] = $vendedorId; }
+        if ($desde) { $sqlAnulados .= " AND COALESCE(cv.fecha_anulacion, cv.fecha) >= ?"; $bindingsAnulados[] = $desde . ' 00:00:00'; }
+        if ($hasta) { $sqlAnulados .= " AND COALESCE(cv.fecha_anulacion, cv.fecha) <= ?"; $bindingsAnulados[] = $hasta . ' 23:59:59'; }
+
+        // Combinar ambas queries con UNION ALL
+        $sql = "({$sqlActivos}) UNION ALL ({$sqlAnulados})";
+        $bindings = array_merge($bindingsActivos, $bindingsAnulados);
 
         return ['sql' => $sql, 'bindings' => $bindings];
     }
@@ -176,7 +230,9 @@ class KardexFinanzasService
     private function getComprasQuery($metodoPagoId, $subCajaId, $vendedorId, $desde, $hasta)
     {
         $bindings = [];
-        $sql = "SELECT 
+        
+        // Query para pagos activos (estado = 1)
+        $sqlActivos = "SELECT 
                 'COMPRA' as tipo,
                 'egreso' as movimiento,
                 pdc.fecha,
@@ -215,11 +271,63 @@ class KardexFinanzasService
                JOIN compra c ON c.id = pdc.compra_id
                WHERE pdc.estado = 1 AND c.estado_de_compra != 'an'";
 
-        if ($metodoPagoId) { $sql .= " AND m.metodo_de_pago_id = ?"; $bindings[] = $metodoPagoId; }
-        if ($subCajaId) { $sql .= " AND mp.subcaja_id = ?"; $bindings[] = $subCajaId; }
-        if ($vendedorId) { $sql .= " AND c.user_id = ?"; $bindings[] = $vendedorId; }
-        if ($desde) { $sql .= " AND pdc.fecha >= ?"; $bindings[] = $desde . ' 00:00:00'; }
-        if ($hasta) { $sql .= " AND pdc.fecha <= ?"; $bindings[] = $hasta . ' 23:59:59'; }
+        $bindingsActivos = [];
+        if ($metodoPagoId) { $sqlActivos .= " AND m.metodo_de_pago_id = ?"; $bindingsActivos[] = $metodoPagoId; }
+        if ($subCajaId) { $sqlActivos .= " AND mp.subcaja_id = ?"; $bindingsActivos[] = $subCajaId; }
+        if ($vendedorId) { $sqlActivos .= " AND c.user_id = ?"; $bindingsActivos[] = $vendedorId; }
+        if ($desde) { $sqlActivos .= " AND pdc.fecha >= ?"; $bindingsActivos[] = $desde . ' 00:00:00'; }
+        if ($hasta) { $sqlActivos .= " AND pdc.fecha <= ?"; $bindingsActivos[] = $hasta . ' 23:59:59'; }
+
+        // Query para pagos anulados (estado = 0) - muestra la anulación en la fecha de anulación
+        $sqlAnulados = "SELECT 
+                'PAGO ANULADO' as tipo,
+                'ingreso' as movimiento,
+                COALESCE(pdc.fecha_anulacion, pdc.fecha) as fecha,
+                CONCAT('PAGO ANULADO ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, '')) as documento,
+                CASE 
+                    WHEN sc.id IS NOT NULL THEN 
+                        CONCAT(
+                            sc.nombre, '/', 
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                    ELSE 
+                        CONCAT(
+                            mp.name, '/', 
+                            m.name,
+                            CASE WHEN mp.nombre_titular IS NOT NULL AND mp.nombre_titular != '' 
+                                THEN CONCAT('/', mp.nombre_titular) 
+                                ELSE '' 
+                            END
+                        )
+                END as metodo_pago,
+                pdc.monto as entrada,
+                0 as salida,
+                pdc.id as referencia_id,
+                c.user_id,
+                m.metodo_de_pago_id,
+                mp.subcaja_id
+               FROM pagodecompra pdc
+               JOIN desplieguedepago m ON m.id = pdc.despliegue_de_pago_id
+               JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
+               LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
+               JOIN compra c ON c.id = pdc.compra_id
+               WHERE pdc.estado = 0 AND c.estado_de_compra != 'an'";
+
+        $bindingsAnulados = [];
+        if ($metodoPagoId) { $sqlAnulados .= " AND m.metodo_de_pago_id = ?"; $bindingsAnulados[] = $metodoPagoId; }
+        if ($subCajaId) { $sqlAnulados .= " AND mp.subcaja_id = ?"; $bindingsAnulados[] = $subCajaId; }
+        if ($vendedorId) { $sqlAnulados .= " AND c.user_id = ?"; $bindingsAnulados[] = $vendedorId; }
+        if ($desde) { $sqlAnulados .= " AND COALESCE(pdc.fecha_anulacion, pdc.fecha) >= ?"; $bindingsAnulados[] = $desde . ' 00:00:00'; }
+        if ($hasta) { $sqlAnulados .= " AND COALESCE(pdc.fecha_anulacion, pdc.fecha) <= ?"; $bindingsAnulados[] = $hasta . ' 23:59:59'; }
+
+        // Combinar ambas queries con UNION ALL
+        $sql = "({$sqlActivos}) UNION ALL ({$sqlAnulados})";
+        $bindings = array_merge($bindingsActivos, $bindingsAnulados);
 
         return ['sql' => $sql, 'bindings' => $bindings];
     }

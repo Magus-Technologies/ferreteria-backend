@@ -36,6 +36,7 @@ class CobroVenta extends Model
         'numero_letra',
         'numero_operacion',
         'estado',
+        'fecha_anulacion',
         'user_id',
     ];
 

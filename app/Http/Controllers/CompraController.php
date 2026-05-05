@@ -1396,6 +1396,7 @@ class CompraController extends Controller
 
             $pago->update([
                 'estado' => false,
+                'fecha_anulacion' => now()->toDateString(),
                 'observacion' => ($pago->observacion ? $pago->observacion . ' | ' : '') .
                                  'ANULADO: ' . ($validated['motivo'] ?? 'Sin motivo especificado'),
             ]);

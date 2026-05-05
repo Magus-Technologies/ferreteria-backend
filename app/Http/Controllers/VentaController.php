@@ -2511,6 +2511,7 @@ class VentaController extends Controller
             // Anular el cobro (cambiar estado a false)
             $cobro->update([
                 'estado' => false,
+                'fecha_anulacion' => now()->toDateString(),
                 'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '') . 
                                  'ANULADO: ' . ($validated['motivo'] ?? 'Sin motivo especificado'),
             ]);

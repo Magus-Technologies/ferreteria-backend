@@ -34,6 +34,7 @@ class PagoDeCompra extends Model
         'numero_letra',
         'numero_operacion',
         'fecha',
+        'fecha_anulacion',
         'observacion',
     ];
 
