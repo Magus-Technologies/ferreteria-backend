@@ -14,20 +14,33 @@ class AnalisisPerdidasService
     {
         $filter = new GananciasQueryFilter($filtros);
 
+        $tipo = $filtros['tipo_perdida'] ?? 'todas';
+        if ($tipo === '') $tipo = 'todas';
+
         // 1. Pérdidas por Ventas Bajo Costo
-        $perdidasBajoCosto = $this->calcularPerdidasBajoCosto($filter);
+        $perdidasBajoCosto = ($tipo === 'todas' || $tipo === 'ventas_bajo_costo') 
+            ? $this->calcularPerdidasBajoCosto($filter) 
+            : ['detalles' => [], 'total' => 0];
 
         // 2. Pérdidas por Descuentos
-        $perdidasDescuentos = $this->calcularPerdidasDescuentos($filter);
+        $perdidasDescuentos = ($tipo === 'todas' || $tipo === 'descuentos') 
+            ? $this->calcularPerdidasDescuentos($filter) 
+            : ['detalles' => [], 'total' => 0];
 
         // 3. Pérdidas por Comisiones
-        $perdidasComisiones = $this->calcularPerdidasComisiones($filter);
+        $perdidasComisiones = ($tipo === 'todas' || $tipo === 'comisiones') 
+            ? $this->calcularPerdidasComisiones($filter) 
+            : ['detalles' => [], 'total' => 0];
 
         // 4. Pérdidas por Salidas de Almacén
-        $perdidasSalidas = $this->calcularPerdidasSalidas($filter);
+        $perdidasSalidas = ($tipo === 'todas' || $tipo === 'salidas') 
+            ? $this->calcularPerdidasSalidas($filter) 
+            : ['detalles' => [], 'total' => 0];
 
         // 5. Pérdidas por Notas de Crédito
-        $perdidasNotasCredito = $this->calcularPerdidasNotasCredito($filter);
+        $perdidasNotasCredito = ($tipo === 'todas' || $tipo === 'notas_credito') 
+            ? $this->calcularPerdidasNotasCredito($filter) 
+            : ['detalles' => [], 'total' => 0];
 
         // Combinar todos los detalles
         $todosDetalles = collect()
@@ -102,7 +115,15 @@ class AnalisisPerdidasService
             ->select([
                 'v.id as venta_id',
                 'v.fecha',
-                'v.tipo_documento',
+                DB::raw("CASE v.tipo_documento 
+                    WHEN 'fa' THEN 'FACTURA' 
+                    WHEN '01' THEN 'FACTURA' 
+                    WHEN 'bv' THEN 'B.VENTA' 
+                    WHEN '03' THEN 'B.VENTA' 
+                    WHEN 'nv' THEN 'N.VENTA' 
+                    WHEN '00' THEN 'N.VENTA'
+                    ELSE v.tipo_documento 
+                END as tipo_doc_name"),
                 'v.numero',
                 'p.name as producto',
                 DB::raw("CASE 
@@ -117,8 +138,28 @@ class AnalisisPerdidasService
                 DB::raw("((CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) - udiv.precio) * udiv.cantidad as monto"),
                 DB::raw("CASE 
                     WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
-                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
-                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                    THEN CONCAT(
+                        CASE v.tipo_documento 
+                            WHEN 'fa' THEN '[FACTURA] ' 
+                            WHEN '01' THEN '[FACTURA] ' 
+                            WHEN 'bv' THEN '[BOLETA] ' 
+                            WHEN '03' THEN '[BOLETA] ' 
+                            ELSE '[DOC] ' 
+                        END,
+                        ce.serie, '-', LPAD(ce.correlativo, 8, '0')
+                    )
+                    ELSE CONCAT(
+                        CASE v.tipo_documento 
+                            WHEN 'fa' THEN '[FACTURA] ' 
+                            WHEN '01' THEN '[FACTURA] ' 
+                            WHEN 'bv' THEN '[BOLETA] ' 
+                            WHEN '03' THEN '[BOLETA] ' 
+                            WHEN 'nv' THEN '[N.VENTA] ' 
+                            WHEN '00' THEN '[N.VENTA] '
+                            ELSE '[DOC] ' 
+                        END,
+                        LPAD(v.numero, 8, '0')
+                    )
                 END as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
             ])
@@ -150,7 +191,15 @@ class AnalisisPerdidasService
             ->select([
                 'v.id as venta_id',
                 'v.fecha',
-                'v.tipo_documento',
+                DB::raw("CASE v.tipo_documento 
+                    WHEN 'fa' THEN 'FACTURA' 
+                    WHEN '01' THEN 'FACTURA' 
+                    WHEN 'bv' THEN 'B.VENTA' 
+                    WHEN '03' THEN 'B.VENTA' 
+                    WHEN 'nv' THEN 'N.VENTA' 
+                    WHEN '00' THEN 'N.VENTA'
+                    ELSE v.tipo_documento 
+                END as tipo_doc_name"),
                 'v.numero',
                 'p.name as producto',
                 DB::raw("CASE 
@@ -173,16 +222,33 @@ class AnalisisPerdidasService
                 END as monto"),
                 DB::raw("CASE 
                     WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
-                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
-                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                    THEN CONCAT(
+                        CASE v.tipo_documento 
+                            WHEN 'fa' THEN '[FACTURA] ' 
+                            WHEN '01' THEN '[FACTURA] ' 
+                            WHEN 'bv' THEN '[BOLETA] ' 
+                            WHEN '03' THEN '[BOLETA] ' 
+                            ELSE '[DOC] ' 
+                        END,
+                        ce.serie, '-', LPAD(ce.correlativo, 8, '0')
+                    )
+                    ELSE CONCAT(
+                        CASE v.tipo_documento 
+                            WHEN 'fa' THEN '[FACTURA] ' 
+                            WHEN '01' THEN '[FACTURA] ' 
+                            WHEN 'bv' THEN '[BOLETA] ' 
+                            WHEN '03' THEN '[BOLETA] ' 
+                            WHEN 'nv' THEN '[N.VENTA] ' 
+                            WHEN '00' THEN '[N.VENTA] '
+                            ELSE '[DOC] ' 
+                        END,
+                        LPAD(v.numero, 8, '0')
+                    )
                 END as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
             ])
             ->where('v.estado_de_venta', '!=', 'an')
-            ->where(function($q) {
-                $q->where('udiv.descuento', '>', 0)
-                  ->orWhereNotNull('udiv.descuento');
-            });
+            ->where('udiv.descuento', '>', 0);
 
         $filter->applyPerdidas($query, 'venta');
         $detalles = $query->get();
@@ -209,7 +275,15 @@ class AnalisisPerdidasService
             ->select([
                 'v.id as venta_id',
                 'v.fecha',
-                'v.tipo_documento',
+                DB::raw("CASE v.tipo_documento 
+                    WHEN 'fa' THEN 'FACTURA' 
+                    WHEN '01' THEN 'FACTURA' 
+                    WHEN 'bv' THEN 'B.VENTA' 
+                    WHEN '03' THEN 'B.VENTA' 
+                    WHEN 'nv' THEN 'N.VENTA' 
+                    WHEN '00' THEN 'N.VENTA'
+                    ELSE v.tipo_documento 
+                END as tipo_doc_name"),
                 'v.numero',
                 'p.name as producto',
                 DB::raw("CASE 
@@ -221,20 +295,37 @@ class AnalisisPerdidasService
                 'udiv.cantidad',
                 'udiv.precio as precio_venta',
                 DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END as costo_producto"),
-                'udiv.comision',
+                'udiv.comision as comision_unitaria',
                 DB::raw("udiv.comision * udiv.cantidad as monto"),
                 DB::raw("CASE 
                     WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
-                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
-                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                    THEN CONCAT(
+                        CASE v.tipo_documento 
+                            WHEN 'fa' THEN '[FACTURA] ' 
+                            WHEN '01' THEN '[FACTURA] ' 
+                            WHEN 'bv' THEN '[BOLETA] ' 
+                            WHEN '03' THEN '[BOLETA] ' 
+                            ELSE '[DOC] ' 
+                        END,
+                        ce.serie, '-', LPAD(ce.correlativo, 8, '0')
+                    )
+                    ELSE CONCAT(
+                        CASE v.tipo_documento 
+                            WHEN 'fa' THEN '[FACTURA] ' 
+                            WHEN '01' THEN '[FACTURA] ' 
+                            WHEN 'bv' THEN '[BOLETA] ' 
+                            WHEN '03' THEN '[BOLETA] ' 
+                            WHEN 'nv' THEN '[N.VENTA] ' 
+                            WHEN '00' THEN '[N.VENTA] '
+                            ELSE '[DOC] ' 
+                        END,
+                        LPAD(v.numero, 8, '0')
+                    )
                 END as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
             ])
             ->where('v.estado_de_venta', '!=', 'an')
-            ->where(function($q) {
-                $q->where('udiv.comision', '>', 0)
-                  ->orWhereNotNull('udiv.comision');
-            });
+            ->where('udiv.comision', '>', 0);
 
         $filter->applyPerdidas($query, 'venta');
         $detalles = $query->get();

@@ -100,8 +100,28 @@ class GananciasQueryBuilder
                 DB::raw("((" . self::COSTO_EXPR . ") - udiv.precio) * udiv.cantidad as monto"),
                 DB::raw("CASE 
                     WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
-                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
-                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                    THEN CONCAT(
+                        CASE v.tipo_documento 
+                            WHEN 'fa' THEN '[FACTURA] ' 
+                            WHEN '01' THEN '[FACTURA] ' 
+                            WHEN 'bv' THEN '[BOLETA] ' 
+                            WHEN '03' THEN '[BOLETA] ' 
+                            ELSE '[DOC] ' 
+                        END,
+                        ce.serie, '-', LPAD(ce.correlativo, 8, '0')
+                    )
+                    ELSE CONCAT(
+                        CASE v.tipo_documento 
+                            WHEN 'fa' THEN '[FACTURA] ' 
+                            WHEN '01' THEN '[FACTURA] ' 
+                            WHEN 'bv' THEN '[BOLETA] ' 
+                            WHEN '03' THEN '[BOLETA] ' 
+                            WHEN 'nv' THEN '[N.VENTA] ' 
+                            WHEN '00' THEN '[N.VENTA] '
+                            ELSE '[DOC] ' 
+                        END,
+                        LPAD(v.numero, 8, '0')
+                    )
                 END as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
                 'udiv.cantidad'
