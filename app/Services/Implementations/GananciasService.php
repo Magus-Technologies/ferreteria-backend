@@ -63,7 +63,7 @@ class GananciasService implements GananciasServiceInterface
 
         // Pérdidas por salidas
         $queryPerdidaSalidas = GananciasQueryBuilder::perdidaSalidasSumQuery();
-        $filter->applyBasic($queryPerdidaSalidas, 'is');
+        $filter->applyBasic($queryPerdidaSalidas, 'isa');
         $totalPerdidaSalidas = $queryPerdidaSalidas->sum(DB::raw('udis.cantidad * pais.costo'));
 
         $totalPerdida = ($resumen->total_perdida ?? 0) + $totalPerdidaSalidas;

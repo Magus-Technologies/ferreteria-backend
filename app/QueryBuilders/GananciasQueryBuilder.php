@@ -92,11 +92,17 @@ class GananciasQueryBuilder
             ->join('venta as v', 'pav.venta_id', '=', 'v.id')
             ->leftJoin('productoalmacen as pa', 'pav.producto_almacen_id', '=', 'pa.id')
             ->leftJoin('producto as p', 'pa.producto_id', '=', 'p.id')
+            ->leftJoin('comprobantes_electronicos as ce', 'v.id', '=', 'ce.venta_id')
             ->select([
                 'v.fecha',
                 'p.name as producto',
                 DB::raw("'VENTA BAJO COSTO' as motivo"),
                 DB::raw("((" . self::COSTO_EXPR . ") - udiv.precio) * udiv.cantidad as monto"),
+                DB::raw("CASE 
+                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
+                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
+                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                END as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
                 'udiv.cantidad'
             ])
@@ -111,20 +117,24 @@ class GananciasQueryBuilder
     {
         return DB::table('unidadderivadainmutableingresosalida as udis')
             ->join('productoalmaceningresosalida as pais', 'udis.producto_almacen_ingreso_salida_id', '=', 'pais.id')
-            ->join('ingresosalida as is', 'pais.ingreso_id', '=', 'is.id')
+            ->join('ingresosalida as isa', 'pais.ingreso_id', '=', 'isa.id')
             ->leftJoin('productoalmacen as pa', 'pais.producto_almacen_id', '=', 'pa.id')
             ->leftJoin('producto as p', 'pa.producto_id', '=', 'p.id')
-            ->leftJoin('tipoingresosalida as tis', 'is.tipo_ingreso_id', '=', 'tis.id')
+            ->leftJoin('tipoingresosalida as tis', 'isa.tipo_ingreso_id', '=', 'tis.id')
             ->select([
-                'is.fecha',
+                'isa.fecha',
                 'p.name as producto',
                 DB::raw("UPPER(tis.name) as motivo"),
                 DB::raw("pais.costo * udis.cantidad as monto"),
-                DB::raw("CONCAT('SALIDA #', is.numero) as referencia"),
+                DB::raw("CASE 
+                    WHEN isa.serie IS NOT NULL THEN CONCAT(isa.serie, '-', LPAD(isa.numero, 8, '0'))
+                    ELSE CONCAT('NS-', LPAD(isa.numero, 8, '0'))
+                END as comprobante"),
+                DB::raw("CONCAT('SALIDA #', isa.numero) as referencia"),
                 'udis.cantidad'
             ])
-            ->where('is.tipo_documento', 'sa')
-            ->where('is.estado', true);
+            ->where('isa.tipo_documento', 'sa')
+            ->where('isa.estado', true);
     }
 
     /**
@@ -147,8 +157,8 @@ class GananciasQueryBuilder
     {
         return DB::table('unidadderivadainmutableingresosalida as udis')
             ->join('productoalmaceningresosalida as pais', 'udis.producto_almacen_ingreso_salida_id', '=', 'pais.id')
-            ->join('ingresosalida as is', 'pais.ingreso_id', '=', 'is.id')
-            ->where('is.tipo_documento', 'sa')
-            ->where('is.estado', true);
+            ->join('ingresosalida as isa', 'pais.ingreso_id', '=', 'isa.id')
+            ->where('isa.tipo_documento', 'sa')
+            ->where('isa.estado', true);
     }
 }

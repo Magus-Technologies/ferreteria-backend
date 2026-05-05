@@ -98,6 +98,7 @@ class AnalisisPerdidasService
             ->leftJoin('producto as p', 'pa.producto_id', '=', 'p.id')
             ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
             ->leftJoin('user as u', 'v.user_id', '=', 'u.id')
+            ->leftJoin('comprobantes_electronicos as ce', 'v.id', '=', 'ce.venta_id')
             ->select([
                 'v.id as venta_id',
                 'v.fecha',
@@ -114,6 +115,11 @@ class AnalisisPerdidasService
                 'udiv.precio as precio_venta',
                 DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END as costo_producto"),
                 DB::raw("((CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) - udiv.precio) * udiv.cantidad as monto"),
+                DB::raw("CASE 
+                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
+                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
+                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                END as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
             ])
             ->where('v.estado_de_venta', '!=', 'an')
@@ -140,6 +146,7 @@ class AnalisisPerdidasService
             ->leftJoin('producto as p', 'pa.producto_id', '=', 'p.id')
             ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
             ->leftJoin('user as u', 'v.user_id', '=', 'u.id')
+            ->leftJoin('comprobantes_electronicos as ce', 'v.id', '=', 'ce.venta_id')
             ->select([
                 'v.id as venta_id',
                 'v.fecha',
@@ -164,6 +171,11 @@ class AnalisisPerdidasService
                     WHEN udiv.descuento_tipo = 'porcentaje' THEN (udiv.precio * udiv.cantidad * udiv.descuento / 100)
                     ELSE udiv.descuento
                 END as monto"),
+                DB::raw("CASE 
+                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
+                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
+                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                END as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
             ])
             ->where('v.estado_de_venta', '!=', 'an')
@@ -193,6 +205,7 @@ class AnalisisPerdidasService
             ->leftJoin('producto as p', 'pa.producto_id', '=', 'p.id')
             ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
             ->leftJoin('user as u', 'v.user_id', '=', 'u.id')
+            ->leftJoin('comprobantes_electronicos as ce', 'v.id', '=', 'ce.venta_id')
             ->select([
                 'v.id as venta_id',
                 'v.fecha',
@@ -210,6 +223,11 @@ class AnalisisPerdidasService
                 DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END as costo_producto"),
                 'udiv.comision',
                 DB::raw("udiv.comision * udiv.cantidad as monto"),
+                DB::raw("CASE 
+                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
+                    THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
+                    ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
+                END as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
             ])
             ->where('v.estado_de_venta', '!=', 'an')
@@ -250,6 +268,10 @@ class AnalisisPerdidasService
                 'udis.cantidad',
                 'pais.costo as costo_producto',
                 DB::raw("pais.costo * udis.cantidad as monto"),
+                DB::raw("CASE 
+                    WHEN isa.serie IS NOT NULL THEN CONCAT(isa.serie, '-', LPAD(isa.numero, 8, '0'))
+                    ELSE CONCAT('NS-', LPAD(isa.numero, 8, '0'))
+                END as comprobante"),
                 DB::raw("CONCAT('SALIDA #', isa.numero) as referencia"),
             ])
             ->where('isa.tipo_documento', 'sa')
@@ -275,6 +297,10 @@ class AnalisisPerdidasService
             ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
             ->leftJoin('user as u', 'nc.usuario_id', '=', 'u.id')
             ->leftJoin('motivo_nota as mn', 'nc.motivo_id', '=', 'mn.id')
+            ->leftJoin('comprobantes_electronicos as ce_nc', function($join) {
+                $join->on('nc.serie', '=', 'ce_nc.serie')
+                     ->on('nc.numero', '=', 'ce_nc.correlativo');
+            })
             ->select([
                 'nc.id as nota_credito_id',
                 'nc.fecha',
@@ -289,6 +315,7 @@ class AnalisisPerdidasService
                 DB::raw("'N/A' as producto"),
                 DB::raw("1 as cantidad"),
                 DB::raw("nc.monto_total as monto"),
+                DB::raw("CONCAT(nc.serie, '-', LPAD(nc.numero, 8, '0')) as comprobante"),
                 DB::raw("CONCAT('VENTA ', v.tipo_documento, ' ', v.numero) as referencia"),
             ])
             ->where('nc.estado', '!=', 'cancelado')
