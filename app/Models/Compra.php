@@ -112,4 +112,32 @@ class Compra extends Model
     {
         return $this->belongsTo(GastoExtra::class, 'gasto_extra_id');
     }
+
+    /**
+     * Mutator para la serie: rellena con ceros a la izquierda hasta 4 caracteres
+     */
+    public function setSerieAttribute($value)
+    {
+        if (empty($value)) {
+            $this->attributes['serie'] = null;
+        } else {
+            // Si es numérico rrellena a 4, si tiene letras (ej: F001) solo lo limpia/formatea si es necesario
+            // pero para simplificar seguiremos la instrucción de "0 adelante"
+            $this->attributes['serie'] = is_numeric($value) 
+                ? str_pad($value, 4, '0', STR_PAD_LEFT) 
+                : strtoupper($value);
+        }
+    }
+
+    /**
+     * Mutator para el número: rellena con ceros a la izquierda hasta 8 caracteres
+     */
+    public function setNumeroAttribute($value)
+    {
+        if (empty($value)) {
+            $this->attributes['numero'] = null;
+        } else {
+            $this->attributes['numero'] = str_pad($value, 8, '0', STR_PAD_LEFT);
+        }
+    }
 }

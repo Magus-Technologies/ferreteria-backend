@@ -319,50 +319,63 @@ class CompraController extends Controller
             if ($request->has('tipo_documento') && isset($tipoDocumentoMap[$request->input('tipo_documento')])) {
                 $request->merge(['tipo_documento' => $tipoDocumentoMap[$request->input('tipo_documento')]]);
             }
+
+            // Formatear serie y número con ceros a la izquierda
+            if ($request->has('serie') && !empty($request->serie)) {
+                $serie = $request->serie;
+                $request->merge(['serie' => is_numeric($serie) ? str_pad($serie, 4, '0', STR_PAD_LEFT) : strtoupper($serie)]);
+            }
+            if ($request->has('numero') && !empty($request->numero)) {
+                $numero = $request->numero;
+                $request->merge(['numero' => is_numeric($numero) ? str_pad($numero, 8, '0', STR_PAD_LEFT) : $numero]);
+            }
             
             $esEnEspera = $request->input('estado_de_compra') === 'ee';
 
             $validated = $request->validate([
-            'id' => 'sometimes|string',
-            'tipo_documento' => $esEnEspera ? 'nullable|string' : 'required|string',
-            'serie' => 'nullable|string',
-            'numero' => 'nullable|integer',
-            'descripcion' => 'nullable|string',
-            'forma_de_pago' => $esEnEspera ? 'nullable|string' : 'required|string',
-            'tipo_moneda' => 'required|string',
-            'tipo_de_cambio' => 'nullable|numeric',
-            'percepcion' => 'nullable|numeric',
-            'numero_dias' => 'nullable|integer',
-            'fecha_vencimiento' => 'nullable|date',
-            'fecha' => 'required|date',
-            'guia' => 'nullable|string',
-            'estado_de_compra' => 'required|string',
-            'egreso_dinero_id' => 'nullable|string',
-            'gasto_extra_id' => 'nullable|string|exists:gastos_extras,id',
-            'despliegue_de_pago_id' => 'nullable|string',
-            'metodos_de_pago' => 'nullable|array',
-            'metodos_de_pago.*.despliegue_de_pago_id' => 'required_with:metodos_de_pago|string',
-            'metodos_de_pago.*.monto' => 'required_with:metodos_de_pago|numeric|min:0.01',
-            'metodos_de_pago.*.numero_operacion' => 'nullable|string',
-            'user_id' => 'required|string',
-            'almacen_id' => 'required|integer',
-            'proveedor_id' => $esEnEspera ? 'nullable|integer' : 'required|integer',
-            'orden_compra_id' => 'nullable|integer|exists:ordenes_compra,id',
-            'productos_por_almacen' => 'required|array',
-            'productos_por_almacen.*.costo' => 'required|numeric',
-            'productos_por_almacen.*.producto_almacen_id' => 'sometimes|integer',
-            'productos_por_almacen.*.producto_id' => 'sometimes|integer',
-            'productos_por_almacen.*.unidades_derivadas' => 'required|array',
-            'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_id' => 'sometimes|integer',
-            'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_name' => 'sometimes|string',
-            'productos_por_almacen.*.unidades_derivadas.*.factor' => 'required|numeric',
-            'productos_por_almacen.*.unidades_derivadas.*.cantidad' => 'required|numeric',
-            'productos_por_almacen.*.unidades_derivadas.*.cantidad_pendiente' => 'required|numeric',
-            'productos_por_almacen.*.unidades_derivadas.*.lote' => 'nullable|string',
-            'productos_por_almacen.*.unidades_derivadas.*.vencimiento' => 'nullable|date',
-            'productos_por_almacen.*.unidades_derivadas.*.flete' => 'nullable|numeric',
-            'productos_por_almacen.*.unidades_derivadas.*.bonificacion' => 'nullable|boolean',
-        ]);
+                'id' => 'sometimes|string',
+                'tipo_documento' => $esEnEspera ? 'nullable|string' : 'required|string',
+                'serie' => ['nullable', 'string', 'regex:/[1-9]/'],
+                'numero' => ['nullable', 'string', 'regex:/[1-9]/'],
+                'descripcion' => 'nullable|string',
+                'forma_de_pago' => $esEnEspera ? 'nullable|string' : 'required|string',
+                'tipo_moneda' => 'required|string',
+                'tipo_de_cambio' => 'nullable|numeric',
+                'percepcion' => 'nullable|numeric',
+                'numero_dias' => 'nullable|integer',
+                'fecha_vencimiento' => 'nullable|date',
+                'fecha' => 'required|date',
+                'guia' => 'nullable|string',
+                'estado_de_compra' => 'required|string',
+                'egreso_dinero_id' => 'nullable|string',
+                'gasto_extra_id' => 'nullable|string|exists:gastos_extras,id',
+                'despliegue_de_pago_id' => 'nullable|string',
+                'metodos_de_pago' => 'nullable|array',
+                'metodos_de_pago.*.despliegue_de_pago_id' => 'required_with:metodos_de_pago|string',
+                'metodos_de_pago.*.monto' => 'required_with:metodos_de_pago|numeric|min:0.01',
+                'metodos_de_pago.*.numero_operacion' => 'nullable|string',
+                'user_id' => 'required|string',
+                'almacen_id' => 'required|integer',
+                'proveedor_id' => $esEnEspera ? 'nullable|integer' : 'required|integer',
+                'orden_compra_id' => 'nullable|integer|exists:ordenes_compra,id',
+                'productos_por_almacen' => 'required|array',
+                'productos_por_almacen.*.costo' => 'required|numeric',
+                'productos_por_almacen.*.producto_almacen_id' => 'sometimes|integer',
+                'productos_por_almacen.*.producto_id' => 'sometimes|integer',
+                'productos_por_almacen.*.unidades_derivadas' => 'required|array',
+                'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_id' => 'sometimes|integer',
+                'productos_por_almacen.*.unidades_derivadas.*.unidad_derivada_inmutable_name' => 'sometimes|string',
+                'productos_por_almacen.*.unidades_derivadas.*.factor' => 'required|numeric',
+                'productos_por_almacen.*.unidades_derivadas.*.cantidad' => 'required|numeric',
+                'productos_por_almacen.*.unidades_derivadas.*.cantidad_pendiente' => 'required|numeric',
+                'productos_por_almacen.*.unidades_derivadas.*.lote' => 'nullable|string',
+                'productos_por_almacen.*.unidades_derivadas.*.vencimiento' => 'nullable|date',
+                'productos_por_almacen.*.unidades_derivadas.*.flete' => 'nullable|numeric',
+                'productos_por_almacen.*.unidades_derivadas.*.bonificacion' => 'nullable|boolean',
+            ], [
+                'serie.regex' => 'La serie no puede ser solo ceros.',
+                'numero.regex' => 'El número no puede ser solo ceros.',
+            ]);
         
 
         return DB::transaction(function () use ($validated) {
@@ -610,11 +623,21 @@ class CompraController extends Controller
         if ($request->has('tipo_documento') && isset($tipoDocumentoMap[$request->input('tipo_documento')])) {
             $request->merge(['tipo_documento' => $tipoDocumentoMap[$request->input('tipo_documento')]]);
         }
+
+        // Formatear serie y número con ceros a la izquierda
+        if ($request->has('serie') && !empty($request->serie)) {
+            $serie = $request->serie;
+            $request->merge(['serie' => is_numeric($serie) ? str_pad($serie, 4, '0', STR_PAD_LEFT) : strtoupper($serie)]);
+        }
+        if ($request->has('numero') && !empty($request->numero)) {
+            $numero = $request->numero;
+            $request->merge(['numero' => is_numeric($numero) ? str_pad($numero, 8, '0', STR_PAD_LEFT) : $numero]);
+        }
         
         $validated = $request->validate([
             'tipo_documento' => 'sometimes|string',
-            'serie' => 'nullable|string',
-            'numero' => 'nullable|integer',
+            'serie' => ['nullable', 'string', 'regex:/[1-9]/'],
+            'numero' => ['nullable', 'string', 'regex:/[1-9]/'],
             'descripcion' => 'nullable|string',
             'forma_de_pago' => 'sometimes|string',
             'tipo_moneda' => 'sometimes|string',
@@ -649,6 +672,9 @@ class CompraController extends Controller
             'productos_por_almacen.*.unidades_derivadas.*.vencimiento' => 'nullable|date',
             'productos_por_almacen.*.unidades_derivadas.*.flete' => 'nullable|numeric',
             'productos_por_almacen.*.unidades_derivadas.*.bonificacion' => 'nullable|boolean',
+        ], [
+            'serie.regex' => 'La serie no puede ser solo ceros.',
+            'numero.regex' => 'El número no puede ser solo ceros.',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
