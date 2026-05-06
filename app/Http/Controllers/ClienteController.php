@@ -21,7 +21,7 @@ class ClienteController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Cliente::query()->with('direcciones');
+        $query = Cliente::query()->with(['direcciones', 'profesion']);
 
         // Excluir "CLIENTE VARIOS" (DNI: 99999999) de las búsquedas
         $query->where('numero_documento', '!=', '99999999');
@@ -34,12 +34,14 @@ class ClienteController extends Controller
                   ->orWhere('nombres', 'like', "%{$search}%")
                   ->orWhere('apellidos', 'like', "%{$search}%")
                   ->orWhere('razon_social', 'like', "%{$search}%")
-                  ->orWhere('profesion', 'like', "%{$search}%");
+                  ->orWhereHas('profesion', function ($subQ) use ($search) {
+                      $subQ->where('nombre', 'like', "%{$search}%");
+                  });
             });
         }
 
-        if ($request->filled('profesion')) {
-            $query->where('profesion', 'like', '%' . $request->profesion . '%');
+        if ($request->filled('profesion_id')) {
+            $query->where('profesion_id', $request->profesion_id);
         }
 
         if ($request->has('tipo_cliente')) {
@@ -63,7 +65,7 @@ class ClienteController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $cliente = Cliente::findOrFail($id);
+        $cliente = Cliente::with(['direcciones', 'profesion'])->findOrFail($id);
 
         return response()->json([
             'data' => $cliente
@@ -99,7 +101,7 @@ class ClienteController extends Controller
                 'unique:cliente,numero_documento'
             ],
             'telefono' => 'nullable|string|max:20',
-            'profesion' => 'nullable|string|max:255',
+            'profesion_id' => 'nullable|integer|exists:profesion,id',
             'email' => 'nullable|email|max:255',
             'fecha_nacimiento' => 'nullable|date',
             'estado' => 'nullable|boolean',
@@ -126,7 +128,7 @@ class ClienteController extends Controller
         // Estado por defecto
         $validated['estado'] = $validated['estado'] ?? true;
 
-        $cliente = Cliente::create($validated);
+        $cliente = Cliente::create($validated)->load(['direcciones', 'profesion']);
 
         return response()->json([
             'data' => $cliente,
@@ -166,7 +168,7 @@ class ClienteController extends Controller
                 Rule::unique('cliente', 'numero_documento')->ignore($cliente->id)
             ],
             'telefono' => 'nullable|string|max:20',
-            'profesion' => 'nullable|string|max:255',
+            'profesion_id' => 'nullable|integer|exists:profesion,id',
             'email' => 'nullable|email|max:255',
             'fecha_nacimiento' => 'nullable|date',
             'estado' => 'nullable|boolean',
@@ -193,6 +195,7 @@ class ClienteController extends Controller
         }
 
         $cliente->update($validated);
+        $cliente->load(['direcciones', 'profesion']);
 
         return response()->json([
             'data' => $cliente,

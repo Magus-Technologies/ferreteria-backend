@@ -109,13 +109,13 @@ class EntregaProductoPdfService
         // dentro de la tabla principal.
         $productosAnteriores = [];
         $ultimaEdicion = $entrega->venta?->historial?->first();
-        if ($ultimaEdicion && is_array($ultimaEdicion->datos_anteriores ?? null)) {
+        $entregaFueEntregadaAntes = !is_null($entrega->user_entregado_id);
+        if ($entregaFueEntregadaAntes && $ultimaEdicion && is_array($ultimaEdicion->datos_anteriores ?? null)) {
             $productosAnteriores = $this->prepararProductosHistorial(
                 $ultimaEdicion->datos_anteriores['productos'] ?? []
             );
         }
 
-        $entregaFueEntregadaAntes = !is_null($entrega->user_entregado_id);
         $productosTabla = $this->prepararProductosTabla(
             $productos,
             $productosAnteriores,
@@ -232,15 +232,19 @@ class EntregaProductoPdfService
         foreach ($actualesAgrupados as $clave => $actual) {
             $cantidadAnterior = (float) ($anterioresAgrupados[$clave]['cantidad'] ?? 0);
             $cantidadActual = (float) ($actual['cantidad'] ?? 0);
-            $entregado = min($cantidadAnterior, $cantidadActual);
+            $recibido = max($cantidadAnterior - $cantidadActual, 0);
             $pendiente = max($cantidadActual - $cantidadAnterior, 0);
 
             $filas[] = [
                 'codigo' => $actual['codigo'],
                 'nombre' => $actual['nombre'],
                 'unidad' => $actual['unidad'],
-                'recibido' => max($cantidadAnterior - $cantidadActual, 0),
-                'entregado' => $entregado,
+                'recibido' => $recibido,
+                // Tras editar una entrega ya confirmada, el documento debe
+                // reflejar solo la nueva acción física pendiente: recibir de
+                // vuelta o entregar diferencia. Lo que el cliente conserva no
+                // se cuenta como "entregado" otra vez.
+                'entregado' => 0,
                 'pendiente' => $pendiente,
             ];
         }
