@@ -18,6 +18,7 @@ class Cliente extends Model
         'apellidos',
         'razon_social',
         'telefono',
+        'profesion',
         'celular',
         'horario_atencion',
         'fecha_nacimiento',

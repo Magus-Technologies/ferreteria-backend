@@ -33,8 +33,13 @@ class ClienteController extends Controller
                 $q->where('numero_documento', 'like', "%{$search}%")
                   ->orWhere('nombres', 'like', "%{$search}%")
                   ->orWhere('apellidos', 'like', "%{$search}%")
-                  ->orWhere('razon_social', 'like', "%{$search}%");
+                  ->orWhere('razon_social', 'like', "%{$search}%")
+                  ->orWhere('profesion', 'like', "%{$search}%");
             });
+        }
+
+        if ($request->filled('profesion')) {
+            $query->where('profesion', 'like', '%' . $request->profesion . '%');
         }
 
         if ($request->has('tipo_cliente')) {
@@ -94,6 +99,7 @@ class ClienteController extends Controller
                 'unique:cliente,numero_documento'
             ],
             'telefono' => 'nullable|string|max:20',
+            'profesion' => 'nullable|string|max:255',
             'email' => 'nullable|email|max:255',
             'fecha_nacimiento' => 'nullable|date',
             'estado' => 'nullable|boolean',
@@ -160,6 +166,7 @@ class ClienteController extends Controller
                 Rule::unique('cliente', 'numero_documento')->ignore($cliente->id)
             ],
             'telefono' => 'nullable|string|max:20',
+            'profesion' => 'nullable|string|max:255',
             'email' => 'nullable|email|max:255',
             'fecha_nacimiento' => 'nullable|date',
             'estado' => 'nullable|boolean',
