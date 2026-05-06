@@ -335,8 +335,8 @@ class CompraController extends Controller
             $validated = $request->validate([
                 'id' => 'sometimes|string',
                 'tipo_documento' => $esEnEspera ? 'nullable|string' : 'required|string',
-                'serie' => ['nullable', 'string', 'regex:/[1-9]/'],
-                'numero' => ['nullable', 'string', 'regex:/[1-9]/'],
+                'serie' => ['nullable', 'string', 'regex:/[^0]/'],
+                'numero' => ['nullable', 'string', 'regex:/[^0]/'],
                 'descripcion' => 'nullable|string',
                 'forma_de_pago' => $esEnEspera ? 'nullable|string' : 'required|string',
                 'tipo_moneda' => 'required|string',
@@ -636,8 +636,8 @@ class CompraController extends Controller
         
         $validated = $request->validate([
             'tipo_documento' => 'sometimes|string',
-            'serie' => ['nullable', 'string', 'regex:/[1-9]/'],
-            'numero' => ['nullable', 'string', 'regex:/[1-9]/'],
+            'serie' => ['nullable', 'string', 'regex:/[^0]/'],
+            'numero' => ['nullable', 'string', 'regex:/[^0]/'],
             'descripcion' => 'nullable|string',
             'forma_de_pago' => 'sometimes|string',
             'tipo_moneda' => 'sometimes|string',
