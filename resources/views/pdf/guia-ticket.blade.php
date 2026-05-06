@@ -174,6 +174,9 @@
 
     {{-- Observaciones --}}
     <div style="font-size: 7pt; margin-top: 4px;">
+        @if(!empty($referencia))
+        <span class="text-bold">Referencia:</span> {{ $referencia }}<br>
+        @endif
         <span class="text-bold">Observaciones:</span><br>
         {{ $observaciones }}
     </div>
