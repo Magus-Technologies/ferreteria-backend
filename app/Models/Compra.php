@@ -129,15 +129,8 @@ class Compra extends Model
         }
     }
 
-    /**
-     * Mutator para el número: rellena con ceros a la izquierda hasta 8 caracteres
-     */
     public function setNumeroAttribute($value)
     {
-        if (empty($value)) {
-            $this->attributes['numero'] = null;
-        } else {
-            $this->attributes['numero'] = str_pad($value, 8, '0', STR_PAD_LEFT);
-        }
+        $this->attributes['numero'] = !empty($value) ? $value : null;
     }
 }
