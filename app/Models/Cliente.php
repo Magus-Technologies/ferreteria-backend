@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\TipoCliente;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Cliente extends Model
@@ -18,6 +19,7 @@ class Cliente extends Model
         'apellidos',
         'razon_social',
         'telefono',
+        'profesion_id',
         'celular',
         'horario_atencion',
         'fecha_nacimiento',
@@ -57,6 +59,11 @@ class Cliente extends Model
     public function direcciones(): HasMany
     {
         return $this->hasMany(DireccionCliente::class);
+    }
+
+    public function profesion(): BelongsTo
+    {
+        return $this->belongsTo(Profesion::class, 'profesion_id');
     }
 
     public function direccionPrincipal(): HasMany

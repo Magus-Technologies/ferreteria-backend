@@ -320,14 +320,10 @@ class CompraController extends Controller
                 $request->merge(['tipo_documento' => $tipoDocumentoMap[$request->input('tipo_documento')]]);
             }
 
-            // Formatear serie y número con ceros a la izquierda
+            // Formatear serie con ceros a la izquierda
             if ($request->has('serie') && !empty($request->serie)) {
                 $serie = $request->serie;
                 $request->merge(['serie' => is_numeric($serie) ? str_pad($serie, 4, '0', STR_PAD_LEFT) : strtoupper($serie)]);
-            }
-            if ($request->has('numero') && !empty($request->numero)) {
-                $numero = $request->numero;
-                $request->merge(['numero' => is_numeric($numero) ? str_pad($numero, 8, '0', STR_PAD_LEFT) : $numero]);
             }
             
             $esEnEspera = $request->input('estado_de_compra') === 'ee';
@@ -335,8 +331,8 @@ class CompraController extends Controller
             $validated = $request->validate([
                 'id' => 'sometimes|string',
                 'tipo_documento' => $esEnEspera ? 'nullable|string' : 'required|string',
-                'serie' => ['nullable', 'string', 'regex:/[1-9]/'],
-                'numero' => ['nullable', 'string', 'regex:/[1-9]/'],
+                'serie' => ['nullable', 'string', 'regex:/[^0]/'],
+                'numero' => ['nullable', 'string', 'regex:/[^0]/'],
                 'descripcion' => 'nullable|string',
                 'forma_de_pago' => $esEnEspera ? 'nullable|string' : 'required|string',
                 'tipo_moneda' => 'required|string',
@@ -629,15 +625,10 @@ class CompraController extends Controller
             $serie = $request->serie;
             $request->merge(['serie' => is_numeric($serie) ? str_pad($serie, 4, '0', STR_PAD_LEFT) : strtoupper($serie)]);
         }
-        if ($request->has('numero') && !empty($request->numero)) {
-            $numero = $request->numero;
-            $request->merge(['numero' => is_numeric($numero) ? str_pad($numero, 8, '0', STR_PAD_LEFT) : $numero]);
-        }
-        
         $validated = $request->validate([
             'tipo_documento' => 'sometimes|string',
-            'serie' => ['nullable', 'string', 'regex:/[1-9]/'],
-            'numero' => ['nullable', 'string', 'regex:/[1-9]/'],
+            'serie' => ['nullable', 'string', 'regex:/[^0]/'],
+            'numero' => ['nullable', 'string', 'regex:/[^0]/'],
             'descripcion' => 'nullable|string',
             'forma_de_pago' => 'sometimes|string',
             'tipo_moneda' => 'sometimes|string',

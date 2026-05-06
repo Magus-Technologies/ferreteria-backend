@@ -18,6 +18,7 @@ class EntregaProductoPdfService
             'despachador',
             'vehiculo',
             'user',
+            'userEntregado',
             'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
             'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
         ])->findOrFail($id);
@@ -102,16 +103,27 @@ class EntregaProductoPdfService
         ];
 
         // Productos anteriores — leemos del último registro de historial
-        // con `accion='edicion'`. Si la venta fue editada, `datos_anteriores.productos`
-        // contiene la lista que estaba ANTES del último cambio, y `datos_nuevos.productos`
-        // la lista actual. El template los muestra como "ANTES → AHORA".
+        // con `accion='edicion'`. El objetivo no es mostrar un segundo bloque
+        // completo con el snapshot viejo, sino detectar si hubo productos
+        // retirados o cantidades reducidas para reflejarlos como "recibido"
+        // dentro de la tabla principal.
         $productosAnteriores = [];
         $ultimaEdicion = $entrega->venta?->historial?->first();
-        if ($ultimaEdicion && is_array($ultimaEdicion->datos_anteriores ?? null)) {
+        $entregaFueEntregadaAntes = !is_null($entrega->user_entregado_id);
+        if ($entregaFueEntregadaAntes && $ultimaEdicion && is_array($ultimaEdicion->datos_anteriores ?? null)) {
             $productosAnteriores = $this->prepararProductosHistorial(
                 $ultimaEdicion->datos_anteriores['productos'] ?? []
             );
         }
+
+        $productosTabla = $this->prepararProductosTabla(
+            $productos,
+            $productosAnteriores,
+            $entregaFueEntregadaAntes
+        );
+        $mostrarRecibido = collect($productosTabla)->contains(
+            fn ($producto) => (float) ($producto['recibido'] ?? 0) > 0
+        );
 
         $data = [
             'entrega' => $entrega,
@@ -119,7 +131,8 @@ class EntregaProductoPdfService
             'logoPath' => PdfService::getLogoPath($empresa->logo ?? null),
             'cliente' => $cliente,
             'productos' => $productos,
-            'productosAnteriores' => $productosAnteriores,
+            'productosTabla' => $productosTabla,
+            'mostrarRecibido' => $mostrarRecibido,
             'fechaUltimaEdicion' => $ultimaEdicion?->fecha?->format('d/m/Y H:i'),
             'nroVenta' => $nroVenta,
             'tipoEntregaLabel' => $tipoEntregaLabel,
@@ -185,6 +198,107 @@ class EntregaProductoPdfService
             }
         }
         return $resultado;
+    }
+
+    /**
+     * Mezcla la entrega actual con el snapshot anterior para mostrar una sola
+     * tabla. Si una edición quitó productos o redujo cantidades, eso se
+     * expone como "recibido". Si no hubo diferencia real, no se muestra nada
+     * adicional y la venta editada se ve igual que una venta normal.
+     */
+    private function prepararProductosTabla(
+        array $productosActuales,
+        array $productosAnteriores,
+        bool $entregaFueEntregadaAntes
+    ): array
+    {
+        if (!$entregaFueEntregadaAntes || empty($productosAnteriores)) {
+            return array_map(function ($producto) {
+                return [
+                    'codigo' => $producto['codigo'],
+                    'nombre' => $producto['nombre'],
+                    'unidad' => $producto['unidad'],
+                    'recibido' => 0,
+                    'entregado' => (float) ($producto['entregado'] ?? 0),
+                    'pendiente' => (float) ($producto['pendiente'] ?? 0),
+                ];
+            }, $productosActuales);
+        }
+
+        $anterioresAgrupados = $this->agruparProductosPorClave($productosAnteriores, 'cantidad');
+        $actualesAgrupados = $this->agruparProductosPorClave($productosActuales, 'cantidad');
+
+        $filas = [];
+        foreach ($actualesAgrupados as $clave => $actual) {
+            $cantidadAnterior = (float) ($anterioresAgrupados[$clave]['cantidad'] ?? 0);
+            $cantidadActual = (float) ($actual['cantidad'] ?? 0);
+            $recibido = max($cantidadAnterior - $cantidadActual, 0);
+            $pendiente = max($cantidadActual - $cantidadAnterior, 0);
+
+            $filas[] = [
+                'codigo' => $actual['codigo'],
+                'nombre' => $actual['nombre'],
+                'unidad' => $actual['unidad'],
+                'recibido' => $recibido,
+                // Tras editar una entrega ya confirmada, el documento debe
+                // reflejar solo la nueva acción física pendiente: recibir de
+                // vuelta o entregar diferencia. Lo que el cliente conserva no
+                // se cuenta como "entregado" otra vez.
+                'entregado' => 0,
+                'pendiente' => $pendiente,
+            ];
+        }
+
+        foreach ($anterioresAgrupados as $clave => $anterior) {
+            if (isset($actualesAgrupados[$clave])) {
+                continue;
+            }
+
+            $filas[] = [
+                'codigo' => $anterior['codigo'],
+                'nombre' => $anterior['nombre'],
+                'unidad' => $anterior['unidad'],
+                'recibido' => (float) ($anterior['cantidad'] ?? 0),
+                'entregado' => 0,
+                'pendiente' => 0,
+            ];
+        }
+
+        return $filas;
+    }
+
+    private function agruparProductosPorClave(array $productos, string $campoCantidad): array
+    {
+        $agrupados = [];
+
+        foreach ($productos as $producto) {
+            $clave = $this->productoClave(
+                (string) ($producto['codigo'] ?? ''),
+                (string) ($producto['unidad'] ?? '')
+            );
+
+            if (!isset($agrupados[$clave])) {
+                $agrupados[$clave] = [
+                    'codigo' => (string) ($producto['codigo'] ?? ''),
+                    'nombre' => (string) ($producto['nombre'] ?? ''),
+                    'unidad' => (string) ($producto['unidad'] ?? ''),
+                    'cantidad' => 0,
+                    'entregado' => 0,
+                    'pendiente' => 0,
+                ];
+            }
+
+            $agrupados[$clave]['cantidad'] += (float) ($producto[$campoCantidad] ?? 0);
+            $agrupados[$clave]['entregado'] += (float) ($producto['entregado'] ?? 0);
+            $agrupados[$clave]['pendiente'] += (float) ($producto['pendiente'] ?? 0);
+        }
+
+        return $agrupados;
+    }
+
+    private function productoClave(string $codigo, string $unidad): string
+    {
+        return mb_strtolower(trim($codigo)) . '|' . mb_strtolower(trim($unidad));
     }
 
     private function prepararProductos(EntregaProducto $entrega): array

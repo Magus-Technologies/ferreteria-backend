@@ -5,6 +5,7 @@ use App\Http\Controllers\CompraController;
 use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\PrestamoController;
 use App\Http\Controllers\ClienteController;
+use App\Http\Controllers\ProfesionController;
 use App\Http\Controllers\ClienteReporteController;
 use App\Http\Controllers\ClienteCalificacionController;
 use App\Http\Controllers\ProveedorController;
@@ -84,6 +85,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('clientes/estadisticas', [ClienteController::class, 'estadisticas']);
     Route::post('clientes/check-documento', [ClienteController::class, 'checkDocumento']);
+    Route::apiResource('profesiones', ProfesionController::class)->only(['index', 'store'])->middleware('broadcast:profesiones');
     
     // Rutas de direcciones de clientes
     Route::get('clientes/{clienteId}/direcciones', [ClienteController::class, 'listarDirecciones']);

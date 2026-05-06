@@ -101,6 +101,7 @@ class GuiaPdfService
             'detalles' => $detalles,
             'pesoTotal' => $pesoTotal,
             'observaciones' => $guia->observaciones ?: '-',
+            'referencia' => $guia->referencia ?: null,
             'codigoQr' => $guia->sunat_codigo_qr,
             'consultaUrl' => $this->getConsultaUrl(),
         ];
@@ -203,6 +204,10 @@ class GuiaPdfService
                 'Destinatario' => $clienteNombre,
             ],
         ];
+
+        if ($guia->referencia) {
+            $filas[] = ['Referencia' => $guia->referencia];
+        }
 
         // Comprador (motivos 03, 14)
         $comprador = $guia->comprador;
