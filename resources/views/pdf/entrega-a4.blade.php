@@ -14,24 +14,48 @@
          (color tema #fadc06) igual que las ventas. --}}
     @include('pdf.layout.info-grid', ['filas' => $filas])
 
-    {{-- Tabla de productos — muestra entregado vs pendiente según estado --}}
+    {{-- Tabla de productos — si la venta fue editada y realmente se retiró un
+         producto o cantidad, se muestra en la columna "RECIBIDO" dentro de la
+         misma tabla principal. --}}
     @include('pdf.layout.table', [
-        'columnas' => [
-            ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
-            ['label' => 'CODIGO', 'width' => '13%', 'align' => 'center'],
-            ['label' => 'DESCRIPCION', 'width' => '42%', 'align' => 'left'],
-            ['label' => 'UNIDAD', 'width' => '12%', 'align' => 'center'],
-            ['label' => 'ENTREGADO', 'width' => '14%', 'align' => 'center'],
-            ['label' => 'PENDIENTE', 'width' => '14%', 'align' => 'center'],
-        ],
-        'filas' => collect($productos)->map(function ($p, $i) {
+        'columnas' => $mostrarRecibido
+            ? [
+                ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
+                ['label' => 'CODIGO', 'width' => '12%', 'align' => 'center'],
+                ['label' => 'DESCRIPCION', 'width' => '37%', 'align' => 'left'],
+                ['label' => 'UNIDAD', 'width' => '10%', 'align' => 'center'],
+                ['label' => 'RECIBIDO', 'width' => '12%', 'align' => 'center'],
+                ['label' => 'ENTREGADO', 'width' => '12%', 'align' => 'center'],
+                ['label' => 'PENDIENTE', 'width' => '12%', 'align' => 'center'],
+            ]
+            : [
+                ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
+                ['label' => 'CODIGO', 'width' => '13%', 'align' => 'center'],
+                ['label' => 'DESCRIPCION', 'width' => '42%', 'align' => 'left'],
+                ['label' => 'UNIDAD', 'width' => '12%', 'align' => 'center'],
+                ['label' => 'ENTREGADO', 'width' => '14%', 'align' => 'center'],
+                ['label' => 'PENDIENTE', 'width' => '14%', 'align' => 'center'],
+            ],
+        'filas' => collect($productosTabla)->map(function ($p, $i) use ($mostrarRecibido) {
             return [
-                $i + 1,
-                $p['codigo'],
-                $p['nombre'],
-                $p['unidad'],
-                number_format($p['entregado'], 2),
-                number_format($p['pendiente'], 2),
+                ...($mostrarRecibido
+                    ? [
+                        $i + 1,
+                        $p['codigo'],
+                        $p['nombre'],
+                        $p['unidad'],
+                        number_format($p['recibido'], 2),
+                        number_format($p['entregado'], 2),
+                        number_format($p['pendiente'], 2),
+                    ]
+                    : [
+                        $i + 1,
+                        $p['codigo'],
+                        $p['nombre'],
+                        $p['unidad'],
+                        number_format($p['entregado'], 2),
+                        number_format($p['pendiente'], 2),
+                    ]),
             ];
         })->toArray(),
         'minFilas' => 10,
@@ -45,48 +69,10 @@
                 TOTAL ITEMS
             </td>
             <td style="padding: 6px 8px; font-size: 8pt; font-weight: bold; text-align: right; width: 80px;">
-                {{ count($productos) }}
+                {{ count($productosTabla) }}
             </td>
         </tr>
     </table>
-
-    {{-- Productos anteriores: si la venta fue editada, mostramos los
-         productos del snapshot previo (datos_anteriores del último
-         registro de VentaHistorial.accion='edicion'). Se renderizan
-         tachados en color tenue para que el chofer/cliente vea el
-         intercambio. --}}
-    @if(!empty($productosAnteriores))
-        <div style="margin-top: 12px; padding: 6px 8px; background-color: #fef3c7; border-left: 4px solid #d97706; font-size: 8pt;">
-            <span style="font-weight: bold; color: #b45309;">🔄 CAMBIO DE PRODUCTO</span>
-            @if(!empty($fechaUltimaEdicion))
-                <span style="color: #92400e;"> — {{ $fechaUltimaEdicion }}</span>
-            @endif
-            <div style="font-size: 7pt; color: #92400e; margin-top: 2px;">
-                Producto anterior (reemplazado en la última edición):
-            </div>
-        </div>
-        @include('pdf.layout.table', [
-            'columnas' => [
-                ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
-                ['label' => 'CODIGO', 'width' => '13%', 'align' => 'center'],
-                ['label' => 'DESCRIPCION', 'width' => '52%', 'align' => 'left'],
-                ['label' => 'UNIDAD', 'width' => '12%', 'align' => 'center'],
-                ['label' => 'CANT.', 'width' => '9%', 'align' => 'center'],
-                ['label' => 'PRECIO', 'width' => '9%', 'align' => 'right'],
-            ],
-            'filas' => collect($productosAnteriores)->map(function ($p, $i) {
-                return [
-                    $i + 1,
-                    $p['codigo'],
-                    $p['nombre'],
-                    $p['unidad'],
-                    number_format($p['cantidad'], 2),
-                    number_format($p['precio'], 2),
-                ];
-            })->toArray(),
-            'minFilas' => 0,
-        ])
-    @endif
 
     {{-- Observaciones --}}
     @if($entrega->observaciones)

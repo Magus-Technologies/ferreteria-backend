@@ -138,21 +138,28 @@
         </tr>
     </table>
 
-    {{-- Tabla productos — muestra entregado vs pendiente según estado --}}
+    {{-- Tabla productos — si la venta editada realmente retiró producto o
+         cantidad, eso se refleja como "Recib." dentro de esta misma tabla. --}}
     <div class="section-title">PRODUCTOS</div>
     <table style="font-size: 5pt;">
         <tr style="border-bottom: 1px solid #000;">
             <td class="text-bold" style="width: 30px;">Cód.</td>
             <td class="text-bold">Producto</td>
             <td class="text-bold text-center" style="width: 30px;">Unidad</td>
+            @if($mostrarRecibido)
+            <td class="text-bold text-center" style="width: 25px;">Recib.</td>
+            @endif
             <td class="text-bold text-center" style="width: 25px;">Entreg.</td>
             <td class="text-bold text-center" style="width: 25px;">Pend.</td>
         </tr>
-        @foreach($productos as $i => $p)
+        @foreach($productosTabla as $i => $p)
         <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
             <td>{{ $p['codigo'] }}</td>
             <td>{{ $p['nombre'] }}</td>
             <td class="text-center">{{ $p['unidad'] }}</td>
+            @if($mostrarRecibido)
+            <td class="text-center">{{ number_format($p['recibido'], 0) }}</td>
+            @endif
             <td class="text-center">{{ number_format($p['entregado'], 0) }}</td>
             <td class="text-center">{{ number_format($p['pendiente'], 0) }}</td>
         </tr>
@@ -163,37 +170,9 @@
     <table style="margin-top: 4px;">
         <tr style="border-top: 2px solid #000; background-color: #f0f0f0;">
             <td style="padding: 4px; font-size: 8pt; font-weight: bold;">TOTAL ITEMS</td>
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: right;">{{ count($productos) }}</td>
+            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: right;">{{ count($productosTabla) }}</td>
         </tr>
     </table>
-
-    {{-- Producto anterior (reemplazado en la última edición de la venta) --}}
-    @if(!empty($productosAnteriores))
-    <div class="section-title" style="color: #b45309;">CAMBIO DE PRODUCTO</div>
-    @if(!empty($fechaUltimaEdicion))
-    <div class="text-center" style="font-size: 5pt; margin-bottom: 2px;">
-        {{ $fechaUltimaEdicion }}
-    </div>
-    @endif
-    <table style="font-size: 5pt;">
-        <tr style="border-bottom: 1px solid #000;">
-            <td class="text-bold" style="width: 30px;">Cód.</td>
-            <td class="text-bold">Producto</td>
-            <td class="text-bold text-center" style="width: 30px;">Unidad</td>
-            <td class="text-bold text-center" style="width: 25px;">Cant.</td>
-            <td class="text-bold text-right" style="width: 30px;">Precio</td>
-        </tr>
-        @foreach($productosAnteriores as $i => $p)
-        <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#fef3c7' }}; text-decoration: line-through; color: #6b7280;">
-            <td>{{ $p['codigo'] }}</td>
-            <td>{{ $p['nombre'] }}</td>
-            <td class="text-center">{{ $p['unidad'] }}</td>
-            <td class="text-center">{{ number_format($p['cantidad'], 0) }}</td>
-            <td class="text-right">{{ number_format($p['precio'], 2) }}</td>
-        </tr>
-        @endforeach
-    </table>
-    @endif
 
     {{-- Observaciones --}}
     @if($entrega->observaciones)
