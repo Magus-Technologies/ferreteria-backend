@@ -173,6 +173,15 @@ class GuiaRemisionService
                 $this->afectarStock($detalles, 'incrementar');
             }
 
+            // Revertir cantidad_guiada en las líneas de venta
+            foreach ($guia->detalles as $detalle) {
+                if ($detalle->unidad_derivada_venta_id) {
+                    DB::table('unidadderivadainmutableventa')
+                        ->where('id', $detalle->unidad_derivada_venta_id)
+                        ->decrement('cantidad_guiada', (float) $detalle->cantidad);
+                }
+            }
+
             $guia->update([
                 'estado' => 'ANULADA',
                 'fecha_anulacion' => now(),
@@ -590,6 +599,13 @@ class GuiaRemisionService
                 'peso_total' => $detalle['peso_total'] ?? null,
                 'unidad_derivada_venta_id' => $detalle['unidad_derivada_venta_id'] ?? null,
             ]);
+
+            // Incrementar cantidad_guiada en la línea de venta correspondiente
+            if (!empty($detalle['unidad_derivada_venta_id'])) {
+                DB::table('unidadderivadainmutableventa')
+                    ->where('id', $detalle['unidad_derivada_venta_id'])
+                    ->increment('cantidad_guiada', (float) $detalle['cantidad']);
+            }
         }
     }
 
