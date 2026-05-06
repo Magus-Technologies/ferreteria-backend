@@ -32,7 +32,7 @@ class IndexProductoRequest extends FormRequest
             'ubicacion_id' => 'nullable|integer|exists:ubicacion,id',
             'cs_stock' => 'nullable|in:con_stock,sin_stock,all',
             'cs_comision' => 'nullable|in:con_comision,sin_comision,all',
-            'per_page' => 'nullable|integer|min:1|max:10000', // Aumentado para soportar carga completa de productos
+            'per_page' => 'nullable|integer|min:1|max:50000', // Aumentado para soportar carga completa de productos
             'page' => 'nullable|integer|min:1',
         ];
     }
@@ -54,7 +54,7 @@ class IndexProductoRequest extends FormRequest
             'cs_stock.in' => 'El filtro de stock debe ser: con_stock, sin_stock o all',
             'cs_comision.in' => 'El filtro de comisión debe ser: con_comision, sin_comision o all',
             'per_page.min' => 'El número de elementos por página debe ser al menos 1',
-            'per_page.max' => 'El número máximo de elementos por página es 10000',
+            'per_page.max' => 'El número máximo de elementos por página es 50000',
         ];
     }
 }
