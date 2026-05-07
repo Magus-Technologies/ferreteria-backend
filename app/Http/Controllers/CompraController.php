@@ -916,11 +916,10 @@ class CompraController extends Controller
             }
 
             $totalConPercepcion = $total + (float) ($compra->percepcion ?? 0);
-            $totalSoles = $compra->tipo_moneda === TipoMoneda::Soles->value
-                ? $totalConPercepcion
-                : $totalConPercepcion * (float) ($compra->tipo_de_cambio ?? 1);
-
-            return $totalSoles;
+            
+            // Los montos base (costo, subtotal) ya vienen en Soles desde el frontend 
+            // aunque el tipo_moneda sea Dólares (informativo).
+            return $totalConPercepcion;
         } else {
             // Array data
             foreach ($compra['productos_por_almacen'] as $item) {
@@ -936,13 +935,8 @@ class CompraController extends Controller
             }
 
             $totalConPercepcion = $total + (float) ($compra['percepcion'] ?? 0);
-            $tipoMoneda = TipoMoneda::from($compra['tipo_moneda']);
-            $totalSoles = $tipoMoneda === TipoMoneda::Soles
-                ? $totalConPercepcion
-                : $totalConPercepcion * (float) ($compra['tipo_de_cambio'] ?? 1);
+            return $totalConPercepcion;
         }
-
-        return $totalSoles;
     }
 
     /**
