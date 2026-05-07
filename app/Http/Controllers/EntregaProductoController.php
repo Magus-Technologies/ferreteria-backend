@@ -33,6 +33,7 @@ class EntregaProductoController extends Controller
             'venta_id' => 'sometimes|string',
             'almacen_salida_id' => 'sometimes|integer',
             'chofer_id' => 'sometimes|string',
+            'vehiculo_id' => 'sometimes|integer',
             'estado_entrega' => 'sometimes|string',
             'fecha_desde' => 'sometimes|date',
             'fecha_hasta' => 'sometimes|date',
@@ -92,6 +93,10 @@ class EntregaProductoController extends Controller
                     });
                 }
             });
+        }
+
+        if ($request->has('vehiculo_id')) {
+            $query->where('vehiculo_id', $request->vehiculo_id);
         }
 
         // Excluir entregas de ventas anuladas o en espera
@@ -461,6 +466,7 @@ class EntregaProductoController extends Controller
             'venta.almacen:id,name',
             'almacenSalida:id,name',
             'despachador:id,name,telefono,celular,email',
+            'vehiculo:id,name,tipo,placa',
             'user:id,name',
             'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
             'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
