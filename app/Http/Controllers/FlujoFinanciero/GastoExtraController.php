@@ -17,11 +17,45 @@ class GastoExtraController extends Controller
     /**
      * Listar todos los gastos extras
      */
-    public function index()
+    public function index(Request $request)
     {
-        $gastos = GastoExtra::with(['user', 'desplieguePago.metodoDePago', 'compra.proveedor'])
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $query = GastoExtra::with(['user', 'desplieguePago.metodoDePago', 'compra.proveedor']);
+
+        // Filtro por fecha desde
+        if ($request->has('fechaDesde')) {
+            $query->where('created_at', '>=', $request->fechaDesde);
+        }
+
+        // Filtro por fecha hasta
+        if ($request->has('fechaHasta')) {
+            $query->where('created_at', '<=', $request->fechaHasta);
+        }
+
+        // Filtro por motivo/concepto
+        if ($request->has('motivoGasto') && $request->motivoGasto) {
+            $query->where('concepto', 'like', '%' . $request->motivoGasto . '%');
+        }
+
+        // Filtro por cajero/usuario
+        if ($request->has('cajeroRegistra') && $request->cajeroRegistra) {
+            $query->whereHas('user', function ($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->cajeroRegistra . '%');
+            });
+        }
+
+        // Filtro por búsqueda general
+        if ($request->has('busqueda') && $request->busqueda) {
+            $busqueda = $request->busqueda;
+            $query->where(function ($q) use ($busqueda) {
+                $q->where('concepto', 'like', '%' . $busqueda . '%')
+                  ->orWhere('monto', 'like', '%' . $busqueda . '%')
+                  ->orWhereHas('user', function ($userQuery) use ($busqueda) {
+                      $userQuery->where('name', 'like', '%' . $busqueda . '%');
+                  });
+            });
+        }
+
+        $gastos = $query->orderBy('created_at', 'desc')->get();
 
         $subCajas = SubCaja::all();
 
