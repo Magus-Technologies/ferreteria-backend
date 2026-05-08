@@ -9,9 +9,9 @@ class DesplieguePagoResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $banco = $this->metodoDePago->name ?? 'Sin Banco';
+        $banco = $this->metodoDePago?->name ?? 'Sin Banco';
         $metodo = $this->name;
-        $titular = $this->metodoDePago->nombre_titular ?? null;
+        $titular = $this->metodoDePago?->nombre_titular ?? null;
         
         // Crear label específico: Titular/Banco/Método o Banco/Método si no hay titular
         $label = $titular 
@@ -30,14 +30,14 @@ class DesplieguePagoResource extends JsonResource
             'sobrecargo_porcentaje' => number_format($this->sobrecargo_porcentaje ?? 0, 2, '.', ''),
             'tipo_sobrecargo' => $this->tipo_sobrecargo ?? 'ninguno',
             'metodo_de_pago_id' => $this->metodo_de_pago_id,
-            'metodo_de_pago' => [
+            'metodo_de_pago' => $this->metodoDePago ? [
                 'id' => $this->metodoDePago->id,
                 'name' => $this->metodoDePago->name,
                 'cuenta_bancaria' => $this->metodoDePago->cuenta_bancaria,
                 'nombre_titular' => $this->metodoDePago->nombre_titular,
                 'monto' => number_format($this->metodoDePago->monto, 2, '.', ''),
                 'monto_inicial' => number_format($this->metodoDePago->monto_inicial ?? 0, 2, '.', ''),
-            ],
+            ] : null,
         ];
     }
 }

@@ -5,6 +5,10 @@ namespace App\Services\Implementations;
 use App\Models\TrasladoBoveda;
 use App\Models\AperturaCierreCaja;
 use App\Models\User;
+use App\Models\SubCaja;
+use App\Models\DespliegueDePago;
+use App\Models\TransaccionCaja;
+use App\Models\DistribucionEfectivoVendedor;
 use App\Services\Interfaces\TrasladoBovedaServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -49,8 +53,19 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
             }
 
 
-            // Nota: La validación de saldo se realiza en el frontend contra el saldo
-            // específico del método de pago seleccionado (getTodasConSaldoVendedor)
+            // Validar saldo disponible del vendedor para este despliegue
+            $saldoDisponible = $this->calcularSaldoDisponible(
+                (int) $data['sub_caja_id'],
+                $data['vendedor_id'],
+                $data['despliegue_pago_id']
+            );
+
+            if ((float) $data['monto'] > $saldoDisponible) {
+                throw new Exception(
+                    "El monto a trasladar (S/ " . number_format($data['monto'], 2) . ") " .
+                    "excede el efectivo disponible (S/ " . number_format($saldoDisponible, 2) . ")."
+                );
+            }
 
             // Crear el traslado
             $createData = [
@@ -151,6 +166,49 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
      * @param string $password
      * @return bool
      */
+    private function calcularSaldoDisponible(int $subCajaId, string $userId, string $desplieguePagoId): float
+    {
+        $subCaja = SubCaja::find($subCajaId);
+        if (!$subCaja) return 0.0;
+
+        $montoInicial = 0.0;
+
+        if ($subCaja->esCajaChica()) {
+            $despliegue = DespliegueDePago::find($desplieguePagoId);
+            if ($despliegue && $despliegue->metodoDePago) {
+                $esEfectivo = (empty($despliegue->metodoDePago->cuenta_bancaria) ||
+                              $despliegue->metodoDePago->cuenta_bancaria === 'SIN-CUENTA') &&
+                             (stripos($despliegue->metodoDePago->name, 'efectivo') !== false);
+
+                if ($esEfectivo) {
+                    $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+                        ->whereNull('fecha_cierre')
+                        ->first();
+
+                    if ($aperturaActiva) {
+                        $montoInicial = (float) DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                            ->where('user_id', $userId)
+                            ->sum('monto');
+                    }
+                }
+            }
+        }
+
+        $transacciones = TransaccionCaja::where('sub_caja_id', $subCajaId)
+            ->where('user_id', $userId)
+            ->where('despliegue_pago_id', $desplieguePagoId)
+            ->where(function ($query) {
+                $query->whereNull('referencia_tipo')
+                      ->orWhere('referencia_tipo', '!=', 'apertura');
+            })
+            ->get();
+
+        $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        $egresos  = (float) $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+
+        return $montoInicial + $ingresos - $egresos;
+    }
+
     public function validarSupervisor(string $supervisorId, string $password): bool
     {
         try {

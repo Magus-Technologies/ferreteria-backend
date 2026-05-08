@@ -163,10 +163,10 @@ class SubCajaController extends Controller
                     ->get();
 
                 foreach ($despliegues as $despliegue) {
-                    $banco = $despliegue->metodoDePago->name ?? 'Sin Banco';
+                    $banco = $despliegue->metodoDePago?->name ?? 'Sin Banco';
                     $metodo = $despliegue->name;
-                    $titular = $despliegue->metodoDePago->nombre_titular ?? '';
-                    $cuentaBancaria = $despliegue->metodoDePago->cuenta_bancaria ?? null;
+                    $titular = $despliegue->metodoDePago?->nombre_titular ?? '';
+                    $cuentaBancaria = $despliegue->metodoDePago?->cuenta_bancaria ?? null;
                     
                     // Identificar tipo basándose en el nombre y cuenta bancaria
                     $tipo = 'efectivo'; // Por defecto
@@ -608,9 +608,9 @@ class SubCajaController extends Controller
                 'despliegue_pago_id' => $despliegue->id,
                 'nombre' => $despliegue->name,
                 'metodo_de_pago_id' => $despliegue->metodo_de_pago_id,
-                'metodo_de_pago_nombre' => $despliegue->metodoDePago->name ?? 'Sin nombre',
-                'cuenta_bancaria' => $despliegue->metodoDePago->cuenta_bancaria ?? null,
-                'nombre_titular' => $despliegue->metodoDePago->nombre_titular ?? null,
+                'metodo_de_pago_nombre' => $despliegue->metodoDePago?->name ?? 'Sin nombre',
+                'cuenta_bancaria' => $despliegue->metodoDePago?->cuenta_bancaria ?? null,
+                'nombre_titular' => $despliegue->metodoDePago?->nombre_titular ?? null,
                 'saldo_vendedor' => $saldo,
             ];
         }
@@ -717,12 +717,12 @@ class SubCajaController extends Controller
                 'despliegue_pago' => [
                     'id' => $desplieguePago->id,
                     'name' => $desplieguePago->name,
-                    'metodo_de_pago' => [
+                    'metodo_de_pago' => $desplieguePago->metodoDePago ? [
                         'id' => $desplieguePago->metodoDePago->id,
                         'name' => $desplieguePago->metodoDePago->name,
                         'cuenta_bancaria' => $desplieguePago->metodoDePago->cuenta_bancaria,
                         'nombre_titular' => $desplieguePago->metodoDePago->nombre_titular,
-                    ],
+                    ] : null,
                 ],
             ]);
 

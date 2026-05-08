@@ -23,11 +23,11 @@ class SubCajaResource extends JsonResource
                     'id' => $dp->id,
                     'name' => $dp->name,
                     'adicional' => $dp->adicional,
-                    'metodo_de_pago' => [
+                    'metodo_de_pago' => $dp->metodoDePago ? [
                         'id' => $dp->metodoDePago->id,
                         'name' => $dp->metodoDePago->name,
                         'cuenta_bancaria' => $dp->metodoDePago->cuenta_bancaria,
-                    ],
+                    ] : null,
                 ];
             }),
             'acepta_todos_metodos' => in_array('*', $this->despliegues_pago_ids),
