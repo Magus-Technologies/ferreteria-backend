@@ -156,7 +156,7 @@ class ComprobanteElectronico extends Model
         return $query->where('estado_sunat', $estado);
     }
 
-    public function scopeEntreFechas($query, $fechaInicio, $fechaFin)
+    public function scopeEntreFechas($query, $fechaInicio, $fechaFin)/*  */
     {
         return $query->whereBetween('fecha_emision', [$fechaInicio, $fechaFin]);
     }

@@ -217,8 +217,6 @@ class KardexInventarioService
             'cantidad_fraccion' => $unidad->cantidad * $unidad->factor,
             'precio' => 0,
             'costo' => $costo,
-            'flete' => $unidad->flete ?? 0, // Incluir flete para el costo promedio
-            'factor' => $unidad->factor,
             'entrada' => $unidad->cantidad * $unidad->factor,
             'salida' => 0,
             'referencia_id' => $recepcion->id,
@@ -351,8 +349,8 @@ class KardexInventarioService
     public function registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 6, $stockAnteriorOverride = null)
     {
         $data = [
-            'tipo' => 'cuadre',
-            'movimiento' => 'ANULADA_ENTRADA',
+            'tipo' => 'ingreso_anulado',
+            'movimiento' => 'ANULACION',
             'fecha' => now(),
             'documento' => "Ingreso ING-{$ingresoSalida->serie}-{$ingresoSalida->numero} (Anulado)",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
@@ -381,8 +379,8 @@ class KardexInventarioService
     public function registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 7, $stockAnteriorOverride = null)
     {
         $data = [
-            'tipo' => 'cuadre',
-            'movimiento' => 'ANULADA_SALIDA',
+            'tipo' => 'salida_anulada',
+            'movimiento' => 'ANULACION',
             'fecha' => now(),
             'documento' => "Salida SAL-{$ingresoSalida->serie}-{$ingresoSalida->numero} (Anulada)",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
@@ -454,9 +452,7 @@ class KardexInventarioService
         int $perPage = 50,
         int $page = 1
     ) {
-        $query = DB::table('kardex_inventarios')
-            ->leftJoin('producto', 'kardex_inventarios.producto_id', '=', 'producto.id')
-            ->select('kardex_inventarios.*', 'producto.unidades_contenidas');
+        $query = DB::table('kardex_inventarios');
 
         if ($productoId) {
             $query->where('producto_id', $productoId);
@@ -480,12 +476,8 @@ class KardexInventarioService
 
         $total = $query->count();
 
-        // Ordenar por DATE(fecha) DESC para agrupar por día, luego id DESC para
-        // respetar el orden real de inserción dentro del mismo día. No usar la
-        // hora de 'fecha' porque es la hora del documento (no de la inserción en BD)
-        // y puede diferir de created_at, causando que movimientos del mismo día
-        // aparezcan agrupados por tipo en lugar de por orden cronológico de acción.
-        $allRows = $query->orderByRaw('DATE(fecha) DESC')->orderBy('id', 'desc')->get();
+        // Obtener TODAS las filas ordenadas DESCENDENTE (más recientes primero)
+        $allRows = $query->orderBy('fecha', 'desc')->orderBy('orden', 'desc')->get();
 
         // Si proveedor_nombre está vacío pero proveedor_id existe, buscar el nombre
         foreach ($allRows as $row) {
