@@ -406,52 +406,56 @@ class ProductoRepository implements ProductoRepositoryInterface
      */
     public function getVencimientos(int $almacenId, int $dias): \Illuminate\Support\Collection
     {
-        $now = now();
-        $nowStr = $now->format('Y-m-d H:i:s');
-        $fechaLimite = $dias > 0 ? now()->addDays($dias) : null;
+        $today = now()->startOfDay();
+        $todayDate = $today->toDateString();
+        $fechaLimite = $dias > 0 ? $today->copy()->addDays($dias)->toDateString() : null;
 
         // Helper to map data
-        $mapper = function ($item, $dateField, $qtyField) use ($now) {
-            $vencimiento = \Carbon\Carbon::parse($item->{$dateField});
+        $mapper = function ($item, $dateField, $qtyField) use ($today) {
+            $vencimiento = \Carbon\Carbon::parse($item->{$dateField})->startOfDay();
             return (object) [
                 'name' => $item->name,
-                'cantidad' => $item->{$qtyField},
+                'cantidad' => (float) $item->{$qtyField},
                 'stock_min' => $item->stock_min,
                 'almacen' => $item->almacen,
                 'vencimiento' => $item->{$dateField},
                 'lote' => $item->lote,
-                'estado' => $vencimiento->isPast() ? 'Vencido' : 'Por Vencer',
-                'dias_restantes' => (int) $now->startOfDay()->diffInDays($vencimiento->startOfDay(), false)
+                'unidad' => $item->unidad,
+                'estado' => $vencimiento->lte($today) ? 'Vencido' : 'Por Vencer',
+                'dias_restantes' => (int) $today->diffInDays($vencimiento, false)
             ];
         };
 
-        $executeQuery = function ($table, $idField, $pivotTable, $qtyField) use ($almacenId, $dias, $nowStr, $fechaLimite) {
+        $executeQuery = function ($table, $idField, $pivotTable, $qtyField) use ($almacenId, $dias, $todayDate, $fechaLimite) {
             $query = DB::table("$table as ud")
                 ->join("$pivotTable as pt", 'pt.id', '=', "ud.$idField")
                 ->join('productoalmacen as pa', 'pa.id', '=', 'pt.producto_almacen_id')
                 ->join('producto as p', 'p.id', '=', 'pa.producto_id')
                 ->join('almacen as a', 'a.id', '=', 'pa.almacen_id')
+                ->join('unidadderivadainmutable as udi', 'udi.id', '=', 'ud.unidad_derivada_inmutable_id')
                 ->where('pa.almacen_id', $almacenId)
                 ->where("ud.$qtyField", '>', 0)
                 ->whereNotNull('ud.vencimiento');
 
             if ($dias === 0) {
-                // ONLY EXPIRED
-                $query->where('ud.vencimiento', '<=', $nowStr);
+                // Vencidos = ya expiraron o vencen hoy, comparando por fecha calendario.
+                $query->whereDate('ud.vencimiento', '<=', $todayDate);
             } elseif ($dias > 0 && $dias < 3650) {
-                // ONLY UPCOMING (Future only: now < vencimiento <= now + N days)
-                $query->where('ud.vencimiento', '>', $nowStr)
-                    ->where('ud.vencimiento', '<=', $fechaLimite->format('Y-m-d H:i:s'));
+                // Próximos a vencer = desde mañana hasta hoy + N días, comparando por fecha.
+                $query->whereDate('ud.vencimiento', '>', $todayDate)
+                    ->whereDate('ud.vencimiento', '<=', $fechaLimite);
             }
             // else: dias = -1 or very large -> Show All (No filter)
 
             return $query->select([
+                'p.id as producto_id',
                 'p.name as name',
                 "ud.$qtyField as cantidad",
                 'p.stock_min',
                 'a.name as almacen',
                 'ud.vencimiento',
-                'ud.lote'
+                'ud.lote',
+                'udi.name as unidad',
             ])->get();
         };
 
@@ -476,6 +480,29 @@ class ProductoRepository implements ProductoRepositoryInterface
             'cantidad_pendiente'
         )->map(fn($item) => $mapper($item, 'vencimiento', 'cantidad'));
 
-        return $ingresos->concat($recepciones)->concat($compras)->sortBy('vencimiento')->values();
+        return $ingresos
+            ->concat($recepciones)
+            ->concat($compras)
+            ->groupBy(function ($item) {
+                $fecha = \Carbon\Carbon::parse($item->vencimiento)->toDateString();
+                return implode('|', [
+                    $item->producto_id ?? '',
+                    $item->almacen ?? '',
+                    $item->unidad ?? '',
+                    $item->lote ?? '',
+                    $fecha,
+                ]);
+            })
+            ->map(function ($group) {
+                $first = clone $group->first();
+                $first->cantidad = round((float) $group->sum('cantidad'), 3);
+                return $first;
+            })
+            ->sortBy([
+                ['vencimiento', 'asc'],
+                ['name', 'asc'],
+                ['lote', 'asc'],
+            ])
+            ->values();
     }
 }
