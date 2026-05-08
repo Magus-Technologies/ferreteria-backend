@@ -18,6 +18,7 @@ class KardexInventarioRepository implements KardexRepositoryInterface
 
         $data = $query
             ->orderByDesc('fecha')
+            ->orderByDesc('id')
             ->offset($offset)
             ->limit($perPage)
             ->get();

@@ -480,8 +480,10 @@ class KardexInventarioService
 
         $total = $query->count();
 
-        // Obtener TODAS las filas ordenadas DESCENDENTE (más recientes primero)
-        $allRows = $query->orderBy('fecha', 'desc')->orderBy('orden', 'desc')->get();
+        // Obtener TODAS las filas ordenadas DESCENDENTE (más recientes primero).
+        // Se usa id DESC como desempate para respetar el orden real de inserción
+        // cuando varios movimientos comparten la misma fecha (ej. cuadres del mismo día).
+        $allRows = $query->orderBy('fecha', 'desc')->orderBy('id', 'desc')->get();
 
         // Si proveedor_nombre está vacío pero proveedor_id existe, buscar el nombre
         foreach ($allRows as $row) {
