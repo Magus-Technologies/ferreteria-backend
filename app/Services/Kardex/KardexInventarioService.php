@@ -480,10 +480,12 @@ class KardexInventarioService
 
         $total = $query->count();
 
-        // Obtener TODAS las filas ordenadas DESCENDENTE (más recientes primero).
-        // Se usa id DESC como desempate para respetar el orden real de inserción
-        // cuando varios movimientos comparten la misma fecha (ej. cuadres del mismo día).
-        $allRows = $query->orderBy('fecha', 'desc')->orderBy('id', 'desc')->get();
+        // Ordenar por DATE(fecha) DESC para agrupar por día, luego id DESC para
+        // respetar el orden real de inserción dentro del mismo día. No usar la
+        // hora de 'fecha' porque es la hora del documento (no de la inserción en BD)
+        // y puede diferir de created_at, causando que movimientos del mismo día
+        // aparezcan agrupados por tipo en lugar de por orden cronológico de acción.
+        $allRows = $query->orderByRaw('DATE(fecha) DESC')->orderBy('id', 'desc')->get();
 
         // Si proveedor_nombre está vacío pero proveedor_id existe, buscar el nombre
         foreach ($allRows as $row) {
