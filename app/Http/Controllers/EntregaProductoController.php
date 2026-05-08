@@ -41,7 +41,9 @@ class EntregaProductoController extends Controller
             'search' => 'sometimes|string|nullable',
             'tipo_despacho' => 'sometimes|string|nullable',
             'tipo_entrega' => 'sometimes|string|nullable',
-            'solo_programadas' => 'sometimes|boolean',
+            // `URLSearchParams` envía booleans como texto ("true"/"false").
+            // Aceptamos ambas formas para no romper los filtros del calendario.
+            'solo_programadas' => 'sometimes|in:true,false,1,0',
         ]);
 
         // 🔍 DEBUG: Log de parámetros recibidos
