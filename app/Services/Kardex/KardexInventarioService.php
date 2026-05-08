@@ -351,8 +351,8 @@ class KardexInventarioService
     public function registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 6, $stockAnteriorOverride = null)
     {
         $data = [
-            'tipo' => 'ingreso_anulado',
-            'movimiento' => 'ANULACION',
+            'tipo' => 'cuadre',
+            'movimiento' => 'ANULADA_ENTRADA',
             'fecha' => now(),
             'documento' => "Ingreso ING-{$ingresoSalida->serie}-{$ingresoSalida->numero} (Anulado)",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
@@ -381,8 +381,8 @@ class KardexInventarioService
     public function registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 7, $stockAnteriorOverride = null)
     {
         $data = [
-            'tipo' => 'salida_anulada',
-            'movimiento' => 'ANULACION',
+            'tipo' => 'cuadre',
+            'movimiento' => 'ANULADA_SALIDA',
             'fecha' => now(),
             'documento' => "Salida SAL-{$ingresoSalida->serie}-{$ingresoSalida->numero} (Anulada)",
             'unidad' => $unidad->unidadDerivadaInmutable->name,

@@ -167,10 +167,10 @@ class GananciasService implements GananciasServiceInterface
             ->leftJoin('compra as c', 'ge.id', '=', 'c.gasto_extra_id')
             ->select([
                 'ge.id', 
-                DB::raw('DATE(ge.created_at) as fecha'), 
-                'ge.monto', 
-                'ge.concepto as descripcion', 
-                DB::raw("'GASTO OPERATIVO' as tipo_gasto"), 
+                'ge.created_at as fecha',
+                'ge.monto',
+                'ge.concepto as descripcion',
+                DB::raw("'GASTO OPERATIVO' as tipo_gasto"),
                 DB::raw("'gasto_extra' as tipo")
             ])
             ->whereNull('c.id'); // Solo gastos que NO están asociados a compras

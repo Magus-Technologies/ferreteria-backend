@@ -2085,16 +2085,17 @@ class VentaController extends Controller
     public function ventasPorCobrar(Request $request)
     {
         $request->validate([
-            'almacen_id'  => 'sometimes|integer',
-            'cliente_id'  => 'sometimes|integer',
-            'user_id'     => 'sometimes|string',
-            'desde'       => 'sometimes|date',
-            'hasta'       => 'sometimes|date',
-            'search'      => 'sometimes|string',
-            'dias'        => 'sometimes|integer|min:1', // Ventas que vencen en X días
-            'estado_pago' => 'sometimes|in:pendientes,pagadas,todas', // Filtro de estado de pago
-            'per_page'    => 'sometimes|integer|min:-1|max:200',
-            'page'        => 'sometimes|integer|min:1',
+            'almacen_id'     => 'sometimes|integer',
+            'cliente_id'     => 'sometimes|integer',
+            'user_id'        => 'sometimes|string',
+            'desde'          => 'sometimes|date',
+            'hasta'          => 'sometimes|date',
+            'search'         => 'sometimes|string',
+            'tipo_documento' => 'sometimes|string',
+            'dias'           => 'sometimes|integer|min:1',
+            'estado_pago'    => 'sometimes|in:pendientes,pagadas,todas',
+            'per_page'       => 'sometimes|integer|min:-1|max:200',
+            'page'           => 'sometimes|integer|min:1',
         ]);
 
         $estadoPago = $request->input('estado_pago', 'pendientes');
@@ -2147,6 +2148,11 @@ class VentaController extends Controller
             $fechaLimite = now()->addDays((int) $request->dias)->toDateString();
             $query->whereNotNull('fecha_vencimiento')
                 ->whereDate('fecha_vencimiento', '<=', $fechaLimite);
+        }
+
+        // Filtro por tipo de documento
+        if ($request->has('tipo_documento') && !empty($request->tipo_documento)) {
+            $query->where('tipo_documento', $request->tipo_documento);
         }
 
         // Búsqueda por serie, número o cliente
