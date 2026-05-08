@@ -502,7 +502,7 @@ class KardexFacturacionService
     ) {
         $query = DB::table('kardex_facturacions')
             ->leftJoin('producto', 'kardex_facturacions.producto_id', '=', 'producto.id')
-            ->select('kardex_facturacions.*', 'producto.unidades_contenidas');
+            ->select('kardex_facturacions.*', 'producto.unidades_contenidas', DB::raw('NULL as nota'));
 
         if ($productoId) {
             $query->where('producto_id', $productoId);
@@ -524,50 +524,64 @@ class KardexFacturacionService
             $query->where('tipo', $tipo);
         }
 
-        $total = $query->count();
-
         // Obtener TODAS las filas ordenadas ASCENDENTE para calcular stock acumulado correctamente
-        // (necesitamos calcular desde el más antiguo al más reciente)
-        $allRows = $query->orderBy('fecha', 'asc')->orderBy('orden', 'asc')->get();
+        $kardexRows = $query->orderBy('fecha', 'asc')->orderBy('orden', 'asc')->get()->toArray();
 
-        // Calcular stock acumulado para TODAS las filas
-        $stockPorProductoAlmacen = []; // Rastrear stock actual por producto-almacén
+        // Obtener filas de entregas hechas y anuladas
+        $entregaRows = $this->getEntregasParaKardex($productoId, $almacenId, $desde, $hasta);
+
+        // Combinar y ordenar por fecha asc, luego por orden
+        $allRows = array_merge($kardexRows, $entregaRows);
+        usort($allRows, function ($a, $b) {
+            $fa = $a->fecha ?? '';
+            $fb = $b->fecha ?? '';
+            if ($fa !== $fb) return strcmp($fa, $fb);
+            return ($a->orden ?? 0) <=> ($b->orden ?? 0);
+        });
+
+        $total = count($allRows);
+
+        // Calcular stock acumulado para filas del kardex; las de entrega se omiten
+        $stockPorProductoAlmacen = [];
         $rowsWithStockAll = [];
 
         foreach ($allRows as $row) {
+            // Filas de entrega: no afectan stock, pasar directo
+            if (empty($row->producto_id)) {
+                if (empty($row->cliente_nombre) && !empty($row->cliente_id)) {
+                    $cliente = DB::table('cliente')->where('id', $row->cliente_id)->first();
+                    if ($cliente) {
+                        $row->cliente_nombre = $cliente->razon_social ?? $cliente->nombre_comercial ?? 'Sin cliente';
+                    }
+                }
+                $rowsWithStockAll[] = $row;
+                continue;
+            }
+
             $key = "{$row->producto_id}_{$row->almacen_id}";
 
             // Si el registro YA tiene stock_anterior y stock_actual guardados, usarlos
-            // (esto ocurre cuando se registró correctamente al crear la venta)
             if ($row->stock_anterior !== null && $row->stock_actual !== null) {
-                // Usar los valores guardados en la BD
                 $stockAnterior = (float) $row->stock_anterior;
                 $stockActual = (float) $row->stock_actual;
-
-                // Actualizar el stock actual para la siguiente iteración
                 $stockPorProductoAlmacen[$key] = $stockActual;
             } else {
-                // Si NO tiene valores guardados, calcularlos (para registros antiguos)
+                // Para registros antiguos sin valores guardados, calcularlos
                 $stockAnterior = $stockPorProductoAlmacen[$key] ?? 0;
-
                 $cantIngreso = (float) $row->entrada;
                 $cantSalida = (float) $row->salida;
-
                 $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
-
-                // Actualizar el stock actual para la siguiente iteración
                 $stockPorProductoAlmacen[$key] = $stockActual;
             }
 
             // Si cliente_nombre está vacío pero cliente_id existe, buscar el nombre
             if (empty($row->cliente_nombre) && !empty($row->cliente_id)) {
-                $cliente = DB::table('clientes')->where('id', $row->cliente_id)->first();
+                $cliente = DB::table('cliente')->where('id', $row->cliente_id)->first();
                 if ($cliente) {
                     $row->cliente_nombre = $cliente->razon_social ?? $cliente->nombre_comercial ?? 'Sin cliente';
                 }
             }
 
-            // Crear objeto con todos los campos
             $rowData = (array) $row;
             $rowData['stock_anterior'] = $stockAnterior;
             $rowData['cant_ingreso'] = (float) $row->entrada;
@@ -577,10 +591,9 @@ class KardexFacturacionService
             $rowsWithStockAll[] = (object) $rowData;
         }
 
-        // Invertir el orden para mostrar los más recientes primero
+        // Invertir para mostrar los más recientes primero
         $rowsWithStockAll = array_reverse($rowsWithStockAll);
 
-        // Ahora aplicar paginación a los resultados ya calculados
         if ($perPage == -1) {
             $rowsWithStock = $rowsWithStockAll;
         } else {
@@ -595,6 +608,100 @@ class KardexFacturacionService
             'per_page' => $perPage,
             'last_page' => (int) ($perPage == -1 ? 1 : ceil($total / $perPage)),
         ]);
+    }
+
+    private function getEntregasParaKardex(
+        ?int $productoId,
+        ?int $almacenId,
+        ?string $desde,
+        ?string $hasta
+    ): array {
+        $tipoDocExpr = "CONCAT(CASE v.tipo_documento
+            WHEN '01' THEN 'Factura'
+            WHEN '03' THEN 'Boleta'
+            WHEN 'nv' THEN 'Nota de Venta'
+            ELSE v.tipo_documento END, ' ', v.serie, '-', v.numero)";
+
+        $clienteNombreExpr = "CASE
+            WHEN c.tipo_cliente IN ('j', 'e') THEN COALESCE(c.razon_social, 'Sin cliente')
+            WHEN c.tipo_cliente = 'p' THEN TRIM(CONCAT(COALESCE(c.nombres,''), ' ', COALESCE(c.apellidos,'')))
+            ELSE 'Sin cliente'
+        END";
+
+        $buildQuery = function (bool $esAnulada) use (
+            $productoId, $almacenId, $desde, $hasta,
+            $tipoDocExpr, $clienteNombreExpr
+        ) {
+            $fechaCol       = $esAnulada ? 'ep.fecha_anulacion' : 'ep.fecha_entrega';
+            $movimientoExpr = $esAnulada ? "'ENTREGA ANULADA'" : "'ENTREGA'";
+
+            $q = DB::table('entregaproducto as ep')
+                ->join('venta as v', 'ep.venta_id', '=', 'v.id')
+                ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
+                ->join('detalleentregaproducto as dep', 'dep.entrega_producto_id', '=', 'ep.id')
+                ->join('unidadderivadainmutableventa as udv', 'udv.id', '=', 'dep.unidad_derivada_venta_id')
+                ->join('productoalmacenventa as pav', 'pav.id', '=', 'udv.producto_almacen_venta_id')
+                ->join('productoalmacen as pa', 'pa.id', '=', 'pav.producto_almacen_id')
+                ->join('producto as p', 'p.id', '=', 'pa.producto_id')
+                ->leftJoin('unidadderivadainmutable as udi', 'udi.id', '=', 'udv.unidad_derivada_inmutable_id')
+                ->select(
+                    'ep.id',
+                    DB::raw("'entrega' as tipo"),
+                    DB::raw("{$movimientoExpr} as movimiento"),
+                    DB::raw("{$fechaCol} as fecha"),
+                    DB::raw("{$tipoDocExpr} as documento"),
+                    DB::raw('udi.name as unidad'),
+                    DB::raw('dep.cantidad_entregada as cantidad'),
+                    DB::raw('dep.cantidad_entregada * udv.factor as cantidad_fraccion'),
+                    DB::raw('udv.precio as precio'),
+                    DB::raw('pav.costo as costo'),
+                    DB::raw('0 as entrada'),
+                    DB::raw('0 as salida'),
+                    DB::raw('NULL as stock_anterior'),
+                    DB::raw('0 as cant_ingreso'),
+                    DB::raw('0 as cant_salida'),
+                    DB::raw('NULL as stock_actual'),
+                    DB::raw('NULL as costo_anterior'),
+                    DB::raw('NULL as costo_actual'),
+                    DB::raw('udv.factor as factor'),
+                    DB::raw('v.id as referencia_id'),
+                    DB::raw('pa.producto_id as producto_id'),
+                    DB::raw('p.name as producto_nombre'),
+                    DB::raw('p.cod_producto as producto_codigo'),
+                    'v.cliente_id',
+                    DB::raw("{$clienteNombreExpr} as cliente_nombre"),
+                    DB::raw('COALESCE(pa.almacen_id, ep.almacen_salida_id, v.almacen_id) as almacen_id'),
+                    DB::raw('0 as orden'),
+                    DB::raw('p.unidades_contenidas as unidades_contenidas'),
+                    DB::raw($esAnulada ? 'ep.motivo_anulacion as nota' : 'NULL as nota')
+                );
+
+            if ($esAnulada) {
+                $q->whereNotNull('ep.fecha_anulacion');
+                if ($desde) $q->whereDate('ep.fecha_anulacion', '>=', $desde);
+                if ($hasta) $q->whereDate('ep.fecha_anulacion', '<=', $hasta);
+            } else {
+                $q->whereNotNull('ep.fecha_entrega');
+                if ($desde) $q->whereDate('ep.fecha_entrega', '>=', $desde);
+                if ($hasta) $q->whereDate('ep.fecha_entrega', '<=', $hasta);
+            }
+
+            if ($almacenId) {
+                $q->where(function ($sub) use ($almacenId) {
+                    $sub->where('pa.almacen_id', $almacenId)
+                        ->orWhere('ep.almacen_salida_id', $almacenId)
+                        ->orWhere('v.almacen_id', $almacenId);
+                });
+            }
+
+            if ($productoId) {
+                $q->where('pa.producto_id', $productoId);
+            }
+
+            return $q->get()->toArray();
+        };
+
+        return array_merge($buildQuery(false), $buildQuery(true));
     }
 
     /**
