@@ -165,28 +165,7 @@ class KardexFacturacionService
             default => $venta->tipo_documento->value,
         };
 
-        // Primero marcar los registros originales como anulados (respetando si es CONTADO o CRÉDITO)
-        KardexFacturacion::where('referencia_id', $venta->id)
-            ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA CONTADO')
-            ->update(['movimiento' => 'VENTA CONTADO (ANULADA)']);
-
-        KardexFacturacion::where('referencia_id', $venta->id)
-            ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA CRÉDITO')
-            ->update(['movimiento' => 'VENTA CRÉDITO (ANULADA)']);
-
-        // También marcar las editadas como anuladas
-        KardexFacturacion::where('referencia_id', $venta->id)
-            ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA CONTADO (EDITADA)')
-            ->update(['movimiento' => 'VENTA CONTADO (ANULADA)']);
-
-        KardexFacturacion::where('referencia_id', $venta->id)
-            ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA CRÉDITO (EDITADA)')
-            ->update(['movimiento' => 'VENTA CRÉDITO (ANULADA)']);
-
+        // Las filas originales NO se modifican — la fila DEVOLUCIÓN es el nuevo registro
         // Obtener el nombre del cliente directamente desde la BD si no está cargado
         $clienteNombre = 'Sin cliente';
         if ($venta->cliente_id) {
@@ -200,10 +179,12 @@ class KardexFacturacionService
             }
         }
 
-        // Luego registrar la devolución
+        // Nueva fila con tipo de pago para distinguir contado/crédito en la UI
+        $movimiento = $venta->forma_de_pago->value === 'co' ? 'DEVOLUCIÓN CONTADO' : 'DEVOLUCIÓN CRÉDITO';
+
         return $this->registrar([
             'tipo' => 'venta',
-            'movimiento' => 'DEVOLUCIÓN',
+            'movimiento' => $movimiento,
             'fecha' => now(),
             'documento' => "Anulación {$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
@@ -285,24 +266,20 @@ class KardexFacturacionService
      */
     public function actualizarKardexVentaEditada($ventaId)
     {
-        // Marcar los registros originales como editados (respetando si es CONTADO o CRÉDITO)
+        // Las filas originales NO se modifican — solo se crean nuevas filas de ajuste.
+        // Calculamos el efecto neto actual (salida − entrada) por producto+unidad
+        // sumando TODOS los registros previos, lo que soporta ediciones múltiples.
+        $registrosAntiguos = [];
         KardexFacturacion::where('referencia_id', $ventaId)
             ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA CONTADO')
-            ->update(['movimiento' => 'VENTA CONTADO (EDITADA)']);
-
-        KardexFacturacion::where('referencia_id', $ventaId)
-            ->where('tipo', 'venta')
-            ->where('movimiento', 'VENTA CRÉDITO')
-            ->update(['movimiento' => 'VENTA CRÉDITO (EDITADA)']);
-
-        // Obtener registros antiguos del kardex (antes de la edición)
-        $registrosAntiguos = KardexFacturacion::where('referencia_id', $ventaId)
-            ->where('tipo', 'venta')
-            ->whereIn('movimiento', ['VENTA CONTADO (EDITADA)', 'VENTA CRÉDITO (EDITADA)'])
             ->get()
-            ->keyBy(function ($item) {
-                return $item->producto_id . '_' . $item->unidad;
+            ->each(function ($r) use (&$registrosAntiguos) {
+                $key = $r->producto_id . '_' . $r->unidad;
+                if (!isset($registrosAntiguos[$key])) {
+                    $registrosAntiguos[$key] = ['salida_neta' => 0.0, 'ref' => $r];
+                }
+                $registrosAntiguos[$key]['salida_neta'] += (float) $r->salida - (float) $r->entrada;
+                $registrosAntiguos[$key]['ref'] = $r;
             });
 
         // Obtener la venta actualizada con todas sus relaciones
@@ -353,9 +330,8 @@ class KardexFacturacionService
             $cantidadNuevaFraccion = $unidadNueva->cantidad * $unidadNueva->factor;
 
             if (isset($registrosAntiguos[$key])) {
-                // Producto existía en la venta original
-                $registroAntiguo = $registrosAntiguos[$key];
-                $cantidadAntiguaFraccion = (float) $registroAntiguo->salida;
+                // Producto existía — comparar contra el efecto neto de todos los registros previos
+                $cantidadAntiguaFraccion = $registrosAntiguos[$key]['salida_neta'];
 
                 $diferencia = $cantidadNuevaFraccion - $cantidadAntiguaFraccion;
 
@@ -407,39 +383,37 @@ class KardexFacturacionService
         }
 
         // Productos eliminados en la edición (estaban antes pero ya no están)
-        foreach ($registrosAntiguos as $key => $registroAntiguo) {
+        foreach ($registrosAntiguos as $key => $antiguo) {
             if (!isset($cantidadesNuevas[$key])) {
-                // Producto fue eliminado: devolver todo al stock
-                $cantidadAntiguaFraccion = (float) $registroAntiguo->salida;
+                $cantidadAntiguaFraccion = $antiguo['salida_neta'];
 
-                // Determinar el tipo de venta para el ajuste
+                // Solo crear ajuste si hay unidades pendientes de devolver
+                if ($cantidadAntiguaFraccion <= 0.001) continue;
+
+                $ref = $antiguo['ref'];
                 $tipoVenta = $venta->forma_de_pago->value === 'co' ? 'CONTADO' : 'CRÉDITO';
-                $movimiento = "AJUSTE POR EDICIÓN ({$tipoVenta})";
 
-                // Crear ajuste de ENTRADA para devolver al stock
-                $data = [
+                $this->registrar([
                     'tipo' => 'venta',
-                    'movimiento' => $movimiento,
+                    'movimiento' => "AJUSTE POR EDICIÓN ({$tipoVenta})",
                     'fecha' => now(),
                     'documento' => "Ajuste {$tipoDocumento} {$venta->serie}-{$venta->numero} (Producto eliminado)",
-                    'unidad' => $registroAntiguo->unidad,
-                    'cantidad' => $registroAntiguo->cantidad,
+                    'unidad' => $ref->unidad,
+                    'cantidad' => $ref->cantidad,
                     'cantidad_fraccion' => $cantidadAntiguaFraccion,
-                    'precio' => $registroAntiguo->precio,
-                    'costo' => $registroAntiguo->costo,
+                    'precio' => $ref->precio,
+                    'costo' => $ref->costo,
                     'entrada' => $cantidadAntiguaFraccion,
                     'salida' => 0,
                     'referencia_id' => $venta->id,
-                    'producto_id' => $registroAntiguo->producto_id,
-                    'producto_nombre' => $registroAntiguo->producto_nombre,
-                    'producto_codigo' => $registroAntiguo->producto_codigo,
+                    'producto_id' => $ref->producto_id,
+                    'producto_nombre' => $ref->producto_nombre,
+                    'producto_codigo' => $ref->producto_codigo,
                     'cliente_id' => $venta->cliente_id,
                     'cliente_nombre' => $clienteNombre,
                     'almacen_id' => $venta->almacen_id,
                     'orden' => $orden,
-                ];
-
-                $this->registrar($data);
+                ]);
                 $orden++;
             }
         }
