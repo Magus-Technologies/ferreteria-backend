@@ -1455,7 +1455,11 @@ class VentaController extends Controller
                         $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_entregada);
                     }
                 }
-                DetalleEntregaProducto::where('entrega_producto_id', $entrega->id)->delete();
+                // Solo borrar detalles si la entrega nunca fue anulada manualmente.
+                // Las entregas con fecha_anulacion conservan sus detalles para el kardex.
+                if (!$entrega->fecha_anulacion) {
+                    DetalleEntregaProducto::where('entrega_producto_id', $entrega->id)->delete();
+                }
                 $entrega->update(['estado_entrega' => 'ca']);
             }
 
