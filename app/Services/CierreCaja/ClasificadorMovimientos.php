@@ -80,6 +80,9 @@ class ClasificadorMovimientos
         // 8. RESUMEN DE BANCOS (montos iniciales + ingresos - egresos por banco)
         $resumenBancos = $this->obtenerResumenBancosVendedor($subCajasIds, $apertura, $userId, $ventas, $fechaInicio, $fechaFin);
 
+        // 8.5 TRASLADOS A BÓVEDA (Informativo, no afecta el total de caja)
+        $trasladosBoveda = $this->obtenerTrasladosBovedaVendedor($apertura, $userId, $fechaInicio, $fechaFin);
+
         // 9. SEPARAR INGRESOS Y GASTOS EXTRAS
         $ingresosExtras = $otrosIngresos->where('referencia_tipo', 'ingreso_extra');
         $otrosIngresosSinExtras = $otrosIngresos->where('referencia_tipo', '!=', 'ingreso_extra');
@@ -141,6 +144,10 @@ class ClasificadorMovimientos
             // Resumen de bancos (nuevo)
             'resumen_bancos' => $resumenBancos,
 
+            // Traslados a Bóveda (Informativo)
+            'traslados_boveda' => $trasladosBoveda,
+            'total_traslados_boveda' => $trasladosBoveda->sum('monto'),
+
             // Resúmenes (totales consolidados)
             'resumen_ventas' => $totalCobros,
             'resumen_ingresos' => $totalCobros + $totalOtrosIngresos + $totalIngresosExtras + $totalPrestamosRecibidos,
@@ -173,8 +180,8 @@ class ClasificadorMovimientos
     {
 
 
-        // Filtrar ventas del vendedor
-        $ventasVendedor = $ventas->where('user_id', $userId);
+        // MOSTRAR TODAS las ventas de la caja (ya filtradas por el repositorio)
+        $ventasVendedor = $ventas;
 
 
 
@@ -727,5 +734,25 @@ class ClasificadorMovimientos
                 'total' => $pagos->sum('monto')
             ];
         })->values();
+    }
+
+    /**
+     * Obtener traslados a bóveda del vendedor (solo informativo)
+     */
+    private function obtenerTrasladosBovedaVendedor($apertura, string $userId, $fechaInicio, $fechaFin): Collection
+    {
+        return DB::table('traslados_boveda as tb')
+            ->leftJoin('sub_cajas as sc', 'tb.sub_caja_id', '=', 'sc.id')
+            ->leftJoin('user as u_supervisor', 'tb.supervisor_id', '=', 'u_supervisor.id')
+            ->where('tb.apertura_cierre_caja_id', $apertura->id)
+            ->select([
+                'tb.id',
+                'tb.monto',
+                'tb.justificacion',
+                'tb.fecha_traslado',
+                'sc.nombre as sub_caja',
+                'u_supervisor.name as supervisor_nombre'
+            ])
+            ->get();
     }
 }

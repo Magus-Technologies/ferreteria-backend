@@ -151,6 +151,7 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/api/facturacion-electronica.php';  // Facturación electrónica (notas de débito, crédito, facturas)
     require __DIR__ . '/api/ganancias.php';    // Gestión contable y financiera - Mis Ganancias
     require __DIR__ . '/api/analisis-perdidas.php'; // Análisis detallado de pérdidas
+    require __DIR__ . '/api/analisis-peps.php';     // Análisis PEPS - diferencia de tipo de cambio
     require __DIR__ . '/api/ingresos.php';     // Gestión contable y financiera - Mis Ingresos
     require __DIR__ . '/api/gastos.php';       // Gestión contable y financiera - Mis Gastos
     require __DIR__ . '/api/comisiones.php';   // Gestión contable y financiera - Comisiones por Vendedor

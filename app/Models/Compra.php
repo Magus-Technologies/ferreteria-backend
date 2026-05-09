@@ -43,6 +43,7 @@ class Compra extends Model
         'proveedor_id',
         'orden_compra_id',
         'gasto_extra_id',
+        'total_dolares',
     ];
 
     protected function casts(): array
@@ -53,6 +54,7 @@ class Compra extends Model
             'tipo_moneda' => TipoMoneda::class,
             'estado_de_compra' => EstadoDeCompraDefinitiva::class,
             'tipo_de_cambio' => 'decimal:4',
+            'total_dolares' => 'decimal:4',
             'percepcion' => 'decimal:4',
             'fecha' => 'datetime',
             'fecha_vencimiento' => 'datetime',

@@ -30,7 +30,9 @@ class ResumenCajaDTO
         public float $totalIngresosExtras = 0,
         public float $totalGastosExtras = 0,
         public Collection $detalleIngresosExtras = new Collection(),
-        public Collection $detalleGastosExtras = new Collection()
+        public Collection $detalleGastosExtras = new Collection(),
+        public Collection $trasladosBoveda = new Collection(),
+        public float $totalTrasladosBoveda = 0
     ) {}
 
     public function toArray(): array
@@ -60,6 +62,8 @@ class ResumenCajaDTO
             'total_gastos_extras' => (float) $this->totalGastosExtras,
             'detalle_ingresos_extras' => $this->detalleIngresosExtras,
             'detalle_gastos_extras' => $this->detalleGastosExtras,
+            'traslados_boveda' => $this->trasladosBoveda,
+            'total_traslados_boveda' => (float) $this->totalTrasladosBoveda,
         ];
     }
 }
