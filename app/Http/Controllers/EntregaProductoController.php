@@ -515,6 +515,17 @@ class EntregaProductoController extends Controller
                 $validated['fecha_anulacion'] = null;
                 $validated['motivo_anulacion'] = null;
                 $validated['user_anulacion_id'] = null;
+
+                // Recalcular cantidad_pendiente en las UDV: decrementar la
+                // cantidad entregada de cada detalle.
+                foreach ($entrega->productosEntregados as $detalle) {
+                    $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
+                    if ($unidadDerivadaVenta) {
+                        $cantidadEntregada = (float) $detalle->cantidad_entregada;
+                        $nuevaPendiente = max(0.0, (float) $unidadDerivadaVenta->cantidad_pendiente - $cantidadEntregada);
+                        $unidadDerivadaVenta->update(['cantidad_pendiente' => $nuevaPendiente]);
+                    }
+                }
             }
 
             // Update entrega
@@ -557,14 +568,22 @@ class EntregaProductoController extends Controller
             'motivo.min' => 'El motivo debe tener al menos 5 caracteres.',
         ]);
 
-        return DB::transaction(function () use ($id, $validated) {
-            $entrega = EntregaProducto::findOrFail($id);
+            return DB::transaction(function () use ($id, $validated) {
+            $entrega = EntregaProducto::with('productosEntregados')->findOrFail($id);
 
             if (!in_array($entrega->estado_entrega, ['en', 'ec'])) {
                 return response()->json([
                     'message' => 'Solo se pueden anular entregas que estén En Camino o Entregadas.',
                     'error' => 'ESTADO_NO_ANULABLE',
                 ], 422);
+            }
+
+            // Revertir cantidad_pendiente en las UDV al anular
+            foreach ($entrega->productosEntregados as $detalle) {
+                $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
+                if ($unidadDerivadaVenta) {
+                    $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_entregada);
+                }
             }
 
             $entrega->update([
