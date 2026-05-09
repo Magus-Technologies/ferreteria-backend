@@ -1192,6 +1192,19 @@ class VentaController extends Controller
                 EntregaProducto::where('venta_id', $id)
                     ->whereIn('estado_entrega', ['en', 'ec'])
                     ->update(['estado_entrega' => 'pe']);
+
+                // Si el usuario editó con descontar_stock=si y tipo_despacho
+                // de entrega inmediata (EnTienda='et' o Domicilio='do' sin
+                // programar), marcar las entregas pendientes como entregadas
+                // automáticamente — igual que al crear la venta nueva.
+                $noDescontarStockEdit = ($validated['descontar_stock'] ?? 'si') === 'no';
+                $tipoDespachoEdit = $validated['tipo_despacho'] ?? $tipoDespachoAnterior;
+                $esEntregaInmediata = in_array($tipoDespachoEdit, ['et', 'do']);
+                if (!$noDescontarStockEdit && $esEntregaInmediata) {
+                    EntregaProducto::where('venta_id', $id)
+                        ->where('estado_entrega', 'pe')
+                        ->update(['estado_entrega' => 'en']);
+                }
             }
 
             // Ajustar stock según transición de estado + tipo_despacho
