@@ -12,6 +12,8 @@ interface SunatApiServiceInterface
     public function generarXmlFactura(array $data): string;
     public function generarYEnviarGuiaRemision(array $data): array;
     public function generarXmlGuiaRemision(array $data): string;
+    public function generarXmlComunicacionBaja(array $data): string;
+    public function generarYEnviarComunicacionBaja(array $data): array;
     public function consultarEstado(string $ruc, string $tipoDoc, string $serie, string $numero): array;
     public function esModoSimulacion(): bool;
     public function obtenerDatosEmpresa(): array;

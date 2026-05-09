@@ -318,6 +318,55 @@ class SunatApiService implements SunatApiServiceInterface
         ];
     }
 
+    public function generarXmlComunicacionBaja(array $data): string
+    {
+        $payload = $this->buildComunicacionBajaPayload($data);
+        $response = Http::timeout(60)->post("{$this->baseUrl}/generar/comunicacion/baja", $payload);
+
+        if ($response->failed()) {
+            throw new \Exception("Error al generar XML de comunicación de baja: " . $response->body());
+        }
+
+        $result = $response->json();
+        if (!($result['estado'] ?? false)) {
+            throw new \Exception($result['mensaje'] ?? 'Error desconocido al generar XML de baja');
+        }
+
+        return $result['data']['contenido_xml'] ?? '';
+    }
+
+    public function generarYEnviarComunicacionBaja(array $data): array
+    {
+        try {
+            $xmlResult = $this->callGenerarComunicacionBaja($data);
+            $sendResult = $this->callEnviarDocumento(
+                $xmlResult['nombre_archivo'],
+                $xmlResult['contenido_xml']
+            );
+
+            $cdrContent = $sendResult['cdr'] ?? '';
+
+            return [
+                'success' => true,
+                'xml' => $xmlResult['contenido_xml'],
+                'cdr' => $cdrContent,
+                'hash_cpe' => $xmlResult['hash'],
+                'hash_cdr' => hash('sha256', base64_decode($cdrContent) ?: $cdrContent),
+                'codigo_sunat' => '0',
+                'mensaje_sunat' => $sendResult['mensaje'] ?: 'Comunicación de Baja aceptada',
+                'modo' => strtoupper($this->getEmpresa()['modo']),
+            ];
+        } catch (\Exception $e) {
+            Log::error('[SunatApiService] Error generarYEnviarComunicacionBaja', ['error' => $e->getMessage()]);
+            return [
+                'success' => false, 'xml' => '', 'cdr' => '',
+                'hash_cpe' => '', 'hash_cdr' => '',
+                'codigo_sunat' => '98', 'mensaje_sunat' => $e->getMessage(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
+            ];
+        }
+    }
+
     public function esModoSimulacion(): bool
     {
         return false;
@@ -561,6 +610,59 @@ class SunatApiService implements SunatApiServiceInterface
         }
 
         return $payload;
+    }
+
+    private function callGenerarComunicacionBaja(array $data): array
+    {
+        $payload = $this->buildComunicacionBajaPayload($data);
+        $response = Http::timeout(60)->post("{$this->baseUrl}/generar/comunicacion/baja", $payload);
+
+        if ($response->failed()) {
+            throw new \Exception("Error al generar comunicación de baja: " . $response->body());
+        }
+
+        $result = $response->json();
+        if (!($result['estado'] ?? false)) {
+            throw new \Exception($result['mensaje'] ?? 'Error desconocido');
+        }
+
+        return $result['data'];
+    }
+
+    private function buildComunicacionBajaPayload(array $data): array
+    {
+        $empresa = $this->getEmpresa();
+        $detalles = $data['detalles'] ?? [];
+
+        $detallesFormateados = [];
+        foreach ($detalles as $item) {
+            $detallesFormateados[] = [
+                'tipo_doc' => $item['tipo_doc'] ?? '03',
+                'serie' => $item['serie'] ?? '',
+                'correlativo' => $item['correlativo'] ?? '',
+                'motivo' => $item['motivo'] ?? '',
+            ];
+        }
+
+        return [
+            'endpoint' => $empresa['modo'],
+            'correlativo' => $data['correlativo'] ?? '001',
+            'fecha_generacion' => $data['fecha_generacion'] ?? now()->format('Y-m-d'),
+            'fecha_comunicacion' => $data['fecha_comunicacion'] ?? now()->format('Y-m-d'),
+            'empresa' => [
+                'ruc' => (int) $empresa['ruc'],
+                'usuario' => $empresa['usuario'],
+                'clave' => $empresa['clave'],
+                'razon_social' => $empresa['razon_social'],
+                'nombreComercial' => $empresa['nombreComercial'],
+                'direccion' => $empresa['direccion'],
+                'ubigeo' => $empresa['ubigeo'],
+                'distrito' => $empresa['distrito'],
+                'provincia' => $empresa['provincia'],
+                'departamento' => $empresa['departamento'],
+            ],
+            'detalles' => $detallesFormateados,
+        ];
     }
 
     private function extraerCodigoSunat(string $cdrBase64): string
