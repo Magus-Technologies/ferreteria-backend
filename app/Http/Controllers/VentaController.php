@@ -1204,6 +1204,12 @@ class VentaController extends Controller
                     EntregaProducto::where('venta_id', $id)
                         ->where('estado_entrega', 'pe')
                         ->update(['estado_entrega' => 'en']);
+
+                    // Poner cantidad_pendiente=0 en todas las UDV de esta venta
+                    // para que no aparezca como "Entregado Parcial".
+                    $pavIds = ProductoAlmacenVenta::where('venta_id', $id)->pluck('id');
+                    UnidadDerivadaInmutableVenta::whereIn('producto_almacen_venta_id', $pavIds)
+                        ->update(['cantidad_pendiente' => 0]);
                 }
             }
 
