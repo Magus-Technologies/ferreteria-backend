@@ -411,6 +411,22 @@ class CompraController extends Controller
             $tipoMonedaEnum = TipoMoneda::from($validated['tipo_moneda']);
 
 
+            // Calcular total_dolares solo si se provee tipo_de_cambio (compras en USD)
+            $tipoDeCambio = isset($validated['tipo_de_cambio']) && floatval($validated['tipo_de_cambio']) > 0
+                ? floatval($validated['tipo_de_cambio'])
+                : null;
+            $totalDolares = null;
+            if ($tipoDeCambio !== null && isset($validated['productos_por_almacen'])) {
+                $totalSoles = collect($validated['productos_por_almacen'])->sum(function ($producto) {
+                    return collect($producto['unidades_derivadas'] ?? [])->sum(function ($ud) use ($producto) {
+                        $bonificacion = $ud['bonificacion'] ?? false;
+                        $subtotal = $bonificacion ? 0 : (floatval($producto['costo']) * floatval($ud['factor']) * floatval($ud['cantidad']));
+                        return $subtotal + floatval($ud['flete'] ?? 0);
+                    });
+                }) + floatval($validated['percepcion'] ?? 0);
+                $totalDolares = $totalSoles / $tipoDeCambio;
+            }
+
             // Create compra
             $compra = Compra::create([
                 'id' => $validated['id'] ?? (string) \Illuminate\Support\Str::ulid(),
@@ -421,6 +437,7 @@ class CompraController extends Controller
                 'forma_de_pago' => $formaDePagoEnum,
                 'tipo_moneda' => $tipoMonedaEnum,
                 'tipo_de_cambio' => $validated['tipo_de_cambio'] ?? null,
+                'total_dolares' => $totalDolares,
                 'percepcion' => $validated['percepcion'] ?? null,
                 'numero_dias' => $validated['numero_dias'] ?? null,
                 'fecha_vencimiento' => $validated['fecha_vencimiento'] ?? null,
@@ -731,6 +748,35 @@ class CompraController extends Controller
                 } elseif (!in_array($key, ['productos_por_almacen', 'id', 'metodos_de_pago'])) {
                     $updateData[$key] = $value;
                 }
+            }
+
+            // Recalcular total_dolares si cambió el TC o los productos
+            // array_key_exists en lugar de isset porque isset() ignora null
+            $tcFinal = array_key_exists('tipo_de_cambio', $validated)
+                ? floatval($validated['tipo_de_cambio'])
+                : floatval($compra->tipo_de_cambio ?? 0);
+
+            if ($tcFinal > 0) {
+                $productosParaCalculo = $validated['productos_por_almacen'] ?? null;
+
+                if ($productosParaCalculo !== null) {
+                    // Recalcular con los productos nuevos
+                    $totalSoles = collect($productosParaCalculo)->sum(function ($producto) {
+                        return collect($producto['unidades_derivadas'] ?? [])->sum(function ($ud) use ($producto) {
+                            $bonificacion = $ud['bonificacion'] ?? false;
+                            $subtotal = $bonificacion ? 0 : (floatval($producto['costo']) * floatval($ud['factor']) * floatval($ud['cantidad']));
+                            return $subtotal + floatval($ud['flete'] ?? 0);
+                        });
+                    }) + floatval($validated['percepcion'] ?? $compra->percepcion ?? 0);
+                } else {
+                    // Recalcular con los productos existentes
+                    $compra->load('productosPorAlmacen.unidadesDerivadas');
+                    $totalSoles = $this->getTotalCompra($compra);
+                }
+
+                $updateData['total_dolares'] = $totalSoles / $tcFinal;
+            } else {
+                $updateData['total_dolares'] = null;
             }
 
             // Update compra
@@ -1324,6 +1370,7 @@ class CompraController extends Controller
         $validated = $request->validate([
             'despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
             'monto' => 'required|numeric|min:0.01',
+            'tipo_de_cambio' => 'nullable|numeric|min:0.0001',
             'fecha' => 'required|date',
             'observacion' => 'nullable|string',
             'afecta_caja' => 'required|boolean',
@@ -1357,6 +1404,7 @@ class CompraController extends Controller
             $pago = $compra->pagosDeCompras()->create([
                 'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
                 'monto' => $validated['monto'],
+                'tipo_de_cambio' => $validated['tipo_de_cambio'] ?? null,
                 'fecha' => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
                 'observacion' => $validated['observacion'] ?? null,
                 'numero_letra' => $validated['numero_letra'] ?? null,

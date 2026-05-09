@@ -31,6 +31,7 @@ class PagoDeCompra extends Model
         'compra_id',
         'despliegue_de_pago_id',
         'monto',
+        'tipo_de_cambio',
         'numero_letra',
         'numero_operacion',
         'fecha',
@@ -46,6 +47,7 @@ class PagoDeCompra extends Model
         return [
             'estado' => 'boolean',
             'monto' => 'decimal:2',
+            'tipo_de_cambio' => 'decimal:4',
         ];
     }
 
