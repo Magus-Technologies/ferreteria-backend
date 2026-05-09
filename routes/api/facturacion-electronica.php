@@ -6,6 +6,7 @@ use App\Http\Controllers\FacturacionElectronica\FacturaController;
 use App\Http\Controllers\FacturacionElectronica\MotivoNotaController;
 use App\Http\Controllers\FacturacionElectronica\ComprobanteElectronicoController;
 use App\Http\Controllers\ConfiguracionController;
+use App\Http\Controllers\ComunicacionBajaController;
 use App\Models\ComprobanteElectronico;
 use Illuminate\Support\Facades\Route;
 
@@ -101,5 +102,11 @@ Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->middlewa
         Route::get('/{ventaId}/xml', [FacturaController::class, 'verXml']);
         Route::get('/{ventaId}/cdr', [FacturaController::class, 'descargarCdr']);
         Route::get('/validar-venta/{ventaId}', [FacturaController::class, 'validarVenta']);
+    });
+
+    // ========== COMUNICACIONES DE BAJA ==========
+    Route::prefix('comunicacion-baja')->group(function () {
+        Route::post('/generar-xml', [ComunicacionBajaController::class, 'generarXml']);
+        Route::post('/enviar', [ComunicacionBajaController::class, 'enviarBaja']);
     });
 });
