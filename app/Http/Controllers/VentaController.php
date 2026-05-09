@@ -2117,6 +2117,11 @@ class VentaController extends Controller
                     $query->where('estado', true);
                 }
             ], 'monto')
+            ->withMax([
+                'cobrosVenta as ultimo_pago' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'fecha')
             ->where('forma_de_pago', FormaDePago::Credito)
             ->when($estadoPago === 'pendientes', function ($q) {
                 // Pendientes: solo ventas aún abiertas (Creado)
