@@ -2144,12 +2144,20 @@ class VentaController extends Controller
             $query->where('user_id', $request->user_id);
         }
 
-        if ($request->has('desde')) {
-            $query->whereDate('fecha', '>=', $request->desde);
-        }
-
-        if ($request->has('hasta')) {
-            $query->whereDate('fecha', '<=', $request->hasta);
+        if ($request->has('desde') || $request->has('hasta')) {
+            // Filtrar siempre por la fecha del último cobro. Si no tiene cobros, usar la fecha de la venta.
+            if ($request->has('desde')) {
+                $query->whereRaw(
+                    'COALESCE((SELECT MAX(cv.fecha) FROM cobroventa cv WHERE cv.venta_id = venta.id AND cv.estado = 1), venta.fecha) >= ?',
+                    [$request->desde]
+                );
+            }
+            if ($request->has('hasta')) {
+                $query->whereRaw(
+                    'COALESCE((SELECT MAX(cv.fecha) FROM cobroventa cv WHERE cv.venta_id = venta.id AND cv.estado = 1), venta.fecha) <= ?',
+                    [$request->hasta . ' 23:59:59']
+                );
+            }
         }
 
         // Filtro por días a vencer (ej: ventas que vencen en 15 días desde hoy)
