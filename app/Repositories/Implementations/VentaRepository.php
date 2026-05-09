@@ -14,7 +14,7 @@ class VentaRepository implements VentaRepositoryInterface
         // Obtener la apertura con el user_id que aperturó la caja
         $apertura = DB::table('apertura_cierre_caja')
             ->where('id', $aperturaId)
-            ->first(['user_id', 'fecha_apertura', 'fecha_cierre']);
+            ->first(['user_id', 'sub_caja_id', 'fecha_apertura', 'fecha_cierre']);
 
         if (!$apertura) {
             return collect([]);
@@ -30,7 +30,12 @@ class VentaRepository implements VentaRepositoryInterface
             : $limiteMaximo;
 
         $ventas = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
-            ->where('user_id', $apertura->user_id)
+            ->whereIn('id', function($query) use ($apertura) {
+                $query->select('referencia_id')
+                    ->from('transacciones_caja')
+                    ->where('referencia_tipo', 'venta')
+                    ->where('sub_caja_id', $apertura->sub_caja_id);
+            })
             ->whereBetween('fecha', [$inicioDia, $finDia])
             ->get();
 

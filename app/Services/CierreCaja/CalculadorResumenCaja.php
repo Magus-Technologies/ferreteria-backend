@@ -120,7 +120,9 @@ class CalculadorResumenCaja
             totalIngresosExtras: $clasificacion['total_ingresos_extras'],
             totalGastosExtras: $clasificacion['total_gastos_extras'],
             detalleIngresosExtras: $detalleIngresosExtras,
-            detalleGastosExtras: $detalleGastosExtras
+            detalleGastosExtras: $detalleGastosExtras,
+            trasladosBoveda: $clasificacion['traslados_boveda'] ?? collect([]),
+            totalTrasladosBoveda: $clasificacion['total_traslados_boveda'] ?? 0
         );
 
 
