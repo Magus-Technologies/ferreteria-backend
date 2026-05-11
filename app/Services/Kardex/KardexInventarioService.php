@@ -380,11 +380,11 @@ class KardexInventarioService
 
     /**
      * Registra una anulación de ingreso en kardex inventario
-     * CORRECCIÓN: Pasar factor explícitamente
+     * CORRECCIÓN: Pasar factor explícitamente y usar stock_anterior_override
      */
-    public function registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 6)
+    public function registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 6, $stockAnteriorOverride = null)
     {
-        return $this->registrar([
+        $dataToRegister = [
             'tipo' => 'cuadre',
             'movimiento' => 'ENTRADA ANULADO',
             'fecha' => now(),
@@ -403,16 +403,23 @@ class KardexInventarioService
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'almacen_id' => $ingresoSalida->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+        
+        // Si se proporciona un stock anterior específico, usarlo en lugar del actual
+        if ($stockAnteriorOverride !== null) {
+            $dataToRegister['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+
+        return $this->registrar($dataToRegister);
     }
 
     /**
      * Registra una anulación de salida en kardex inventario
-     * CORRECCIÓN: Pasar factor explícitamente
+     * CORRECCIÓN: Pasar factor explícitamente y usar stock_anterior_override
      */
-    public function registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 7)
+    public function registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidad, $costo, $orden = 7, $stockAnteriorOverride = null)
     {
-        return $this->registrar([
+        $dataToRegister = [
             'tipo' => 'cuadre',
             'movimiento' => 'SALIDA ANULADO',
             'fecha' => now(),
@@ -431,7 +438,14 @@ class KardexInventarioService
             'producto_codigo' => $productoAlmacen->producto->cod_producto,
             'almacen_id' => $ingresoSalida->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+        
+        // Si se proporciona un stock anterior específico, usarlo en lugar del actual
+        if ($stockAnteriorOverride !== null) {
+            $dataToRegister['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+
+        return $this->registrar($dataToRegister);
     }
 
     /**
