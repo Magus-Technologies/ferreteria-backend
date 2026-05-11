@@ -321,9 +321,9 @@ class IngresoSalidaController extends Controller
                     $costo = (float) $detalle->costo;
 
                     if ($esIngreso) {
-                        $kardexService->registrarIngreso($ingresoSalidaConRelaciones, $productoAlmacenKardex, $ud, $costo);
+                        $kardexService->registrarIngreso($ingresoSalidaConRelaciones, $productoAlmacenKardex, $ud, $costo, 3, $stockAnterior);
                     } else {
-                        $kardexService->registrarSalida($ingresoSalidaConRelaciones, $productoAlmacenKardex, $ud, $costo);
+                        $kardexService->registrarSalida($ingresoSalidaConRelaciones, $productoAlmacenKardex, $ud, $costo, 4, $stockAnterior);
                     }
                 }
             }
