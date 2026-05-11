@@ -233,7 +233,11 @@ class EntregaProductoPdfService
             $cantidadAnterior = (float) ($anterioresAgrupados[$clave]['cantidad'] ?? 0);
             $cantidadActual = (float) ($actual['cantidad'] ?? 0);
             $recibido = max($cantidadAnterior - $cantidadActual, 0);
-            $pendiente = max($cantidadActual - $cantidadAnterior, 0);
+            $entregadoActual = (float) ($actual['entregado'] ?? 0);
+            $pendienteActual = (float) ($actual['pendiente'] ?? 0);
+            $entregado = $recibido > 0
+                ? max($entregadoActual - min($cantidadAnterior, $cantidadActual), 0)
+                : $entregadoActual;
 
             $filas[] = [
                 'codigo' => $actual['codigo'],
@@ -244,8 +248,8 @@ class EntregaProductoPdfService
                 // reflejar solo la nueva acción física pendiente: recibir de
                 // vuelta o entregar diferencia. Lo que el cliente conserva no
                 // se cuenta como "entregado" otra vez.
-                'entregado' => 0,
-                'pendiente' => $pendiente,
+                'entregado' => $entregado,
+                'pendiente' => $pendienteActual,
             ];
         }
 
@@ -304,7 +308,6 @@ class EntregaProductoPdfService
     private function prepararProductos(EntregaProducto $entrega): array
     {
         $productos = [];
-        $yaEntregada = $entrega->estado_entrega === 'en';
 
         foreach ($entrega->productosEntregados as $detalle) {
             $udv = $detalle->unidadDerivadaVenta;
@@ -313,8 +316,10 @@ class EntregaProductoPdfService
             $producto = $pa?->producto;
 
             $total = (float) ($udv->cantidad ?? $detalle->cantidad_entregada ?? 0);
-            $entregado = $yaEntregada ? $total : 0;
-            $pendiente = $total - $entregado;
+            $pendiente = $udv && $udv->cantidad_pendiente !== null
+                ? (float) $udv->cantidad_pendiente
+                : max(0.0, $total - (float) $detalle->cantidad_entregada);
+            $entregado = max(0.0, $total - $pendiente);
 
             $productos[] = [
                 'codigo' => $producto->cod_producto ?? '',
