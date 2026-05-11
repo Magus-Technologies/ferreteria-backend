@@ -415,6 +415,7 @@ class ProductoRepository implements ProductoRepositoryInterface
             $vencimiento = \Carbon\Carbon::parse($item->{$dateField})->startOfDay();
             return (object) [
                 'name' => $item->name,
+                'cod_producto' => $item->cod_producto ?? '',
                 'cantidad' => (float) $item->{$qtyField},
                 'stock_min' => $item->stock_min,
                 'almacen' => $item->almacen,
@@ -450,6 +451,7 @@ class ProductoRepository implements ProductoRepositoryInterface
             return $query->select([
                 'p.id as producto_id',
                 'p.name as name',
+                'p.cod_producto as cod_producto',
                 "ud.$qtyField as cantidad",
                 'p.stock_min',
                 'a.name as almacen',

@@ -521,9 +521,10 @@ class EntregaProductoController extends Controller
                 foreach ($entrega->productosEntregados as $detalle) {
                     $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
                     if ($unidadDerivadaVenta) {
-                        $cantidadEntregada = (float) $detalle->cantidad_entregada;
-                        $nuevaPendiente = max(0.0, (float) $unidadDerivadaVenta->cantidad_pendiente - $cantidadEntregada);
-                        $unidadDerivadaVenta->update(['cantidad_pendiente' => $nuevaPendiente]);
+                        $pendienteActual = (float) $unidadDerivadaVenta->cantidad_pendiente;
+                        $cantidadEntregadaAcumulada = (float) $detalle->cantidad_entregada + $pendienteActual;
+                        $detalle->update(['cantidad_entregada' => $cantidadEntregadaAcumulada]);
+                        $unidadDerivadaVenta->update(['cantidad_pendiente' => 0.0]);
                     }
                 }
             }
