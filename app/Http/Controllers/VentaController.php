@@ -545,12 +545,19 @@ class VentaController extends Controller
                 )->get();
 
                 foreach ($unidadesVenta as $unidad) {
+                    $cantidadEntregadaInicial = $estadoEntregaAuto === 'en'
+                        ? (float) $unidad->cantidad
+                        : 0.0;
                     DetalleEntregaProducto::create([
                         'entrega_producto_id' => $entregaAuto->id,
                         'unidad_derivada_venta_id' => $unidad->id,
-                        'cantidad_entregada' => $unidad->cantidad,
+                        'cantidad_entregada' => $cantidadEntregadaInicial,
                     ]);
-                    $unidad->update(['cantidad_pendiente' => 0]);
+                    $unidad->update([
+                        'cantidad_pendiente' => $estadoEntregaAuto === 'en'
+                            ? 0
+                            : (float) $unidad->cantidad,
+                    ]);
                 }
             }
 
