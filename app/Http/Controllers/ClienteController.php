@@ -363,6 +363,7 @@ class ClienteController extends Controller
                 'cliente'     => $v->cliente,
                 'tipo_moneda' => $v->tipo_moneda,
                 'total'       => $total,
+                'costo'       => round($costoTotal, 2),
                 'ganancia'    => round($ganancia, 2),
             ];
         });
