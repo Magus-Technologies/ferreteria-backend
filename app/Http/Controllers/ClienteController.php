@@ -316,38 +316,63 @@ class ClienteController extends Controller
     {
         $cliente = Cliente::findOrFail($clienteId);
 
-        $ventas = \App\Models\Venta::with([
+        $query = \App\Models\Venta::with([
                 'cliente:id,numero_documento,nombres,apellidos,razon_social',
+                'productosPorAlmacen:id,venta_id,costo',
+                'productosPorAlmacen.unidadesDerivadas:id,producto_almacen_venta_id,cantidad,factor',
             ])
             ->where('recomendado_por_id', $clienteId)
-            ->whereNotIn('estado_de_venta', ['an']) // excluir anuladas
-            ->orderBy('created_at', 'desc')
+            ->whereNotIn('estado_de_venta', ['an']);
+
+        // Filtros opcionales por fecha
+        if (request('fecha_desde')) {
+            $query->whereDate('fecha', '>=', request('fecha_desde'));
+        }
+        if (request('fecha_hasta')) {
+            $query->whereDate('fecha', '<=', request('fecha_hasta'));
+        }
+
+        $ventas = $query->orderBy('fecha', 'desc')
             ->get(['id', 'serie', 'numero', 'fecha', 'cliente_id', 'tipo_moneda', 'created_at']);
 
-        // Calcular total cobrado por venta sumando despliegues de pago
         $ventaIds = $ventas->pluck('id');
+
+        // Total cobrado por venta
         $totalesPorVenta = \App\Models\DespliegueDePagoVenta::whereIn('venta_id', $ventaIds)
             ->selectRaw('venta_id, SUM(monto) as total')
             ->groupBy('venta_id')
             ->pluck('total', 'venta_id');
 
         $ventasData = $ventas->map(function ($v) use ($totalesPorVenta) {
+            $total = (float) ($totalesPorVenta[$v->id] ?? 0);
+
+            // Ganancia = total - costo total de productos
+            $costoTotal = 0;
+            foreach ($v->productosPorAlmacen as $pav) {
+                foreach ($pav->unidadesDerivadas as $ud) {
+                    $costoTotal += (float) $pav->costo * (float) $ud->cantidad * (float) $ud->factor;
+                }
+            }
+            $ganancia = $total - $costoTotal;
+
             return [
-                'id'         => $v->id,
-                'serie'      => $v->serie,
-                'numero'     => $v->numero,
-                'fecha'      => $v->fecha,
-                'cliente'    => $v->cliente,
-                'tipo_moneda'=> $v->tipo_moneda,
-                'total'      => (float) ($totalesPorVenta[$v->id] ?? 0),
+                'id'          => $v->id,
+                'serie'       => $v->serie,
+                'numero'      => $v->numero,
+                'fecha'       => $v->fecha,
+                'cliente'     => $v->cliente,
+                'tipo_moneda' => $v->tipo_moneda,
+                'total'       => $total,
+                'ganancia'    => round($ganancia, 2),
             ];
         });
 
         return response()->json([
             'data' => [
-                'total_ventas' => $ventas->count(),
-                'monto_total'  => $ventasData->sum('total'),
-                'ventas'       => $ventasData,
+                'total_ventas'    => $ventas->count(),
+                'monto_total'     => $ventasData->sum('total'),
+                'ganancia_total'  => $ventasData->sum('ganancia'),
+                'ventas'          => $ventasData,
             ],
         ]);
     }
