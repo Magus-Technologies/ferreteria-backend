@@ -105,12 +105,17 @@ class KardexFinanzasService
                 v.id as referencia_id,
                 v.user_id,
                 m.metodo_de_pago_id,
-                mp.subcaja_id
+                mp.subcaja_id,
+                COALESCE(c.razon_social, CONCAT(c.nombres, ' ', c.apellidos), c.nombres) as cliente_nombre,
+                u.name as usuario_nombre,
+                NULL as proveedor_nombre
                FROM desplieguedepagoventa dpv
                JOIN desplieguedepago m ON m.id = dpv.despliegue_de_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
                LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                JOIN venta v ON v.id = dpv.venta_id
+               LEFT JOIN cliente c ON c.id = v.cliente_id
+               LEFT JOIN user u ON u.id = v.user_id
                WHERE v.estado_de_venta != 'an'";
         
         if ($metodoPagoId) { $sql .= " AND m.metodo_de_pago_id = ?"; $bindings[] = $metodoPagoId; }
@@ -158,12 +163,17 @@ class KardexFinanzasService
                 cv.id as referencia_id,
                 cv.user_id,
                 m.metodo_de_pago_id,
-                mp.subcaja_id
+                mp.subcaja_id,
+                COALESCE(c.razon_social, CONCAT(c.nombres, ' ', c.apellidos), c.nombres) as cliente_nombre,
+                u.name as usuario_nombre,
+                NULL as proveedor_nombre
                FROM cobroventa cv
                JOIN desplieguedepago m ON m.id = cv.despliegue_de_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
                LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                JOIN venta v ON v.id = cv.venta_id
+               LEFT JOIN cliente c ON c.id = v.cliente_id
+               LEFT JOIN user u ON u.id = cv.user_id
                WHERE cv.estado = 1";
         
         $bindingsActivos = [];
@@ -205,12 +215,17 @@ class KardexFinanzasService
                 cv.id as referencia_id,
                 cv.user_id,
                 m.metodo_de_pago_id,
-                mp.subcaja_id
+                mp.subcaja_id,
+                COALESCE(c.razon_social, CONCAT(c.nombres, ' ', c.apellidos), c.nombres) as cliente_nombre,
+                u.name as usuario_nombre,
+                NULL as proveedor_nombre
                FROM cobroventa cv
                JOIN desplieguedepago m ON m.id = cv.despliegue_de_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
                LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
                JOIN venta v ON v.id = cv.venta_id
+               LEFT JOIN cliente c ON c.id = v.cliente_id
+               LEFT JOIN user u ON u.id = cv.user_id
                WHERE cv.estado = 0";
         
         $bindingsAnulados = [];
@@ -236,7 +251,7 @@ class KardexFinanzasService
                 'COMPRA' as tipo,
                 'egreso' as movimiento,
                 pdc.fecha,
-                CONCAT('PAGO COMPRA ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, '')) as documento,
+                CONCAT('PAGO COMPRA ', COALESCE(comp.serie, ''), '-', COALESCE(comp.numero, '')) as documento,
                 CASE 
                     WHEN sc.id IS NOT NULL THEN 
                         CONCAT(
@@ -261,20 +276,25 @@ class KardexFinanzasService
                 0 as entrada,
                 pdc.monto as salida,
                 pdc.id as referencia_id,
-                c.user_id,
+                comp.user_id,
                 m.metodo_de_pago_id,
-                mp.subcaja_id
+                mp.subcaja_id,
+                NULL as cliente_nombre,
+                u.name as usuario_nombre,
+                prov.razon_social as proveedor_nombre
                FROM pagodecompra pdc
                JOIN desplieguedepago m ON m.id = pdc.despliegue_de_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
                LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
-               JOIN compra c ON c.id = pdc.compra_id
-               WHERE pdc.estado = 1 AND c.estado_de_compra != 'an'";
+               JOIN compra comp ON comp.id = pdc.compra_id
+               LEFT JOIN user u ON u.id = comp.user_id
+               LEFT JOIN proveedor prov ON prov.id = comp.proveedor_id
+               WHERE pdc.estado = 1 AND comp.estado_de_compra != 'an'";
 
         $bindingsActivos = [];
         if ($metodoPagoId) { $sqlActivos .= " AND m.metodo_de_pago_id = ?"; $bindingsActivos[] = $metodoPagoId; }
         if ($subCajaId) { $sqlActivos .= " AND mp.subcaja_id = ?"; $bindingsActivos[] = $subCajaId; }
-        if ($vendedorId) { $sqlActivos .= " AND c.user_id = ?"; $bindingsActivos[] = $vendedorId; }
+        if ($vendedorId) { $sqlActivos .= " AND comp.user_id = ?"; $bindingsActivos[] = $vendedorId; }
         if ($desde) { $sqlActivos .= " AND pdc.fecha >= ?"; $bindingsActivos[] = $desde . ' 00:00:00'; }
         if ($hasta) { $sqlActivos .= " AND pdc.fecha <= ?"; $bindingsActivos[] = $hasta . ' 23:59:59'; }
 
@@ -283,7 +303,7 @@ class KardexFinanzasService
                 'PAGO ANULADO' as tipo,
                 'ingreso' as movimiento,
                 COALESCE(pdc.fecha_anulacion, pdc.fecha) as fecha,
-                CONCAT('PAGO ANULADO ', COALESCE(c.serie, ''), '-', COALESCE(c.numero, '')) as documento,
+                CONCAT('PAGO ANULADO ', COALESCE(comp.serie, ''), '-', COALESCE(comp.numero, '')) as documento,
                 CASE 
                     WHEN sc.id IS NOT NULL THEN 
                         CONCAT(
@@ -308,20 +328,25 @@ class KardexFinanzasService
                 pdc.monto as entrada,
                 0 as salida,
                 pdc.id as referencia_id,
-                c.user_id,
+                comp.user_id,
                 m.metodo_de_pago_id,
-                mp.subcaja_id
+                mp.subcaja_id,
+                NULL as cliente_nombre,
+                u.name as usuario_nombre,
+                prov.razon_social as proveedor_nombre
                FROM pagodecompra pdc
                JOIN desplieguedepago m ON m.id = pdc.despliegue_de_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
                LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
-               JOIN compra c ON c.id = pdc.compra_id
-               WHERE pdc.estado = 0 AND c.estado_de_compra != 'an'";
+               JOIN compra comp ON comp.id = pdc.compra_id
+               LEFT JOIN user u ON u.id = comp.user_id
+               LEFT JOIN proveedor prov ON prov.id = comp.proveedor_id
+               WHERE pdc.estado = 0 AND comp.estado_de_compra != 'an'";
 
         $bindingsAnulados = [];
         if ($metodoPagoId) { $sqlAnulados .= " AND m.metodo_de_pago_id = ?"; $bindingsAnulados[] = $metodoPagoId; }
         if ($subCajaId) { $sqlAnulados .= " AND mp.subcaja_id = ?"; $bindingsAnulados[] = $subCajaId; }
-        if ($vendedorId) { $sqlAnulados .= " AND c.user_id = ?"; $bindingsAnulados[] = $vendedorId; }
+        if ($vendedorId) { $sqlAnulados .= " AND comp.user_id = ?"; $bindingsAnulados[] = $vendedorId; }
         if ($desde) { $sqlAnulados .= " AND COALESCE(pdc.fecha_anulacion, pdc.fecha) >= ?"; $bindingsAnulados[] = $desde . ' 00:00:00'; }
         if ($hasta) { $sqlAnulados .= " AND COALESCE(pdc.fecha_anulacion, pdc.fecha) <= ?"; $bindingsAnulados[] = $hasta . ' 23:59:59'; }
 
@@ -366,11 +391,15 @@ class KardexFinanzasService
                 ie.id as referencia_id,
                 ie.user_id,
                 m.metodo_de_pago_id,
-                mp.subcaja_id
+                mp.subcaja_id,
+                NULL as cliente_nombre,
+                u.name as usuario_nombre,
+                NULL as proveedor_nombre
                FROM ingresos_extras ie
                JOIN desplieguedepago m ON m.id = ie.despliegue_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
                LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
+               LEFT JOIN user u ON u.id = ie.user_id
                WHERE ie.estado = 'aprobado'";
 
         if ($metodoPagoId) { $sql .= " AND m.metodo_de_pago_id = ?"; $bindings[] = $metodoPagoId; }
@@ -416,11 +445,15 @@ class KardexFinanzasService
                 ge.id as referencia_id,
                 ge.user_id,
                 m.metodo_de_pago_id,
-                mp.subcaja_id
+                mp.subcaja_id,
+                NULL as cliente_nombre,
+                u.name as usuario_nombre,
+                NULL as proveedor_nombre
                FROM gastos_extras ge
                JOIN desplieguedepago m ON m.id = ge.despliegue_pago_id
                JOIN metododepago mp ON mp.id = m.metodo_de_pago_id
                LEFT JOIN sub_cajas sc ON sc.id = mp.subcaja_id
+               LEFT JOIN user u ON u.id = ge.user_id
                WHERE 1=1";
 
         if ($metodoPagoId) { $sql .= " AND m.metodo_de_pago_id = ?"; $bindings[] = $metodoPagoId; }
