@@ -462,6 +462,7 @@ class RecepcionAlmacenController extends Controller
 
                 // 3. Procesar cada producto
                 $stocksAnteriores = []; // Guardar stocks anteriores para kardex
+                $costosAnteriores = []; // Guardar costos anteriores para kardex
                 
                 foreach ($request->productos_por_almacen as $productoData) {
                     $productoId = $productoData['producto_id'];
@@ -565,20 +566,15 @@ class RecepcionAlmacenController extends Controller
                     // Actualizar stock y costo del producto
                     $cantidadTotalProducto = $acumulado;
 
-                    $nuevoCosto = null;
-                    if ($stockBase <= 0) {
-                        $todasBonificacion = collect($productoData['unidades_derivadas'])
-                            ->every(fn($ud) => $ud['bonificacion'] ?? false);
-                        $nuevoCosto = $todasBonificacion ? 0 : $costo;
-                    }
-
                     $productoAlmacenModel = \App\Models\ProductoAlmacen::find($productoAlmacen->id);
                     if ($productoAlmacenModel) {
                         // Guardar el stock anterior ANTES de incrementar para el kardex
                         $stockAntesDeRecepcion = $productoAlmacenModel->stock_fraccion;
+                        $costoAnterior = $productoAlmacenModel->costo; // Guardar costo anterior ANTES de actualizar
                         
                         // Guardar en array para usar después en kardex
                         $stocksAnteriores["{$productoId}_{$almacenId}"] = $stockAntesDeRecepcion;
+                        $costosAnteriores["{$productoId}_{$almacenId}"] = $costoAnterior;
                         
                         // Incrementar stock
                         $productoAlmacenModel->increment('stock_fraccion', $cantidadTotalProducto);
@@ -586,10 +582,18 @@ class RecepcionAlmacenController extends Controller
                         // Recargar el modelo para obtener el stock actualizado
                         $productoAlmacenModel->refresh();
                         
-                        if ($nuevoCosto !== null) {
-                            $productoAlmacenModel->update(['costo' => $nuevoCosto]);
+                        // Actualizar el costo al nuevo costo (no promediar)
+                        // El kardex registrará costo_anterior (costo viejo) y costo_actual (costo nuevo)
+                        $todasBonificacion = collect($productoData['unidades_derivadas'])
+                            ->every(fn($ud) => $ud['bonificacion'] ?? false);
+                        
+                        if (!$todasBonificacion && $costo > 0) {
+                            $productoAlmacenModel->update(['costo' => $costo]);
+                        } elseif ($todasBonificacion) {
+                            $productoAlmacenModel->update(['costo' => 0]);
                         }
-                        \Illuminate\Support\Facades\Log::info("Stock actualizado en store (Recepcion): AlmacenProducto {$productoAlmacen->id}, Incremento: {$cantidadTotalProducto}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}");
+                        
+                        \Illuminate\Support\Facades\Log::info("Stock actualizado en store (Recepcion): AlmacenProducto {$productoAlmacen->id}, Incremento: {$cantidadTotalProducto}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}, Costo Anterior: {$costoAnterior}, Nuevo Costo: {$costo}");
                     }
 
                     app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
@@ -640,7 +644,8 @@ class RecepcionAlmacenController extends Controller
                                 $unidadTemporal,
                                 $costo,
                                 2,
-                                $stockOverride
+                                $stockOverride,
+                                $costosAnteriores["{$productoId}_{$almacenId}"] ?? null
                             );
 
                             $acumuladoKardex += (float) $udData['cantidad'] * (float) $udData['factor'];

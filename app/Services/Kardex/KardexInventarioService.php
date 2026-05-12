@@ -87,24 +87,18 @@ class KardexInventarioService
         $cantSalida = (float) ($data['salida'] ?? 0);
         $stockActualFraccion = $stockAnteriorFraccion + $cantIngreso - $cantSalida;
         
-        // 5.1. Calcular costo anterior y actual (costo promedio ponderado)
-        $costoAnterior = $productoAlmacen ? (float) $productoAlmacen->costo : 0;
-        $costoActual = $costoAnterior;
-        
-        // Si hay ingreso con costo, recalcular el costo promedio ponderado
-        if ($cantIngreso > 0 && isset($data['costo']) && $data['costo'] > 0) {
-            $costoIngreso = (float) $data['costo'];
-            
-            // Costo promedio ponderado = (Stock anterior * Costo anterior + Cantidad ingreso * Costo ingreso) / Stock actual
-            if ($stockActualFraccion > 0) {
-                $costoActual = (($stockAnteriorFraccion * $costoAnterior) + ($cantIngreso * $costoIngreso)) / $stockActualFraccion;
-            } else {
-                $costoActual = $costoIngreso;
-            }
-        }
+        // 5.1. Registrar costo anterior (del stock existente) y costo actual (del movimiento)
+        // NO es promedio ponderado, sino el costo del stock anterior y el costo del movimiento actual
+        $costoAnterior = isset($data['costo_anterior_override']) 
+            ? (float) $data['costo_anterior_override']
+            : ($productoAlmacen ? (float) $productoAlmacen->costo : 0);
+        $costoActual = isset($data['costo']) ? (float) $data['costo'] : $costoAnterior;
         
         $data['costo_anterior'] = $costoAnterior;
         $data['costo_actual'] = $costoActual;
+        
+        // Remover el override después de usarlo
+        unset($data['costo_anterior_override']);
         
         // 6. Guardar stocks en FRACCIÓN (no dividir por factor)
         // El frontend se encargará de formatear según la unidad derivada
@@ -221,7 +215,7 @@ class KardexInventarioService
      * Registra una recepción en kardex inventario
      * CORRECCIÓN: Pasar factor explícitamente y usar stock_anterior_override
      */
-    public function registrarRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 2, $stockAnteriorOverride = null)
+    public function registrarRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 2, $stockAnteriorOverride = null, $costoAnteriorOverride = null)
     {
         // Obtener proveedor de la compra asociada a la recepción
         $proveedorId = null;
@@ -261,6 +255,11 @@ class KardexInventarioService
         // Si se proporciona un stock anterior específico, usarlo en lugar del actual
         if ($stockAnteriorOverride !== null) {
             $dataToRegister['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+        
+        // Si se proporciona un costo anterior específico, usarlo en lugar del actual
+        if ($costoAnteriorOverride !== null) {
+            $dataToRegister['costo_anterior_override'] = $costoAnteriorOverride;
         }
 
         return $this->registrar($dataToRegister);
