@@ -90,9 +90,13 @@ class ProductoRepository implements ProductoRepositoryInterface
                             'compras' => function ($cq) {
                                 $cq->select('id', 'producto_almacen_id', 'costo', 'compra_id')
                                     ->with([
-                                        'compra:id,fecha,proveedor_id',
+                                        'compra:id,fecha,proveedor_id,user_id,tipo_documento,serie,numero',
                                         'compra.proveedor:id,razon_social',
-                                        'unidadesDerivadas',
+                                        'compra.user:id,name',
+                                        'unidadesDerivadas' => function ($udq) {
+                                            $udq->select('id', 'producto_almacen_compra_id', 'unidad_derivada_inmutable_id', 'factor', 'cantidad', 'lote', 'vencimiento', 'flete', 'bonificacion')
+                                                ->with('unidadDerivadaInmutable:id,name');
+                                        },
                                     ])
                                     ->orderBy('id', 'desc')
                                     ->limit(6);
@@ -136,7 +140,7 @@ class ProductoRepository implements ProductoRepositoryInterface
             END,
             name ASC
         ')->paginate($perPage);
-    }
+    }   
 
     /**
      * Get all products (no pagination)
