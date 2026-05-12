@@ -93,6 +93,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('direcciones/{id}', [ClienteController::class, 'actualizarDireccion']);
     Route::delete('direcciones/{id}', [ClienteController::class, 'eliminarDireccion']);
     Route::post('direcciones/{id}/marcar-principal', [ClienteController::class, 'marcarDireccionPrincipal']);
+    Route::get('clientes/{clienteId}/recomendaciones', [ClienteController::class, 'recomendaciones']);
     
     Route::apiResource('clientes', ClienteController::class)->middleware('broadcast:clientes');
 
