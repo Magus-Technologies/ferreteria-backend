@@ -126,6 +126,28 @@ class GananciasQueryFilter
     }
 
     /**
+     * Aplicar filtros para comisiones de vendedores
+     */
+    public function applyComisiones($query, string $prefijo = 'cp'): void
+    {
+        if (!empty($this->filtros['desde'])) {
+            $query->whereDate("{$prefijo}.fecha_pago", '>=', $this->filtros['desde']);
+        }
+
+        if (!empty($this->filtros['hasta'])) {
+            $query->whereDate("{$prefijo}.fecha_pago", '<=', $this->filtros['hasta']);
+        }
+
+        if (!empty($this->filtros['search'])) {
+            $search = $this->filtros['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('u.name', 'like', "%{$search}%")
+                    ->orWhere('cp.observacion', 'like', "%{$search}%");
+            });
+        }
+    }
+
+    /**
      * Aplicar filtros para pérdidas (ventas y salidas)
      */
     public function applyPerdidas($query, string $tipo = 'venta'): void

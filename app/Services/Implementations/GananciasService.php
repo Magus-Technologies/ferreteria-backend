@@ -171,7 +171,7 @@ class GananciasService implements GananciasServiceInterface
                 'ge.monto',
                 'ge.concepto as descripcion',
                 DB::raw("'GASTO OPERATIVO' as tipo_gasto"),
-                DB::raw("'gasto_extra' as tipo")
+                DB::raw("'gasto_operativo' as tipo")
             ])
             ->whereNull('c.id'); // Solo gastos que NO están asociados a compras
 
@@ -199,7 +199,26 @@ class GananciasService implements GananciasServiceInterface
         $filter->applyGastosCompras($queryGastosCompras);
         $gastosCompras = $queryGastosCompras->get();
 
-        $todosGastos = $gastosExtras->concat($gastosCompras)->sortByDesc('fecha')->values();
+        // Comisiones a vendedores (solo pagadas/confirmadas)
+        $queryComisiones = DB::table('comision_pago as cp')
+            ->join('user as u', 'cp.user_id', '=', 'u.id')
+            ->select([
+                'cp.id',
+                'cp.fecha_pago as fecha',
+                'cp.monto_pagado as monto',
+                DB::raw("CONCAT('Comisión a ', u.name, ' (', DATE_FORMAT(cp.periodo_desde, '%d/%m/%Y'), ' - ', DATE_FORMAT(cp.periodo_hasta, '%d/%m/%Y'), ')') as descripcion"),
+                DB::raw("'COMISIÓN VENDEDOR' as tipo_gasto"),
+                DB::raw("'comision_vendedor' as tipo"),
+                'u.name as vendedor',
+                'cp.metodo_pago',
+                'cp.observacion'
+            ])
+            ->orderBy('cp.fecha_pago', 'desc');
+
+        $filter->applyComisiones($queryComisiones);
+        $comisiones = $queryComisiones->get();
+
+        $todosGastos = $gastosExtras->concat($gastosCompras)->concat($comisiones)->sortByDesc('fecha')->values();
 
         // Calcular resumen
         $queryComprasPeriodo = DB::table('compra as comp')
