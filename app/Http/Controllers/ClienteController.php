@@ -240,14 +240,12 @@ class ClienteController extends Controller
         $activos = (clone $query)->where('estado', true)->count();
         $inactivos = (clone $query)->where('estado', false)->count();
 
-        // VIP: Empresas con información completa (email, teléfono y dirección)
+        // VIP: Empresas con información de contacto completa (email y teléfono)
         $vip = (clone $query)->where('tipo_cliente', 'e')
             ->whereNotNull('email')
             ->whereNotNull('telefono')
-            ->whereNotNull('direccion')
             ->where('email', '!=', '')
             ->where('telefono', '!=', '')
-            ->where('direccion', '!=', '')
             ->count();
 
         // Frecuentes: Clientes con información de contacto completa (email y teléfono)
@@ -257,20 +255,12 @@ class ClienteController extends Controller
             ->where('telefono', '!=', '')
             ->count();
 
-        // Problemáticos: Clientes inactivos o con información incompleta
-        $problematicos = (clone $query)->where(function ($q) {
-            $q->where('estado', false)
-              ->orWhere(function ($subQ) {
-                  $subQ->where(function ($emailQ) {
-                      $emailQ->whereNull('email')->orWhere('email', '');
-                  })->where(function ($telefonoQ) {
-                      $telefonoQ->whereNull('telefono')->orWhere('telefono', '');
-                  });
-              });
+        // Problemáticos: Clientes con calificación 'problematico' registrada
+        $problematicos = (clone $query)->whereHas('calificaciones', function ($q) {
+            $q->where('estado', 'problematico');
         })->count();
 
-        // Nuevos: No se puede calcular sin columna created_at
-        // La tabla cliente no tiene timestamps
+        // Nuevos: la tabla cliente no tiene timestamps, no se puede calcular
         $nuevos = 0;
 
         return response()->json([
@@ -363,6 +353,7 @@ class ClienteController extends Controller
                 'cliente'     => $v->cliente,
                 'tipo_moneda' => $v->tipo_moneda,
                 'total'       => $total,
+                'costo'       => round($costoTotal, 2),
                 'ganancia'    => round($ganancia, 2),
             ];
         });
