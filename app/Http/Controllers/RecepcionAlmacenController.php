@@ -580,7 +580,12 @@ class RecepcionAlmacenController extends Controller
                         // Guardar en array para usar después en kardex
                         $stocksAnteriores["{$productoId}_{$almacenId}"] = $stockAntesDeRecepcion;
                         
+                        // Incrementar stock
                         $productoAlmacenModel->increment('stock_fraccion', $cantidadTotalProducto);
+                        
+                        // Recargar el modelo para obtener el stock actualizado
+                        $productoAlmacenModel->refresh();
+                        
                         if ($nuevoCosto !== null) {
                             $productoAlmacenModel->update(['costo' => $nuevoCosto]);
                         }
@@ -597,15 +602,19 @@ class RecepcionAlmacenController extends Controller
                     $productoId = $productoData['producto_id'];
                     $almacenId = $productoData['almacen_id'];
                     $costo = $productoData['costo'];
-                    
-                    // Obtener el stock anterior guardado
-                    $stockAnteriorRecepcion = $stocksAnteriores["{$productoId}_{$almacenId}"] ?? null;
 
                     $productoAlmacen = \App\Models\ProductoAlmacen::where('producto_id', $productoId)
                         ->where('almacen_id', $almacenId)
                         ->first();
 
                     if ($productoAlmacen) {
+                        // Recargar para obtener el stock actualizado después de los incrementos
+                        $productoAlmacen->refresh();
+                        
+                        // El stock anterior para kardex es el stock ANTES de esta recepción
+                        // que ya fue guardado en $stocksAnteriores
+                        $stockAnteriorRecepcion = $stocksAnteriores["{$productoId}_{$almacenId}"] ?? null;
+                        
                         $acumuladoKardex = 0; // fracciones acumuladas para stock_anterior correcto por unidad
 
                         foreach ($productoData['unidades_derivadas'] as $udData) {
