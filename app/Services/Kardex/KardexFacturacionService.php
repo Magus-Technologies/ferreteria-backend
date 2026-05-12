@@ -507,9 +507,9 @@ class KardexFacturacionService
         // Combinar y ordenar por fecha asc, luego por orden
         $allRows = array_merge($kardexRows, $entregaRows);
         usort($allRows, function ($a, $b) {
-            $fa = $a->fecha ?? '';
-            $fb = $b->fecha ?? '';
-            if ($fa !== $fb) return strcmp($fa, $fb);
+            $fa = strtotime($a->fecha ?? '1970-01-01');
+            $fb = strtotime($b->fecha ?? '1970-01-01');
+            if ($fa !== $fb) return $fa <=> $fb;
             return ($a->orden ?? 0) <=> ($b->orden ?? 0);
         });
 
@@ -565,8 +565,16 @@ class KardexFacturacionService
             $rowsWithStockAll[] = (object) $rowData;
         }
 
-        // Invertir para mostrar los más recientes primero
+        // Invertir para mostrar los más recientes primero (descendente por fecha)
         $rowsWithStockAll = array_reverse($rowsWithStockAll);
+        
+        // Re-ordenar descendente por fecha y orden para mantener coherencia
+        usort($rowsWithStockAll, function ($a, $b) {
+            $fa = strtotime($a->fecha ?? '1970-01-01');
+            $fb = strtotime($b->fecha ?? '1970-01-01');
+            if ($fa !== $fb) return $fb <=> $fa; // Descendente
+            return ($b->orden ?? 0) <=> ($a->orden ?? 0); // Descendente
+        });
 
         if ($perPage == -1) {
             $rowsWithStock = $rowsWithStockAll;
