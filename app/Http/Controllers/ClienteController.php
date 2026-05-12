@@ -310,7 +310,49 @@ class ClienteController extends Controller
     // ============================================
 
     /**
-     * Listar todas las direcciones de un cliente
+     * Ventas donde este cliente fue el recomendador (recomendado_por_id = clienteId)
+     */
+    public function recomendaciones(int $clienteId): JsonResponse
+    {
+        $cliente = Cliente::findOrFail($clienteId);
+
+        $ventas = \App\Models\Venta::with([
+                'cliente:id,numero_documento,nombres,apellidos,razon_social',
+            ])
+            ->where('recomendado_por_id', $clienteId)
+            ->whereNotIn('estado_de_venta', ['an']) // excluir anuladas
+            ->orderBy('created_at', 'desc')
+            ->get(['id', 'serie', 'numero', 'fecha', 'cliente_id', 'tipo_moneda', 'created_at']);
+
+        // Calcular total cobrado por venta sumando despliegues de pago
+        $ventaIds = $ventas->pluck('id');
+        $totalesPorVenta = \App\Models\DespliegueDePagoVenta::whereIn('venta_id', $ventaIds)
+            ->selectRaw('venta_id, SUM(monto) as total')
+            ->groupBy('venta_id')
+            ->pluck('total', 'venta_id');
+
+        $ventasData = $ventas->map(function ($v) use ($totalesPorVenta) {
+            return [
+                'id'         => $v->id,
+                'serie'      => $v->serie,
+                'numero'     => $v->numero,
+                'fecha'      => $v->fecha,
+                'cliente'    => $v->cliente,
+                'tipo_moneda'=> $v->tipo_moneda,
+                'total'      => (float) ($totalesPorVenta[$v->id] ?? 0),
+            ];
+        });
+
+        return response()->json([
+            'data' => [
+                'total_ventas' => $ventas->count(),
+                'monto_total'  => $ventasData->sum('total'),
+                'ventas'       => $ventasData,
+            ],
+        ]);
+    }
+
+    /**
      */
     public function listarDirecciones(int $clienteId): JsonResponse
     {
