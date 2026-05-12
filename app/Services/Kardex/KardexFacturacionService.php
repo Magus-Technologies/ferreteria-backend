@@ -123,7 +123,7 @@ class KardexFacturacionService
         $data = [
             'tipo' => 'venta',
             'movimiento' => $movimiento,
-            'fecha' => $venta->fecha,
+            'fecha' => now(),
             'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad['unidad_derivada_inmutable_name'],
             'cantidad' => $unidad['cantidad'],
@@ -239,7 +239,7 @@ class KardexFacturacionService
         return $this->registrar([
             'tipo' => 'venta',
             'movimiento' => $movimiento,
-            'fecha' => $venta->fecha,
+            'fecha' => now(),
             'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad->unidadDerivadaInmutable->name,
             'cantidad' => $unidad->cantidad,
