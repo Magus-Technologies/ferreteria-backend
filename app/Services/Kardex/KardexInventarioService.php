@@ -270,7 +270,7 @@ class KardexInventarioService
      * Registra una anulación de recepción en kardex inventario
      * CORRECCIÓN: Pasar factor explícitamente
      */
-    public function registrarAnulacionRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 5)
+    public function registrarAnulacionRecepcion($recepcion, $productoAlmacen, $unidad, $costo, $orden = 5, $stockAnteriorOverride = null)
     {
         // Obtener proveedor de la compra asociada a la recepción
         $proveedorId = null;
@@ -284,7 +284,7 @@ class KardexInventarioService
             }
         }
 
-        return $this->registrar([
+        $dataToRegister = [
             'tipo' => 'recepcion_anulada',
             'movimiento' => 'ANULACION',
             'fecha' => now(),
@@ -305,7 +305,14 @@ class KardexInventarioService
             'proveedor_nombre' => $proveedorNombre,
             'almacen_id' => $productoAlmacen->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+        
+        // Si se proporciona un stock anterior específico, usarlo en lugar del actual
+        if ($stockAnteriorOverride !== null) {
+            $dataToRegister['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+
+        return $this->registrar($dataToRegister);
     }
 
     /**
