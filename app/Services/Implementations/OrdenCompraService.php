@@ -438,10 +438,8 @@ class OrdenCompraService implements OrdenCompraServiceInterface
                 'stock_nuevo'    => $stockAnterior + $incremento,
             ]);
 
-            $update = ['stock_fraccion' => DB::raw("stock_fraccion + {$incremento}")];
-            if ($stockAnterior <= 0) {
-                $update['costo'] = $prod->precio;
-            }
+            // Actualizar stock y costo (sin promediar, solo actualizar al nuevo costo)
+            $update = ['stock_fraccion' => DB::raw("stock_fraccion + {$incremento}"), 'costo' => $prod->precio];
             ProductoAlmacen::where('id', $paId)->update($update);
         }
 
