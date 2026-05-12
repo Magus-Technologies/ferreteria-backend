@@ -16,6 +16,10 @@ class ProductoAlmacen extends Model
         'almacen_id',
         'stock_fraccion',
         'costo',
+        'costo_anterior',
+        'costo_actual',
+        'stock_costo_anterior',
+        'stock_costo_actual',
         'ubicacion_id',
     ];
 
@@ -43,6 +47,10 @@ class ProductoAlmacen extends Model
         return [
             'stock_fraccion' => 'decimal:3',
             'costo' => 'decimal:4',
+            'costo_anterior' => 'decimal:4',
+            'costo_actual' => 'decimal:4',
+            'stock_costo_anterior' => 'decimal:3',
+            'stock_costo_actual' => 'decimal:3',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

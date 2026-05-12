@@ -576,24 +576,31 @@ class RecepcionAlmacenController extends Controller
                         $stocksAnteriores["{$productoId}_{$almacenId}"] = $stockAntesDeRecepcion;
                         $costosAnteriores["{$productoId}_{$almacenId}"] = $costoAnterior;
                         
-                        // Incrementar stock
-                        $productoAlmacenModel->increment('stock_fraccion', $cantidadTotalProducto);
-                        
-                        // Recargar el modelo para obtener el stock actualizado
-                        $productoAlmacenModel->refresh();
-                        
-                        // Actualizar el costo al nuevo costo (no promediar)
-                        // El kardex registrará costo_anterior (costo viejo) y costo_actual (costo nuevo)
+                        // Verificar si es bonificación
                         $todasBonificacion = collect($productoData['unidades_derivadas'])
                             ->every(fn($ud) => $ud['bonificacion'] ?? false);
                         
+                        // Usar el servicio de costo para actualizar con PEPS
+                        $costService = app(\App\Services\Producto\ProductoCostoService::class);
+                        
                         if (!$todasBonificacion && $costo > 0) {
-                            $productoAlmacenModel->update(['costo' => $costo]);
-                        } elseif ($todasBonificacion) {
-                            $productoAlmacenModel->update(['costo' => 0]);
+                            $costService->actualizarCostoConPEPS($productoAlmacenModel, $costo, $cantidadTotalProducto);
+                        } else {
+                            // Bonificación: solo incrementar stock sin cambiar costo
+                            $productoAlmacenModel->stock_fraccion += $cantidadTotalProducto;
+                            $productoAlmacenModel->stock_costo_actual += $cantidadTotalProducto;
+                            $productoAlmacenModel->costo = 0;
                         }
                         
-                        \Illuminate\Support\Facades\Log::info("Stock actualizado en store (Recepcion): AlmacenProducto {$productoAlmacen->id}, Incremento: {$cantidadTotalProducto}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}, Costo Anterior: {$costoAnterior}, Nuevo Costo: {$costo}");
+                        $productoAlmacenModel->save();
+                        
+                        \Illuminate\Support\Facades\Log::info(
+                            "Stock actualizado en store (Recepcion): AlmacenProducto {$productoAlmacen->id}, " .
+                            "Incremento: {$cantidadTotalProducto}, Nuevo Stock: {$productoAlmacenModel->stock_fraccion}, " .
+                            "Costo Anterior: {$costoAnterior}, Costo Actual: {$productoAlmacenModel->costo_actual}, " .
+                            "Stock Costo Anterior: {$productoAlmacenModel->stock_costo_anterior}, " .
+                            "Stock Costo Actual: {$productoAlmacenModel->stock_costo_actual}"
+                        );
                     }
 
                     app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);

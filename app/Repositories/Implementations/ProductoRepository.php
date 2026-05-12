@@ -75,7 +75,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                     if ($almacenId) {
                         $q->where('almacen_id', $almacenId);
                     }
-                    $q->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo')
+                    $q->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo', 'costo_anterior', 'costo_actual', 'stock_costo_anterior', 'stock_costo_actual')
                         ->with([
                             'ubicacion:id,name',
                             'unidadesDerivadas' => function ($udq) {

@@ -472,9 +472,15 @@ class VentaController extends Controller
 
                     if (! $pAlmacen) continue;
 
+                    // Usar servicio de costo para consumir stock con PEPS
+                    $costService = app(\App\Services\Producto\ProductoCostoService::class);
+
                     foreach ($producto['unidades_derivadas'] as $unidad) {
                         $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
-                        $pAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+                        
+                        // Consumir stock usando PEPS y obtener costo promedio
+                        $costService->consumirStockConPEPS($pAlmacen, $cantidadEnFraccion);
+                        $pAlmacen->save();
 
                         // Descontar producto complementario si existe
                         ComplementarioStockService::procesarComplementarioPorFactor(
@@ -1240,9 +1246,16 @@ class VentaController extends Controller
                     }
                     if (! $pAlmacen) continue;
 
+                    // Usar servicio de costo para consumir stock con PEPS
+                    $costService = app(\App\Services\Producto\ProductoCostoService::class);
+
                     foreach ($producto['unidades_derivadas'] as $unidad) {
                         $cantidadFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
-                        $pAlmacen->decrement('stock_fraccion', $cantidadFraccion);
+                        
+                        // Consumir stock usando PEPS
+                        $costService->consumirStockConPEPS($pAlmacen, $cantidadFraccion);
+                        $pAlmacen->save();
+                        
                         ComplementarioStockService::procesarComplementarioPorFactor(
                             $pAlmacen->id,
                             (float) $unidad['factor'],
