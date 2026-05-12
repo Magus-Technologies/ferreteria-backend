@@ -13,6 +13,7 @@ use Illuminate\Validation\ValidationException;
 
 class ClienteController extends Controller
 {
+    use \App\Traits\BroadcastsModelChanges;
     public function __construct(
         private DireccionClienteService $direccionService
     ) {}
@@ -149,6 +150,9 @@ class ClienteController extends Controller
 
         $cliente = Cliente::create($validated)->load(['direcciones', 'profesion']);
 
+        // Notificar a otras pestañas en tiempo real
+        $this->broadcastChange('clientes', 'created', (string) $cliente->id);
+
         return response()->json([
             'data' => $cliente,
             'message' => 'Cliente creado exitosamente'
@@ -215,6 +219,9 @@ class ClienteController extends Controller
 
         $cliente->update($validated);
         $cliente->load(['direcciones', 'profesion']);
+
+        // Notificar a otras pestañas en tiempo real
+        $this->broadcastChange('clientes', 'updated', (string) $cliente->id);
 
         return response()->json([
             'data' => $cliente,
@@ -300,6 +307,9 @@ class ClienteController extends Controller
         $cliente = Cliente::findOrFail($id);
 
         try {
+            // Notificar a otras pestañas en tiempo real ANTES de eliminar
+            $this->broadcastChange('clientes', 'deleted', (string) $cliente->id);
+            
             $cliente->delete();
 
             return response()->json([
