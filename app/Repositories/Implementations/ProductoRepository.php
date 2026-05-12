@@ -87,6 +87,16 @@ class ProductoRepository implements ProductoRepositoryInterface
                                     ->orderBy('orden', 'asc')
                                     ->orderBy('factor', 'desc');
                             },
+                            'compras' => function ($cq) {
+                                $cq->select('id', 'producto_almacen_id', 'costo', 'compra_id')
+                                    ->with([
+                                        'compra:id,fecha,proveedor_id',
+                                        'compra.proveedor:id,razon_social',
+                                        'unidadesDerivadas',
+                                    ])
+                                    ->orderBy('id', 'desc')
+                                    ->limit(6);
+                            },
                         ]);
                 },
             ]);
