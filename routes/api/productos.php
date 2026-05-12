@@ -43,7 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // REPORTES (antes de rutas con {id})
     // ============================================
     Route::prefix('productos')->group(function () {
-        Route::get('/venimientos', [ProductoController::class, 'venimientos']);
+        Route::get('/vencimientos', [ProductoController::class, 'vencimientos']);
     });
 
     // ============================================
