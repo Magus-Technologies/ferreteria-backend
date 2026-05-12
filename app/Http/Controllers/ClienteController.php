@@ -255,16 +255,9 @@ class ClienteController extends Controller
             ->where('telefono', '!=', '')
             ->count();
 
-        // Problemáticos: Clientes inactivos o sin ningún dato de contacto
-        $problematicos = (clone $query)->where(function ($q) {
-            $q->where('estado', false)
-              ->orWhere(function ($subQ) {
-                  $subQ->where(function ($emailQ) {
-                      $emailQ->whereNull('email')->orWhere('email', '');
-                  })->where(function ($telefonoQ) {
-                      $telefonoQ->whereNull('telefono')->orWhere('telefono', '');
-                  });
-              });
+        // Problemáticos: Clientes con calificación 'problematico' registrada
+        $problematicos = (clone $query)->whereHas('calificaciones', function ($q) {
+            $q->where('estado', 'problematico');
         })->count();
 
         // Nuevos: la tabla cliente no tiene timestamps, no se puede calcular

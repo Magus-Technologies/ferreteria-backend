@@ -61,6 +61,11 @@ class Cliente extends Model
         return $this->hasMany(DireccionCliente::class);
     }
 
+    public function calificaciones(): HasMany
+    {
+        return $this->hasMany(\App\Models\ClienteCalificacion::class);
+    }
+
     public function profesion(): BelongsTo
     {
         return $this->belongsTo(Profesion::class, 'profesion_id');
