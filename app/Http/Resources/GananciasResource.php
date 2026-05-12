@@ -30,7 +30,7 @@ class GananciasResource extends JsonResource
             'cant' => (float) $this->cant,
             'p_unit' => (float) $this->p_unit,
             'subtot' => (float) $this->subtot,
-            'costo_unit' => (float) $this->costo_unit,
+            'costo' => (float) $this->costo,
             'costo_total' => (float) $this->costo_total,
             'ganancia' => (float) $this->ganancia,
             'cc' => $this->cc,

@@ -58,7 +58,7 @@ class GananciasQueryBuilder
                 DB::raw("udiv.cantidad as cant"),
                 DB::raw("udiv.precio as p_unit"),
                 DB::raw("udiv.precio * udiv.cantidad as subtot"),
-                DB::raw(self::COSTO_EXPR . " as costo_unit"),
+                DB::raw(self::COSTO_EXPR . " as costo"),
                 DB::raw(self::COSTO_EXPR . " * udiv.cantidad as costo_total"),
                 DB::raw("(udiv.precio - " . self::COSTO_EXPR . ") * udiv.cantidad as ganancia"),
                 DB::raw("COALESCE(dp.id, 'SIN_METODO') as cc"),

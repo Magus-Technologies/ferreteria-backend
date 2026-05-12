@@ -366,6 +366,49 @@ class VentaController extends Controller
                 'almacen_id' => $validated['almacen_id'],
             ]);
 
+            // Calcular costos PEPS ANTES de crear ProductoAlmacenVenta
+            // Esto permite guardar el costo correcto en la venta
+            $costosCalculados = []; // Guardar costos PEPS por producto
+            $costService = app(\App\Services\Producto\ProductoCostoService::class);
+            
+            foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
+                $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
+                $productoAlmacen = null;
+                if ($productoAlmacenId) {
+                    $productoAlmacen = ProductoAlmacen::find($productoAlmacenId);
+                } else if (isset($producto['producto_id'])) {
+                    $productoAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
+                        ->where('almacen_id', $validated['almacen_id'])
+                        ->first();
+                }
+
+                if (! $productoAlmacen) {
+                    throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$validated['almacen_id']}");
+                }
+
+                // Calcular costo PEPS para este producto
+                // Hacer una copia del modelo para simular el consumo sin guardar
+                $productoAlmacenCopia = clone $productoAlmacen;
+                $costoPromedioPEPS = 0;
+                $cantidadTotalProducto = 0;
+                
+                foreach ($producto['unidades_derivadas'] as $unidad) {
+                    $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+                    $cantidadTotalProducto += $cantidadEnFraccion;
+                    
+                    // Simular consumo PEPS para obtener el costo
+                    $costoPEPS = $costService->consumirStockConPEPS($productoAlmacenCopia, $cantidadEnFraccion);
+                    $costoPromedioPEPS += $costoPEPS * $cantidadEnFraccion;
+                }
+                
+                // Guardar el costo promedio PEPS
+                if ($cantidadTotalProducto > 0) {
+                    $costosCalculados[$productoAlmacen->id] = $costoPromedioPEPS / $cantidadTotalProducto;
+                } else {
+                    $costosCalculados[$productoAlmacen->id] = $productoAlmacen->costo ?? 0;
+                }
+            }
+
             // Create productos_por_almacen and unidades_derivadas
             foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                 // Get producto_almacen_id (either provided or find by producto_id + almacen_id)
@@ -384,10 +427,13 @@ class VentaController extends Controller
                 }
 
                 $productoAlmacenId = $productoAlmacen->id;
+                
+                // Usar el costo PEPS calculado
+                $costoPEPS = $costosCalculados[$productoAlmacenId] ?? ($productoAlmacen->costo ?? 0);
 
                 $productoAlmacenVenta = ProductoAlmacenVenta::create([
                     'venta_id' => $venta->id,
-                    'costo' => (isset($producto['costo']) && $producto['costo'] > 0) ? $producto['costo'] : ($productoAlmacen->costo ?? 0),
+                    'costo' => $costoPEPS,
                     'producto_almacen_id' => $productoAlmacenId,
                     'paquete_id' => $producto['paquete_id'] ?? null,
                     'paquete_nombre' => $producto['paquete_nombre'] ?? null,
@@ -478,7 +524,7 @@ class VentaController extends Controller
                     foreach ($producto['unidades_derivadas'] as $unidad) {
                         $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
                         
-                        // Consumir stock usando PEPS y obtener costo promedio
+                        // Consumir stock usando PEPS
                         $costService->consumirStockConPEPS($pAlmacen, $cantidadEnFraccion);
                         $pAlmacen->save();
 
