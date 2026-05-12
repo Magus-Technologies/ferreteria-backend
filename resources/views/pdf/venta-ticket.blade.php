@@ -120,7 +120,6 @@
             @foreach($metodosPago as $mp)
             <tr>
                 <td style="font-size: 6pt;">{{ $mp['nombre'] }}</td>
-                <td class="text-right" style="font-size: 6pt;">{{ number_format($mp['monto'], 2) }}</td>
             </tr>
             @endforeach
         </table>
@@ -134,10 +133,10 @@
             <thead>
                 <tr style="border-bottom: 1px solid #000;">
                     <th class="text-bold" style="font-size: 6pt; text-align: left; width: 40%;">Descripci&oacute;n</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 12%;">Cant.</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 18%;">Unid.</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 15%;">P.U.</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 15%;">Subt.</th>
+                    <th class="text-bold" style="font-size: 6pt; text-align: center; width: 10%;">Cant.</th>
+                    <th class="text-bold" style="font-size: 6pt; text-align: center; width: 10%;">Unid.</th>
+                    <th class="text-bold" style="font-size: 6pt; text-align: right; width: 15%;">P.U.</th>
+                    <th class="text-bold" style="font-size: 6pt; text-align: right; width: 15%;">Subt.</th>
                 </tr>
             </thead>
             <tbody>
@@ -156,10 +155,10 @@
                     @endif
                 <tr style="border-bottom: 1px solid #000;{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
                     <td style="font-size: 6pt; padding: 3px 0;{{ !empty($p['paquete_id']) ? ' padding-left: 6px;' : '' }}">{{ $p['nombre'] }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($p['cantidad'], 0) }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ $p['unidad'] }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($p['precio'], 2) }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($p['subtotal'], 2) }}</td>
+                    <td style="font-size: 6pt; padding: 3px 0; text-align: center;">{{ number_format($p['cantidad'], 0) }}</td>
+                    <td style="font-size: 6pt; padding: 3px 0; text-align: center;">{{ $p['unidad'] }}</td>
+                    <td style="font-size: 6pt; padding: 3px 0; text-align: right;">{{ number_format($p['precio'], 2) }}</td>
+                    <td style="font-size: 6pt; padding: 3px 0; text-align: right;">{{ number_format($p['subtotal'], 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>

@@ -20,8 +20,11 @@ class VentaPdfService
         $venta = $this->obtenerVenta($ventaId);
         $empresa = $venta->user->empresa;
 
-        $productos = $this->prepararProductos($venta);
-        $calculos = $this->calcularTotales($productos);
+        // Calcular sobrecargo total de todos los métodos de pago
+        $sobrecargoTotal = $venta->despliegueDePagoVentas->sum('sobrecargo_aplicado') ?? 0;
+        
+        $productos = $this->prepararProductos($venta, $sobrecargoTotal);
+        $calculos = $this->calcularTotales($productos, $sobrecargoTotal);
 
         if ($formato === 'ticket') {
             return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales);
@@ -152,6 +155,7 @@ class VentaPdfService
             $metodosPago[] = [
                 'nombre' => $dp->despliegueDePago->name ?? '',
                 'monto' => (float) $dp->monto,
+                'sobrecargo_aplicado' => (float) ($dp->sobrecargo_aplicado ?? 0),
             ];
         }
 
@@ -274,10 +278,23 @@ class VentaPdfService
      * Los productos se ordenan para que los que pertenecen a un paquete
      * aparezcan agrupados bajo el nombre del paquete.
      */
-    private function prepararProductos(Venta $venta): array
+    private function prepararProductos(Venta $venta, float $sobrecargoTotal = 0): array
     {
         $productos = [];
+        $subtotalTotal = 0;
 
+        // Primera pasada: calcular subtotal total
+        foreach ($venta->productosPorAlmacen as $pa) {
+            foreach ($pa->unidadesDerivadas as $ud) {
+                $cantidad = (float) $ud->cantidad;
+                $precio = (float) $ud->precio;
+                $descuento = (float) ($ud->descuento ?? 0);
+                $subtotal = $cantidad * $precio;
+                $subtotalTotal += $subtotal - $descuento;
+            }
+        }
+
+        // Segunda pasada: preparar productos con sobrecargo distribuido proporcionalmente
         foreach ($venta->productosPorAlmacen as $pa) {
             $producto = $pa->productoAlmacen->producto;
 
@@ -286,6 +303,15 @@ class VentaPdfService
                 $precio = (float) $ud->precio;
                 $descuento = (float) ($ud->descuento ?? 0);
                 $subtotal = $cantidad * $precio;
+                $neto = $subtotal - $descuento;
+
+                // Distribuir sobrecargo proporcionalmente
+                $sobrecargoProducto = $subtotalTotal > 0 ? ($neto / $subtotalTotal) * $sobrecargoTotal : 0;
+                $sobrecargoProductoPorcentaje = $neto > 0 ? ($sobrecargoProducto / $neto) * 100 : 0;
+                
+                // Precio unitario con sobrecargo incluido
+                $precioConSobrecargo = $cantidad > 0 ? $precio + ($sobrecargoProducto / $cantidad) : $precio;
+                $subtotalConSobrecargo = $subtotal + $sobrecargoProducto;
 
                 $productos[] = [
                     'codigo' => $producto->cod_producto ?? '',
@@ -293,9 +319,11 @@ class VentaPdfService
                     'marca' => $producto->marca->name ?? '',
                     'unidad' => $ud->unidadDerivadaInmutable->name ?? '',
                     'cantidad' => $cantidad,
-                    'precio' => $precio,
+                    'precio' => $precioConSobrecargo,
                     'descuento' => $descuento,
-                    'subtotal' => $subtotal,
+                    'subtotal' => $subtotalConSobrecargo,
+                    'sobrecargo_porcentaje' => $sobrecargoProductoPorcentaje,
+                    'sobrecargo_valor' => $sobrecargoProducto,
                     'paquete_id' => $pa->paquete_id,
                     'paquete_nombre' => $pa->paquete_nombre,
                 ];
@@ -317,13 +345,21 @@ class VentaPdfService
     /**
      * Calcular subtotal, IGV y total.
      */
-    private function calcularTotales(array $productos): array
+    private function calcularTotales(array $productos, float $sobrecargoTotal = 0): array
     {
         $subtotal = array_sum(array_column($productos, 'subtotal'));
         $totalDescuento = array_sum(array_column($productos, 'descuento'));
-        $base = $subtotal - $totalDescuento;
-        $igv = $base * 0.18;
-        $total = $base + $igv;
+        
+        // El precio ya incluye IGV y el sobrecargo ya está en el subtotal
+        // No agregar sobrecargo nuevamente
+        $subtotalConSobrecargo = $subtotal - $totalDescuento;
+        
+        // Extraer el IGV del total (dividir por 1.18 para obtener base, luego calcular IGV)
+        $base = $subtotalConSobrecargo / 1.18;
+        $igv = $subtotalConSobrecargo - $base;
+        
+        // El total es el subtotal con sobrecargo (ya tiene IGV incluido)
+        $total = $subtotalConSobrecargo;
 
         return [
             'subtotal' => $base,
