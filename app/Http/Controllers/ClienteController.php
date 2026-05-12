@@ -240,14 +240,12 @@ class ClienteController extends Controller
         $activos = (clone $query)->where('estado', true)->count();
         $inactivos = (clone $query)->where('estado', false)->count();
 
-        // VIP: Empresas con información completa (email, teléfono y dirección)
+        // VIP: Empresas con información de contacto completa (email y teléfono)
         $vip = (clone $query)->where('tipo_cliente', 'e')
             ->whereNotNull('email')
             ->whereNotNull('telefono')
-            ->whereNotNull('direccion')
             ->where('email', '!=', '')
             ->where('telefono', '!=', '')
-            ->where('direccion', '!=', '')
             ->count();
 
         // Frecuentes: Clientes con información de contacto completa (email y teléfono)
@@ -257,7 +255,7 @@ class ClienteController extends Controller
             ->where('telefono', '!=', '')
             ->count();
 
-        // Problemáticos: Clientes inactivos o con información incompleta
+        // Problemáticos: Clientes inactivos o sin ningún dato de contacto
         $problematicos = (clone $query)->where(function ($q) {
             $q->where('estado', false)
               ->orWhere(function ($subQ) {
@@ -269,8 +267,7 @@ class ClienteController extends Controller
               });
         })->count();
 
-        // Nuevos: No se puede calcular sin columna created_at
-        // La tabla cliente no tiene timestamps
+        // Nuevos: la tabla cliente no tiene timestamps, no se puede calcular
         $nuevos = 0;
 
         return response()->json([
