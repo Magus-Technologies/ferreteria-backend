@@ -52,6 +52,25 @@ class ClienteController extends Controller
             $query->where('estado', $request->boolean('estado'));
         }
 
+        // Filtrar por clientes que tienen ventas en el rango de fechas
+        if ($request->filled('fecha_desde') || $request->filled('fecha_hasta')) {
+            $query->whereHas('ventas', function ($q) use ($request) {
+                if ($request->filled('fecha_desde')) {
+                    $q->whereDate('fecha', '>=', $request->fecha_desde);
+                }
+                if ($request->filled('fecha_hasta')) {
+                    $q->whereDate('fecha', '<=', $request->fecha_hasta);
+                }
+            });
+        }
+
+        // Filtrar solo clientes que han recomendado al menos una venta
+        if ($request->boolean('con_recomendaciones')) {
+            $query->whereHas('ventasRecomendadas', function ($q) {
+                $q->whereNotIn('estado_de_venta', ['an']);
+            });
+        }
+
         // Paginación
         $perPage = $request->get('per_page', 15);
         $clientes = $query->orderBy('razon_social', 'asc')
@@ -248,12 +267,10 @@ class ClienteController extends Controller
             ->where('telefono', '!=', '')
             ->count();
 
-        // Frecuentes: Clientes con información de contacto completa (email y teléfono)
-        $frecuentes = (clone $query)->whereNotNull('email')
-            ->whereNotNull('telefono')
-            ->where('email', '!=', '')
-            ->where('telefono', '!=', '')
-            ->count();
+        // Frecuentes: Clientes con más de 3 ventas registradas
+        $frecuentes = (clone $query)->whereHas('ventas', function ($q) {
+            $q->whereNotIn('estado_de_venta', ['an']);
+        }, '>', 3)->count();
 
         // Problemáticos: Clientes con calificación 'problematico' registrada
         $problematicos = (clone $query)->whereHas('calificaciones', function ($q) {
