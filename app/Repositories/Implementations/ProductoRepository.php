@@ -485,13 +485,15 @@ class ProductoRepository implements ProductoRepositoryInterface
         return $ingresos
             ->concat($recepciones)
             ->concat($compras)
+            // Agrupar SOLO por producto + almacen + unidad + fecha de vencimiento
+            // NO incluir lote para que todos los lotes del mismo producto se agrupen
+            // El frontend mostrará la cantidad total agrupada y el detalle de cada lote
             ->groupBy(function ($item) {
                 $fecha = \Carbon\Carbon::parse($item->vencimiento)->toDateString();
                 return implode('|', [
                     $item->producto_id ?? '',
                     $item->almacen ?? '',
                     $item->unidad ?? '',
-                    $item->lote ?? '',
                     $fecha,
                 ]);
             })

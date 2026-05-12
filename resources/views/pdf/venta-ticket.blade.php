@@ -120,6 +120,17 @@
             @foreach($metodosPago as $mp)
             <tr>
                 <td style="font-size: 6pt;">{{ $mp['nombre'] }}</td>
+                <td style="font-size: 6pt; text-align: right;">{{ number_format($mp['monto'], 2) }}</td>
+            </tr>
+            @if(isset($mp['sobrecargo_aplicado']) && $mp['sobrecargo_aplicado'] > 0)
+            <tr>
+                <td style="font-size: 5pt; color: #666; padding-left: 6px;">+ Sobrecargo ({{ number_format($mp['sobrecargo_aplicado'] / $mp['monto'] * 100, 1) }}%)</td>
+                <td style="font-size: 5pt; text-align: right; color: #666;">{{ number_format($mp['sobrecargo_aplicado'], 2) }}</td>
+            </tr>
+            @endif
+            <tr style="border-bottom: 1px dashed #999;">
+                <td class="text-bold" style="font-size: 6pt;">TOTAL</td>
+                <td class="text-bold" style="font-size: 6pt; text-align: right;">{{ number_format($mp['monto'] + ($mp['sobrecargo_aplicado'] ?? 0), 2) }}</td>
             </tr>
             @endforeach
         </table>
