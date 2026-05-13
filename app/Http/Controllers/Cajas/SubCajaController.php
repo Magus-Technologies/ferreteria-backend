@@ -202,6 +202,17 @@ class SubCajaController extends Controller
                               str_contains($metodoLower, 'tunki')) {
                         $tipo = 'billetera';
                     }
+                    // Si contiene Izipay u otros payment gateways (tarjetas)
+                    elseif (str_contains($bancoLower, 'izipay') || 
+                              str_contains($metodoLower, 'izipay') ||
+                              str_contains($bancoLower, 'culqui') ||
+                              str_contains($metodoLower, 'culqui') ||
+                              str_contains($bancoLower, 'visa') ||
+                              str_contains($metodoLower, 'visa') ||
+                              str_contains($bancoLower, 'mastercard') ||
+                              str_contains($metodoLower, 'mastercard')) {
+                        $tipo = 'tarjeta';
+                    }
                     
                     // Formato: SubCaja/Banco/Método/Titular
                     $label = $titular 
