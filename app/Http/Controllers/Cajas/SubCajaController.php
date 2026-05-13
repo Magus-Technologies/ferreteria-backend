@@ -177,6 +177,17 @@ class SubCajaController extends Controller
                     if (str_contains($bancoLower, 'efectivo') || str_contains($metodoLower, 'efectivo')) {
                         $tipo = 'efectivo';
                     }
+                    // Si contiene Izipay u otros payment gateways (tarjetas) - verificar ANTES de banco
+                    elseif (str_contains($bancoLower, 'izipay') || 
+                              str_contains($metodoLower, 'izipay') ||
+                              str_contains($bancoLower, 'culqui') ||
+                              str_contains($metodoLower, 'culqui') ||
+                              str_contains($bancoLower, 'visa') ||
+                              str_contains($metodoLower, 'visa') ||
+                              str_contains($bancoLower, 'mastercard') ||
+                              str_contains($metodoLower, 'mastercard')) {
+                        $tipo = 'tarjeta';
+                    }
                     // Si tiene cuenta bancaria REAL (no "SIN-CUENTA"), es banco
                     elseif ($cuentaBancaria && $cuentaBancaria !== 'SIN-CUENTA') {
                         $tipo = 'banco';
@@ -201,17 +212,6 @@ class SubCajaController extends Controller
                               str_contains($metodoLower, 'plin') ||
                               str_contains($metodoLower, 'tunki')) {
                         $tipo = 'billetera';
-                    }
-                    // Si contiene Izipay u otros payment gateways (tarjetas)
-                    elseif (str_contains($bancoLower, 'izipay') || 
-                              str_contains($metodoLower, 'izipay') ||
-                              str_contains($bancoLower, 'culqui') ||
-                              str_contains($metodoLower, 'culqui') ||
-                              str_contains($bancoLower, 'visa') ||
-                              str_contains($metodoLower, 'visa') ||
-                              str_contains($bancoLower, 'mastercard') ||
-                              str_contains($metodoLower, 'mastercard')) {
-                        $tipo = 'tarjeta';
                     }
                     
                     // Formato: SubCaja/Banco/Método/Titular
