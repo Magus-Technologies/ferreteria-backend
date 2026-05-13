@@ -72,10 +72,23 @@ class ClienteController extends Controller
             });
         }
 
+        // Ordenar por frecuencia (cantidad de ventas) si se solicita
+        if ($request->boolean('ordenar_por_frecuencia')) {
+            $query->withCount(['ventas' => function ($q) {
+                $q->whereNotIn('estado_de_venta', ['an']);
+            }])
+            ->orderBy('ventas_count', 'desc');
+        } else {
+            // Siempre incluir el conteo de ventas para que esté disponible en el frontend
+            $query->withCount(['ventas' => function ($q) {
+                $q->whereNotIn('estado_de_venta', ['an']);
+            }])
+            ->orderBy('razon_social', 'asc');
+        }
+
         // Paginación
         $perPage = $request->get('per_page', 15);
-        $clientes = $query->orderBy('razon_social', 'asc')
-                         ->paginate($perPage);
+        $clientes = $query->paginate($perPage);
 
         return response()->json($clientes);
     }
