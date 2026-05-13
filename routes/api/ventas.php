@@ -117,7 +117,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('clientes/{clienteId}/calificaciones', [ClienteCalificacionController::class, 'store'])->middleware('broadcast:cliente-calificaciones');
     Route::put('calificaciones/{calificacionId}', [ClienteCalificacionController::class, 'update'])->middleware('broadcast:cliente-calificaciones');
     Route::delete('calificaciones/{calificacionId}', [ClienteCalificacionController::class, 'destroy'])->middleware('broadcast:cliente-calificaciones');
-    Route::get('calificaciones/estados', [ClienteCalificacionController::class, 'estados']);
+    Route::get('calificaciones-cliente/estados', [ClienteCalificacionController::class, 'estados']);
 
     // ============================================
     // PROVEEDORES
