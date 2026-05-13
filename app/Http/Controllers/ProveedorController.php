@@ -361,6 +361,22 @@ class ProveedorController extends Controller
     }
 
     /**
+     * Obtener IDs de proveedores que tienen compras
+     * GET /api/proveedores/con-compras/ids
+     */
+    public function getProveedoresConCompras()
+    {
+        $proveedoresConCompras = DB::table('compra')
+            ->distinct()
+            ->pluck('proveedor_id')
+            ->toArray();
+
+        return response()->json([
+            'data' => $proveedoresConCompras,
+        ]);
+    }
+
+    /**
      * Verificar si un RUC ya existe
      * GET /api/proveedores/check-documento?ruc=...&exclude_id=...
      */

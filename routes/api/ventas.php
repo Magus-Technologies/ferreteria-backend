@@ -122,8 +122,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PROVEEDORES
     // ============================================
+    Route::get('proveedores/con-compras/ids', [ProveedorController::class, 'getProveedoresConCompras']);
     Route::get('proveedores/check-documento', [ProveedorController::class, 'checkDocumento']);
-    Route::apiResource('proveedores', ProveedorController::class)->middleware('broadcast:proveedores');
+    Route::get('proveedores', [ProveedorController::class, 'index']);
+    Route::post('proveedores', [ProveedorController::class, 'store']);
+    Route::get('proveedores/{id}', [ProveedorController::class, 'show']);
+    Route::put('proveedores/{id}', [ProveedorController::class, 'update']);
+    Route::delete('proveedores/{id}', [ProveedorController::class, 'destroy'])->middleware('broadcast:proveedores');
 
     // ============================================
     // CALIFICACIONES DE PROVEEDORES
