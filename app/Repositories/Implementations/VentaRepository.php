@@ -23,13 +23,15 @@ class VentaRepository implements VentaRepositoryInterface
         // Usar la hora exacta de apertura (no inicio del día)
         $fechaApertura = \Carbon\Carbon::parse($apertura->fecha_apertura);
         $inicioDia = $fechaApertura;
-        // Limitar a 12 horas máximo desde la apertura
-        $limiteMaximo = $fechaApertura->copy()->addHours(12);
+        // Si hay fecha de cierre, usar esa; si no, usar 24 horas desde la apertura
         $finDia = $apertura->fecha_cierre 
             ? \Carbon\Carbon::parse($apertura->fecha_cierre)
-            : $limiteMaximo;
+            : $fechaApertura->copy()->addHours(24);
 
-        $ventas = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
+        // Obtener ventas de dos formas:
+        // 1. Ventas con transacciones de caja en esta sub caja (método original)
+        // 2. Ventas sin transacciones de caja pero dentro del rango de fechas (para ventas sin apertura)
+        $ventasConTransacciones = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
             ->whereIn('id', function($query) use ($apertura) {
                 $query->select('referencia_id')
                     ->from('transacciones_caja')
@@ -38,6 +40,21 @@ class VentaRepository implements VentaRepositoryInterface
             })
             ->whereBetween('fecha', [$inicioDia, $finDia])
             ->get();
+
+        // Ventas sin transacciones de caja pero dentro del rango de fechas
+        $ventasSinTransacciones = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
+            ->whereNotIn('id', function($query) use ($apertura) {
+                $query->select('referencia_id')
+                    ->from('transacciones_caja')
+                    ->where('referencia_tipo', 'venta')
+                    ->where('sub_caja_id', $apertura->sub_caja_id);
+            })
+            ->whereBetween('fecha', [$inicioDia, $finDia])
+            ->where('user_id', $apertura->user_id)
+            ->get();
+
+        // Combinar ambas colecciones
+        $ventas = $ventasConTransacciones->merge($ventasSinTransacciones);
 
         return $ventas;
     }

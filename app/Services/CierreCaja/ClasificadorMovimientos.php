@@ -534,31 +534,52 @@ class ClasificadorMovimientos
             return collect([]);
         }
 
-        // Obtener los pagos de las ventas desde la tabla correcta
+        // Obtener los pagos de las ventas desde desplieguedepagoventa
         $ventaIds = $ventas->pluck('id');
 
-        $pagos = DB::table('numeros_operacion_pago as nop')
-            ->join('desplieguedepago as dp', 'nop.despliegue_pago_id', '=', 'dp.id')
+        $pagosVentas = DB::table('desplieguedepagoventa as dpv')
+            ->join('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
             ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
-            ->whereIn('nop.venta_id', $ventaIds)
-            ->whereNotNull('nop.venta_id')
+            ->whereIn('dpv.venta_id', $ventaIds)
             ->select([
                 'mp.id as metodo_pago_id',
                 'mp.name as metodo_pago',
+                'dp.id as despliegue_pago_id',
                 'dp.name as despliegue_pago',
-                'nop.monto',
-                'nop.venta_id'
+                'dpv.monto',
+                'dpv.venta_id',
+                DB::raw("'venta' as tipo_transaccion")
             ])
             ->get();
 
-        // Agrupar por método de pago
-        return $pagos->groupBy('metodo_pago_id')->map(function ($grupo) {
+        // Obtener los pagos de compras desde pagodecompra
+        $pagosCompras = DB::table('pagodecompra as pc')
+            ->join('desplieguedepago as dp', 'pc.despliegue_de_pago_id', '=', 'dp.id')
+            ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+            ->where('pc.estado', true) // Solo pagos activos
+            ->select([
+                'mp.id as metodo_pago_id',
+                'mp.name as metodo_pago',
+                'dp.id as despliegue_pago_id',
+                'dp.name as despliegue_pago',
+                'pc.monto',
+                'pc.compra_id as venta_id', // Usar compra_id como venta_id para compatibilidad
+                DB::raw("'compra' as tipo_transaccion")
+            ])
+            ->get();
+
+        // Combinar ambos pagos
+        $todosPagos = $pagosVentas->concat($pagosCompras);
+
+        // Agrupar por despliegue de pago (para mostrar todos los métodos)
+        return $todosPagos->groupBy('despliegue_pago_id')->map(function ($grupo) {
             $primer = $grupo->first();
             return [
                 'metodo_pago_id' => $primer->metodo_pago_id,
+                'label' => $primer->despliegue_pago, // Usar despliegue como label
                 'metodo_pago' => $primer->metodo_pago,
                 'despliegue_pago' => $primer->despliegue_pago,
-                'total' => $grupo->sum('monto'),
+                'total' => (float) $grupo->sum('monto'),
                 'cantidad_transacciones' => $grupo->count(),
                 'tipo' => 'cobro_venta'
             ];
