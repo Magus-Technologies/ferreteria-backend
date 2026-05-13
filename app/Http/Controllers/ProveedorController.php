@@ -377,6 +377,39 @@ class ProveedorController extends Controller
     }
 
     /**
+     * Obtener proveedores ordenados por cantidad de compras
+     * GET /api/proveedores/ordenar-por-compras
+     */
+    public function getProveedoresOrdenadosPorCompras(Request $request)
+    {
+        $query = Proveedor::with(['vendedores', 'carros', 'choferes'])
+            ->leftJoin('compra', 'proveedor.id', '=', 'compra.proveedor_id')
+            ->select('proveedor.*', DB::raw('COUNT(compra.id) as cantidad_compras'))
+            ->groupBy('proveedor.id')
+            ->orderByDesc('cantidad_compras');
+
+        // Filtro por búsqueda
+        if ($request->has('search') && !empty($request->search)) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('proveedor.razon_social', 'LIKE', "%{$search}%")
+                    ->orWhere('proveedor.ruc', 'LIKE', "%{$search}%");
+            });
+        }
+
+        // Filtro por estado
+        if ($request->has('estado')) {
+            $query->where('proveedor.estado', $request->estado == '1' || $request->estado === true);
+        }
+
+        // Paginación
+        $perPage = min($request->input('per_page', 50), 100);
+        $proveedores = $query->paginate($perPage);
+
+        return response()->json($proveedores);
+    }
+
+    /**
      * Verificar si un RUC ya existe
      * GET /api/proveedores/check-documento?ruc=...&exclude_id=...
      */

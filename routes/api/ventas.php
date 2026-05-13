@@ -122,6 +122,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PROVEEDORES
     // ============================================
+    Route::get('proveedores/ordenar-por-compras', [ProveedorController::class, 'getProveedoresOrdenadosPorCompras']);
     Route::get('proveedores/con-compras/ids', [ProveedorController::class, 'getProveedoresConCompras']);
     Route::get('proveedores/check-documento', [ProveedorController::class, 'checkDocumento']);
     Route::get('proveedores', [ProveedorController::class, 'index']);
