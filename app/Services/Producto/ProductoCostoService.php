@@ -28,6 +28,18 @@ class ProductoCostoService
             $productoAlmacen->costo_actual = $costoNuevo;
             $productoAlmacen->stock_costo_actual = $stockActual + $cantidadNueva;
             $productoAlmacen->costo = $costoNuevo;
+        } else if ($costoAnterior !== null && abs($costoNuevo - $costoAnterior) < 0.0001) {
+            // El nuevo costo es igual al anterior - sumar al stock anterior
+            $productoAlmacen->stock_costo_anterior = $stockAnterior + $cantidadNueva;
+            // El costo principal es el promedio ponderado
+            $productoAlmacen->costo = $this->calcularCostoPromedioPonderado(
+                $stockAnterior + $cantidadNueva,
+                $costoAnterior,
+                $stockActual,
+                $costoActual,
+                0,
+                $costoNuevo
+            );
         } else {
             // Precio diferente - hay cambio de costo
             // El costo actual se convierte en anterior

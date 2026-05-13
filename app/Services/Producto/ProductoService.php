@@ -287,10 +287,15 @@ class ProductoService implements ProductoServiceInterface
                     );
                 }
 
+                // Actualizar ubicación directamente
                 $this->productoAlmacenRepository->update($productoAlmacen->id, [
-                    "costo" => $costoUnidad,
                     "ubicacion_id" => $data["producto_almacen"]["ubicacion_id"],
                 ]);
+
+                // Nota: NO actualizamos el costo aquí porque el costo debe cambiar solo
+                // cuando se recibe una compra (en RecepcionAlmacenController).
+                // Editar el costo desde el formulario de producto no es la forma correcta
+                // de actualizar precios, ya que no hay cantidad asociada.
 
                 // Step 5: Replace all prices (delete and recreate)
                 $this->precioRepository->replaceAll(
