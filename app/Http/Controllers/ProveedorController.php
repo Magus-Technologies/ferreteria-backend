@@ -19,32 +19,68 @@ class ProveedorController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Proveedor::with(['vendedores', 'carros', 'choferes']);
+        $query = Proveedor::with(['vendedores', 'carros', 'choferes'])
+            ->leftJoin('proveedor_calificaciones', function ($join) {
+                $join->on('proveedor.id', '=', 'proveedor_calificaciones.proveedor_id')
+                    ->whereRaw('proveedor_calificaciones.id = (
+                        SELECT id FROM proveedor_calificaciones pc2 
+                        WHERE pc2.proveedor_id = proveedor.id 
+                        ORDER BY pc2.id DESC LIMIT 1
+                    )');
+            })
+            ->select('proveedor.*', 'proveedor_calificaciones.estado as calificacion_estado', 'proveedor_calificaciones.observacion as calificacion_observacion', 'proveedor_calificaciones.id as calificacion_id');
 
         // Filtro por búsqueda
         if ($request->has('search') && !empty($request->search)) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
-                $q->where('razon_social', 'LIKE', "%{$search}%")
-                    ->orWhere('ruc', 'LIKE', "%{$search}%");
+                $q->where('proveedor.razon_social', 'LIKE', "%{$search}%")
+                    ->orWhere('proveedor.ruc', 'LIKE', "%{$search}%");
             });
         }
 
         // Filtro por estado
-        if ($request->has('estado')) {
-            $query->where('estado', $request->estado == '1' || $request->estado === true);
+        if ($request->has('estado') && $request->estado !== '' && $request->estado !== null) {
+            $estado = filter_var($request->estado, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($estado !== null) {
+                $query->where('proveedor.estado', $estado);
+            }
+        }
+
+        // Filtro por calificación
+        if ($request->has('calificacion') && !empty($request->calificacion)) {
+            $calificacion = $request->calificacion;
+            $query->where('proveedor_calificaciones.estado', $calificacion);
         }
 
         // Ordenar
         if ($request->has('search') && !empty($request->search)) {
-            $query->orderBy('razon_social', 'asc');
+            $query->orderBy('proveedor.razon_social', 'asc');
         } else {
-            $query->latest('id');
+            $query->latest('proveedor.id');
         }
 
         // Paginación
         $perPage = min($request->input('per_page', 50), 100);
         $proveedores = $query->paginate($perPage);
+
+        // Transformar los resultados para incluir la calificación en la estructura esperada
+        $proveedores->getCollection()->transform(function ($proveedor) {
+            if ($proveedor->calificacion_id) {
+                $proveedor->ultimaCalificacion = (object) [
+                    'id' => $proveedor->calificacion_id,
+                    'proveedor_id' => $proveedor->id,
+                    'estado' => $proveedor->calificacion_estado,
+                    'observacion' => $proveedor->calificacion_observacion,
+                ];
+            } else {
+                $proveedor->ultimaCalificacion = null;
+            }
+            unset($proveedor->calificacion_id);
+            unset($proveedor->calificacion_estado);
+            unset($proveedor->calificacion_observacion);
+            return $proveedor;
+        });
 
         return response()->json($proveedores);
     }
@@ -199,13 +235,13 @@ class ProveedorController extends Controller
 
         $validator = Validator::make($request->all(), [
             'razon_social' => [
-                'required',
+                'nullable',
                 'string',
                 'max:191',
                 Rule::unique('proveedor', 'razon_social')->ignore($id)
             ],
             'ruc' => [
-                'required',
+                'nullable',
                 'string',
                 'max:191',
                 Rule::unique('proveedor', 'ruc')->ignore($id)
@@ -213,7 +249,7 @@ class ProveedorController extends Controller
             'direccion' => 'nullable|string|max:191',
             'telefono' => 'nullable|string|max:191',
             'email' => 'nullable|email|max:191',
-            'estado' => 'required|boolean',
+            'estado' => 'nullable|boolean',
             'vendedores' => 'nullable|array',
             'vendedores.*.dni' => 'required|string|size:8',
             'vendedores.*.nombres' => 'required|string|max:191',
@@ -229,9 +265,7 @@ class ProveedorController extends Controller
             'choferes.*.name' => 'required|string|max:191',
             'choferes.*.licencia' => 'required|string|max:191',
         ], [
-            'razon_social.required' => 'La razón social es requerida',
             'razon_social.unique' => 'Ya existe un proveedor con esta razón social',
-            'ruc.required' => 'El RUC es requerido',
             'ruc.unique' => 'Ya existe un proveedor con este RUC',
         ]);
 
@@ -247,54 +281,75 @@ class ProveedorController extends Controller
         try {
             DB::beginTransaction();
 
-            // Actualizar proveedor
-            $proveedor->update([
-                'razon_social' => $request->razon_social,
-                'ruc' => $request->ruc,
-                'direccion' => $request->direccion,
-                'telefono' => $request->telefono,
-                'email' => $request->email,
-                'estado' => $request->estado,
-            ]);
+            // Actualizar proveedor solo si se envían los datos
+            $updateData = [];
+            if ($request->has('razon_social') && !empty($request->razon_social)) {
+                $updateData['razon_social'] = $request->razon_social;
+            }
+            if ($request->has('ruc') && !empty($request->ruc)) {
+                $updateData['ruc'] = $request->ruc;
+            }
+            if ($request->has('direccion')) {
+                $updateData['direccion'] = $request->direccion;
+            }
+            if ($request->has('telefono')) {
+                $updateData['telefono'] = $request->telefono;
+            }
+            if ($request->has('email')) {
+                $updateData['email'] = $request->email;
+            }
+            if ($request->has('estado') && $request->estado !== null) {
+                $updateData['estado'] = $request->estado;
+            }
+
+            if (!empty($updateData)) {
+                $proveedor->update($updateData);
+            }
 
             // Eliminar todos los vendedores existentes y crear los nuevos
-            Vendedor::where('proveedor_id', $id)->delete();
-            if ($request->has('vendedores') && is_array($request->vendedores)) {
-                foreach ($request->vendedores as $vendedorData) {
-                    Vendedor::create([
-                        'dni' => $vendedorData['dni'],
-                        'nombres' => $vendedorData['nombres'],
-                        'direccion' => $vendedorData['direccion'] ?? null,
-                        'telefono' => $vendedorData['telefono'] ?? null,
-                        'email' => $vendedorData['email'] ?? null,
-                        'estado' => $vendedorData['estado'],
-                        'cumple' => isset($vendedorData['cumple']) ? $vendedorData['cumple'] : null,
-                        'proveedor_id' => $proveedor->id,
-                    ]);
+            if ($request->has('vendedores')) {
+                Vendedor::where('proveedor_id', $id)->delete();
+                if (is_array($request->vendedores)) {
+                    foreach ($request->vendedores as $vendedorData) {
+                        Vendedor::create([
+                            'dni' => $vendedorData['dni'],
+                            'nombres' => $vendedorData['nombres'],
+                            'direccion' => $vendedorData['direccion'] ?? null,
+                            'telefono' => $vendedorData['telefono'] ?? null,
+                            'email' => $vendedorData['email'] ?? null,
+                            'estado' => $vendedorData['estado'],
+                            'cumple' => isset($vendedorData['cumple']) ? $vendedorData['cumple'] : null,
+                            'proveedor_id' => $proveedor->id,
+                        ]);
+                    }
                 }
             }
 
             // Eliminar todos los carros existentes y crear los nuevos
-            Carro::where('proveedor_id', $id)->delete();
-            if ($request->has('carros') && is_array($request->carros)) {
-                foreach ($request->carros as $carroData) {
-                    Carro::create([
-                        'placa' => $carroData['placa'],
-                        'proveedor_id' => $proveedor->id,
-                    ]);
+            if ($request->has('carros')) {
+                Carro::where('proveedor_id', $id)->delete();
+                if (is_array($request->carros)) {
+                    foreach ($request->carros as $carroData) {
+                        Carro::create([
+                            'placa' => $carroData['placa'],
+                            'proveedor_id' => $proveedor->id,
+                        ]);
+                    }
                 }
             }
 
             // Eliminar todos los choferes existentes y crear los nuevos
-            Chofer::where('proveedor_id', $id)->delete();
-            if ($request->has('choferes') && is_array($request->choferes)) {
-                foreach ($request->choferes as $choferData) {
-                    Chofer::create([
-                        'dni' => $choferData['dni'],
-                        'name' => $choferData['name'],
-                        'licencia' => $choferData['licencia'],
-                        'proveedor_id' => $proveedor->id,
-                    ]);
+            if ($request->has('choferes')) {
+                Chofer::where('proveedor_id', $id)->delete();
+                if (is_array($request->choferes)) {
+                    foreach ($request->choferes as $choferData) {
+                        Chofer::create([
+                            'dni' => $choferData['dni'],
+                            'name' => $choferData['name'],
+                            'licencia' => $choferData['licencia'],
+                            'proveedor_id' => $proveedor->id,
+                        ]);
+                    }
                 }
             }
 
@@ -384,8 +439,16 @@ class ProveedorController extends Controller
     {
         $query = Proveedor::with(['vendedores', 'carros', 'choferes'])
             ->leftJoin('compra', 'proveedor.id', '=', 'compra.proveedor_id')
-            ->select('proveedor.*', DB::raw('COUNT(compra.id) as cantidad_compras'))
-            ->groupBy('proveedor.id')
+            ->leftJoin('proveedor_calificaciones', function ($join) {
+                $join->on('proveedor.id', '=', 'proveedor_calificaciones.proveedor_id')
+                    ->whereRaw('proveedor_calificaciones.id = (
+                        SELECT id FROM proveedor_calificaciones pc2 
+                        WHERE pc2.proveedor_id = proveedor.id 
+                        ORDER BY pc2.id DESC LIMIT 1
+                    )');
+            })
+            ->select('proveedor.*', DB::raw('COUNT(compra.id) as cantidad_compras'), 'proveedor_calificaciones.estado as calificacion_estado', 'proveedor_calificaciones.observacion as calificacion_observacion', 'proveedor_calificaciones.id as calificacion_id')
+            ->groupBy('proveedor.id', 'proveedor_calificaciones.id', 'proveedor_calificaciones.estado', 'proveedor_calificaciones.observacion')
             ->orderByDesc('cantidad_compras');
 
         // Filtro por búsqueda
@@ -398,13 +461,40 @@ class ProveedorController extends Controller
         }
 
         // Filtro por estado
-        if ($request->has('estado')) {
-            $query->where('proveedor.estado', $request->estado == '1' || $request->estado === true);
+        if ($request->has('estado') && $request->estado !== '' && $request->estado !== null) {
+            $estado = filter_var($request->estado, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($estado !== null) {
+                $query->where('proveedor.estado', $estado);
+            }
+        }
+
+        // Filtro por calificación
+        if ($request->has('calificacion') && !empty($request->calificacion)) {
+            $calificacion = $request->calificacion;
+            $query->where('proveedor_calificaciones.estado', $calificacion);
         }
 
         // Paginación
         $perPage = min($request->input('per_page', 50), 100);
         $proveedores = $query->paginate($perPage);
+
+        // Transformar los resultados para incluir la calificación en la estructura esperada
+        $proveedores->getCollection()->transform(function ($proveedor) {
+            if ($proveedor->calificacion_id) {
+                $proveedor->ultimaCalificacion = (object) [
+                    'id' => $proveedor->calificacion_id,
+                    'proveedor_id' => $proveedor->id,
+                    'estado' => $proveedor->calificacion_estado,
+                    'observacion' => $proveedor->calificacion_observacion,
+                ];
+            } else {
+                $proveedor->ultimaCalificacion = null;
+            }
+            unset($proveedor->calificacion_id);
+            unset($proveedor->calificacion_estado);
+            unset($proveedor->calificacion_observacion);
+            return $proveedor;
+        });
 
         return response()->json($proveedores);
     }

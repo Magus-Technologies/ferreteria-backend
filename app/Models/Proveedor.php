@@ -51,4 +51,17 @@ class Proveedor extends Model
     {
         return $this->hasMany(IngresoSalida::class);
     }
+
+    public function calificaciones(): HasMany
+    {
+        return $this->hasMany(ProveedorCalificacion::class, 'proveedor_id');
+    }
+
+    /**
+     * Obtener la última calificación del proveedor
+     */
+    public function ultimaCalificacion()
+    {
+        return $this->hasOne(ProveedorCalificacion::class, 'proveedor_id')->latest();
+    }
 }
