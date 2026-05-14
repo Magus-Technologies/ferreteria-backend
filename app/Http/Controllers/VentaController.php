@@ -613,6 +613,45 @@ class VentaController extends Controller
                             : (float) $unidad->cantidad,
                     ]);
                 }
+
+                // Si la venta NO aplicó stock en la rama inicial (ej. crédito en
+                // En Tienda), descontarlo aquí para que el comportamiento quede
+                // alineado con Domicilio: la venta ya comprometió mercadería y
+                // el stock debe bajar aunque termine negativo.
+                if (! $venta->stock_aplicado && ! $noDescontarStock) {
+                    foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
+                        $pAlmacenId = $producto['producto_almacen_id'] ?? null;
+                        if (! $pAlmacenId && isset($producto['producto_id'])) {
+                            $pAlmacen = ProductoAlmacen::where('producto_id', $producto['producto_id'])
+                                ->where('almacen_id', $validated['almacen_id'])
+                                ->first();
+                        } else {
+                            $pAlmacen = ProductoAlmacen::find($pAlmacenId);
+                        }
+
+                        if (! $pAlmacen) continue;
+
+                        $costService = app(\App\Services\Producto\ProductoCostoService::class);
+
+                        foreach ($producto['unidades_derivadas'] as $unidad) {
+                            $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+
+                            $costService->consumirStockConPEPS($pAlmacen, $cantidadEnFraccion);
+                            $pAlmacen->save();
+
+                            ComplementarioStockService::procesarComplementarioPorFactor(
+                                $pAlmacen->id,
+                                (float) $unidad['factor'],
+                                (float) $unidad['cantidad'],
+                                $validated['almacen_id'],
+                                false // salida
+                            );
+                        }
+                    }
+
+                    $venta->stock_aplicado = true;
+                    $venta->save();
+                }
             }
 
             // Create despliegue_de_pago_ventas if provided
