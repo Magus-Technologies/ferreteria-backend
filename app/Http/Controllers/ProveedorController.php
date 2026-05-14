@@ -53,6 +53,11 @@ class ProveedorController extends Controller
             $query->where('proveedor_calificaciones.estado', $calificacion);
         }
 
+        // Filtro por tipo de proveedor
+        if ($request->has('tipo_proveedor') && !empty($request->tipo_proveedor)) {
+            $query->where('proveedor.tipo_proveedor', $request->tipo_proveedor);
+        }
+
         // Ordenar
         if ($request->has('search') && !empty($request->search)) {
             $query->orderBy('proveedor.razon_social', 'asc');
@@ -92,8 +97,14 @@ class ProveedorController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
+            'tipo_proveedor' => 'required|in:empresa,persona',
             'razon_social' => 'required|string|max:191|unique:proveedor,razon_social',
-            'ruc' => 'required|string|max:191|unique:proveedor,ruc',
+            'ruc' => [
+                $request->tipo_proveedor === 'empresa' ? 'required' : 'nullable',
+                'string',
+                'max:191',
+                Rule::unique('proveedor', 'ruc')->whereNotNull('ruc'),
+            ],
             'direccion' => 'nullable|string|max:191',
             'telefono' => 'nullable|string|max:191',
             'email' => 'nullable|email|max:191',
@@ -113,10 +124,12 @@ class ProveedorController extends Controller
             'choferes.*.name' => 'required|string|max:191',
             'choferes.*.licencia' => 'required|string|max:191',
         ], [
+            'tipo_proveedor.required' => 'El tipo de proveedor es requerido',
+            'tipo_proveedor.in' => 'El tipo de proveedor debe ser empresa o persona',
             'razon_social.required' => 'La razón social es requerida',
             'razon_social.unique' => 'Ya existe un proveedor con esta razón social',
-            'ruc.required' => 'El RUC es requerido',
-            'ruc.unique' => 'Ya existe un proveedor con este RUC',
+            'ruc.required' => 'El RUC es requerido para proveedores empresa',
+            'ruc.unique' => 'Ya existe un proveedor con este RUC/DNI',
             'vendedores.*.dni.size' => 'El DNI debe tener 8 dígitos',
             'choferes.*.dni.size' => 'El DNI debe tener 8 dígitos',
         ]);
@@ -135,8 +148,9 @@ class ProveedorController extends Controller
 
             // Crear proveedor
             $proveedor = Proveedor::create([
+                'tipo_proveedor' => $request->tipo_proveedor,
                 'razon_social' => $request->razon_social,
-                'ruc' => $request->ruc,
+                'ruc' => $request->ruc ?: null,
                 'direccion' => $request->direccion,
                 'telefono' => $request->telefono,
                 'email' => $request->email,
@@ -234,6 +248,7 @@ class ProveedorController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
+            'tipo_proveedor' => 'nullable|in:empresa,persona',
             'razon_social' => [
                 'nullable',
                 'string',
@@ -244,7 +259,7 @@ class ProveedorController extends Controller
                 'nullable',
                 'string',
                 'max:191',
-                Rule::unique('proveedor', 'ruc')->ignore($id)
+                Rule::unique('proveedor', 'ruc')->ignore($id)->whereNotNull('ruc'),
             ],
             'direccion' => 'nullable|string|max:191',
             'telefono' => 'nullable|string|max:191',
@@ -283,11 +298,14 @@ class ProveedorController extends Controller
 
             // Actualizar proveedor solo si se envían los datos
             $updateData = [];
+            if ($request->has('tipo_proveedor') && !empty($request->tipo_proveedor)) {
+                $updateData['tipo_proveedor'] = $request->tipo_proveedor;
+            }
             if ($request->has('razon_social') && !empty($request->razon_social)) {
                 $updateData['razon_social'] = $request->razon_social;
             }
-            if ($request->has('ruc') && !empty($request->ruc)) {
-                $updateData['ruc'] = $request->ruc;
+            if ($request->has('ruc')) {
+                $updateData['ruc'] = $request->ruc ?: null;
             }
             if ($request->has('direccion')) {
                 $updateData['direccion'] = $request->direccion;
@@ -472,6 +490,11 @@ class ProveedorController extends Controller
         if ($request->has('calificacion') && !empty($request->calificacion)) {
             $calificacion = $request->calificacion;
             $query->where('proveedor_calificaciones.estado', $calificacion);
+        }
+
+        // Filtro por tipo de proveedor
+        if ($request->has('tipo_proveedor') && !empty($request->tipo_proveedor)) {
+            $query->where('proveedor.tipo_proveedor', $request->tipo_proveedor);
         }
 
         // Paginación
