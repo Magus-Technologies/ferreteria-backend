@@ -118,6 +118,7 @@ class PepsAnalisisService
         // ── 2. TC de pago por compra (promedio ponderado) ─────────────────────
         $compraIds = $lotes->pluck('compra_id')->unique()->values()->toArray();
 
+        // TC de pago con tipo_de_cambio explícito (promedio ponderado por monto)
         $tcPagoPorCompra = DB::table('pagodecompra')
             ->whereIn('compra_id', $compraIds)
             ->where('estado', true)
@@ -134,16 +135,41 @@ class PepsAnalisisService
             ->groupBy('compra_id')
             ->get();
 
+        // Compras que tienen al menos un pago activo (aunque no tengan TC registrado)
+        $comprasConCualquierPago = DB::table('pagodecompra')
+            ->whereIn('compra_id', $compraIds)
+            ->where('estado', true)
+            ->distinct()
+            ->pluck('compra_id')
+            ->flip(); // para lookup O(1)
+
         // Convertir a array indexado por compra_id
         $tcPagoMap = [];
         foreach ($tcPagoPorCompra as $row) {
             $tcPagoMap[$row->compra_id] = [
-                'tc_pago_promedio' => (float) $row->tc_pago_promedio,
-                'tc_pago_minimo' => (float) $row->tc_pago_minimo,
-                'tc_pago_maximo' => (float) $row->tc_pago_maximo,
-                'num_pagos' => (int) $row->num_pagos,
+                'tc_pago_promedio'  => (float) $row->tc_pago_promedio,
+                'tc_pago_minimo'    => (float) $row->tc_pago_minimo,
+                'tc_pago_maximo'    => (float) $row->tc_pago_maximo,
+                'num_pagos'         => (int)   $row->num_pagos,
                 'fecha_ultimo_pago' => $row->fecha_ultimo_pago,
+                'tc_es_fallback'    => false,
             ];
+        }
+
+        // Para compras con pago pero sin TC: usar el TC de la compra como fallback
+        // Así el análisis las reconoce como "pagadas" con diferencia = 0
+        $tcCompraMap = $lotes->keyBy('compra_id')->map(fn($l) => (float) $l->tc_compra);
+        foreach ($comprasConCualquierPago as $compraId => $_) {
+            if (!isset($tcPagoMap[$compraId]) && isset($tcCompraMap[$compraId])) {
+                $tcPagoMap[$compraId] = [
+                    'tc_pago_promedio'  => $tcCompraMap[$compraId],
+                    'tc_pago_minimo'    => $tcCompraMap[$compraId],
+                    'tc_pago_maximo'    => $tcCompraMap[$compraId],
+                    'num_pagos'         => 1,
+                    'fecha_ultimo_pago' => null,
+                    'tc_es_fallback'    => true, // pago real pero sin TC registrado
+                ];
+            }
         }
 
         // Obtener TC actual (último TC de compra en USD del sistema)
@@ -188,9 +214,10 @@ class PepsAnalisisService
         $ventasPorProducto = $ventas->groupBy('producto_id');
 
         $resultadosPorProducto = [];
-        $totalIngresoGlobal    = 0;
-        $totalGananciaCGlobal  = 0;
-        $totalGananciaPGlobal  = 0;
+        $totalIngresoGlobal      = 0;
+        $totalGananciaCGlobal    = 0;
+        $totalGananciaPGlobal    = 0;
+        $totalGananciaCConPago   = 0; // solo ventas donde hay al menos un lote con pago real
 
         // Solo iterar sobre productos que tienen ventas
         foreach ($ventasPorProducto as $productoId => $ventasProducto) {
@@ -207,7 +234,8 @@ class PepsAnalisisService
                 $tcPago = isset($tcPagoMap[$l->compra_id])
                     ? (float) $tcPagoMap[$l->compra_id]['tc_pago_promedio']
                     : $tcCompra;
-                $tcPagoReal = isset($tcPagoMap[$l->compra_id]);
+                $tcPagoReal    = isset($tcPagoMap[$l->compra_id]);
+                $tcEsFallback  = $tcPagoReal && ($tcPagoMap[$l->compra_id]['tc_es_fallback'] ?? false);
 
                 // Calcular variación de TC
                 $variacionTc = $tcActual - $tcCompra;
@@ -226,11 +254,12 @@ class PepsAnalisisService
                     'serie' => $l->serie,
                     'numero' => $l->numero,
                     'lote' => $l->lote,
-                    'costo_usd' => round($costoUsd, 6),
-                    'tc_compra' => $tcCompra,
-                    'tc_pago' => round($tcPago, 4),
-                    'tc_pago_real' => $tcPagoReal,
-                    'tc_actual' => $tcActual,
+                    'costo_usd'      => round($costoUsd, 6),
+                    'tc_compra'      => $tcCompra,
+                    'tc_pago'        => round($tcPago, 4),
+                    'tc_pago_real'   => $tcPagoReal,
+                    'tc_es_fallback' => $tcEsFallback,
+                    'tc_actual'      => $tcActual,
                     'variacion_tc' => round($variacionTc, 4),
                     'variacion_porcentaje' => round($variacionPorcentaje, 2),
                     'riesgo_alto' => $riesgoAlto,
@@ -265,6 +294,7 @@ class PepsAnalisisService
                         'costo_usd'       => round($lote['costo_usd'], 4),
                         'tc_compra'       => $lote['tc_compra'],
                         'tc_pago_real'    => $lote['tc_pago_real'],
+                    'tc_es_fallback'  => $lote['tc_es_fallback'],
                         'costo_tc_compra' => round($costoC, 4),
                     ];
 
@@ -277,11 +307,10 @@ class PepsAnalisisService
 
                     $fracciones[] = $fraccion;
 
-                    $totalCostoC      += $costoC;
-                    if ($lote['tc_pago_real']) {
-                        $totalCostoP  += $costoP;
-                    }
-                    $lote['stock']    -= $tomar;
+                    $totalCostoC += $costoC;
+                    // Lote sin pago → aporta su costo TC compra (diferencia = 0 para ese tramo)
+                    $totalCostoP += $lote['tc_pago_real'] ? $costoP : $costoC;
+                    $lote['stock'] -= $tomar;
                     $necesario        -= $tomar;
                 }
 
@@ -293,7 +322,8 @@ class PepsAnalisisService
                 $totalIngresoGlobal   += $ingreso;
                 $totalGananciaCGlobal += $gananciaC;
                 if ($hayPagoReal) {
-                    $totalGananciaPGlobal += $gananciaP;
+                    $totalGananciaPGlobal  += $gananciaP;
+                    $totalGananciaCConPago += $gananciaC; // solo las ventas comparables
                 }
 
                 $resultadoVenta = [
@@ -345,26 +375,35 @@ class PepsAnalisisService
             ];
         }
 
-        $totalDiferencia = $totalGananciaCGlobal - $totalGananciaPGlobal;
+        $totalDiferencia = $totalGananciaCConPago - $totalGananciaPGlobal;
         $hayPagoRealGlobal = !empty($tcPagoMap);
 
         // Calcular recomendaciones globales
-        $comprasConRiesgo = [];
+        $comprasConRiesgo       = [];
+        $comprasConRiesgoIds    = [];
         $impactoTotalSiPagasHoy = 0;
+        $comprasImpactoIds      = [];
         foreach ($lotes as $lote) {
             $variacionTc = $tcActual - (float) $lote->tc_compra;
             $variacionPorcentaje = ($variacionTc / (float) $lote->tc_compra) * 100;
-            if (abs($variacionPorcentaje) > 2) {
+
+            // Riesgo: una entrada por compra (no por lote de producto)
+            if (abs($variacionPorcentaje) > 2 && !in_array($lote->compra_id, $comprasConRiesgoIds)) {
+                $comprasConRiesgoIds[] = $lote->compra_id;
                 $comprasConRiesgo[] = [
-                    'compra_id' => $lote->compra_id,
-                    'serie_numero' => ($lote->serie ?? '') . '-' . ($lote->numero ?? ''),
+                    'compra_id'            => $lote->compra_id,
+                    'serie_numero'         => ($lote->serie ?? '') . '-' . ($lote->numero ?? ''),
                     'variacion_porcentaje' => round($variacionPorcentaje, 2),
-                    'recomendacion' => $variacionPorcentaje > 0 ? 'Pagar pronto (TC subió)' : 'Esperar (TC bajó)',
+                    'recomendacion'        => $variacionPorcentaje > 0 ? 'Pagar pronto (TC subió)' : 'Esperar (TC bajó)',
                 ];
             }
-            $costoUsd = (float) $lote->costo_soles_unit / (float) $lote->tc_compra;
-            $impactoSiPagasHoy = $costoUsd * ($tcActual - (float) $lote->tc_compra);
-            $impactoTotalSiPagasHoy += $impactoSiPagasHoy;
+
+            // Impacto: acumular una sola vez por compra
+            if (!in_array($lote->compra_id, $comprasImpactoIds)) {
+                $comprasImpactoIds[] = $lote->compra_id;
+                $costoUsd = (float) $lote->costo_soles_unit / (float) $lote->tc_compra;
+                $impactoTotalSiPagasHoy += $costoUsd * $variacionTc;
+            }
         }
 
         $resumenGlobal = [
@@ -380,7 +419,7 @@ class PepsAnalisisService
         if ($hayPagoRealGlobal) {
             $resumenGlobal['ganancia_tc_pago']    = round($totalGananciaPGlobal, 4);
             $resumenGlobal['diferencia_total']    = round($totalDiferencia, 4);
-            $resumenGlobal['perdida_por_cambio']  = $totalDiferencia < 0;
+            $resumenGlobal['perdida_por_cambio']  = $totalDiferencia > 0;
         }
 
         // Obtener compras pendientes de pago (a crédito sin pagos)
