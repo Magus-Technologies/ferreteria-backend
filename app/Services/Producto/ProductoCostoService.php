@@ -94,20 +94,19 @@ class ProductoCostoService
             }
         }
 
-        // Luego consumir stock actual
-        if ($cantidadRestante > 0 && $productoAlmacen->stock_costo_actual > 0) {
-            $consumidaActual = min($cantidadRestante, $productoAlmacen->stock_costo_actual);
-            $costoTotal += $consumidaActual * $productoAlmacen->costo_actual;
-            $cantidadConsumida += $consumidaActual;
-            $cantidadRestante -= $consumidaActual;
-            $productoAlmacen->stock_costo_actual -= $consumidaActual;
+        // Luego consumir stock actual (permite stock negativo)
+        if ($cantidadRestante > 0) {
+            $costoActualUsar = $productoAlmacen->costo_actual ?? $productoAlmacen->costo ?? 0;
+            $costoTotal += $cantidadRestante * $costoActualUsar;
+            $cantidadConsumida += $cantidadRestante;
+            $productoAlmacen->stock_costo_actual = ($productoAlmacen->stock_costo_actual ?? 0) - $cantidadRestante;
         }
 
-        // Actualizar stock total
+        // Actualizar stock total (puede ser negativo)
         $productoAlmacen->stock_fraccion = $productoAlmacen->stock_costo_anterior + $productoAlmacen->stock_costo_actual;
 
-        // Actualizar costo principal como promedio del stock restante
-        if ($productoAlmacen->stock_fraccion > 0) {
+        // Actualizar costo principal
+        if ($cantidadConsumida > 0) {
             $productoAlmacen->costo = $costoTotal / $cantidadConsumida;
         }
 
