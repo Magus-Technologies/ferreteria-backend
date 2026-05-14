@@ -6,6 +6,7 @@ use App\Models\ClienteCalificacion;
 use App\Enums\EstadoClienteCalificacion;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 
 class ClienteCalificacionController extends Controller
 {
@@ -95,6 +96,34 @@ class ClienteCalificacionController extends Controller
 
         return response()->json([
             'data' => $calificacion
+        ]);
+    }
+
+    /**
+     * Obtener resumen global de últimas calificaciones por estado.
+     */
+    public function resumen(): JsonResponse
+    {
+        $subUltimas = ClienteCalificacion::query()
+            ->selectRaw('MAX(id) as id')
+            ->groupBy('cliente_id');
+
+        $rows = ClienteCalificacion::query()
+            ->from('cliente_calificaciones as cc')
+            ->joinSub($subUltimas, 'ultimas', function ($join) {
+                $join->on('cc.id', '=', 'ultimas.id');
+            })
+            ->select('cc.estado', DB::raw('COUNT(*) as total'))
+            ->groupBy('cc.estado')
+            ->pluck('total', 'estado');
+
+        return response()->json([
+            'data' => [
+                'excelente' => (int) ($rows['excelente'] ?? 0),
+                'bueno' => (int) ($rows['bueno'] ?? 0),
+                'regular' => (int) ($rows['regular'] ?? 0),
+                'problematico' => (int) ($rows['problematico'] ?? 0),
+            ],
         ]);
     }
 
