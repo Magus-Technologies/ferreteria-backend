@@ -7,6 +7,31 @@ use App\Models\ProductoAlmacen;
 class ProductoCostoService
 {
     /**
+     * Repara en memoria productos legacy que tienen stock_fraccion pero sus
+     * buckets PEPS están vacíos o desincronizados.
+     */
+    private function inicializarPepsLegacySiCorresponde(ProductoAlmacen $productoAlmacen): void
+    {
+        $stockFraccion = (float) ($productoAlmacen->stock_fraccion ?? 0);
+        $stockAnterior = (float) ($productoAlmacen->stock_costo_anterior ?? 0);
+        $stockActual = (float) ($productoAlmacen->stock_costo_actual ?? 0);
+        $stockPepsTotal = $stockAnterior + $stockActual;
+        $costoActual = $productoAlmacen->costo_actual;
+
+        $bucketsVacios = abs($stockAnterior) < 0.0001 && abs($stockActual) < 0.0001;
+        $stockDesincronizado = abs($stockPepsTotal - $stockFraccion) > 0.0001;
+        $sinCostoActual = $costoActual === null || (float) $costoActual === 0.0;
+
+        if (! $stockDesincronizado && ! ($stockFraccion !== 0.0 && $bucketsVacios && $sinCostoActual)) {
+            return;
+        }
+
+        $productoAlmacen->costo_anterior = null;
+        $productoAlmacen->stock_costo_anterior = 0;
+        $productoAlmacen->costo_actual = $productoAlmacen->costo ?? 0;
+        $productoAlmacen->stock_costo_actual = $stockFraccion;
+    }
+    /**
      * Actualiza el costo y stock de un producto en almacén usando PEPS
      * Mantiene dos pares de (costo, stock) simultáneamente
      * 
@@ -75,6 +100,8 @@ class ProductoCostoService
      */
     public function consumirStockConPEPS(ProductoAlmacen $productoAlmacen, float $cantidadAConsumir): float
     {
+        $this->inicializarPepsLegacySiCorresponde($productoAlmacen);
+
         $cantidadRestante = $cantidadAConsumir;
         $costoTotal = 0;
         $cantidadConsumida = 0;
