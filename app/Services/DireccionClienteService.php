@@ -46,7 +46,7 @@ class DireccionClienteService
             return $this->repository->create([
                 'cliente_id' => $clienteId,
                 'tipo' => $tipo,
-                'direccion' => $data['direccion'],
+                'direccion' => $data['direccion'] ?? '',
                 'referencia' => $data['referencia'] ?? null,
                 'latitud' => $data['latitud'] ?? null,
                 'longitud' => $data['longitud'] ?? null,
@@ -70,7 +70,7 @@ class DireccionClienteService
 
         $datosActualizacion = [];
 
-        if (isset($data['direccion'])) {
+        if (array_key_exists('direccion', $data)) {
             $datosActualizacion['direccion'] = $data['direccion'];
         }
 
@@ -78,11 +78,11 @@ class DireccionClienteService
             $datosActualizacion['referencia'] = $data['referencia'];
         }
 
-        if (isset($data['latitud'])) {
+        if (array_key_exists('latitud', $data)) {
             $datosActualizacion['latitud'] = $data['latitud'];
         }
 
-        if (isset($data['longitud'])) {
+        if (array_key_exists('longitud', $data)) {
             $datosActualizacion['longitud'] = $data['longitud'];
         }
 

@@ -22,7 +22,7 @@ class StoreDireccionClienteRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'direccion' => 'required|string|max:500',
+            'direccion' => 'nullable|string|max:500',
             'referencia' => 'nullable|string|max:500',
             'latitud' => [
                 'nullable',
