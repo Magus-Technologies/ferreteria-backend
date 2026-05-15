@@ -516,17 +516,12 @@ class EntregaProductoController extends Controller
                 $validated['motivo_anulacion'] = null;
                 $validated['user_anulacion_id'] = null;
 
-                // Recalcular cantidad_pendiente en las UDV: decrementar la
-                // cantidad entregada de cada detalle.
-                foreach ($entrega->productosEntregados as $detalle) {
-                    $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
-                    if ($unidadDerivadaVenta) {
-                        $pendienteActual = (float) $unidadDerivadaVenta->cantidad_pendiente;
-                        $cantidadEntregadaAcumulada = (float) $detalle->cantidad_entregada + $pendienteActual;
-                        $detalle->update(['cantidad_entregada' => $cantidadEntregadaAcumulada]);
-                        $unidadDerivadaVenta->update(['cantidad_pendiente' => 0.0]);
-                    }
-                }
+                // En entregas programadas/parciales la reserva ya se aplicó al
+                // crear la entrega: `detalle.cantidad_entregada` representa la
+                // cantidad asignada a ESTA entrega y `cantidad_pendiente` de la
+                // UDV representa lo que aún queda por otra entrega. Al
+                // confirmar, solo cambia el estado físico de la entrega; no se
+                // debe consumir el pendiente restante de toda la venta.
             }
 
             // Update entrega

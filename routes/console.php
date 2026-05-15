@@ -28,3 +28,11 @@ Schedule::command('cajas:cerrar-olvidadas')
     ->withoutOverlapping()
     ->onOneServer()
     ->runInBackground();
+
+// Liberar stock de cotizaciones cuya fecha de vencimiento ha pasado
+// Se ejecuta diariamente a las 3:00 AM
+Schedule::command('reservas:liberar-expiradas')
+    ->dailyAt('03:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->runInBackground();

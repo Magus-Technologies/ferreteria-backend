@@ -26,6 +26,7 @@ class Cotizacion extends Model
         'observaciones',
         'estado_cotizacion',
         'reservar_stock',           // ✅ NUEVO
+        'fecha_vencimiento_reserva', // ✅ NUEVO
         'cliente_id',
         'ruc_dni',                  // ✅ NUEVO
         'telefono',                 // ✅ NUEVO
@@ -36,6 +37,7 @@ class Cotizacion extends Model
         'forma_de_pago',            // ✅ NUEVO
         'almacen_id',
         'venta_id',
+        'recomendado_por_id',
     ];
 
     protected function casts(): array
@@ -72,6 +74,11 @@ class Cotizacion extends Model
     public function venta(): BelongsTo
     {
         return $this->belongsTo(Venta::class);
+    }
+
+    public function recomendadoPor(): BelongsTo
+    {
+        return $this->belongsTo(Cliente::class, 'recomendado_por_id');
     }
 
     public function productosPorAlmacen(): HasMany

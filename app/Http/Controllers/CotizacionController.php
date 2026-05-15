@@ -109,8 +109,10 @@ class CotizacionController extends Controller
             'tipo_documento' => 'nullable|string|max:50',
             'observaciones' => 'nullable|string',
             'reservar_stock' => 'nullable|boolean',
-            
+            'fecha_vencimiento_reserva' => 'nullable|date',
+
             'almacen_id' => 'required|integer|exists:almacen,id',
+            'recomendado_por_id' => 'nullable|integer|exists:cliente,id',
         ]);
 
         try {
@@ -138,6 +140,7 @@ class CotizacionController extends Controller
                 'observaciones' => $validated['observaciones'] ?? null,
                 'estado_cotizacion' => 'pe', // Pendiente
                 'reservar_stock' => $validated['reservar_stock'] ?? false,
+                'fecha_vencimiento_reserva' => $validated['fecha_vencimiento_reserva'] ?? null,
                 'cliente_id' => $validated['cliente_id'] ?? null,
                 'ruc_dni' => $validated['ruc_dni'] ?? null,
                 'telefono' => $validated['telefono'] ?? null,
@@ -147,6 +150,7 @@ class CotizacionController extends Controller
                 'vendedor' => $validated['vendedor'] ?? null,
                 'forma_de_pago' => $validated['forma_de_pago'] ?? null,
                 'almacen_id' => $validated['almacen_id'],
+                'recomendado_por_id' => $validated['recomendado_por_id'] ?? null,
             ]);
 
             // Procesar productos - Agrupar por producto_id para evitar duplicados
@@ -302,6 +306,7 @@ class CotizacionController extends Controller
                 }]);
             },
             'almacen',
+            'recomendadoPor',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
         ])->findOrFail($id);
@@ -332,6 +337,7 @@ class CotizacionController extends Controller
             'tipo_de_cambio' => 'sometimes|numeric|min:0',
             'observaciones' => 'nullable|string',
             'reservar_stock' => 'sometimes|boolean',
+            'fecha_vencimiento_reserva' => 'nullable|date',
             'cliente_id' => 'nullable|integer|exists:cliente,id',
             'ruc_dni' => 'nullable|string',
             'telefono' => 'nullable|string',
@@ -339,6 +345,7 @@ class CotizacionController extends Controller
             'tipo_documento' => 'nullable|string',
             'forma_de_pago' => 'nullable|in:Contado,Crédito',
             'almacen_id' => 'sometimes|integer|exists:almacen,id',
+            'recomendado_por_id' => 'nullable|integer|exists:cliente,id',
             'productos' => 'sometimes|array',
             'productos.*.producto_id' => 'required|integer|exists:producto,id',
             'productos.*.unidad_derivada_id' => 'required|integer|exists:unidadderivada,id',
@@ -593,7 +600,7 @@ class CotizacionController extends Controller
                 'fecha' => now(),
                 'estado_de_venta' => 'pe', // Pendiente
                 'cliente_id' => $cotizacion->cliente_id,
-                'recomendado_por_id' => null,
+                'recomendado_por_id' => $cotizacion->recomendado_por_id,
                 'user_id' => auth()->id(),
                 'almacen_id' => $cotizacion->almacen_id,
             ]);
