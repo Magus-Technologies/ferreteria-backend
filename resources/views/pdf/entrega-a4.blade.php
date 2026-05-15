@@ -14,6 +14,12 @@
          (color tema #fadc06) igual que las ventas. --}}
     @include('pdf.layout.info-grid', ['filas' => $filas])
 
+    @if(($entregasTotales ?? 1) > 1)
+        <div style="margin: 8px 0 10px; padding: 6px 10px; border: 1px solid #fadc06; background: #fff9db; font-size: 8pt; font-weight: bold; text-align: center;">
+            ENTREGA {{ $entregaNumero }} DE {{ $entregasTotales }}
+        </div>
+    @endif
+
     {{-- Tabla de productos — si la venta fue editada y realmente se retiró un
          producto o cantidad, se muestra en la columna "RECIBIDO" dentro de la
          misma tabla principal. --}}

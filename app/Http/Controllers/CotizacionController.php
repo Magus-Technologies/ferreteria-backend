@@ -308,6 +308,12 @@ class CotizacionController extends Controller
             'almacen',
             'recomendadoPor',
             'productosPorAlmacen.productoAlmacen.producto.marca',
+            // Cargar las unidades derivadas DISPONIBLES del producto en almacén
+            // (con todos sus precios/comisiones). Sin esto, los selects de
+            // tipo_precio y unidad_derivada en la pantalla de editar quedan
+            // sin opciones porque el store del front solo se llena al agregar
+            // un producto manualmente.
+            'productosPorAlmacen.productoAlmacen.unidadesDerivadas.unidadDerivada',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
         ])->findOrFail($id);
 
