@@ -2,15 +2,21 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Prestamo;
-use App\Models\PagoPrestamo;
-use App\Models\ProductoAlmacen;
-use App\Models\ProductoAlmacenPrestamo;
-use App\Models\UnidadDerivadaInmutablePrestamo;
-use App\Models\UnidadDerivada;
+use App\Enums\TipoDocumento;
+use App\Models\IngresoSalida;
+use App\Models\ProductoAlmacenIngresoSalida;
+use App\Models\UnidadDerivadaInmutable;
+use App\Models\UnidadDerivadaInmutableIngresoSalida;
+use App\Models\HistorialUnidadDerivadaInmutableIngresoSalida;
+use App\Models\PrestamoDevolucion;
+use App\Models\PrestamoProductoDevuelto;
+use App\Services\Kardex\KardexInventarioService;
+use App\Services\Producto\ComplementarioStockService;
+use App\Services\Cache\ProductoCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -175,26 +181,38 @@ class PrestamoController extends Controller
                 'almacen_id' => $validated['almacen_id'],
             ]);
 
-            // Procesar productos
+            // Procesar productos y收集 producto_almacen_ids para movimiento de inventario
+            $productosAlmacenIds = [];
             foreach ($validated['productos'] as $productoData) {
-                $this->agregarProductoAPrestamo(
+                $result = $this->agregarProductoAPrestamo(
                     $prestamo,
                     $productoData,
                     $validated['almacen_id']
                 );
+                $productosAlmacenIds[] = $result;
             }
+
+            // Crear movimiento de inventario (Ingreso o Salida según tipo_operacion)
+            $this->crearMovimientoInventario(
+                $prestamo,
+                $productosAlmacenIds,
+                $validated['productos'],
+                $validated['almacen_id']
+            );
 
             DB::commit();
 
             // Cargar relaciones para la respuesta
-            $prestamo->load([
+$prestamo->load([
                 'cliente',
                 'proveedor',
                 'user',
                 'almacen',
-                'productosPorAlmacen.productoAlmacen.producto',
+                'productosPorAlmacen.productoAlmacen.producto.marca',
                 'productosPorAlmacen.unidadesDerivadas',
                 'pagos',
+                'devoluciones.ingresoSalida',
+                'devoluciones.productosDevueltos',
             ]);
 
             return response()->json([
@@ -212,12 +230,13 @@ class PrestamoController extends Controller
 
     /**
      * Agregar un producto al préstamo
+     * @return array{producto_almacen_id: int, unidad_derivada_inmutable_prestamo_id: int, cantidad: float, factor: float}
      */
     private function agregarProductoAPrestamo(
         Prestamo $prestamo,
         array $productoData,
         int $almacenId
-    ): void {
+    ): array {
         // Buscar o crear ProductoAlmacen
         $productoAlmacen = ProductoAlmacen::firstOrCreate(
             [
@@ -243,13 +262,148 @@ class PrestamoController extends Controller
         $nombreUnidad = $unidadDerivada ? $unidadDerivada->name : 'UNIDAD';
 
         // Crear UnidadDerivadaInmutablePrestamo
-        UnidadDerivadaInmutablePrestamo::create([
+        $unidadDerivadaInmutablePrestamo = UnidadDerivadaInmutablePrestamo::create([
             'name' => $nombreUnidad,
             'factor' => $productoData['unidad_derivada_factor'],
             'cantidad' => $productoData['cantidad'],
             'producto_almacen_prestamo_id' => $productoAlmacenPrestamo->id,
             'unidad_derivada_id' => $productoData['unidad_derivada_id'],
         ]);
+
+        return [
+            'producto_almacen_id' => $productoAlmacen->id,
+            'producto_almacen_prestamo_id' => $productoAlmacenPrestamo->id,
+            'unidad_derivada_inmutable_prestamo_id' => $unidadDerivadaInmutablePrestamo->id,
+            'cantidad' => $productoData['cantidad'],
+            'factor' => $productoData['unidad_derivada_factor'],
+        ];
+    }
+
+    /**
+     * Crear movimiento de inventario (Ingreso o Salida) según tipo de operación
+     */
+    private function crearMovimientoInventario(
+        Prestamo $prestamo,
+        array $productosAlmacenIds,
+        array $productosOriginales,
+        int $almacenId
+    ): void {
+        $esIngreso = $prestamo->tipo_operacion === 'PEDIR_PRESTADO';
+
+        // Determinar tipo_documento
+        $tipoDocumento = $esIngreso ? TipoDocumento::Ingreso : TipoDocumento::Salida;
+
+        // Obtener numeración
+        $ultimoDocumento = IngresoSalida::where('tipo_documento', $tipoDocumento->value)
+            ->orderBy('numero', 'desc')
+            ->first();
+        $numero = $ultimoDocumento ? $ultimoDocumento->numero + 1 : 1;
+        $serie = $esIngreso ? 1 : 2;
+
+        // Crear descripción
+        $descripcion = $esIngreso
+            ? "Ingreso por préstamo recibido {$prestamo->numero}"
+            : "Salida por préstamo {$prestamo->numero}";
+
+        // Crear IngresoSalida
+        $ingresoSalida = IngresoSalida::create([
+            'tipo_documento' => $tipoDocumento,
+            'serie' => $serie,
+            'numero' => $numero,
+            'fecha' => $prestamo->fecha,
+            'almacen_id' => $almacenId,
+            'tipo_ingreso_id' => 4, // PRESTAMO
+            'proveedor_id' => $esIngreso ? $prestamo->proveedor_id : null,
+            'descripcion' => $descripcion,
+            'user_id' => auth()->id(),
+            'estado' => true,
+        ]);
+
+        // Procesar cada producto
+        foreach ($productosAlmacenIds as $index => $productoData) {
+            $productoOriginal = $productosOriginales[$index];
+
+            // Obtener ProductoAlmacen
+            $productoAlmacen = ProductoAlmacen::find($productoData['producto_almacen_id']);
+
+            // Calcular cantidad en fracción
+            $factor = $productoData['factor'];
+            $cantidad = $productoData['cantidad'];
+            $cantidadFraccion = $factor * $cantidad;
+
+            // Crear ProductoAlmacenIngresoSalida
+            $productoAlmacenIngresoSalida = ProductoAlmacenIngresoSalida::create([
+                'ingreso_id' => $ingresoSalida->id,
+                'producto_almacen_id' => $productoAlmacen->id,
+                'costo' => $productoAlmacen->costo,
+            ]);
+
+            // Crear o buscar UnidadDerivadaInmutable
+            $unidadInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                ['name' => $productoOriginal['unidad_derivada_name'] ?? 'UNIDAD'],
+                ['estado' => true]
+            );
+
+            // Crear UnidadDerivadaInmutableIngresoSalida
+            UnidadDerivadaInmutableIngresoSalida::create([
+                'producto_almacen_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
+                'unidad_derivada_inmutable_id' => $unidadInmutable->id,
+                'factor' => $factor,
+                'cantidad' => $cantidad,
+                'cantidad_restante' => $cantidad,
+                'lote' => null,
+                'vencimiento' => null,
+            ]);
+
+            // Obtener unidad derivada para el kardex
+            $unidadDerivada = UnidadDerivada::find($productoOriginal['unidad_derivada_id']);
+
+            // Actualizar stock
+            $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+            $stockNuevo = $esIngreso
+                ? $stockAnterior + $cantidadFraccion
+                : $stockAnterior - $cantidadFraccion;
+
+            // Registrar historial
+            HistorialUnidadDerivadaInmutableIngresoSalida::create([
+                'unidad_derivada_inmutable_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
+                'stock_anterior' => $stockAnterior,
+                'stock_nuevo' => $stockNuevo,
+            ]);
+
+            // Actualizar stock_fraccion
+            $productoAlmacen->update([
+                'stock_fraccion' => $stockNuevo,
+            ]);
+
+            // Registrar en Kardex
+            $kardexService = app(KardexInventarioService::class);
+            $productoAlmacenRefresh = ProductoAlmacen::with('producto')->find($productoAlmacen->id);
+            $unidadForKardex = (object)[
+                'cantidad' => $cantidad,
+                'factor' => $factor,
+                'unidadDerivadaInmutable' => (object)['name' => $unidadInmutable->name],
+            ];
+
+            if ($esIngreso) {
+                $kardexService->registrarIngreso($ingresoSalida, $productoAlmacenRefresh, $unidadForKardex, $productoAlmacen->costo, 3, $stockAnterior);
+            } else {
+                $kardexService->registrarSalida($ingresoSalida, $productoAlmacenRefresh, $unidadForKardex, $productoAlmacen->costo, 4, $stockAnterior);
+            }
+
+            // Procesar complementario
+            ComplementarioStockService::procesarComplementario(
+                $productoAlmacen->id,
+                $productoOriginal['unidad_derivada_id'],
+                $cantidad,
+                $almacenId,
+                $esIngreso,
+                $ingresoSalida
+            );
+        }
+
+        // Invalidar cache
+        app(ProductoCacheService::class)->invalidateProductosAlmacen($almacenId);
     }
 
     /**
@@ -469,5 +623,242 @@ class PrestamoController extends Controller
                 'message' => 'Error al eliminar el préstamo: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Registrar una devolución de productos con movimiento de inventario
+     */
+    public function registrarDevolucion(Request $request, string $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'productos' => 'required|array|min:1',
+            'productos.*.producto_almacen_prestamo_id' => 'required|integer|exists:productoalmacenprestamo,id',
+            'productos.*.cantidad' => 'required|numeric|min:0.001',
+            'productos.*.factor' => 'required|numeric|min:0',
+            'fecha_devolucion' => 'required|date',
+            'observaciones' => 'nullable|string',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $prestamo = Prestamo::findOrFail($id);
+
+            // Determinar si es INGRESO o SALIDA basado en tipo_operacion
+            // PRESTAR: devolución = INGRESO (el cliente me devuelve, sumo stock)
+            // PEDIR_PRESTADO: devolución = SALIDA (yo devuelvo al proveedor, resto stock)
+            $esIngreso = $prestamo->tipo_operacion === 'PRESTAR';
+
+            // Crear movimiento de inventario
+            $tipoDocumento = $esIngreso ? TipoDocumento::Ingreso : TipoDocumento::Salida;
+
+            // Obtener numeración
+            $ultimoDocumento = IngresoSalida::where('tipo_documento', $tipoDocumento->value)
+                ->orderBy('numero', 'desc')
+                ->first();
+            $numero = $ultimoDocumento ? $ultimoDocumento->numero + 1 : 1;
+            $serie = $esIngreso ? 1 : 2;
+
+            // Crear descripción
+            $descripcion = $esIngreso
+                ? "Ingreso por devolución préstamo {$prestamo->numero}"
+                : "Salida por devolución préstamo {$prestamo->numero}";
+
+            // Crear IngresoSalida
+            $ingresoSalida = IngresoSalida::create([
+                'tipo_documento' => $tipoDocumento,
+                'serie' => $serie,
+                'numero' => $numero,
+                'fecha' => $validated['fecha_devolucion'],
+                'almacen_id' => $prestamo->almacen_id,
+                'tipo_ingreso_id' => 4, // PRESTAMO
+                'cliente_id' => $esIngreso ? $prestamo->cliente_id : null,
+                'proveedor_id' => !$esIngreso ? $prestamo->proveedor_id : null,
+                'descripcion' => $descripcion,
+                'user_id' => auth()->id(),
+                'estado' => true,
+            ]);
+
+            // Generar número de devolución
+            $numeroDevolucion = $this->generarNumeroDevolucion($prestamo->id);
+
+            // Crear PrestamoDevolucion
+            $prestamoDevolucion = PrestamoDevolucion::create([
+                'prestamo_id' => $prestamo->id,
+                'ingreso_salida_id' => $ingresoSalida->id,
+                'fecha_devolucion' => $validated['fecha_devolucion'],
+                'user_id' => auth()->id(),
+                'numero_devolucion' => $numeroDevolucion,
+                'observaciones' => $validated['observaciones'] ?? null,
+            ]);
+
+            // Procesar cada producto devuelto
+            $totalDevuelto = 0;
+            foreach ($validated['productos'] as $productoData) {
+                $productoAlmacenPrestamo = ProductoAlmacenPrestamo::with('unidadesDerivadas')->find($productoData['producto_almacen_prestamo_id']);
+
+                if (!$productoAlmacenPrestamo) {
+                    continue;
+                }
+
+                $productoAlmacen = ProductoAlmacen::find($productoAlmacenPrestamo->producto_almacen_id);
+                $factor = $productoData['factor'];
+                $cantidad = $productoData['cantidad'];
+                $cantidadFraccion = $factor * $cantidad;
+
+                // Crear PrestamoProductoDevuelto
+                $unidadDerivadaInmutablePrestamo = $productoAlmacenPrestamo->unidadesDerivadas->first();
+                PrestamoProductoDevuelto::create([
+                    'prestamo_devolucion_id' => $prestamoDevolucion->id,
+                    'producto_almacen_prestamo_id' => $productoAlmacenPrestamo->id,
+                    'unidad_derivada_inmutable_prestamo_id' => $unidadDerivadaInmutablePrestamo ? $unidadDerivadaInmutablePrestamo->id : null,
+                    'cantidad' => $cantidad,
+                    'factor' => $factor,
+                    'cantidad_fraccion' => $cantidadFraccion,
+                ]);
+
+                // Crear ProductoAlmacenIngresoSalida
+                $productoAlmacenIngresoSalida = ProductoAlmacenIngresoSalida::create([
+                    'ingreso_id' => $ingresoSalida->id,
+                    'producto_almacen_id' => $productoAlmacen->id,
+                    'costo' => $productoAlmacen->costo,
+                ]);
+
+                // Crear o buscar UnidadDerivadaInmutable
+                $unidadInmutableName = $unidadDerivadaInmutablePrestamo ? $unidadDerivadaInmutablePrestamo->name : 'UNIDAD';
+                $unidadInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                    ['name' => $unidadInmutableName],
+                    ['estado' => true]
+                );
+
+                // Crear UnidadDerivadaInmutableIngresoSalida
+                UnidadDerivadaInmutableIngresoSalida::create([
+                    'producto_almacen_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
+                    'unidad_derivada_inmutable_id' => $unidadInmutable->id,
+                    'factor' => $factor,
+                    'cantidad' => $cantidad,
+                    'cantidad_restante' => $cantidad,
+                    'lote' => null,
+                    'vencimiento' => null,
+                ]);
+
+                // Obtener unidad derivada original
+                $unidadDerivadaId = $unidadDerivadaInmutablePrestamo ? $unidadDerivadaInmutablePrestamo->unidad_derivada_id : 1;
+                $unidadDerivada = UnidadDerivada::find($unidadDerivadaId);
+
+                // Actualizar stock
+                $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+                $stockNuevo = $esIngreso
+                    ? $stockAnterior + $cantidadFraccion
+                    : $stockAnterior - $cantidadFraccion;
+
+                // Validar que no sea negativo para salidas
+                if (!$esIngreso && $stockNuevo < 0) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "Stock insuficiente para devolver {$cantidad} unidades del producto",
+                    ], 422);
+                }
+
+                // Registrar historial
+                HistorialUnidadDerivadaInmutableIngresoSalida::create([
+                    'unidad_derivada_inmutable_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
+                    'stock_anterior' => $stockAnterior,
+                    'stock_nuevo' => $stockNuevo,
+                ]);
+
+                // Actualizar stock_fraccion
+                $productoAlmacen->update([
+                    'stock_fraccion' => $stockNuevo,
+                ]);
+
+                // Registrar en Kardex
+                $kardexService = app(KardexInventarioService::class);
+                $productoAlmacenRefresh = ProductoAlmacen::with('producto')->find($productoAlmacen->id);
+                $unidadForKardex = (object)[
+                    'cantidad' => $cantidad,
+                    'factor' => $factor,
+                    'unidadDerivadaInmutable' => (object)['name' => $unidadInmutable->name],
+                ];
+
+                if ($esIngreso) {
+                    $kardexService->registrarIngreso($ingresoSalida, $productoAlmacenRefresh, $unidadForKardex, $productoAlmacen->costo, 3, $stockAnterior);
+                } else {
+                    $kardexService->registrarSalida($ingresoSalida, $productoAlmacenRefresh, $unidadForKardex, $productoAlmacen->costo, 4, $stockAnterior);
+                }
+
+                // Procesar complementario
+                ComplementarioStockService::procesarComplementario(
+                    $productoAlmacen->id,
+                    $unidadDerivadaId,
+                    $cantidad,
+                    $prestamo->almacen_id,
+                    $esIngreso,
+                    $ingresoSalida
+                );
+
+                $totalDevuelto += $cantidadFraccion;
+            }
+
+            // Crear PagoPrestamo para tracking (legacy support)
+            $pagoId = 'pag' . Str::random(10);
+            $numeroPago = $this->generarNumeroPago($prestamo->id);
+            PagoPrestamo::create([
+                'id' => $pagoId,
+                'prestamo_id' => $prestamo->id,
+                'numero_pago' => $numeroPago,
+                'monto' => $totalDevuelto,
+                'fecha_pago' => $validated['fecha_devolucion'],
+                'metodo_pago' => 'Devolución Física',
+                'observaciones' => "Devolución {$numeroDevolucion}. " . ($validated['observaciones'] ?? ''),
+                'user_id' => auth()->id(),
+            ]);
+
+            // Invalidar cache
+            app(ProductoCacheService::class)->invalidateProductosAlmacen($prestamo->almacen_id);
+
+            DB::commit();
+
+            // Recargar el préstamo con relaciones actualizadas
+            $prestamo->refresh();
+            $prestamo->load([
+                'cliente',
+                'proveedor',
+                'user',
+                'almacen',
+                'productosPorAlmacen.productoAlmacen.producto',
+                'productosPorAlmacen.unidadesDerivadas',
+                'pagos',
+                'devoluciones.ingresoSalida',
+                'devoluciones.productosDevueltos',
+            ]);
+
+            return response()->json([
+                'data' => [
+                    'prestamo' => $prestamo,
+                    'devolucion' => $prestamoDevolucion,
+                    'ingreso_salida' => $ingresoSalida,
+                ],
+                'message' => 'Devolución registrada exitosamente',
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al registrar la devolución: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar número de devolución único para un préstamo
+     */
+    private function generarNumeroDevolucion(string $prestamoId): string
+    {
+        $count = PrestamoDevolucion::where('prestamo_id', $prestamoId)->count();
+        $newNumber = $count + 1;
+
+        $prestamo = Prestamo::find($prestamoId);
+        return sprintf('%s-DEV-%03d', $prestamo->numero, $newNumber);
     }
 }

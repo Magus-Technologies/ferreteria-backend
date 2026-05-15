@@ -92,4 +92,9 @@ class Prestamo extends Model
     {
         return $this->hasMany(ProductoAlmacenPrestamo::class, 'prestamo_id', 'id');
     }
+
+    public function devoluciones(): HasMany
+    {
+        return $this->hasMany(PrestamoDevolucion::class, 'prestamo_id', 'id');
+    }
 }
