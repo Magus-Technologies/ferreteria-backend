@@ -332,8 +332,10 @@ class CotizacionController extends Controller
 
         $validated = $request->validate([
             'fecha' => 'sometimes|date',
+            'fecha_proforma' => 'nullable|date',
+            'fecha_vencimiento' => 'nullable|date',
             'vigencia_dias' => 'sometimes|integer|min:1',
-            'tipo_moneda' => 'sometimes|in:Soles,Dólares',
+            'tipo_moneda' => 'sometimes|in:s,d',
             'tipo_de_cambio' => 'sometimes|numeric|min:0',
             'observaciones' => 'nullable|string',
             'reservar_stock' => 'sometimes|boolean',
@@ -343,7 +345,8 @@ class CotizacionController extends Controller
             'telefono' => 'nullable|string',
             'direccion' => 'nullable|string',
             'tipo_documento' => 'nullable|string',
-            'forma_de_pago' => 'nullable|in:Contado,Crédito',
+            'vendedor' => 'nullable|string|max:191',
+            'forma_de_pago' => 'nullable|string|max:50',
             'almacen_id' => 'sometimes|integer|exists:almacen,id',
             'recomendado_por_id' => 'nullable|integer|exists:cliente,id',
             'productos' => 'sometimes|array',
