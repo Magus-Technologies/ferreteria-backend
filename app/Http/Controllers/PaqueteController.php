@@ -37,7 +37,7 @@ class PaqueteController extends Controller
 
         $query = Paquete::query()
             ->with([
-                'productos:id,paquete_id,producto_id,unidad_derivada_id,cantidad,tipo_precio,precio_publico',
+                'productos:id,paquete_id,producto_id,unidad_derivada_id,cantidad,tipo_precio,precio_publico,precio_especial,precio_minimo,precio_ultimo,descuento_publico,descuento_especial,descuento_minimo,descuento_ultimo',
                 'productos.producto:id,name,cod_producto',
                 'productos.unidadDerivada:id,name',
             ])
@@ -74,6 +74,7 @@ class PaqueteController extends Controller
     public function show($id)
     {
         $paquete = Paquete::with([
+            'productos:id,paquete_id,producto_id,unidad_derivada_id,cantidad,tipo_precio,precio_publico,precio_especial,precio_minimo,precio_ultimo,descuento_publico,descuento_especial,descuento_minimo,descuento_ultimo',
             'productos.producto:id,name,cod_producto,marca_id',
             'productos.producto.marca:id,name',
             'productos.producto.productoEnAlmacenes:id,producto_id,costo',
@@ -176,6 +177,7 @@ public function byProducto($productoId)
             $query->where('producto_id', $productoId);
         })
         ->with([
+            'productos:id,paquete_id,producto_id,unidad_derivada_id,cantidad,tipo_precio,precio_publico,precio_especial,precio_minimo,precio_ultimo,descuento_publico,descuento_especial,descuento_minimo,descuento_ultimo',
             'productos.producto:id,name,cod_producto,marca_id',
             'productos.producto.marca:id,name',
             'productos.unidadDerivada:id,name',
