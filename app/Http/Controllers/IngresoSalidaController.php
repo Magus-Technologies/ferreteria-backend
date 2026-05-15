@@ -35,6 +35,7 @@ class IngresoSalidaController extends Controller
             "observacion" => "nullable|string",
             "tipo" => "nullable|string",
             "listar_no_anuladas" => "nullable",
+            "estado_filtro" => "nullable|string|in:todos,activos,anulados",
             "per_page" => "nullable|integer|min:1|max:500",
             "page" => "nullable|integer|min:1",
         ]);
@@ -94,7 +95,7 @@ class IngresoSalidaController extends Controller
             $search = $request->search_proveedor;
             $query->whereHas("proveedor", function ($q) use ($search) {
                 $q->where("razon_social", "LIKE", "%{$search}%")
-                    ->orWhere("numero_documento", "LIKE", "%{$search}%");
+                    ->orWhere("ruc", "LIKE", "%{$search}%");
             });
         }
 
@@ -110,8 +111,16 @@ class IngresoSalidaController extends Controller
             });
         }
 
-        // Filtro por Estado (No Anuladas)
-        if ($request->boolean("listar_no_anuladas")) {
+        // Filtro por Estado: todos / activos / anulados
+        $estadoFiltro = $request->input("estado_filtro");
+        if ($estadoFiltro === "activos") {
+            $query->where("estado", true);
+        } elseif ($estadoFiltro === "anulados") {
+            $query->where("estado", false);
+        } elseif ($estadoFiltro === "todos") {
+            // sin filtro de estado
+        } elseif ($request->boolean("listar_no_anuladas")) {
+            // Compatibilidad con el parámetro anterior
             $query->where("estado", true);
         }
 
