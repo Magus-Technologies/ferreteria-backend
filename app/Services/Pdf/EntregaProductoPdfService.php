@@ -11,6 +11,7 @@ class EntregaProductoPdfService
     {
         $entrega = EntregaProducto::with([
             'venta.cliente',
+            'venta.entregasProductos',
             // Historial de ediciones de la venta — usado para mostrar
             // "productos anteriores vs actuales" cuando la venta fue editada.
             'venta.historial' => fn ($q) => $q->where('accion', 'edicion')->orderBy('fecha', 'desc'),
@@ -32,6 +33,19 @@ class EntregaProductoPdfService
 
         $cliente = $entrega->venta->cliente ?? null;
         $productos = $this->prepararProductos($entrega);
+        $entregasVenta = $entrega->venta?->entregasProductos
+            ? $entrega->venta->entregasProductos
+                ->sortBy([
+                    ['created_at', 'asc'],
+                    ['id', 'asc'],
+                ])
+                ->values()
+            : collect();
+        $entregasTotales = max(1, $entregasVenta->count());
+        $entregaNumero = max(
+            1,
+            $entregasVenta->search(fn ($e) => (int) $e->id === (int) $entrega->id) + 1
+        );
 
         // Format venta number
         $serie = $entrega->venta->serie ?? '';
@@ -133,6 +147,8 @@ class EntregaProductoPdfService
             'productos' => $productos,
             'productosTabla' => $productosTabla,
             'mostrarRecibido' => $mostrarRecibido,
+            'entregaNumero' => $entregaNumero,
+            'entregasTotales' => $entregasTotales,
             'fechaUltimaEdicion' => $ultimaEdicion?->fecha?->format('d/m/Y H:i'),
             'nroVenta' => $nroVenta,
             'tipoEntregaLabel' => $tipoEntregaLabel,
@@ -308,6 +324,8 @@ class EntregaProductoPdfService
     private function prepararProductos(EntregaProducto $entrega): array
     {
         $productos = [];
+        $entregaTieneEntregaFisica =
+            $entrega->estado_entrega === 'en' || !is_null($entrega->user_entregado_id);
 
         foreach ($entrega->productosEntregados as $detalle) {
             $udv = $detalle->unidadDerivadaVenta;
@@ -315,11 +333,10 @@ class EntregaProductoPdfService
             $pa = $pav?->productoAlmacen;
             $producto = $pa?->producto;
 
-            $total = (float) ($udv->cantidad ?? $detalle->cantidad_entregada ?? 0);
-            $pendiente = $udv && $udv->cantidad_pendiente !== null
-                ? (float) $udv->cantidad_pendiente
-                : max(0.0, $total - (float) $detalle->cantidad_entregada);
-            $entregado = max(0.0, $total - $pendiente);
+            $cantidadEstaEntrega = (float) ($detalle->cantidad_entregada ?? 0);
+            $total = $cantidadEstaEntrega;
+            $pendiente = $entregaTieneEntregaFisica ? 0.0 : $cantidadEstaEntrega;
+            $entregado = $entregaTieneEntregaFisica ? $cantidadEstaEntrega : 0.0;
 
             $productos[] = [
                 'codigo' => $producto->cod_producto ?? '',

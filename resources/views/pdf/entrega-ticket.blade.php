@@ -71,6 +71,10 @@
     <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
         {{ $tituloPdf }}<br>
         <span style="font-size: 7pt;">Venta: {{ $nroVenta }}</span>
+        @if(($entregasTotales ?? 1) > 1)
+            <br>
+            <span style="font-size: 7pt; color: #ca3438">Entrega {{ $entregaNumero }} de {{ $entregasTotales }}</span>
+        @endif
     </div>
 
     <div class="separator"></div>
