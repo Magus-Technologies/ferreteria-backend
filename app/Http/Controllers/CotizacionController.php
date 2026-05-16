@@ -33,6 +33,9 @@ class CotizacionController extends Controller
         // Filtros opcionales
         if ($request->has('estado_cotizacion')) {
             $query->where('estado_cotizacion', $request->estado_cotizacion);
+        } else {
+            // Por defecto excluir eliminadas de la vista
+            $query->where('estado_cotizacion', '!=', 'el');
         }
 
         if ($request->has('almacen_id')) {
@@ -49,6 +52,10 @@ class CotizacionController extends Controller
 
         if ($request->has('fecha_hasta')) {
             $query->whereDate('fecha', '<=', $request->fecha_hasta);
+        }
+
+        if ($request->has('reservar_stock')) {
+            $query->where('reservar_stock', filter_var($request->reservar_stock, FILTER_VALIDATE_BOOLEAN));
         }
 
         // Búsqueda por número o cliente (búsqueda global)
@@ -679,6 +686,54 @@ class CotizacionController extends Controller
             return response()->json([
                 'message' => 'Error al convertir la cotización: ' . $e->getMessage(),
             ], 500);
+        }
+    }
+
+    /**
+     * Eliminar lógicamente una cotización (se queda visible en tabla como eliminada).
+     * POST /api/cotizaciones/{id}/eliminar
+     */
+    public function eliminar(string $id): JsonResponse
+    {
+        try {
+            DB::beginTransaction();
+
+            $cotizacion = Cotizacion::with([
+                'productosPorAlmacen.productoAlmacen',
+                'productosPorAlmacen.unidadesDerivadas',
+            ])->findOrFail($id);
+
+            if ($cotizacion->estado_cotizacion === 'el') {
+                return response()->json(['message' => 'La cotización ya está eliminada'], 400);
+            }
+
+            // Devolver stock reservado si aplica
+            if ($cotizacion->reservar_stock) {
+                foreach ($cotizacion->productosPorAlmacen as $pac) {
+                    foreach ($pac->unidadesDerivadas as $ud) {
+                        $cantidadEnFraccion = $ud->cantidad * $ud->factor;
+                        $pac->productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $pac->producto_almacen_id,
+                            $ud->factor,
+                            $ud->cantidad,
+                            $pac->productoAlmacen->almacen_id,
+                            true
+                        );
+                    }
+                }
+            }
+
+            $cotizacion->update(['estado_cotizacion' => 'el', 'reservar_stock' => false]);
+
+            DB::commit();
+
+            return response()->json(['message' => 'Cotización eliminada']);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error al eliminar: ' . $e->getMessage()], 500);
         }
     }
 
