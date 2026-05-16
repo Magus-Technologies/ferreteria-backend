@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Enums\TipoDocumento;
 use App\Models\IngresoSalida;
+use App\Models\ProductoAlmacenIngresoSalida;
 use App\Models\Prestamo;
 use App\Models\PagoPrestamo;
 use App\Models\ProductoAlmacen;
 use App\Models\ProductoAlmacenPrestamo;
 use App\Models\UnidadDerivadaInmutablePrestamo;
+use App\Models\UnidadDerivada;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableIngresoSalida;
 use App\Models\HistorialUnidadDerivadaInmutableIngresoSalida;

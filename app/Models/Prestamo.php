@@ -56,7 +56,6 @@ class Prestamo extends Model
             'dias_gracia' => 'integer',
             'cliente_id' => 'integer',
             'proveedor_id' => 'integer',
-            'user_id' => 'integer',
             'almacen_id' => 'integer',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',

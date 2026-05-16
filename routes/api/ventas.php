@@ -66,6 +66,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('cotizaciones')->middleware('broadcast:cotizaciones')->group(function () {
         Route::get('/siguiente-numero/preview', [CotizacionController::class, 'siguienteNumero']);
         Route::post('/{id}/convertir-a-venta', [CotizacionController::class, 'convertirAVenta']);
+        Route::post('/{id}/vincular-venta', [CotizacionController::class, 'vincularVenta']);
+        Route::post('/{id}/duplicar', [CotizacionController::class, 'duplicar']);
     });
     Route::apiResource('cotizaciones', CotizacionController::class)->middleware('broadcast:cotizaciones');
 

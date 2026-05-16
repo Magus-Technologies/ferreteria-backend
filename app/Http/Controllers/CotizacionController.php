@@ -681,4 +681,107 @@ class CotizacionController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Vincular una cotización a una venta ya creada (flujo manual desde el formulario).
+     * POST /api/cotizaciones/{id}/vincular-venta
+     */
+    public function vincularVenta(string $id, Request $request): JsonResponse
+    {
+        $request->validate(['venta_id' => 'required|string|exists:venta,id']);
+
+        $cotizacion = Cotizacion::findOrFail($id);
+
+        if ($cotizacion->venta_id) {
+            return response()->json(['message' => 'Esta cotización ya está vinculada a una venta'], 400);
+        }
+
+        $cotizacion->update([
+            'venta_id' => $request->venta_id,
+            'estado_cotizacion' => 'co',
+        ]);
+
+        // Actualizar la descripción de la venta para que muestre el número de cotización
+        \App\Models\Venta::where('id', $request->venta_id)->update([
+            'descripcion' => "Convertida desde cotización {$cotizacion->numero}",
+        ]);
+
+        return response()->json(['message' => 'Cotización vinculada a venta exitosamente']);
+    }
+
+    /**
+     * Duplicar una cotización (crea una copia en estado pendiente con nuevo número).
+     * POST /api/cotizaciones/{id}/duplicar
+     */
+    public function duplicar(string $id): JsonResponse
+    {
+        try {
+            DB::beginTransaction();
+
+            $original = Cotizacion::with([
+                'productosPorAlmacen.productoAlmacen',
+                'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+            ])->findOrFail($id);
+
+            $nuevaId = 'cot' . Str::random(10);
+            $nuevoNumero = $this->generarNumeroCotizacion();
+            $vigenciaDias = $original->vigencia_dias ?? 7;
+
+            $nueva = Cotizacion::create([
+                'id' => $nuevaId,
+                'numero' => $nuevoNumero,
+                'fecha' => now(),
+                'fecha_proforma' => now(),
+                'vigencia_dias' => $vigenciaDias,
+                'fecha_vencimiento' => now()->addDays($vigenciaDias)->format('Y-m-d H:i:s'),
+                'tipo_moneda' => $original->tipo_moneda,
+                'tipo_de_cambio' => $original->tipo_de_cambio,
+                'observaciones' => $original->observaciones,
+                'estado_cotizacion' => 'pe',
+                'reservar_stock' => false,
+                'cliente_id' => $original->cliente_id,
+                'ruc_dni' => $original->ruc_dni,
+                'telefono' => $original->telefono,
+                'direccion' => $original->direccion,
+                'tipo_documento' => $original->tipo_documento,
+                'user_id' => auth()->id(),
+                'vendedor' => $original->vendedor,
+                'forma_de_pago' => $original->forma_de_pago,
+                'almacen_id' => $original->almacen_id,
+                'recomendado_por_id' => $original->recomendado_por_id,
+            ]);
+
+            foreach ($original->productosPorAlmacen as $pac) {
+                $nuevoPac = \App\Models\ProductoAlmacenCotizacion::create([
+                    'cotizacion_id' => $nueva->id,
+                    'producto_almacen_id' => $pac->producto_almacen_id,
+                    'costo' => $pac->costo,
+                ]);
+
+                foreach ($pac->unidadesDerivadas as $ud) {
+                    \App\Models\UnidadDerivadaInmutableCotizacion::create([
+                        'unidad_derivada_inmutable_id' => $ud->unidad_derivada_inmutable_id,
+                        'producto_almacen_cotizacion_id' => $nuevoPac->id,
+                        'factor' => $ud->factor,
+                        'cantidad' => $ud->cantidad,
+                        'precio' => $ud->precio,
+                        'recargo' => $ud->recargo,
+                        'descuento_tipo' => $ud->descuento_tipo,
+                        'descuento' => $ud->descuento,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'data' => ['id' => $nueva->id, 'numero' => $nuevoNumero],
+                'message' => "Cotización duplicada como N° {$nuevoNumero}",
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error al duplicar: ' . $e->getMessage()], 500);
+        }
+    }
 }
