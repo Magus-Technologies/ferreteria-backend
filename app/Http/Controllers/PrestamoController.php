@@ -36,7 +36,7 @@ class PrestamoController extends Controller
         $query = Prestamo::with([
             'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
             'cliente.direcciones',
-            'proveedor:id,razon_social,numero_documento,direccion,telefono,email',
+            'proveedor:id,razon_social,ruc,direccion,telefono,email',
             'user:id,name',
             'almacen:id,name',
             'productosPorAlmacen.productoAlmacen.producto.marca',
