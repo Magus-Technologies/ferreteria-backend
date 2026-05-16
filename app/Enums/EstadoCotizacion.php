@@ -8,4 +8,5 @@ enum EstadoCotizacion: string
     case Convertida = 'co';
     case Vencida = 've';
     case Cancelada = 'ca';
+    case Eliminada = 'el';
 }
