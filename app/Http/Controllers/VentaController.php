@@ -256,6 +256,9 @@ class VentaController extends Controller
             // descontar_stock=no significa "el cliente ya tiene el producto":
             // NO descontar stock pero SÍ crear la entrega como ENTREGADA.
             'descontar_stock' => 'sometimes|string|in:si,no',
+            // stock_ya_aplicado=true: la cotización origen ya reservó el stock,
+            // no descontar de nuevo pero marcar stock_aplicado=true en la venta.
+            'stock_ya_aplicado' => 'sometimes|boolean',
             'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
@@ -493,11 +496,13 @@ class VentaController extends Controller
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
             $noDescontarStock = ($validated['descontar_stock'] ?? 'si') === 'no';
+            $stockYaAplicado = (bool) ($validated['stock_ya_aplicado'] ?? false);
             $esCredito = ($validated['forma_de_pago'] ?? null) === 'cr';
             $debeDescontar = in_array($tipoDespacho, ['et', 'do'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
                 && ! $noDescontarStock
+                && ! $stockYaAplicado
                 && ! $esCredito;
             
             // CAPTURAR STOCK ANTERIOR ANTES DE DECREMENTAR (para kardex)
@@ -558,8 +563,9 @@ class VentaController extends Controller
                 }
             }
 
-            // Marcar si el stock fue aplicado al crear la venta
-            $venta->stock_aplicado = $debeDescontar;
+            // Marcar si el stock fue aplicado al crear la venta.
+            // stock_ya_aplicado=true: cotización origen reservó el stock.
+            $venta->stock_aplicado = $debeDescontar || $stockYaAplicado;
             $venta->save();
 
             // Auto-crear entrega para ventas de Recojo en Tienda (tipo_despacho='et').
