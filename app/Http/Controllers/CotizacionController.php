@@ -619,6 +619,7 @@ class CotizacionController extends Controller
                 'recomendado_por_id' => $cotizacion->recomendado_por_id,
                 'user_id' => auth()->id(),
                 'almacen_id' => $cotizacion->almacen_id,
+                'stock_aplicado' => true, // Stock ya fue descontado (al reservar o en el loop de abajo)
             ]);
 
             // Copiar productos de la cotización a la venta
