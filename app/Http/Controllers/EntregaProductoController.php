@@ -222,6 +222,7 @@ class EntregaProductoController extends Controller
 
         $validated = $request->validate([
             'venta_id' => 'required|string',
+            'grupo_entrega_id' => 'nullable|integer',
             'tipo_entrega' => 'required|string',
             'tipo_despacho' => 'nullable|string',
             'estado_entrega' => 'required|string',
@@ -250,6 +251,11 @@ class EntregaProductoController extends Controller
         return DB::transaction(function () use ($validated) {
             // Verificar que la venta existe
             $venta = Venta::findOrFail($validated['venta_id']);
+            $esParcialInmediatoPendienteAlmacen =
+                ($validated['tipo_entrega'] ?? null) === 'pa' &&
+                ($validated['tipo_despacho'] ?? null) === 'in' &&
+                ($validated['estado_entrega'] ?? null) === 'pe' &&
+                ($validated['quien_entrega'] ?? null) === 'almacen';
 
             // Si la entrega nace ya como ENTREGADO (caso EnTienda inmediato),
             // el creador es también quien entregó — registrar para auditoría.
@@ -260,6 +266,7 @@ class EntregaProductoController extends Controller
             // Crear entrega
             $entrega = EntregaProducto::create([
                 'venta_id' => $validated['venta_id'],
+                'grupo_entrega_id' => $validated['grupo_entrega_id'] ?? null,
                 'tipo_entrega' => $validated['tipo_entrega'],
                 'tipo_despacho' => $validated['tipo_despacho'] ?? null,
                 'estado_entrega' => $validated['estado_entrega'],
@@ -281,6 +288,11 @@ class EntregaProductoController extends Controller
                 'cargo_destino' => $validated['cargo_destino'] ?? null,
                 'vehiculo_id' => $validated['vehiculo_id'] ?? null,
             ]);
+
+            if ($entrega->tipo_entrega === 'pa' && ! $entrega->grupo_entrega_id) {
+                $entrega->grupo_entrega_id = $entrega->id;
+                $entrega->save();
+            }
 
             // Crear detalles y actualizar cantidades pendientes
             foreach ($validated['productos_entregados'] as $detalle) {
@@ -305,28 +317,33 @@ class EntregaProductoController extends Controller
                     'ubicacion' => $detalle['ubicacion'] ?? null,
                 ]);
 
-                // Actualizar cantidad pendiente
-                $unidadDerivadaVenta->decrement('cantidad_pendiente', $cantidadEntregada);
+                // Parcial + Inmediato + Almacén: registrar el tramo pendiente
+                // sin consumir aún stock ni cantidad_pendiente. Se consume
+                // recién cuando almacén confirma la entrega desde Mis Entregas.
+                if (! $esParcialInmediatoPendienteAlmacen) {
+                    // Actualizar cantidad pendiente
+                    $unidadDerivadaVenta->decrement('cantidad_pendiente', $cantidadEntregada);
 
-                // Descontar stock solo si la venta aún no lo aplicó.
-                // Cubre Parcial, ventas legacy sin tipo_despacho, y Domicilio/En Tienda
-                // creadas con "Omitir entrega" (donde el stock se difiere a la entrega).
-                if (! $venta->stock_aplicado) {
-                    $productoAlmacenVenta = $unidadDerivadaVenta->productoAlmacenVenta;
-                    $productoAlmacen = $productoAlmacenVenta?->productoAlmacen;
+                    // Descontar stock solo si la venta aún no lo aplicó.
+                    // Cubre Parcial, ventas legacy sin tipo_despacho, y Domicilio/En Tienda
+                    // creadas con "Omitir entrega" (donde el stock se difiere a la entrega).
+                    if (! $venta->stock_aplicado) {
+                        $productoAlmacenVenta = $unidadDerivadaVenta->productoAlmacenVenta;
+                        $productoAlmacen = $productoAlmacenVenta?->productoAlmacen;
 
-                    if ($productoAlmacen) {
-                        $cantidadEnFraccion = $cantidadEntregada * (float) $unidadDerivadaVenta->factor;
-                        $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+                        if ($productoAlmacen) {
+                            $cantidadEnFraccion = $cantidadEntregada * (float) $unidadDerivadaVenta->factor;
+                            $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
 
-                        // Descontar producto complementario
-                        ComplementarioStockService::procesarComplementarioPorFactor(
-                            $productoAlmacen->id,
-                            (float) $unidadDerivadaVenta->factor,
-                            $cantidadEntregada,
-                            $validated['almacen_salida_id'],
-                            false // salida
-                        );
+                            // Descontar producto complementario
+                            ComplementarioStockService::procesarComplementarioPorFactor(
+                                $productoAlmacen->id,
+                                (float) $unidadDerivadaVenta->factor,
+                                $cantidadEntregada,
+                                $validated['almacen_salida_id'],
+                                false // salida
+                            );
+                        }
                     }
                 }
             }
@@ -465,7 +482,8 @@ class EntregaProductoController extends Controller
         $entrega = EntregaProducto::with([
             'venta:id,serie,numero,cliente_id,almacen_id',
             'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono,email',
-            'venta.entregasProductos:id,venta_id,estado_entrega,tipo_entrega,tipo_despacho,fecha_programada,created_at',
+            'venta.entregasProductos:id,venta_id,grupo_entrega_id,estado_entrega,tipo_entrega,tipo_despacho,fecha_programada,created_at',
+            'venta.entregasProductos.productosEntregados:id,entrega_producto_id,unidad_derivada_venta_id,cantidad_entregada',
             'venta.almacen:id,name',
             'almacenSalida:id,name',
             'despachador:id,name,telefono,celular,email',
@@ -504,6 +522,7 @@ class EntregaProductoController extends Controller
 
         return DB::transaction(function () use ($id, $validated) {
             $entrega = EntregaProducto::with('productosEntregados')->findOrFail($id);
+            $venta = Venta::find($entrega->venta_id);
 
             // Si el estado pasa a ENTREGADO ahora (no estaba antes), registrar
             // al usuario que lo marcó. No sobrescribir si ya estaba en 'en'.
@@ -523,6 +542,42 @@ class EntregaProductoController extends Controller
                 // UDV representa lo que aún queda por otra entrega. Al
                 // confirmar, solo cambia el estado físico de la entrega; no se
                 // debe consumir el pendiente restante de toda la venta.
+                $requiereConsumoDiferido =
+                    $entrega->tipo_entrega === 'pa' &&
+                    $entrega->tipo_despacho === 'in' &&
+                    $entrega->quien_entrega === 'almacen';
+
+                if ($requiereConsumoDiferido) {
+                    foreach ($entrega->productosEntregados as $detalle) {
+                        $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
+                        if (! $unidadDerivadaVenta) continue;
+
+                        $cantidadEntregada = (float) $detalle->cantidad_entregada;
+                        $cantidadPendiente = (float) $unidadDerivadaVenta->cantidad_pendiente;
+
+                        if ($cantidadEntregada > $cantidadPendiente) {
+                            throw new \Exception("La cantidad entregada ({$cantidadEntregada}) no puede ser mayor a la cantidad pendiente ({$cantidadPendiente})");
+                        }
+
+                        $unidadDerivadaVenta->decrement('cantidad_pendiente', $cantidadEntregada);
+
+                        if (! ($venta?->stock_aplicado ?? false)) {
+                            $productoAlmacen = $unidadDerivadaVenta->productoAlmacenVenta?->productoAlmacen;
+                            if ($productoAlmacen) {
+                                $cantidadEnFraccion = $cantidadEntregada * (float) $unidadDerivadaVenta->factor;
+                                $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
+
+                                ComplementarioStockService::procesarComplementarioPorFactor(
+                                    $productoAlmacen->id,
+                                    (float) $unidadDerivadaVenta->factor,
+                                    $cantidadEntregada,
+                                    $entrega->almacen_salida_id,
+                                    false
+                                );
+                            }
+                        }
+                    }
+                }
             }
 
             // Update entrega

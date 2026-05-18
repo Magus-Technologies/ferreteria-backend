@@ -24,6 +24,7 @@ class EntregaProducto extends Model
      */
     protected $fillable = [
         'venta_id',
+        'grupo_entrega_id',
         'tipo_entrega',
         'tipo_despacho',
         'estado_entrega',
