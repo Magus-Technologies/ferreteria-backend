@@ -42,6 +42,7 @@ class PrestamoController extends Controller
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.unidadesDerivadas',
             'pagos.user:id,name',
+            'devoluciones.productosDevueltos',
         ]);
 
         // Filtros opcionales
