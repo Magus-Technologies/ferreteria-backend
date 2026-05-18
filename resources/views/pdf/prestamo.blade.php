@@ -18,32 +18,37 @@
     </div>
 
     {{-- Tabla de productos --}}
-    @php $almacenNombre = $prestamo->almacen->name ?? 'A1'; @endphp
+    @php
+        $almacenNombre = $prestamo->almacen->name ?? 'A1';
+
+        // Columnas seleccionadas (si no se pasa nada, se muestran todas)
+        $colsSel = $columnas ?? ['ubicacion', 'codigo', 'cantidad', 'unidad', 'producto', 'costo', 'importe'];
+
+        // Encabezados dinámicos: ITEM siempre visible (numeración)
+        $headerColumnas = [['label' => 'ITEM', 'width' => '5%', 'align' => 'center']];
+        if (in_array('ubicacion', $colsSel)) $headerColumnas[] = ['label' => 'UBI.', 'width' => '5%', 'align' => 'center'];
+        if (in_array('codigo', $colsSel)) $headerColumnas[] = ['label' => 'CODIGO', 'width' => '10%', 'align' => 'center'];
+        if (in_array('cantidad', $colsSel)) $headerColumnas[] = ['label' => 'CANT.', 'width' => '7%', 'align' => 'center'];
+        if (in_array('unidad', $colsSel)) $headerColumnas[] = ['label' => 'UNIDAD', 'width' => '8%', 'align' => 'center'];
+        if (in_array('producto', $colsSel)) $headerColumnas[] = ['label' => 'DESCRIPCION', 'width' => 'auto', 'align' => 'left'];
+        if (in_array('costo', $colsSel)) $headerColumnas[] = ['label' => 'COSTO UNI.', 'width' => '12%', 'align' => 'right'];
+        if (in_array('importe', $colsSel)) $headerColumnas[] = ['label' => 'IMPORTE', 'width' => '12%', 'align' => 'right'];
+
+        $filasProductos = collect($productos)->map(function ($p, $i) use ($almacenNombre, $colsSel) {
+            $fila = [$i + 1];
+            if (in_array('ubicacion', $colsSel)) $fila[] = $almacenNombre;
+            if (in_array('codigo', $colsSel)) $fila[] = $p['codigo'];
+            if (in_array('cantidad', $colsSel)) $fila[] = number_format($p['cantidad'], 0);
+            if (in_array('unidad', $colsSel)) $fila[] = $p['unidad'];
+            if (in_array('producto', $colsSel)) $fila[] = $p['nombre'];
+            if (in_array('costo', $colsSel)) $fila[] = number_format($p['costo'], 2);
+            if (in_array('importe', $colsSel)) $fila[] = number_format($p['subtotal'], 2);
+            return $fila;
+        })->toArray();
+    @endphp
     @include('pdf.layout.table', [
-        'columnas' => [
-            ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
-            ['label' => 'UBI.', 'width' => '5%', 'align' => 'center'],
-            ['label' => 'CODIGO', 'width' => '10%', 'align' => 'center'],
-            ['label' => 'CANT.', 'width' => '7%', 'align' => 'center'],
-            ['label' => 'UNIDAD', 'width' => '8%', 'align' => 'center'],
-            ['label' => 'DESCRIPCION', 'width' => '40%', 'align' => 'left'],
-            ['label' => 'COSTO UNI.', 'width' => '10%', 'align' => 'right'],
-            ['label' => '-', 'width' => '7%', 'align' => 'right'],
-            ['label' => 'IMPORTE', 'width' => '8%', 'align' => 'right'],
-        ],
-        'filas' => collect($productos)->map(function ($p, $i) use ($almacenNombre) {
-            return [
-                $i + 1,
-                $almacenNombre,
-                $p['codigo'],
-                number_format($p['cantidad'], 0),
-                $p['unidad'],
-                $p['nombre'],
-                number_format($p['costo'], 2),
-                '-',
-                number_format($p['subtotal'], 2),
-            ];
-        })->toArray(),
+        'columnas' => $headerColumnas,
+        'filas' => $filasProductos,
         'minFilas' => 10,
     ])
 

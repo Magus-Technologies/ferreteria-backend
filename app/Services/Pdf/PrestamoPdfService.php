@@ -7,7 +7,7 @@ use Illuminate\Http\Response;
 
 class PrestamoPdfService
 {
-    public function generar(string $prestamoId, string $formato = 'a4'): Response
+    public function generar(string $prestamoId, string $formato = 'a4', ?array $columnas = null): Response
     {
         $prestamo = $this->obtenerPrestamo($prestamoId);
         $empresa = $prestamo->user->empresa;
@@ -23,7 +23,24 @@ class PrestamoPdfService
         $monedaNombre = $prestamo->tipo_moneda === 'd' ? 'USD' : 'SOL';
 
         if ($formato === 'ticket') {
-            return $this->generarTicket($prestamo, $empresa, $productos, $total, $tipoOperacion, $monedaSymbol, $monedaNombre);
+            return $this->generarTicket($prestamo, $empresa, $productos, $total, $tipoOperacion, $monedaSymbol, $monedaNombre, $columnas);
+        }
+
+        // Totales: se incluyen según los extras seleccionados (si no se pasa nada, todos)
+        $totalesDisponibles = [
+            'monto_total' => ['label' => 'MONTO TOTAL', 'valor' => $monedaSymbol . ' ' . number_format($total, 2)],
+            'monto_pagado' => ['label' => 'MONTO PAGADO', 'valor' => $monedaSymbol . ' ' . number_format((float) ($prestamo->monto_pagado ?? 0), 2)],
+            'saldo_pendiente' => ['label' => 'SALDO PENDIENTE', 'valor' => $monedaSymbol . ' ' . number_format((float) ($prestamo->monto_pendiente ?? 0), 2)],
+        ];
+        $totales = [];
+        foreach ($totalesDisponibles as $key => $fila) {
+            if ($columnas === null || in_array($key, $columnas, true)) {
+                $totales[] = $fila;
+            }
+        }
+        // Si se deseleccionaron todos los totales, igual mostrar el total
+        if (empty($totales)) {
+            $totales[] = $totalesDisponibles['monto_total'];
         }
 
         $data = [
@@ -35,14 +52,11 @@ class PrestamoPdfService
             'productos' => $productos,
             'filas' => $this->prepararInfoEntidad($prestamo, $monedaNombre),
             'observaciones' => $this->prepararObservaciones($prestamo),
-            'totales' => [
-                ['label' => 'MONTO TOTAL', 'valor' => $monedaSymbol . ' ' . number_format($total, 2)],
-                ['label' => 'MONTO PAGADO', 'valor' => $monedaSymbol . ' ' . number_format((float) ($prestamo->monto_pagado ?? 0), 2)],
-                ['label' => 'SALDO PENDIENTE', 'valor' => $monedaSymbol . ' ' . number_format((float) ($prestamo->monto_pendiente ?? 0), 2)],
-            ],
+            'totales' => $totales,
             'son' => PdfService::numeroALetras($total),
             'moneda' => $monedaNombre,
             'tipoOperacion' => $tipoOperacion,
+            'columnas' => $columnas, // Soporte para columnas seleccionables
         ];
 
         $filename = "PRESTAMO-{$prestamo->numero}.pdf";
@@ -50,7 +64,7 @@ class PrestamoPdfService
         return PdfService::render('pdf.prestamo', $data, $filename);
     }
 
-    private function generarTicket($prestamo, $empresa, array $productos, float $total, string $tipoOperacion, string $monedaSymbol, string $monedaNombre): Response
+    private function generarTicket($prestamo, $empresa, array $productos, float $total, string $tipoOperacion, string $monedaSymbol, string $monedaNombre, ?array $columnas = null): Response
     {
         $esCliente = $prestamo->tipo_entidad === 'CLIENTE';
         $entidad = $esCliente ? $prestamo->cliente : $prestamo->proveedor;
@@ -85,6 +99,7 @@ class PrestamoPdfService
             'montoPendiente' => (float) ($prestamo->monto_pendiente ?? 0),
             'observaciones' => $prestamo->observaciones ?: '- NINGUNA',
             'garantia' => $prestamo->garantia,
+            'columnas' => $columnas, // Soporte para columnas seleccionables
         ];
 
         $filename = "TICKET-PRESTAMO-{$prestamo->numero}.pdf";

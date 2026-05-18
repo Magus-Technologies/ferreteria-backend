@@ -50,7 +50,8 @@ class PdfController extends Controller
     public function prestamo(string $id, Request $request, PrestamoPdfService $service): Response
     {
         $formato = $request->query('formato', 'a4');
-        return $service->generar($id, $formato);
+        $columnas = $request->input('columnas');
+        return $service->generar($id, $formato, is_array($columnas) ? $columnas : null);
     }
 
     public function guia(string $id, Request $request, GuiaPdfService $service): Response

@@ -109,25 +109,40 @@
     <div class="separator"></div>
 
     {{-- Tabla de productos --}}
+    @php
+        $colsSel = $columnas ?? ['producto', 'cantidad', 'unidad', 'costo', 'importe'];
+        $colsTicket = [
+            'producto' => 'Descripci&oacute;n',
+            'cantidad' => 'Cant.',
+            'unidad' => 'Unid.',
+            'costo' => 'Costo',
+            'importe' => 'Importe',
+        ];
+        $colsActivas = array_filter(array_keys($colsTicket), fn($k) => in_array($k, $colsSel));
+        if (empty($colsActivas)) $colsActivas = ['producto'];
+    @endphp
     <div style="padding-top: 4px;">
         <table>
             <thead>
                 <tr style="border-bottom: 1px solid #000;">
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 40%;">Descripci&oacute;n</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 15%;">Cant.</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 15%;">Unid.</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 15%;">Costo</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 15%;">Importe</th>
+                    @foreach($colsActivas as $c)
+                    <th class="text-bold" style="font-size: 6pt; text-align: left;">{!! $colsTicket[$c] !!}</th>
+                    @endforeach
                 </tr>
             </thead>
             <tbody>
                 @foreach($productos as $i => $p)
                 <tr style="border-bottom: 1px solid #000;{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ $p['nombre'] }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($p['cantidad'], 0) }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ $p['unidad'] }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($p['costo'], 2) }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($p['subtotal'], 2) }}</td>
+                    @foreach($colsActivas as $c)
+                    <td style="font-size: 6pt; padding: 3px 0;">
+                        @if($c === 'producto'){{ $p['nombre'] }}
+                        @elseif($c === 'cantidad'){{ number_format($p['cantidad'], 0) }}
+                        @elseif($c === 'unidad'){{ $p['unidad'] }}
+                        @elseif($c === 'costo'){{ number_format($p['costo'], 2) }}
+                        @elseif($c === 'importe'){{ number_format($p['subtotal'], 2) }}
+                        @endif
+                    </td>
+                    @endforeach
                 </tr>
                 @endforeach
             </tbody>
@@ -135,20 +150,32 @@
     </div>
 
     {{-- Totales --}}
+    @php
+        $verTotal = $columnas === null || in_array('monto_total', $columnas);
+        $verPagado = $columnas === null || in_array('monto_pagado', $columnas);
+        $verSaldo = $columnas === null || in_array('saldo_pendiente', $columnas);
+        if (!$verTotal && !$verPagado && !$verSaldo) $verTotal = true;
+    @endphp
     <div style="margin-top: 4px;">
         <table>
+            @if($verTotal)
             <tr style="border-bottom: 1px solid #000;">
                 <td class="text-bold" style="font-size: 7pt;">MONTO TOTAL</td>
                 <td class="text-right text-bold" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoTotal, 2) }}</td>
             </tr>
+            @endif
+            @if($verPagado)
             <tr style="border-bottom: 1px solid #000;">
                 <td class="text-bold" style="font-size: 7pt;">MONTO PAGADO</td>
                 <td class="text-right" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoPagado, 2) }}</td>
             </tr>
+            @endif
+            @if($verSaldo)
             <tr>
                 <td class="text-bold" style="font-size: 7pt;">SALDO PENDIENTE</td>
                 <td class="text-right text-bold" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoPendiente, 2) }}</td>
             </tr>
+            @endif
         </table>
     </div>
 

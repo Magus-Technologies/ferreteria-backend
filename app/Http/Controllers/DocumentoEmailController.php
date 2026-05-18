@@ -24,6 +24,7 @@ class DocumentoEmailController extends Controller
             'email' => 'required|email',
             'formato' => 'nullable|string|in:ticket,a4',
             'mensaje' => 'nullable|string|max:1000',
+            'columnas' => 'nullable|array',
         ]);
 
         $tipo = $request->input('tipo');
@@ -31,12 +32,14 @@ class DocumentoEmailController extends Controller
         $email = $request->input('email');
         $formato = $request->input('formato', 'a4');
         $mensaje = $request->input('mensaje');
+        $columnas = $request->input('columnas');
+        $columnas = is_array($columnas) ? $columnas : null;
 
         // Generar PDF usando los servicios existentes
         $pdfResponse = match ($tipo) {
             'venta' => app(VentaPdfService::class)->generar($id, $formato),
             'cotizacion' => app(CotizacionPdfService::class)->generar($id, $formato),
-            'prestamo' => app(PrestamoPdfService::class)->generar($id, $formato),
+            'prestamo' => app(PrestamoPdfService::class)->generar($id, $formato, $columnas),
             'guia' => app(GuiaPdfService::class)->generar($id, $formato),
             'nota-credito' => app(NotaCreditoPdfService::class)->generar($id),
             'nota-debito' => app(NotaDebitoPdfService::class)->generar($id),
