@@ -50,6 +50,7 @@ class VentaController extends Controller
             'cliente_id' => 'sometimes|integer',
             'tipo_documento' => 'sometimes|string',
             'forma_de_pago' => 'sometimes|string',
+            'despliegue_de_pago_id' => 'sometimes|string',
             'user_id' => 'sometimes|string',
             'serie' => 'sometimes|string',
             'numero' => 'sometimes|integer',
@@ -127,6 +128,21 @@ class VentaController extends Controller
             if ($formaPagoEnum) {
                 $query->where('forma_de_pago', $formaPagoEnum->value);
             }
+        }
+
+        // Filter by despliegue_de_pago_id (metodo de pago)
+        if ($request->has('despliegue_de_pago_id')) {
+            $despliegueId = $request->despliegue_de_pago_id;
+            
+            // Si viene con formato "sub_caja_id-despliegue_pago_id" (ej. "29-01KQ5DMW...")
+            if (str_contains($despliegueId, '-')) {
+                $parts = explode('-', $despliegueId);
+                $despliegueId = end($parts);
+            }
+
+            $query->whereHas('despliegueDePagoVentas', function ($q) use ($despliegueId) {
+                $q->where('despliegue_de_pago_id', $despliegueId);
+            });
         }
 
         // Filter by user_id (vendedor)
