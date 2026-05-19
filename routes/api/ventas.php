@@ -75,7 +75,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PRÉSTAMOS (Clientes)
     // ============================================
-    Route::prefix('prestamos')->middleware('caja.abierta')->group(function () {
+    Route::prefix('prestamos')->middleware(['caja.abierta', 'broadcast:prestamos'])->group(function () {
         Route::get('/siguiente-numero/preview', [PrestamoController::class, 'siguienteNumero']);
         Route::get('/{id}/pagos', [PrestamoController::class, 'listarPagos']);
         Route::post('/{id}/pagos', [PrestamoController::class, 'registrarPago']);
