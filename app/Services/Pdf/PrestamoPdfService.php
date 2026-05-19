@@ -38,10 +38,6 @@ class PrestamoPdfService
                 $totales[] = $fila;
             }
         }
-        // Si se deseleccionaron todos los totales, igual mostrar el total
-        if (empty($totales)) {
-            $totales[] = $totalesDisponibles['monto_total'];
-        }
 
         $data = [
             'prestamo' => $prestamo,

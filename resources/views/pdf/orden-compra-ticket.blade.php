@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>{{ $titulo ?? 'Ticket' }}</title>
+    <title>Ticket {{ $numeroDocumento }}</title>
     <style>
         @page {
             size: 80mm auto;
@@ -46,63 +46,39 @@
 
     {{-- Tipo documento y numero --}}
     <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        {{ $tipoOperacion }}<br>
+        {{ $tipoDocumentoTitulo }}<br>
         {{ $numeroDocumento }}
     </div>
 
     <div class="separator"></div>
 
-    {{-- Info del prestamo --}}
+    {{-- Info general --}}
     <div style="padding: 2px 0 6px;">
         <table>
-            <tr>
-                <td class="label" style="width: 50%;">F. Emisi&oacute;n: <span class="value">{{ $fechaEmision }}</span></td>
-                <td class="label" style="width: 50%;">Hora: <span class="value">{{ $hora }}</span></td>
-            </tr>
-            <tr>
-                <td class="label">F. Vencimiento:</td>
-                <td class="value">{{ $fechaVencimiento }}</td>
-            </tr>
-            <tr>
-                <td class="label">Vendedor:</td>
-                <td class="value">{{ $vendedor }}</td>
-            </tr>
-            <tr>
-                <td class="label">Estado:</td>
-                <td class="value">{{ $estado }}</td>
-            </tr>
-            <tr>
-                <td class="label">Moneda:</td>
-                <td class="value">{{ $monedaNombre }}</td>
-            </tr>
-            @if($tasaInteres)
-            <tr>
-                <td class="label">Tasa Inter&eacute;s:</td>
-                <td class="value">{{ $tasaInteres }}</td>
-            </tr>
-            @endif
+            @foreach($filas as $fila)
+                @foreach($fila as $k => $v)
+                <tr>
+                    <td class="label" style="width: 45%;">{{ $k }}:</td>
+                    <td class="value">{{ $v }}</td>
+                </tr>
+                @endforeach
+            @endforeach
         </table>
     </div>
 
     <div class="separator"></div>
 
-    {{-- Info de la entidad --}}
+    {{-- Proveedor --}}
     <div style="padding: 2px 0 6px;">
         <table>
-            <tr>
-                <td class="label">{{ $esCliente ? 'Cliente:' : 'Proveedor:' }}</td>
-                <td class="value">{{ $entidadNombre }}</td>
-            </tr>
-            <tr>
-                <td class="label">{{ strlen($entidadDocumento) === 11 ? 'RUC:' : 'DNI:' }}</td>
-                <td class="value">{{ $entidadDocumento }}</td>
-            </tr>
-            @if($entidadDireccion)
-            <tr>
-                <td class="label">Direcci&oacute;n:</td>
-                <td class="value">{{ $entidadDireccion }}</td>
-            </tr>
-            @endif
+            @foreach($filasProveedor as $fila)
+                @foreach($fila as $k => $v)
+                <tr>
+                    <td class="label" style="width: 45%;">{{ $k }}:</td>
+                    <td class="value">{{ $v }}</td>
+                </tr>
+                @endforeach
+            @endforeach
         </table>
     </div>
 
@@ -110,13 +86,15 @@
 
     {{-- Tabla de productos --}}
     @php
-        $colsSel = $columnas ?? ['producto', 'cantidad', 'unidad', 'costo', 'importe'];
+        $colsSel = $columnas ?? ['codigo', 'producto', 'marca', 'unidad', 'cantidad', 'precio', 'flete'];
         $colsTicket = [
+            'codigo' => 'C&oacute;d.',
             'producto' => 'Descripci&oacute;n',
-            'cantidad' => 'Cant.',
+            'marca' => 'Marca',
             'unidad' => 'Unid.',
-            'costo' => 'Costo',
-            'importe' => 'Importe',
+            'cantidad' => 'Cant.',
+            'precio' => 'P.Unit',
+            'flete' => 'Flete',
         ];
         $colsActivas = array_filter(array_keys($colsTicket), fn($k) => in_array($k, $colsSel));
         if (empty($colsActivas)) $colsActivas = ['producto'];
@@ -135,11 +113,13 @@
                 <tr style="border-bottom: 1px solid #000;{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
                     @foreach($colsActivas as $c)
                     <td style="font-size: 6pt; padding: 3px 0;">
-                        @if($c === 'producto'){{ $p['nombre'] }}
-                        @elseif($c === 'cantidad'){{ number_format($p['cantidad'], 0) }}
+                        @if($c === 'codigo'){{ $p['codigo'] }}
+                        @elseif($c === 'producto'){{ $p['nombre'] }}
+                        @elseif($c === 'marca'){{ $p['marca'] }}
                         @elseif($c === 'unidad'){{ $p['unidad'] }}
-                        @elseif($c === 'costo'){{ number_format($p['costo'], 2) }}
-                        @elseif($c === 'importe'){{ number_format($p['subtotal'], 2) }}
+                        @elseif($c === 'cantidad'){{ number_format($p['cantidad'], 2) }}
+                        @elseif($c === 'precio'){{ $monedaSimbolo }} {{ number_format($p['precio'], 2) }}
+                        @elseif($c === 'flete'){{ $monedaSimbolo }} {{ number_format($p['flete'], 2) }}
                         @endif
                     </td>
                     @endforeach
@@ -151,43 +131,51 @@
 
     {{-- Totales --}}
     @php
-        $verTotal = $columnas === null || in_array('monto_total', $columnas);
-        $verPagado = $columnas === null || in_array('monto_pagado', $columnas);
-        $verSaldo = $columnas === null || in_array('saldo_pendiente', $columnas);
+        $verSubtotal = $columnas === null || in_array('subtotal', $columnas);
+        $verFlete = ($columnas === null || in_array('flete', $columnas)) && ($calculos['flete_total'] ?? 0) > 0;
+        $verPercepcion = ($calculos['percepcion'] ?? 0) > 0;
+        $verTotal = $columnas === null || in_array('total', $columnas);
     @endphp
     <div style="margin-top: 4px;">
         <table>
+            @if($verSubtotal)
+            <tr style="border-bottom: 1px solid #000;">
+                <td class="text-bold" style="font-size: 7pt;">SUBTOTAL</td>
+                <td class="text-right" style="font-size: 7pt;">{{ $monedaSimbolo }} {{ number_format($calculos['subtotal'] ?? 0, 2) }}</td>
+            </tr>
+            @endif
+            @if($verFlete)
+            <tr style="border-bottom: 1px solid #000;">
+                <td class="text-bold" style="font-size: 7pt;">FLETE</td>
+                <td class="text-right" style="font-size: 7pt;">{{ $monedaSimbolo }} {{ number_format($calculos['flete_total'], 2) }}</td>
+            </tr>
+            @endif
+            @if($verPercepcion)
+            <tr style="border-bottom: 1px solid #000;">
+                <td class="text-bold" style="font-size: 7pt;">PERCEPCI&Oacute;N</td>
+                <td class="text-right" style="font-size: 7pt;">{{ $monedaSimbolo }} {{ number_format($calculos['percepcion'], 2) }}</td>
+            </tr>
+            @endif
             @if($verTotal)
-            <tr style="border-bottom: 1px solid #000;">
-                <td class="text-bold" style="font-size: 7pt;">MONTO TOTAL</td>
-                <td class="text-right text-bold" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoTotal, 2) }}</td>
-            </tr>
-            @endif
-            @if($verPagado)
-            <tr style="border-bottom: 1px solid #000;">
-                <td class="text-bold" style="font-size: 7pt;">MONTO PAGADO</td>
-                <td class="text-right" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoPagado, 2) }}</td>
-            </tr>
-            @endif
-            @if($verSaldo)
             <tr>
-                <td class="text-bold" style="font-size: 7pt;">SALDO PENDIENTE</td>
-                <td class="text-right text-bold" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoPendiente, 2) }}</td>
+                <td class="text-bold" style="font-size: 7pt;">TOTAL</td>
+                <td class="text-right text-bold" style="font-size: 7pt;">{{ $monedaSimbolo }} {{ number_format($calculos['total'] ?? 0, 2) }}</td>
             </tr>
             @endif
         </table>
     </div>
+
+    {{-- SON --}}
+    @if(!empty($son))
+    <div style="font-size: 6pt; margin-top: 4px;">
+        <span class="text-bold">SON:</span> {{ $son }}
+    </div>
+    @endif
 
     {{-- Observaciones --}}
     <div style="font-size: 7pt; margin-top: 4px;">
         <span class="text-bold">Observaciones:</span><br>
         {{ $observaciones }}
     </div>
-
-    @if($garantia)
-    <div style="font-size: 7pt; margin-top: 2px;">
-        <span class="text-bold">Garant&iacute;a:</span> {{ $garantia }}
-    </div>
-    @endif
 </body>
 </html>

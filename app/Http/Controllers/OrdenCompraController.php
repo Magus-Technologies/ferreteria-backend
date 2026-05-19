@@ -98,15 +98,17 @@ class OrdenCompraController extends Controller
         $request->validate([
             'email' => 'required|email',
             'columnas' => 'nullable|array',
-            'columnas.*' => 'string'
+            'columnas.*' => 'string',
+            'formato' => 'nullable|string|in:a4,ticket',
         ]);
 
         $orden = $this->service->obtenerPorId($id);
         $email = $request->input('email');
         $columnas = $request->input('columnas', null);
+        $formato = $request->input('formato', 'a4');
 
-        // Generar binario PDF con las columnas especificadas
-        $pdfBinario = $pdfService->generarBinario($id, $columnas);
+        // Generar binario PDF con las columnas y formato especificados
+        $pdfBinario = $pdfService->generarBinario($id, $columnas, $formato);
         $fileName = "OC-{$orden->codigo}.pdf";
 
         try {

@@ -90,7 +90,8 @@ class PdfController extends Controller
     public function ordenCompra(int $id, Request $request, OrdenCompraPdfService $service): Response
     {
         $columnas = $request->input('columnas');
-        return $service->generar($id, is_array($columnas) ? $columnas : null);
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, is_array($columnas) ? $columnas : null, $formato);
     }
 
     public function ingresoSalida(int $id, Request $request, IngresoSalidaPdfService $service): Response

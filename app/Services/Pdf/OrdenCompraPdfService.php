@@ -7,15 +7,36 @@ use Illuminate\Http\Response;
 
 class OrdenCompraPdfService
 {
-    public function generar(int $id, ?array $columnas = null): Response
+    public function generar(int $id, ?array $columnas = null, string $formato = 'a4'): Response
     {
         $data = $this->prepararData($id, $columnas);
+
+        if ($formato === 'ticket') {
+            return PdfService::render(
+                'pdf.orden-compra-ticket',
+                $data,
+                "TICKET-OC-{$data['orden']->codigo}.pdf",
+                'portrait',
+                [0, 0, 226.77, 841.89],
+            );
+        }
+
         return PdfService::render('pdf.orden-compra', $data, "OC-{$data['orden']->codigo}.pdf");
     }
 
-    public function generarBinario(int $id, ?array $columnas = null): string
+    public function generarBinario(int $id, ?array $columnas = null, string $formato = 'a4'): string
     {
         $data = $this->prepararData($id, $columnas);
+
+        if ($formato === 'ticket') {
+            return PdfService::output(
+                'pdf.orden-compra-ticket',
+                $data,
+                'portrait',
+                [0, 0, 226.77, 841.89],
+            );
+        }
+
         return PdfService::output('pdf.orden-compra', $data);
     }
 
