@@ -78,7 +78,7 @@ class PaqueteController extends Controller
             'productos:id,paquete_id,producto_id,unidad_derivada_id,cantidad,tipo_precio,precio_publico,precio_especial,precio_minimo,precio_ultimo,descuento_publico,descuento_especial,descuento_minimo,descuento_ultimo',
             'productos.producto:id,name,cod_producto,marca_id',
             'productos.producto.marca:id,name',
-            'productos.producto.productoEnAlmacenes:id,producto_id,costo',
+            'productos.producto.productoEnAlmacenes:id,producto_id,almacen_id,costo,stock_fraccion',
             'productos.producto.productoEnAlmacenes.unidadesDerivadas',
             'productos.producto.productoEnAlmacenes.unidadesDerivadas.unidadDerivada:id,name',
             'productos.unidadDerivada:id,name',
