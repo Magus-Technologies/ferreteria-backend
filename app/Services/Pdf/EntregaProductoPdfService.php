@@ -12,6 +12,8 @@ class EntregaProductoPdfService
         $entrega = EntregaProducto::with([
             'venta.cliente',
             'venta.entregasProductos',
+            'venta.entregasProductos.productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
+            'venta.entregasProductos.productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
             // Historial de ediciones de la venta — usado para mostrar
             // "productos anteriores vs actuales" cuando la venta fue editada.
             'venta.historial' => fn ($q) => $q->where('accion', 'edicion')->orderBy('fecha', 'desc'),
@@ -33,6 +35,7 @@ class EntregaProductoPdfService
 
         $cliente = $entrega->venta->cliente ?? null;
         $productos = $this->prepararProductos($entrega);
+        $esParcial = $entrega->tipo_entrega === 'pa';
         $entregasVenta = $entrega->venta?->entregasProductos
             ? $entrega->venta->entregasProductos
                 ->sortBy([
@@ -41,11 +44,13 @@ class EntregaProductoPdfService
                 ])
                 ->values()
             : collect();
-        $entregasTotales = max(1, $entregasVenta->count());
-        $entregaNumero = max(
-            1,
-            $entregasVenta->search(fn ($e) => (int) $e->id === (int) $entrega->id) + 1
-        );
+        $entregasTotales = $esParcial ? 1 : max(1, $entregasVenta->count());
+        $entregaNumero = $esParcial
+            ? 1
+            : max(
+                1,
+                $entregasVenta->search(fn ($e) => (int) $e->id === (int) $entrega->id) + 1
+            );
 
         // Format venta number
         $serie = $entrega->venta->serie ?? '';
@@ -130,11 +135,13 @@ class EntregaProductoPdfService
             );
         }
 
-        $productosTabla = $this->prepararProductosTabla(
-            $productos,
-            $productosAnteriores,
-            $entregaFueEntregadaAntes
-        );
+        $productosTabla = $esParcial
+            ? $this->prepararProductosTablaParcialAgrupada($entrega)
+            : $this->prepararProductosTabla(
+                $productos,
+                $productosAnteriores,
+                $entregaFueEntregadaAntes
+            );
         $mostrarRecibido = collect($productosTabla)->contains(
             fn ($producto) => (float) ($producto['recibido'] ?? 0) > 0
         );
@@ -350,5 +357,59 @@ class EntregaProductoPdfService
         }
 
         return $productos;
+    }
+
+    private function prepararProductosTablaParcialAgrupada(EntregaProducto $entrega): array
+    {
+        $grupoId = $entrega->grupo_entrega_id ?: $entrega->id;
+        $entregasGrupo = ($entrega->venta?->entregasProductos ?? collect())
+            ->filter(function ($hija) use ($grupoId) {
+                if ($hija->grupo_entrega_id) {
+                    return (int) $hija->grupo_entrega_id === (int) $grupoId;
+                }
+                return $hija->tipo_entrega === 'pa' && (int) $hija->venta_id === (int) $entrega->venta_id;
+            })
+            ->values();
+
+        $mapa = [];
+
+        foreach ($entregasGrupo as $hija) {
+            foreach ($hija->productosEntregados as $detalle) {
+                $udv = $detalle->unidadDerivadaVenta;
+                $producto = $udv?->productoAlmacenVenta?->productoAlmacen?->producto;
+                $unidad = $udv?->unidadDerivadaInmutable?->name ?? '';
+                $codigo = $producto->cod_producto ?? '';
+                $clave = $this->productoClave((string) $codigo, (string) $unidad);
+
+                if (!isset($mapa[$clave])) {
+                    $mapa[$clave] = [
+                        'codigo' => (string) $codigo,
+                        'nombre' => (string) ($producto->name ?? ''),
+                        'unidad' => (string) $unidad,
+                        'recibido' => 0,
+                        'total' => (float) ($udv?->cantidad ?? 0),
+                        'entregado' => 0.0,
+                        'pendiente' => 0.0,
+                    ];
+                }
+
+                $mapa[$clave]['total'] = max(
+                    (float) $mapa[$clave]['total'],
+                    (float) ($udv?->cantidad ?? 0)
+                );
+
+                if ($hija->estado_entrega === 'en') {
+                    $mapa[$clave]['entregado'] += (float) ($detalle->cantidad_entregada ?? 0);
+                }
+            }
+        }
+
+        foreach ($mapa as &$fila) {
+            $fila['pendiente'] = max(0, (float) $fila['total'] - (float) $fila['entregado']);
+            unset($fila['total']);
+        }
+        unset($fila);
+
+        return array_values($mapa);
     }
 }
