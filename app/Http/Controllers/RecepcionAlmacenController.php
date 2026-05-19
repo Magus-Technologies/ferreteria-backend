@@ -778,6 +778,10 @@ class RecepcionAlmacenController extends Controller
             }
 
             $result = DB::transaction(function () use ($compra, $request) {
+                // Capturar el estado actual de la compra ANTES de finalizar,
+                // para poder restaurarlo correctamente si se deshace.
+                $estadoCompraAnterior = $compra->estado_de_compra;
+
                 // Crear recepción automática con productos pendientes
                 $ultimoNumero = RecepcionAlmacen::max('numero') ?? 0;
                 $numero = $ultimoNumero + 1;
@@ -792,6 +796,7 @@ class RecepcionAlmacenController extends Controller
                     'motivo_finalizacion' => $request->motivo_finalizacion,
                     'fecha_finalizacion' => now(),
                     'es_finalizacion' => true,
+                    'estado_compra_anterior' => $estadoCompraAnterior,
                     'estado' => true,
                 ]);
 
