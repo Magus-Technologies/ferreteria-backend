@@ -216,6 +216,14 @@ class RecepcionAlmacenController extends Controller
                 ->get();
 
             $items->each(function ($item) use ($finalizaciones) {
+                // Si el item ya es una finalización, conserva SUS propios
+                // datos (motivo/fecha). No heredar de la finalización activa,
+                // porque sobrescribiría finalizaciones anuladas/anteriores de
+                // la misma compra con el motivo de la nueva.
+                if ($item->es_finalizacion) {
+                    return;
+                }
+
                 $fin = $finalizaciones->first(function ($f) use ($item) {
                     return ($item->compra_id && $f->compra_id === $item->compra_id) ||
                            ($item->orden_compra_id && $f->orden_compra_id === $item->orden_compra_id);
@@ -928,18 +936,12 @@ class RecepcionAlmacenController extends Controller
 
         try {
             $result = DB::transaction(function () use ($recepcion) {
-                // 1. Verificar que no se haya usado en ventas
-                $usados = UnidadDerivadaInmutableRecepcion::whereHas('productoAlmacenRecepcion', function ($q) use ($recepcion) {
-                    $q->where('recepcion_id', $recepcion->id);
-                })->get(['cantidad', 'cantidad_restante']);
-
-                $tieneUsados = $usados->contains(function ($r) {
-                    return (float) $r->cantidad_restante !== (float) $r->cantidad;
-                });
-
-                if ($tieneUsados) {
-                    throw new \Exception('No se puede eliminar una recepción que ya fue usada en ventas');
-                }
+                // Nota: se eliminó la validación que bloqueaba la anulación
+                // cuando cantidad_restante != cantidad. Esa diferencia también
+                // se produce al consumir la recepción para cubrir stock
+                // negativo / backorder (no es una venta real), por lo que
+                // bloqueaba indebidamente. Se permite deshacer la recepción
+                // aunque el stock quede negativo, mientras no haya ventas.
 
                 // 2. Marcar como inactiva Y anulada
                 $recepcion->update(['estado' => false, 'anulada' => true]);
