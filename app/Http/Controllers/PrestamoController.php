@@ -42,6 +42,7 @@ class PrestamoController extends Controller
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.unidadesDerivadas',
             'pagos.user:id,name',
+            'devoluciones.ingresoSalida',
             'devoluciones.productosDevueltos',
         ]);
 
@@ -352,7 +353,7 @@ $prestamo->load([
             );
 
             // Crear UnidadDerivadaInmutableIngresoSalida
-            UnidadDerivadaInmutableIngresoSalida::create([
+            $unidadDerivadaInmutableIngresoSalida = UnidadDerivadaInmutableIngresoSalida::create([
                 'producto_almacen_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
                 'unidad_derivada_inmutable_id' => $unidadInmutable->id,
                 'factor' => $factor,
@@ -373,7 +374,7 @@ $prestamo->load([
 
             // Registrar historial
             HistorialUnidadDerivadaInmutableIngresoSalida::create([
-                'unidad_derivada_inmutable_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
+                'unidad_derivada_inmutable_ingreso_salida_id' => $unidadDerivadaInmutableIngresoSalida->id,
                 'stock_anterior' => $stockAnterior,
                 'stock_nuevo' => $stockNuevo,
             ]);
@@ -463,6 +464,7 @@ $prestamo->load([
             'productosPorAlmacen.unidadesDerivadas',
             'pagos.user',
             'devoluciones.user:id,name',
+            'devoluciones.ingresoSalida',
             'devoluciones.productosDevueltos.productoAlmacenPrestamo.productoAlmacen.producto:id,name,cod_producto',
             'devoluciones.productosDevueltos.productoAlmacenPrestamo.unidadesDerivadas',
         ])->findOrFail($id);
@@ -589,6 +591,146 @@ $prestamo->load([
             DB::rollBack();
             return response()->json([
                 'message' => 'Error al eliminar el pago: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Anular un pago/devolución (mantiene el registro, revierte stock).
+     * Requiere un motivo de anulación.
+     */
+    public function anularPago(Request $request, string $prestamoId, string $pagoId): JsonResponse
+    {
+        $validated = $request->validate([
+            'motivo' => 'required|string|min:3',
+        ], [
+            'motivo.required' => 'El motivo de anulación es requerido',
+            'motivo.min' => 'El motivo debe tener al menos 3 caracteres',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $pago = PagoPrestamo::where('id', $pagoId)
+                ->where('prestamo_id', $prestamoId)
+                ->firstOrFail();
+
+            if (!$pago->estado) {
+                DB::rollBack();
+                return response()->json(['message' => 'Esta devolución ya está anulada'], 422);
+            }
+
+            $prestamo = Prestamo::findOrFail($prestamoId);
+            // PRESTAR: devolución fue INGRESO (sumó stock) -> anular RESTA
+            // PEDIR_PRESTADO: devolución fue SALIDA (restó stock) -> anular SUMA
+            $esIngreso = $prestamo->tipo_operacion === 'PRESTAR';
+
+            // Localizar la devolución vinculada vía "Devolución {numero}." en observaciones
+            $numeroDev = null;
+            if (preg_match('/Devoluci[oó]n\s+(\S+?)[.\s]/iu', $pago->observaciones ?? '', $m)) {
+                $numeroDev = $m[1];
+            }
+            $devolucion = $numeroDev
+                ? PrestamoDevolucion::where('prestamo_id', $prestamoId)
+                    ->where('numero_devolucion', $numeroDev)
+                    ->first()
+                : null;
+
+            if ($devolucion) {
+                $devolucion->load('productosDevueltos.productoAlmacenPrestamo.unidadesDerivadas');
+                $ingresoSalida = IngresoSalida::find($devolucion->ingreso_salida_id);
+                $kardex = app(KardexInventarioService::class);
+
+                foreach ($devolucion->productosDevueltos as $pd) {
+                    $pap = $pd->productoAlmacenPrestamo;
+                    if (!$pap) {
+                        continue;
+                    }
+                    $productoAlmacen = ProductoAlmacen::with('producto')->find($pap->producto_almacen_id);
+                    if (!$productoAlmacen) {
+                        continue;
+                    }
+
+                    $cantidad = (float) $pd->cantidad;
+                    $factor = (float) $pd->factor;
+                    $cantidadFraccion = (float) ($pd->cantidad_fraccion ?: ($cantidad * $factor));
+
+                    $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+                    $stockNuevo = $esIngreso
+                        ? $stockAnterior - $cantidadFraccion
+                        : $stockAnterior + $cantidadFraccion;
+
+                    // Se permite stock negativo (sin validación de bloqueo)
+                    $productoAlmacen->update(['stock_fraccion' => $stockNuevo]);
+
+                    $unidadPrestamo = $pap->unidadesDerivadas->first();
+                    $unidadName = optional($unidadPrestamo)->name ?: 'UNIDAD';
+                    $unidadForKardex = (object) [
+                        'cantidad' => $cantidad,
+                        'factor' => $factor,
+                        'unidadDerivadaInmutable' => (object) ['name' => $unidadName],
+                    ];
+
+                    if ($ingresoSalida) {
+                        if ($esIngreso) {
+                            $kardex->registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidadForKardex, $productoAlmacen->costo, 6, $stockAnterior);
+                        } else {
+                            $kardex->registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidadForKardex, $productoAlmacen->costo, 7, $stockAnterior);
+                        }
+                    }
+
+                    $unidadDerivadaId = optional($unidadPrestamo)->unidad_derivada_id;
+                    if ($unidadDerivadaId) {
+                        ComplementarioStockService::procesarComplementario(
+                            $productoAlmacen->id,
+                            $unidadDerivadaId,
+                            $cantidad,
+                            $prestamo->almacen_id,
+                            !$esIngreso
+                        );
+                    }
+
+                    app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($prestamo->almacen_id);
+                }
+
+                // Anular el movimiento de inventario asociado
+                if ($ingresoSalida) {
+                    $ingresoSalida->update(['estado' => false]);
+                }
+            }
+
+            // Marcar el pago como anulado (conserva el registro).
+            // El trigger AFTER UPDATE recalcula monto_pagado/pendiente/estado
+            // del préstamo sumando solo los pagos con estado = 1.
+            $pago->update([
+                'estado' => false,
+                'motivo_anulacion' => $validated['motivo'],
+                'fecha_anulacion' => now(),
+            ]);
+
+            DB::commit();
+
+            $prestamo->refresh();
+            $prestamo->load([
+                'cliente',
+                'proveedor',
+                'user',
+                'almacen',
+                'productosPorAlmacen.productoAlmacen.producto',
+                'productosPorAlmacen.unidadesDerivadas',
+                'pagos.user',
+                'devoluciones.ingresoSalida',
+                'devoluciones.productosDevueltos',
+            ]);
+
+            return response()->json([
+                'message' => 'Devolución anulada exitosamente',
+                'prestamo' => $prestamo,
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al anular la devolución: ' . $e->getMessage(),
             ], 500);
         }
     }
@@ -742,7 +884,7 @@ $prestamo->load([
                 );
 
                 // Crear UnidadDerivadaInmutableIngresoSalida
-                UnidadDerivadaInmutableIngresoSalida::create([
+                $unidadDerivadaInmutableIngresoSalida = UnidadDerivadaInmutableIngresoSalida::create([
                     'producto_almacen_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
                     'unidad_derivada_inmutable_id' => $unidadInmutable->id,
                     'factor' => $factor,
@@ -767,7 +909,7 @@ $prestamo->load([
 
                 // Registrar historial
                 HistorialUnidadDerivadaInmutableIngresoSalida::create([
-                    'unidad_derivada_inmutable_ingreso_salida_id' => $productoAlmacenIngresoSalida->id,
+                    'unidad_derivada_inmutable_ingreso_salida_id' => $unidadDerivadaInmutableIngresoSalida->id,
                     'stock_anterior' => $stockAnterior,
                     'stock_nuevo' => $stockNuevo,
                 ]);

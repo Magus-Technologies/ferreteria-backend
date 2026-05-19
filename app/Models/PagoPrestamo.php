@@ -21,6 +21,9 @@ class PagoPrestamo extends Model
         'metodo_pago',
         'numero_operacion',
         'observaciones',
+        'estado',
+        'motivo_anulacion',
+        'fecha_anulacion',
         'user_id',
         'created_at',
         'updated_at',
@@ -31,6 +34,8 @@ class PagoPrestamo extends Model
         return [
             'monto' => 'decimal:2',
             'fecha_pago' => 'datetime',
+            'estado' => 'boolean',
+            'fecha_anulacion' => 'datetime',
             'user_id' => 'integer',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
