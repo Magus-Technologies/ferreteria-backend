@@ -736,12 +736,360 @@ $prestamo->load([
     }
 
     /**
-     * Actualizar un préstamo
+     * Revertir el movimiento de inventario original del préstamo
+     * (el IngresoSalida creado en crearMovimientoInventario): revierte
+     * stock + kardex y marca ese IngresoSalida como anulado.
+     */
+    private function revertirMovimientoOriginal(Prestamo $prestamo): void
+    {
+        // PEDIR_PRESTADO -> el movimiento original fue INGRESO (sumó stock)
+        // PRESTAR        -> el movimiento original fue SALIDA  (restó stock)
+        $esIngresoOriginal = $prestamo->tipo_operacion === 'PEDIR_PRESTADO';
+
+        $descripcion = $esIngresoOriginal
+            ? "Ingreso por préstamo recibido {$prestamo->numero}"
+            : "Salida por préstamo {$prestamo->numero}";
+
+        $ingresoSalida = IngresoSalida::where('descripcion', $descripcion)
+            ->where('almacen_id', $prestamo->almacen_id)
+            ->where('estado', true)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        $kardex = app(KardexInventarioService::class);
+
+        $prestamo->loadMissing('productosPorAlmacen.unidadesDerivadas');
+
+        foreach ($prestamo->productosPorAlmacen as $pap) {
+            $productoAlmacen = ProductoAlmacen::with('producto')->find($pap->producto_almacen_id);
+            if (!$productoAlmacen) {
+                continue;
+            }
+
+            $unidadPrestamo = $pap->unidadesDerivadas->first();
+            $cantidad = (float) optional($unidadPrestamo)->cantidad;
+            $factor = (float) optional($unidadPrestamo)->factor;
+            if ($cantidad <= 0) {
+                continue;
+            }
+            $cantidadFraccion = $cantidad * $factor;
+
+            $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+            // Revertir: si el original sumó, ahora resta; si restó, ahora suma
+            $stockNuevo = $esIngresoOriginal
+                ? $stockAnterior - $cantidadFraccion
+                : $stockAnterior + $cantidadFraccion;
+
+            $productoAlmacen->update(['stock_fraccion' => $stockNuevo]);
+
+            $unidadName = optional($unidadPrestamo)->name ?: 'UNIDAD';
+            $unidadForKardex = (object) [
+                'cantidad' => $cantidad,
+                'factor' => $factor,
+                'unidadDerivadaInmutable' => (object) ['name' => $unidadName],
+            ];
+
+            if ($ingresoSalida) {
+                if ($esIngresoOriginal) {
+                    $kardex->registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidadForKardex, $productoAlmacen->costo, 6, $stockAnterior);
+                } else {
+                    $kardex->registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidadForKardex, $productoAlmacen->costo, 7, $stockAnterior);
+                }
+            }
+
+            $unidadDerivadaId = optional($unidadPrestamo)->unidad_derivada_id;
+            if ($unidadDerivadaId) {
+                ComplementarioStockService::procesarComplementario(
+                    $productoAlmacen->id,
+                    $unidadDerivadaId,
+                    $cantidad,
+                    $prestamo->almacen_id,
+                    !$esIngresoOriginal
+                );
+            }
+        }
+
+        if ($ingresoSalida) {
+            $ingresoSalida->update(['estado' => false]);
+        }
+
+        app(ProductoCacheService::class)->invalidateProductosAlmacen($prestamo->almacen_id);
+    }
+
+    /**
+     * Revertir una devolución concreta de un préstamo (stock + kardex)
+     * y anular su movimiento de inventario asociado.
+     */
+    private function revertirDevolucionInterna(Prestamo $prestamo, PrestamoDevolucion $devolucion): void
+    {
+        // PRESTAR: devolución fue INGRESO (sumó stock) -> anular RESTA
+        // PEDIR_PRESTADO: devolución fue SALIDA (restó stock) -> anular SUMA
+        $esIngreso = $prestamo->tipo_operacion === 'PRESTAR';
+
+        $devolucion->load('productosDevueltos.productoAlmacenPrestamo.unidadesDerivadas');
+        $ingresoSalida = IngresoSalida::find($devolucion->ingreso_salida_id);
+        $kardex = app(KardexInventarioService::class);
+
+        foreach ($devolucion->productosDevueltos as $pd) {
+            $pap = $pd->productoAlmacenPrestamo;
+            if (!$pap) {
+                continue;
+            }
+            $productoAlmacen = ProductoAlmacen::with('producto')->find($pap->producto_almacen_id);
+            if (!$productoAlmacen) {
+                continue;
+            }
+
+            $cantidad = (float) $pd->cantidad;
+            $factor = (float) $pd->factor;
+            $cantidadFraccion = (float) ($pd->cantidad_fraccion ?: ($cantidad * $factor));
+
+            $stockAnterior = (float) $productoAlmacen->stock_fraccion;
+            $stockNuevo = $esIngreso
+                ? $stockAnterior - $cantidadFraccion
+                : $stockAnterior + $cantidadFraccion;
+
+            $productoAlmacen->update(['stock_fraccion' => $stockNuevo]);
+
+            $unidadPrestamo = $pap->unidadesDerivadas->first();
+            $unidadName = optional($unidadPrestamo)->name ?: 'UNIDAD';
+            $unidadForKardex = (object) [
+                'cantidad' => $cantidad,
+                'factor' => $factor,
+                'unidadDerivadaInmutable' => (object) ['name' => $unidadName],
+            ];
+
+            if ($ingresoSalida) {
+                if ($esIngreso) {
+                    $kardex->registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $unidadForKardex, $productoAlmacen->costo, 6, $stockAnterior);
+                } else {
+                    $kardex->registrarAnulacionSalida($ingresoSalida, $productoAlmacen, $unidadForKardex, $productoAlmacen->costo, 7, $stockAnterior);
+                }
+            }
+
+            $unidadDerivadaId = optional($unidadPrestamo)->unidad_derivada_id;
+            if ($unidadDerivadaId) {
+                ComplementarioStockService::procesarComplementario(
+                    $productoAlmacen->id,
+                    $unidadDerivadaId,
+                    $cantidad,
+                    $prestamo->almacen_id,
+                    !$esIngreso
+                );
+            }
+        }
+
+        if ($ingresoSalida) {
+            $ingresoSalida->update(['estado' => false]);
+        }
+
+        app(ProductoCacheService::class)->invalidateProductosAlmacen($prestamo->almacen_id);
+    }
+
+    /**
+     * Actualizar un préstamo.
+     * Revierte el movimiento de inventario original y lo vuelve a crear con
+     * los nuevos datos. No se permite si el préstamo tiene pagos o
+     * devoluciones registradas, o si ya está anulado.
      */
     public function update(Request $request, string $id): JsonResponse
     {
-        // TODO: Implementar lógica de actualización si es necesaria
-        return response()->json(['message' => 'Actualización pendiente de implementar'], 501);
+        $validated = $request->validate([
+            'productos' => 'required|array|min:1',
+            'productos.*.producto_id' => 'required|integer|exists:producto,id',
+            'productos.*.unidad_derivada_id' => 'required|integer',
+            'productos.*.unidad_derivada_factor' => 'required|numeric|min:0',
+            'productos.*.cantidad' => 'required|numeric|min:0.001',
+            'productos.*.costo' => 'nullable|numeric|min:0',
+
+            'fecha' => 'required|date',
+            'fecha_vencimiento' => 'required|date|after_or_equal:fecha',
+            'tipo_operacion' => 'required|in:PRESTAR,PEDIR_PRESTADO',
+            'tipo_entidad' => 'required|in:CLIENTE,PROVEEDOR',
+            'tipo_moneda' => 'required|in:s,d',
+            'tipo_de_cambio' => 'nullable|numeric|min:0',
+
+            'cliente_id' => 'nullable|integer|exists:cliente,id',
+            'proveedor_id' => 'nullable|integer|exists:proveedor,id',
+            'ruc_dni' => 'nullable|string|max:20',
+            'telefono' => 'nullable|string|max:20',
+            'direccion' => 'nullable|string',
+
+            'monto_total' => 'nullable|numeric|min:0',
+            'tasa_interes' => 'nullable|numeric|min:0|max:100',
+            'tipo_interes' => ['nullable', Rule::in(['SIMPLE', 'COMPUESTO'])],
+            'dias_gracia' => 'nullable|integer|min:0',
+            'garantia' => 'nullable|string',
+            'observaciones' => 'nullable|string',
+            'vendedor' => 'nullable|string|max:191',
+
+            'almacen_id' => 'required|integer|exists:almacen,id',
+        ]);
+
+        if ($validated['tipo_entidad'] === 'CLIENTE' && empty($validated['cliente_id'])) {
+            return response()->json(['message' => 'El campo cliente_id es requerido cuando tipo_entidad es CLIENTE'], 422);
+        }
+        if ($validated['tipo_entidad'] === 'PROVEEDOR' && empty($validated['proveedor_id'])) {
+            return response()->json(['message' => 'El campo proveedor_id es requerido cuando tipo_entidad es PROVEEDOR'], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $prestamo = Prestamo::with('productosPorAlmacen.unidadesDerivadas')->findOrFail($id);
+
+            if ($prestamo->estado_prestamo === 'anulado') {
+                DB::rollBack();
+                return response()->json(['message' => 'No se puede editar un préstamo anulado'], 422);
+            }
+            if ($prestamo->pagos()->count() > 0) {
+                DB::rollBack();
+                return response()->json(['message' => 'No se puede editar un préstamo con pagos registrados'], 422);
+            }
+            if ($prestamo->devoluciones()->count() > 0) {
+                DB::rollBack();
+                return response()->json(['message' => 'No se puede editar un préstamo con devoluciones registradas'], 422);
+            }
+
+            // 1. Revertir el movimiento de inventario original
+            $this->revertirMovimientoOriginal($prestamo);
+
+            // 2. Eliminar productos del préstamo (y sus unidades)
+            $papIds = $prestamo->productosPorAlmacen->pluck('id');
+            if ($papIds->isNotEmpty()) {
+                UnidadDerivadaInmutablePrestamo::whereIn('producto_almacen_prestamo_id', $papIds)->delete();
+                ProductoAlmacenPrestamo::whereIn('id', $papIds)->delete();
+            }
+
+            // 3. Recalcular monto_total (suma de cantidades en unidad base)
+            if (!isset($validated['monto_total']) || $validated['monto_total'] === null) {
+                $validated['monto_total'] = 0;
+                foreach ($validated['productos'] as $productoData) {
+                    $validated['monto_total'] += ($productoData['cantidad'] ?? 0) * ($productoData['unidad_derivada_factor'] ?? 1);
+                }
+            }
+
+            // 4. Actualizar datos del préstamo
+            $prestamo->update([
+                'fecha' => $validated['fecha'],
+                'fecha_vencimiento' => $validated['fecha_vencimiento'],
+                'tipo_operacion' => $validated['tipo_operacion'],
+                'tipo_entidad' => $validated['tipo_entidad'],
+                'cliente_id' => $validated['tipo_entidad'] === 'CLIENTE' ? $validated['cliente_id'] : null,
+                'proveedor_id' => $validated['tipo_entidad'] === 'PROVEEDOR' ? $validated['proveedor_id'] : null,
+                'ruc_dni' => $validated['ruc_dni'] ?? null,
+                'telefono' => $validated['telefono'] ?? null,
+                'direccion' => $validated['direccion'] ?? null,
+                'tipo_moneda' => $validated['tipo_moneda'],
+                'tipo_de_cambio' => $validated['tipo_de_cambio'] ?? 1.0000,
+                'monto_total' => $validated['monto_total'],
+                'monto_pagado' => 0.00,
+                'monto_pendiente' => $validated['monto_total'],
+                'tasa_interes' => $validated['tasa_interes'] ?? null,
+                'tipo_interes' => $validated['tipo_interes'] ?? null,
+                'dias_gracia' => $validated['dias_gracia'] ?? 0,
+                'garantia' => $validated['garantia'] ?? null,
+                'estado_prestamo' => 'pendiente',
+                'observaciones' => $validated['observaciones'] ?? null,
+                'vendedor' => $validated['vendedor'] ?? null,
+                'almacen_id' => $validated['almacen_id'],
+            ]);
+
+            // 5. Recrear productos + movimiento de inventario
+            $productosAlmacenIds = [];
+            foreach ($validated['productos'] as $productoData) {
+                $productosAlmacenIds[] = $this->agregarProductoAPrestamo($prestamo, $productoData, $validated['almacen_id']);
+            }
+            $this->crearMovimientoInventario($prestamo, $productosAlmacenIds, $validated['productos'], $validated['almacen_id']);
+
+            DB::commit();
+
+            $prestamo->load([
+                'cliente', 'proveedor', 'user', 'almacen',
+                'productosPorAlmacen.productoAlmacen.producto.marca',
+                'productosPorAlmacen.unidadesDerivadas',
+                'pagos', 'devoluciones.ingresoSalida', 'devoluciones.productosDevueltos',
+            ]);
+
+            return response()->json([
+                'data' => $prestamo,
+                'message' => 'Préstamo actualizado exitosamente',
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al actualizar el préstamo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Anular un préstamo (forzado total): revierte devoluciones, pagos y el
+     * movimiento de inventario original; conserva el registro marcándolo
+     * como anulado. Requiere un motivo.
+     */
+    public function anular(Request $request, string $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'motivo' => 'required|string|min:3',
+        ], [
+            'motivo.required' => 'El motivo de anulación es requerido',
+            'motivo.min' => 'El motivo debe tener al menos 3 caracteres',
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $prestamo = Prestamo::with([
+                'productosPorAlmacen.unidadesDerivadas',
+                'devoluciones',
+            ])->findOrFail($id);
+
+            if ($prestamo->estado_prestamo === 'anulado') {
+                DB::rollBack();
+                return response()->json(['message' => 'Este préstamo ya está anulado'], 422);
+            }
+
+            // 1. Revertir todas las devoluciones (stock + kardex + movimiento)
+            foreach ($prestamo->devoluciones as $devolucion) {
+                $this->revertirDevolucionInterna($prestamo, $devolucion);
+            }
+
+            // 2. Eliminar pagos (los triggers recalculan; se sobrescribe luego)
+            PagoPrestamo::where('prestamo_id', $prestamo->id)->delete();
+
+            // 3. Revertir el movimiento de inventario original del préstamo
+            $this->revertirMovimientoOriginal($prestamo);
+
+            // 4. Marcar el préstamo como anulado (conserva el registro)
+            $prestamo->update([
+                'estado_prestamo' => 'anulado',
+                'monto_pagado' => 0.00,
+                'monto_pendiente' => 0.00,
+                'motivo_anulacion' => $validated['motivo'],
+                'fecha_anulacion' => now(),
+            ]);
+
+            DB::commit();
+
+            $prestamo->refresh();
+            $prestamo->load([
+                'cliente', 'proveedor', 'user', 'almacen',
+                'productosPorAlmacen.productoAlmacen.producto.marca',
+                'productosPorAlmacen.unidadesDerivadas',
+                'pagos', 'devoluciones.ingresoSalida', 'devoluciones.productosDevueltos',
+            ]);
+
+            return response()->json([
+                'message' => 'Préstamo anulado exitosamente',
+                'data' => $prestamo,
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al anular el préstamo: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**

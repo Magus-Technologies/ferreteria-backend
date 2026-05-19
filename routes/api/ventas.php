@@ -82,6 +82,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{prestamo_id}/pagos/{pago_id}', [PrestamoController::class, 'eliminarPago']);
         Route::post('/{prestamo_id}/pagos/{pago_id}/anular', [PrestamoController::class, 'anularPago']);
         Route::post('/{id}/devolucion', [PrestamoController::class, 'registrarDevolucion']);
+        Route::post('/{id}/anular', [PrestamoController::class, 'anular']);
     });
     Route::apiResource('prestamos', PrestamoController::class)->middleware(['caja.abierta', 'broadcast:prestamos']);
 
