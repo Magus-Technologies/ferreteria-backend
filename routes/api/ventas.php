@@ -75,11 +75,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PRÉSTAMOS (Clientes)
     // ============================================
-    Route::prefix('prestamos')->middleware('caja.abierta')->group(function () {
+    Route::prefix('prestamos')->middleware(['caja.abierta', 'broadcast:prestamos'])->group(function () {
         Route::get('/siguiente-numero/preview', [PrestamoController::class, 'siguienteNumero']);
         Route::get('/{id}/pagos', [PrestamoController::class, 'listarPagos']);
         Route::post('/{id}/pagos', [PrestamoController::class, 'registrarPago']);
         Route::delete('/{prestamo_id}/pagos/{pago_id}', [PrestamoController::class, 'eliminarPago']);
+        Route::post('/{prestamo_id}/pagos/{pago_id}/anular', [PrestamoController::class, 'anularPago']);
         Route::post('/{id}/devolucion', [PrestamoController::class, 'registrarDevolucion']);
     });
     Route::apiResource('prestamos', PrestamoController::class)->middleware(['caja.abierta', 'broadcast:prestamos']);
