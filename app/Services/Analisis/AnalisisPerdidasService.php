@@ -366,7 +366,9 @@ class AnalisisPerdidasService
                 DB::raw("CONCAT('SALIDA #', isa.numero) as referencia"),
             ])
             ->where('isa.tipo_documento', 'sa')
-            ->where('isa.estado', true);
+            ->where('isa.estado', true)
+            // Los préstamos NO son pérdida (el producto se devuelve), se excluyen
+            ->whereRaw("UPPER(COALESCE(tis.name, '')) <> 'PRESTAMO'");
 
         $filter->applyPerdidas($query, 'salida');
         $detalles = $query->get();
