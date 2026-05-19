@@ -455,13 +455,16 @@ $prestamo->load([
             'proveedor',
             'user' => function ($query) {
                 $query->with(['empresa' => function ($q) {
-                    $q->select('id', 'ruc', 'razon_social', 'direccion', 'distrito', 'celular', 'email', 'logo');
+                    $q->select('id', 'ruc', 'razon_social', 'nombre_comercial', 'telefono', 'celular', 'email', 'logo');
                 }]);
             },
             'almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.unidadesDerivadas',
             'pagos.user',
+            'devoluciones.user:id,name',
+            'devoluciones.productosDevueltos.productoAlmacenPrestamo.productoAlmacen.producto:id,name,cod_producto',
+            'devoluciones.productosDevueltos.productoAlmacenPrestamo.unidadesDerivadas',
         ])->findOrFail($id);
 
         return response()->json(['data' => $prestamo]);
