@@ -1061,8 +1061,13 @@ $prestamo->load([
                 $this->revertirDevolucionInterna($prestamo, $devolucion);
             }
 
-            // 2. Eliminar pagos (los triggers recalculan; se sobrescribe luego)
-            PagoPrestamo::where('prestamo_id', $prestamo->id)->delete();
+            // 2. Marcar todos los pagos como anulados (conserva el registro para auditoría)
+            // En lugar de eliminarlos, los marcamos como estado = false
+            PagoPrestamo::where('prestamo_id', $prestamo->id)->update([
+                'estado' => false,
+                'motivo_anulacion' => $validated['motivo'],
+                'fecha_anulacion' => now(),
+            ]);
 
             // 3. Revertir el movimiento de inventario original del préstamo
             $this->revertirMovimientoOriginal($prestamo);
