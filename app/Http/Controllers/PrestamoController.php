@@ -942,11 +942,17 @@ $prestamo->load([
                 DB::rollBack();
                 return response()->json(['message' => 'No se puede editar un préstamo anulado'], 422);
             }
-            if ($prestamo->pagos()->count() > 0) {
+            // Solo bloquean los pagos vigentes (estado = true). Los anulados no cuentan.
+            if ($prestamo->pagos()->where('estado', true)->count() > 0) {
                 DB::rollBack();
                 return response()->json(['message' => 'No se puede editar un préstamo con pagos registrados'], 422);
             }
-            if ($prestamo->devoluciones()->count() > 0) {
+            // Solo bloquean las devoluciones cuyo movimiento de inventario sigue
+            // vigente. Una devolución anulada deja su ingreso/salida en estado = false.
+            $devolucionesVigentes = $prestamo->devoluciones()
+                ->whereHas('ingresoSalida', fn ($q) => $q->where('estado', true))
+                ->count();
+            if ($devolucionesVigentes > 0) {
                 DB::rollBack();
                 return response()->json(['message' => 'No se puede editar un préstamo con devoluciones registradas'], 422);
             }
