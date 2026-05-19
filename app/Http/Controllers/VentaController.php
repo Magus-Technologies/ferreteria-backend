@@ -498,7 +498,7 @@ class VentaController extends Controller
             $noDescontarStock = ($validated['descontar_stock'] ?? 'si') === 'no';
             $stockYaAplicado = (bool) ($validated['stock_ya_aplicado'] ?? false);
             $esCredito = ($validated['forma_de_pago'] ?? null) === 'cr';
-            $debeDescontar = in_array($tipoDespacho, ['et', 'do'])
+            $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
                 && ! $noDescontarStock
