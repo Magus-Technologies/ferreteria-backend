@@ -759,13 +759,8 @@ $prestamo->load([
                     ? $stockAnterior + $cantidadFraccion
                     : $stockAnterior - $cantidadFraccion;
 
-                // Validar que no sea negativo para salidas
-                if (!$esIngreso && $stockNuevo < 0) {
-                    DB::rollBack();
-                    return response()->json([
-                        'message' => "Stock insuficiente para devolver {$cantidad} unidades del producto",
-                    ], 422);
-                }
+                // Validación de stock negativo deshabilitada: se permite
+                // que el stock quede en negativo al devolver.
 
                 // Registrar historial
                 HistorialUnidadDerivadaInmutableIngresoSalida::create([
