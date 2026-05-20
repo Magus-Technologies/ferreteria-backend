@@ -7,6 +7,7 @@
         'logoPath' => $logoPath,
         'tipoDocumentoTitulo' => $tipoDocumentoTitulo,
         'numeroDocumento' => $numeroDocumento,
+        'logosExtras' => $logosExtras ?? [],
     ])
 
     {{-- Info del cliente --}}
@@ -71,6 +72,9 @@
     {{-- Footer --}}
     @include('pdf.layout.footer', [
         'codigoQr' => $codigoQr,
+        'mensajeFinalHtml' => (!empty($plantilla) && $plantilla->despedida_activo)
+            ? $plantilla->mensaje_despedida
+            : null,
         'mensajeFinal' => 'GRACIAS POR SU PREFERENCIA! DIOS LES BENDIGA!',
         'consultaUrl' => $consultaUrl ?? null,
     ])

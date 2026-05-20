@@ -201,6 +201,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // CONFIGURACIÓN DE IMPRESIÓN
     // ============================================
     Route::prefix('configuracion-impresion')->group(function () {
+        // Plantilla HTML por empresa (cabecera / inferior / despedida + logos NV)
+        Route::get('/plantilla', [ConfiguracionImpresionController::class, 'showPlantilla']);
+        Route::post('/plantilla', [ConfiguracionImpresionController::class, 'updatePlantilla']);
+
         Route::get('/{tipo_documento}', [ConfiguracionImpresionController::class, 'index']);
         Route::get('/{tipo_documento}/{campo}', [ConfiguracionImpresionController::class, 'show']);
         Route::put('/{tipo_documento}/{campo}', [ConfiguracionImpresionController::class, 'update']);

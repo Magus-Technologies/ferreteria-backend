@@ -11,9 +11,9 @@
         }
 
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 8pt;
-            color: #000;
+            font-family: {{ ($est['fuente'] ?? 'Helvetica') }}, Arial, sans-serif;
+            font-size: {{ ($est['font_pt'] ?? 8) }}pt;
+            color: {{ ($est['color_texto'] ?? '#000') }};
             line-height: 1.3;
         }
 
@@ -27,8 +27,8 @@
         }
 
         /* --- Colores del tema --- */
-        .border-theme { border-color: #fadc06; }
-        .bg-theme { background-color: #fadc06; }
+        .border-theme { border-color: {{ ($est['color_tema'] ?? '#fadc06') }}; }
+        .bg-theme { background-color: {{ ($est['color_tema'] ?? '#fadc06') }}; }
         .text-bold { font-weight: bold; }
         .text-center { text-align: center; }
         .text-right { text-align: right; }

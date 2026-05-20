@@ -4,17 +4,26 @@
         $son         = 'texto del monto en letras'
         $moneda      = 'SOLES' | 'DOLARES'
         $observaciones = 'texto'
-        $totales     = [
-            ['label' => 'SUBTOTAL', 'valor' => '100.00'],
-            ['label' => 'IGV (18%)', 'valor' => '18.00'],
-            ['label' => 'TOTAL', 'valor' => '118.00'],
-        ]
+        $totales     = [ ['label' => 'SUBTOTAL', 'valor' => '100.00'], ... ]
 --}}
+@php($est = $est ?? [])
+@php($bloques = $bloques ?? [])
+@php($msg = $msg ?? [])
+@php($colorBorde = $est['color_borde'] ?? '#fadc06')
+@php($borderPx = $est['border_px'] ?? 2)
+@php($borderThin = $est['border_thin_px'] ?? 1)
+@php($padPx = $est['pad_px'] ?? 4)
+@php($labelObs = $msg['label_observaciones'] ?? 'OBSERVACIONES')
+@php($cssSon = $bloques['son']['css'] ?? '')
+@php($cssObsLabel = $bloques['obs_label']['css'] ?? '')
+@php($cssObsValor = $bloques['obs_valor']['css'] ?? '')
+@php($cssTotalLabel = $bloques['total_label']['css'] ?? '')
+@php($cssTotalValor = $bloques['total_valor']['css'] ?? '')
 
 {{-- SON --}}
-<table style="width: 100%; border-left: 2px solid #fadc06; border-right: 2px solid #fadc06; border-bottom: 2px solid #fadc06;">
+<table style="width: 100%; border-left: {{ $borderPx }}px solid {{ $colorBorde }}; border-right: {{ $borderPx }}px solid {{ $colorBorde }}; border-bottom: {{ $borderPx }}px solid {{ $colorBorde }};">
     <tr>
-        <td style="padding: 6px; font-size: 7pt; font-weight: bold;">
+        <td style="{{ $cssSon }} padding: {{ $padPx + 2 }}px;">
             SON: {{ $son }} {{ $moneda ?? 'SOLES' }}.
         </td>
     </tr>
@@ -25,11 +34,11 @@
     <tr>
         {{-- Observaciones --}}
         <td style="width: 65%; padding: 15px; vertical-align: middle;">
-            <div style="border: 2px solid #fadc06; border-radius: 8px; padding: 8px;">
-                <div style="font-size: 8pt; font-weight: bold; margin-bottom: 4px;">
-                    OBSERVACIONES
+            <div style="border: {{ $borderPx }}px solid {{ $colorBorde }}; border-radius: 8px; padding: 8px;">
+                <div style="{{ $cssObsLabel }} margin-bottom: 4px;">
+                    {{ $labelObs }}
                 </div>
-                <div style="font-size: 6pt; line-height: 1.5;">
+                <div style="{{ $cssObsValor }} line-height: 1.5;">
                     {{ $observaciones ?? '- NINGUNA' }}
                 </div>
             </div>
@@ -39,24 +48,19 @@
         <td style="width: 35%; vertical-align: top;">
             <table style="width: 100%; border-collapse: collapse;">
                 @foreach($totales as $total)
-                    <tr style="border-bottom: 1px solid #fadc06;">
-                        <td style="
+                    <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
+                        <td style="{{ $cssTotalLabel }}
                             width: 60%;
-                            border-left: 1px solid #fadc06;
-                            border-right: 1px solid #fadc06;
-                            padding: 6px;
-                            font-size: 8pt;
-                            font-weight: bold;
-                            text-align: right;
+                            border-left: {{ $borderThin }}px solid {{ $colorBorde }};
+                            border-right: {{ $borderThin }}px solid {{ $colorBorde }};
+                            padding: {{ $padPx + 2 }}px;
                         ">
                             {{ $total['label'] }}
                         </td>
-                        <td style="
+                        <td style="{{ $cssTotalValor }}
                             width: 40%;
-                            border-right: 1px solid #fadc06;
-                            padding: 6px;
-                            font-size: 8pt;
-                            text-align: right;
+                            border-right: {{ $borderThin }}px solid {{ $colorBorde }};
+                            padding: {{ $padPx + 2 }}px;
                         ">
                             {{ $total['valor'] }}
                         </td>

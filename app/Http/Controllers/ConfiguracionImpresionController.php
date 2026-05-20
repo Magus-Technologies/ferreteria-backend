@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ConfiguracionImpresion;
+use App\Models\PlantillaImpresion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
@@ -217,5 +218,98 @@ class ConfiguracionImpresionController extends Controller
                 'tipo_documento' => $tipo_documento,
             ]
         ]);
+    }
+
+    /**
+     * Obtener la plantilla de impresión (mensajes HTML) para la empresa activa.
+     */
+    public function showPlantilla(Request $request)
+    {
+        $empresaId = $this->resolverEmpresaId($request);
+        if (!$empresaId) {
+            return response()->json(['success' => false, 'message' => 'Sin empresa activa'], 400);
+        }
+
+        $plantilla = PlantillaImpresion::obtenerPara($empresaId);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'empresa_id' => (int) $empresaId,
+                'mensaje_despedida' => $plantilla->mensaje_despedida,
+                'despedida_activo' => (bool) $plantilla->despedida_activo,
+                'logos_nota_venta' => $plantilla->logos_nota_venta ?? [],
+                'estilos' => $plantilla->estilos,
+                'mensajes_extra' => $plantilla->mensajes_extra,
+                'estilos_secciones' => $plantilla->estilos_secciones,
+                'bloques_catalogo' => PlantillaImpresion::BLOQUES,
+            ],
+        ]);
+    }
+
+    /**
+     * Crear o actualizar la plantilla de impresión para la empresa activa.
+     */
+    public function updatePlantilla(Request $request)
+    {
+        $empresaId = $this->resolverEmpresaId($request);
+        if (!$empresaId) {
+            return response()->json(['success' => false, 'message' => 'Sin empresa activa'], 400);
+        }
+
+        $validated = $request->validate([
+            'mensaje_despedida' => 'nullable|string',
+            'despedida_activo' => 'boolean',
+            'logos_nota_venta' => 'nullable|array',
+            'logos_nota_venta.*' => 'integer|exists:empresa,id',
+            'estilos' => 'nullable|array',
+            'estilos.color_tema' => 'nullable|string|max:30',
+            'estilos.color_borde' => 'nullable|string|max:30',
+            'estilos.color_texto' => 'nullable|string|max:30',
+            'estilos.fuente' => 'nullable|string|max:50',
+            'estilos.tamano_base' => 'nullable|integer|min:6|max:14',
+            'estilos.grosor_borde' => 'nullable|integer|min:0|max:5',
+            'estilos.densidad' => 'nullable|string|in:compacta,normal,espaciada',
+            'mensajes_extra' => 'nullable|array',
+            'mensajes_extra.label_observaciones' => 'nullable|string|max:80',
+            'mensajes_extra.observaciones_default' => 'nullable|string|max:255',
+            'mensajes_extra.leyenda_consulta' => 'nullable|string|max:120',
+            'mensajes_extra.leyenda_representacion' => 'nullable|string|max:200',
+            'estilos_secciones' => 'nullable|array',
+            'estilos_secciones.*' => 'array',
+            'estilos_secciones.*.color' => 'nullable|string|max:30',
+            'estilos_secciones.*.tamano' => 'nullable|integer|min:5|max:24',
+            'estilos_secciones.*.peso' => 'nullable|string|in:normal,bold',
+            'estilos_secciones.*.alineacion' => 'nullable|string|in:left,center,right',
+        ]);
+
+        $plantilla = PlantillaImpresion::updateOrCreate(
+            ['empresa_id' => $empresaId],
+            $validated
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Plantilla de impresión actualizada correctamente',
+            'data' => $plantilla,
+        ]);
+    }
+
+    /**
+     * Resolver el ID de la empresa activa desde header o usuario autenticado.
+     */
+    protected function resolverEmpresaId(Request $request): ?int
+    {
+        $headerEmpresa = $request->header('X-Empresa-Activa');
+        if ($headerEmpresa) {
+            return (int) $headerEmpresa;
+        }
+
+        $user = $request->user() ?? Auth::user();
+        if ($user && isset($user->empresa_id)) {
+            return (int) $user->empresa_id;
+        }
+
+        return null;
     }
 }

@@ -3,24 +3,29 @@
     Recibe:
         $columnas = [
             ['label' => 'ITEM', 'width' => '5%', 'align' => 'center'],
-            ...
         ]
-        $filas = [
-            ['col1', 'col2', ...],
-        ]
-        $minFilas = 10  (opcional, para rellenar espacio vacio)
+        $filas = [['col1', 'col2', ...]]
+        $minFilas = 10  (opcional)
 --}}
-<table style="width: 100%; border: 2px solid #fadc06; border-collapse: collapse;">
+@php($est = $est ?? [])
+@php($bloques = $bloques ?? [])
+@php($colorTema = $est['color_tema'] ?? '#fadc06')
+@php($colorBorde = $est['color_borde'] ?? '#fadc06')
+@php($borderPx = $est['border_px'] ?? 2)
+@php($borderThin = $est['border_thin_px'] ?? 1)
+@php($padPx = $est['pad_px'] ?? 4)
+@php($cssHeader = $bloques['tabla_header']['css'] ?? '')
+@php($cssFila = $bloques['tabla_fila']['css'] ?? '')
+
+<table style="width: 100%; border: {{ $borderPx }}px solid {{ $colorBorde }}; border-collapse: collapse;">
     {{-- Header --}}
-    <tr style="background-color: #fadc06;">
+    <tr style="background-color: {{ $colorTema }};">
         @foreach($columnas as $col)
-            <td style="
-                padding: 4px;
-                font-size: 7pt;
-                font-weight: bold;
-                text-align: {{ $col['align'] ?? 'center' }};
+            <td style="{{ $cssHeader }}
+                padding: {{ $padPx }}px;
                 width: {{ $col['width'] }};
-                border-right: 1px solid #fadc06;
+                text-align: {{ $col['align'] ?? 'center' }};
+                border-right: {{ $borderThin }}px solid {{ $colorBorde }};
             ">
                 {{ $col['label'] }}
             </td>
@@ -29,13 +34,12 @@
 
     {{-- Filas de datos --}}
     @foreach($filas as $fila)
-        <tr style="border-bottom: 1px solid #fadc06;">
+        <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
             @foreach($fila as $i => $celda)
-                <td style="
-                    padding: 3px;
-                    font-size: 7pt;
+                <td style="{{ $cssFila }}
+                    padding: {{ max(2, $padPx - 1) }}px;
                     text-align: {{ $columnas[$i]['align'] ?? 'left' }};
-                    border-right: {{ $loop->last ? 'none' : '1px solid #fadc06' }};
+                    border-right: {{ $loop->last ? 'none' : $borderThin.'px solid '.$colorBorde }};
                 ">
                     {{ $celda }}
                 </td>
@@ -47,7 +51,7 @@
     @if(isset($minFilas) && count($filas) < $minFilas)
         <tr>
             <td colspan="{{ count($columnas) }}"
-                style="height: {{ ($minFilas - count($filas)) * 20 }}px; border-bottom: 1px solid #fadc06;">
+                style="height: {{ ($minFilas - count($filas)) * 20 }}px; border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
             </td>
         </tr>
     @endif

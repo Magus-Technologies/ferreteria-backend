@@ -3,6 +3,8 @@
 namespace App\Services\Pdf;
 
 use App\Models\ComprobanteElectronico;
+use App\Models\Empresa;
+use App\Models\PlantillaImpresion;
 use App\Models\Venta;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Encoding\Encoding;
@@ -33,6 +35,15 @@ class VentaPdfService
         $codigoQr = $this->obtenerCodigoQr($venta);
         $consultaUrl = $this->getConsultaUrl();
 
+        $plantilla = PlantillaImpresion::obtenerPara((int) $empresa->id);
+        $esNotaVenta = ($venta->tipo_documento->value ?? '') === 'nv';
+        $logosExtras = $esNotaVenta ? $this->obtenerLogosExtras($plantilla->logos_nota_venta ?? []) : [];
+
+        $est = $this->resolverEstilos($plantilla->estilos ?? []);
+        $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
+        $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
+        $observaciones = $venta->descripcion ?: $msg['observaciones_default'];
+
         $data = [
             'venta' => $venta,
             'empresa' => $empresa,
@@ -45,7 +56,12 @@ class VentaPdfService
             'consultaUrl' => $consultaUrl,
             'filas' => $this->prepararInfoCliente($venta),
             'son' => PdfService::numeroALetras($calculos['total']),
-            'observaciones' => $venta->descripcion ?: '- NINGUNA',
+            'observaciones' => $observaciones,
+            'plantilla' => $plantilla,
+            'logosExtras' => $logosExtras,
+            'est' => $est,
+            'msg' => $msg,
+            'bloques' => $bloques,
         ];
 
         $filename = "{$venta->tipo_documento->value}-{$venta->serie}-{$venta->numero}.pdf";
@@ -471,5 +487,103 @@ class VentaPdfService
         $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
 
         return "{$frontendUrl}/consulta";
+    }
+
+    /**
+     * Resolver los estilos del PDF mezclando los del usuario con los defaults.
+     * Devuelve valores ya calculados (pt, px) listos para inyectar en CSS inline.
+     */
+    private function resolverEstilos(array $estilos): array
+    {
+        $e = array_merge(PlantillaImpresion::DEFAULT_ESTILOS, $estilos);
+
+        $densidad = $e['densidad'] ?? 'normal';
+        $padMul = $densidad === 'compacta' ? 0.7 : ($densidad === 'espaciada' ? 1.4 : 1.0);
+
+        $fontPt = (int) ($e['tamano_base'] ?? 8);
+        $borderPx = (int) ($e['grosor_borde'] ?? 2);
+
+        return [
+            'color_tema'  => $e['color_tema'],
+            'color_borde' => $e['color_borde'],
+            'color_texto' => $e['color_texto'],
+            'fuente'      => $e['fuente'],
+            'font_pt'     => $fontPt,
+            'font_sm_pt'  => max(6, $fontPt - 1),
+            'font_lg_pt'  => $fontPt + 2,
+            'border_px'   => $borderPx,
+            'border_thin_px' => max(1, (int) round($borderPx / 2)),
+            'pad_px'      => (int) round(4 * $padMul),
+            'pad_lg_px'   => (int) round(6 * $padMul),
+            'densidad'    => $densidad,
+        ];
+    }
+
+    /**
+     * Resolver los estilos por bloque mezclando overrides con defaults globales.
+     * Cada bloque recibe valores por defecto (color, font_pt, peso, alineacion).
+     */
+    private function resolverEstilosBloques(array $est, array $overrides): array
+    {
+        $defaultsPorBloque = [
+            'empresa_razon'     => ['color' => $est['color_texto'], 'tamano' => $est['font_lg_pt'], 'peso' => 'bold',   'alineacion' => 'center'],
+            'empresa_direccion' => ['color' => $est['color_texto'], 'tamano' => $est['font_sm_pt'], 'peso' => 'normal', 'alineacion' => 'center'],
+            'caja_ruc'          => ['color' => $est['color_texto'], 'tamano' => $est['font_lg_pt'], 'peso' => 'bold',   'alineacion' => 'center'],
+            'caja_tipo'         => ['color' => $est['color_texto'], 'tamano' => $est['font_lg_pt'] + 1, 'peso' => 'bold', 'alineacion' => 'center'],
+            'caja_numero'       => ['color' => $est['color_texto'], 'tamano' => $est['font_lg_pt'] + 1, 'peso' => 'bold', 'alineacion' => 'center'],
+            'info_label'        => ['color' => $est['color_texto'], 'tamano' => $est['font_sm_pt'], 'peso' => 'bold',   'alineacion' => 'left'],
+            'info_valor'        => ['color' => $est['color_texto'], 'tamano' => $est['font_sm_pt'], 'peso' => 'normal', 'alineacion' => 'left'],
+            'tabla_header'      => ['color' => $est['color_texto'], 'tamano' => $est['font_sm_pt'], 'peso' => 'bold',   'alineacion' => 'center'],
+            'tabla_fila'        => ['color' => $est['color_texto'], 'tamano' => $est['font_sm_pt'], 'peso' => 'normal', 'alineacion' => 'left'],
+            'son'               => ['color' => $est['color_texto'], 'tamano' => $est['font_sm_pt'], 'peso' => 'bold',   'alineacion' => 'left'],
+            'obs_label'         => ['color' => $est['color_texto'], 'tamano' => $est['font_pt'],    'peso' => 'bold',   'alineacion' => 'left'],
+            'obs_valor'         => ['color' => $est['color_texto'], 'tamano' => max(6, $est['font_sm_pt'] - 1), 'peso' => 'normal', 'alineacion' => 'left'],
+            'total_label'       => ['color' => $est['color_texto'], 'tamano' => $est['font_pt'],    'peso' => 'bold',   'alineacion' => 'right'],
+            'total_valor'       => ['color' => $est['color_texto'], 'tamano' => $est['font_pt'],    'peso' => 'normal', 'alineacion' => 'right'],
+            'despedida_footer'  => ['color' => $est['color_texto'], 'tamano' => $est['font_pt'],    'peso' => 'bold',   'alineacion' => 'center'],
+            'consulta_leyenda'  => ['color' => '#666666',           'tamano' => $est['font_sm_pt'], 'peso' => 'normal', 'alineacion' => 'center'],
+            'consulta_url'      => ['color' => '#333333',           'tamano' => $est['font_sm_pt'], 'peso' => 'bold',   'alineacion' => 'center'],
+        ];
+
+        $resultado = [];
+        foreach ($defaultsPorBloque as $key => $def) {
+            $ov = $overrides[$key] ?? [];
+            $resultado[$key] = [
+                'color'      => !empty($ov['color']) ? $ov['color'] : $def['color'],
+                'tamano'     => !empty($ov['tamano']) ? (int) $ov['tamano'] : $def['tamano'],
+                'peso'       => !empty($ov['peso']) ? $ov['peso'] : $def['peso'],
+                'alineacion' => !empty($ov['alineacion']) ? $ov['alineacion'] : $def['alineacion'],
+            ];
+            // Generar string CSS listo para inyectar
+            $resultado[$key]['css'] = sprintf(
+                'color: %s; font-size: %dpt; font-weight: %s; text-align: %s;',
+                $resultado[$key]['color'],
+                $resultado[$key]['tamano'],
+                $resultado[$key]['peso'],
+                $resultado[$key]['alineacion']
+            );
+        }
+
+        return $resultado;
+    }
+
+    /**
+     * Resolver los logos adicionales (otras empresas) a mostrar en Nota de Venta.
+     */
+    private function obtenerLogosExtras(array $empresaIds): array
+    {
+        if (empty($empresaIds)) {
+            return [];
+        }
+
+        $empresas = Empresa::whereIn('id', $empresaIds)->get(['id', 'razon_social', 'logo']);
+
+        return $empresas->map(function ($e) {
+            return [
+                'id' => $e->id,
+                'razon_social' => $e->razon_social,
+                'logo_path' => PdfService::getLogoPath($e->logo),
+            ];
+        })->all();
     }
 }
