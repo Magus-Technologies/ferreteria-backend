@@ -341,9 +341,20 @@ class EntregaProductoPdfService
             $producto = $pa?->producto;
 
             $cantidadEstaEntrega = (float) ($detalle->cantidad_entregada ?? 0);
-            $total = $cantidadEstaEntrega;
-            $pendiente = $entregaTieneEntregaFisica ? 0.0 : $cantidadEstaEntrega;
-            $entregado = $entregaTieneEntregaFisica ? $cantidadEstaEntrega : 0.0;
+
+            // Recojo en tienda: el PDF debe reflejar el estado REAL de la línea
+            // de venta (total / entregado / pendiente), no solo la cantidad del
+            // detalle original de la entrega. Esto cubre el caso donde la venta
+            // se editó después de una entrega parcial en tienda.
+            if ($entrega->tipo_entrega === 'rt' && $udv) {
+                $total = (float) ($udv->cantidad ?? $cantidadEstaEntrega);
+                $pendiente = max(0.0, (float) ($udv->cantidad_pendiente ?? 0));
+                $entregado = max(0.0, $total - $pendiente);
+            } else {
+                $total = $cantidadEstaEntrega;
+                $pendiente = $entregaTieneEntregaFisica ? 0.0 : $cantidadEstaEntrega;
+                $entregado = $entregaTieneEntregaFisica ? $cantidadEstaEntrega : 0.0;
+            }
 
             $productos[] = [
                 'codigo' => $producto->cod_producto ?? '',

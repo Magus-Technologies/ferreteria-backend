@@ -256,6 +256,20 @@ class EntregaProductoController extends Controller
                 ($validated['tipo_despacho'] ?? null) === 'in' &&
                 ($validated['estado_entrega'] ?? null) === 'pe' &&
                 ($validated['quien_entrega'] ?? null) === 'almacen';
+            $esRecojoTiendaPendienteAlmacen =
+                ($validated['tipo_entrega'] ?? null) === 'rt' &&
+                ($validated['tipo_despacho'] ?? null) === 'in' &&
+                ($validated['estado_entrega'] ?? null) === 'pe' &&
+                ($validated['quien_entrega'] ?? null) === 'almacen';
+
+            if ($esRecojoTiendaPendienteAlmacen) {
+                $totalPendienteRegistrado = collect($validated['productos_entregados'] ?? [])
+                    ->sum(fn ($detalle) => (float) ($detalle['cantidad_entregada'] ?? 0));
+
+                if ($totalPendienteRegistrado <= 0) {
+                    throw new \Exception('Despacho en tienda con entrega por almacén requiere una cantidad pendiente mayor a 0.');
+                }
+            }
 
             // Si la entrega nace ya como ENTREGADO (caso EnTienda inmediato),
             // el creador es también quien entregó — registrar para auditoría.
@@ -320,7 +334,7 @@ class EntregaProductoController extends Controller
                 // Parcial + Inmediato + Almacén: registrar el tramo pendiente
                 // sin consumir aún stock ni cantidad_pendiente. Se consume
                 // recién cuando almacén confirma la entrega desde Mis Entregas.
-                if (! $esParcialInmediatoPendienteAlmacen) {
+                if (! $esParcialInmediatoPendienteAlmacen && ! $esRecojoTiendaPendienteAlmacen) {
                     // Actualizar cantidad pendiente
                     $unidadDerivadaVenta->decrement('cantidad_pendiente', $cantidadEntregada);
 
@@ -543,7 +557,10 @@ class EntregaProductoController extends Controller
                 // confirmar, solo cambia el estado físico de la entrega; no se
                 // debe consumir el pendiente restante de toda la venta.
                 $requiereConsumoDiferido =
-                    $entrega->tipo_entrega === 'pa' &&
+                    (
+                        $entrega->tipo_entrega === 'pa' ||
+                        $entrega->tipo_entrega === 'rt'
+                    ) &&
                     $entrega->tipo_despacho === 'in' &&
                     $entrega->quien_entrega === 'almacen';
 
@@ -553,6 +570,11 @@ class EntregaProductoController extends Controller
                         if (! $unidadDerivadaVenta) continue;
 
                         $cantidadEntregada = (float) $detalle->cantidad_entregada;
+                        if ($cantidadEntregada <= 0 && $entrega->tipo_entrega === 'rt') {
+                            $cantidadEntregada = (float) $unidadDerivadaVenta->cantidad_pendiente;
+                            $detalle->cantidad_entregada = $cantidadEntregada;
+                            $detalle->save();
+                        }
                         $cantidadPendiente = (float) $unidadDerivadaVenta->cantidad_pendiente;
 
                         if ($cantidadEntregada > $cantidadPendiente) {
