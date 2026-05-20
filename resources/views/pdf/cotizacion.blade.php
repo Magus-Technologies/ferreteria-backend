@@ -51,7 +51,7 @@
     @include('pdf.layout.totales', [
         'son' => $son,
         'moneda' => $moneda,
-        'observaciones' => "- LA MERCADERIA VIAJA POR CUENTA Y RIESGO DEL CLIENTE.\n- UNA VEZ RECIBIDA LA MERCADERIA NO HAY LUGAR A RECLAMO.\n- REPARTO MINIMO 1 DIA DE ANTICIPACION.\n- CAMBIO Y/O DEVOLUCION SERA EN UN PLAZO 5 DIAS CALENDARIO.\n- NO SE ACEPTAN CAMBIOS NI DEVOLUCIONES CON DANOS FISICOS O ACCESORIOS FALTANTES, SOLO POR FALLAS DE FABRICACION.",
+        'observaciones' => $observaciones,
         'totales' => [
             ['label' => 'SUBTOTAL', 'valor' => number_format($calculos['subtotal'], 2)],
             ['label' => 'T. DESCUENTO', 'valor' => number_format($calculos['total_descuento'], 2)],
