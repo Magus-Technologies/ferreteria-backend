@@ -11,7 +11,7 @@
         }
 
         body {
-            font-family: {{ ($est['fuente'] ?? 'Helvetica') }}, Arial, sans-serif;
+            font-family: "{{ ($est['fuente'] ?? 'Helvetica') }}", Arial, sans-serif;
             font-size: {{ ($est['font_pt'] ?? 8) }}pt;
             color: {{ ($est['color_texto'] ?? '#000') }};
             line-height: 1.3;

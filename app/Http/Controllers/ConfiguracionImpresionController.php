@@ -317,6 +317,7 @@ class ConfiguracionImpresionController extends Controller
             'estilos_secciones.*.tamano' => 'nullable|integer|min:5|max:24',
             'estilos_secciones.*.peso' => 'nullable|string|in:normal,bold',
             'estilos_secciones.*.alineacion' => 'nullable|string|in:left,center,right',
+            'estilos_secciones.*.fuente' => 'nullable|string|max:50',
             'comprobante' => 'nullable|string|max:80',
             'formato' => 'nullable|string|max:30',
         ]);
