@@ -129,13 +129,9 @@ class TransferenciaStockController extends Controller
                     throw new \Exception('Unidad derivada no encontrada para el producto en el almacén origen');
                 }
 
+                $unidadDerivadaId = $unidadDerivada->unidad_derivada_id;
                 $factor = (float) $unidadDerivada->factor;
                 $cantidadFraccion = $factor * $cantidad;
-
-                // Validar stock suficiente en origen
-                if ((float) $productoAlmacenOrigen->stock_fraccion < $cantidadFraccion) {
-                    throw new \Exception('Stock insuficiente para el producto: ' . ($productoAlmacenOrigen->producto->name ?? $productoId) . '. Stock actual: ' . $productoAlmacenOrigen->stock_fraccion);
-                }
 
                 // Obtener o crear ProductoAlmacen DESTINO
                 $productoAlmacenDestino = ProductoAlmacen::firstOrCreate(
@@ -184,6 +180,7 @@ class TransferenciaStockController extends Controller
                     'producto_almacen_origen_id' => $productoAlmacenOrigen->id,
                     'producto_almacen_destino_id' => $productoAlmacenDestino->id,
                     'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
+                    'unidad_derivada_id' => $unidadDerivadaId,
                     'factor' => $factor,
                     'cantidad' => $cantidad,
                     'costo' => $productoAlmacenOrigen->costo,
@@ -221,6 +218,147 @@ class TransferenciaStockController extends Controller
 
             return response()->json(['data' => $result], 201);
         }, 5);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * PUT /api/transferencias-stock/{id}
+     * Revierte el stock original y aplica los nuevos movimientos.
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'almacen_origen_id'              => 'required|integer|exists:almacen,id',
+            'almacen_destino_id'             => 'required|integer|exists:almacen,id|different:almacen_origen_id',
+            'productos'                      => 'required|array|min:1',
+            'productos.*.producto_id'        => 'required|integer|exists:producto,id',
+            'productos.*.unidad_derivada_id' => 'required|integer|exists:unidadderivada,id',
+            'productos.*.cantidad'           => 'required|numeric|min:0.001',
+            'fecha'                          => 'nullable|date',
+            'descripcion'                    => 'nullable|string|max:500',
+        ]);
+
+        try {
+            return DB::transaction(function () use ($validated, $id) {
+                $transferencia = TransferenciaStock::with('productos')
+                    ->where('estado', true)
+                    ->findOrFail($id);
+
+                // 1. Revertir stock original
+                foreach ($transferencia->productos as $detalle) {
+                    $origen  = ProductoAlmacen::find($detalle->producto_almacen_origen_id);
+                    $destino = ProductoAlmacen::find($detalle->producto_almacen_destino_id);
+                    $cant    = (float) $detalle->factor * (float) $detalle->cantidad;
+
+                    if ($origen)  $origen->update(['stock_fraccion'  => (float) $origen->stock_fraccion  + $cant]);
+                    if ($destino) $destino->update(['stock_fraccion' => (float) $destino->stock_fraccion - $cant]);
+                }
+
+                // 2. Borrar detalles anteriores
+                $transferencia->productos()->delete();
+
+                // 3. Ubicación destino compartida
+                $almacenDestinoId = $validated['almacen_destino_id'];
+                $almacenOrigenId  = $validated['almacen_origen_id'];
+                $ubicacionDestino = Ubicacion::firstOrCreate(
+                    ['almacen_id' => $almacenDestinoId, 'name' => 'OTROS'],
+                    ['estado' => true]
+                );
+
+                // 4. Aplicar nuevos movimientos
+                foreach ($validated['productos'] as $item) {
+                    $productoId      = $item['producto_id'];
+                    $unidadDerivadaId = $item['unidad_derivada_id'];
+                    $cantidad        = (float) $item['cantidad'];
+
+                    $productoAlmacenOrigen = ProductoAlmacen::where('producto_id', $productoId)
+                        ->where('almacen_id', $almacenOrigenId)
+                        ->with([
+                            'unidadesDerivadas' => fn($q) => $q
+                                ->where('unidad_derivada_id', $unidadDerivadaId)
+                                ->with('unidadDerivada:id,name'),
+                        ])
+                        ->firstOrFail();
+
+                    $unidadDerivada = $productoAlmacenOrigen->unidadesDerivadas->first();
+                    if (!$unidadDerivada) {
+                        throw new \Exception('Unidad derivada no encontrada para el producto en el almacén origen');
+                    }
+
+                    $factor          = (float) $unidadDerivada->factor;
+                    $cantidadFraccion = $factor * $cantidad;
+
+                    $productoAlmacenDestino = ProductoAlmacen::firstOrCreate(
+                        ['producto_id' => $productoId, 'almacen_id' => $almacenDestinoId],
+                        ['stock_fraccion' => 0, 'costo' => $productoAlmacenOrigen->costo, 'ubicacion_id' => $ubicacionDestino->id]
+                    );
+
+                    // Copiar unidad derivada al destino si no existe
+                    if (!$productoAlmacenDestino->unidadesDerivadas()->where('unidad_derivada_id', $unidadDerivadaId)->exists()) {
+                        $productoAlmacenDestino->unidadesDerivadas()->create([
+                            'unidad_derivada_id'  => $unidadDerivada->unidad_derivada_id,
+                            'factor'              => $unidadDerivada->factor,
+                            'precio_publico'      => $unidadDerivada->precio_publico ?? 0,
+                            'precio_especial'     => $unidadDerivada->precio_especial ?? 0,
+                            'precio_minimo'       => $unidadDerivada->precio_minimo ?? 0,
+                            'precio_ultimo'       => $unidadDerivada->precio_ultimo ?? 0,
+                        ]);
+                    }
+
+                    $stockAnteriorOrigen  = (float) $productoAlmacenOrigen->stock_fraccion;
+                    $stockAnteriorDestino = (float) $productoAlmacenDestino->stock_fraccion;
+                    $stockNuevoOrigen     = $stockAnteriorOrigen  - $cantidadFraccion;
+                    $stockNuevoDestino    = $stockAnteriorDestino + $cantidadFraccion;
+
+                    $unidadDerivadaInmutable = UnidadDerivadaInmutable::firstOrCreate(
+                        ['name' => $unidadDerivada->unidadDerivada->name],
+                        ['estado' => true]
+                    );
+
+                    ProductoTransferenciaStock::create([
+                        'transferencia_stock_id'    => $transferencia->id,
+                        'producto_almacen_origen_id'  => $productoAlmacenOrigen->id,
+                        'producto_almacen_destino_id' => $productoAlmacenDestino->id,
+                        'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
+                        'unidad_derivada_id'          => $unidadDerivadaId,
+                        'factor'                      => $factor,
+                        'cantidad'                    => $cantidad,
+                        'costo'                       => $productoAlmacenOrigen->costo,
+                        'stock_anterior_origen'       => $stockAnteriorOrigen,
+                        'stock_nuevo_origen'          => $stockNuevoOrigen,
+                        'stock_anterior_destino'      => $stockAnteriorDestino,
+                        'stock_nuevo_destino'         => $stockNuevoDestino,
+                    ]);
+
+                    $productoAlmacenOrigen->update(['stock_fraccion' => $stockNuevoOrigen]);
+                    $productoAlmacenDestino->update(['stock_fraccion' => $stockNuevoDestino, 'costo' => $productoAlmacenOrigen->costo]);
+                }
+
+                // 5. Actualizar cabecera
+                $transferencia->update([
+                    'almacen_origen_id'  => $almacenOrigenId,
+                    'almacen_destino_id' => $almacenDestinoId,
+                    'fecha'              => $validated['fecha'] ?? $transferencia->fecha,
+                    'descripcion'        => $validated['descripcion'] ?? null,
+                ]);
+
+                // 6. Invalidar cache
+                $cacheService = app(ProductoCacheService::class);
+                $cacheService->invalidateProductosAlmacen($almacenOrigenId);
+                $cacheService->invalidateProductosAlmacen($almacenDestinoId);
+
+                $result = TransferenciaStock::with([
+                    'almacenOrigen:id,name',
+                    'almacenDestino:id,name',
+                    'user:id,name',
+                    'productos.productoAlmacenOrigen.producto:id,name,cod_producto',
+                    'productos.unidadDerivadaInmutable:id,name',
+                ])->findOrFail($transferencia->id);
+
+                return response()->json(['data' => $result]);
+            }, 5);
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 400);
         }

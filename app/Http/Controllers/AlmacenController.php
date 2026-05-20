@@ -3,9 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Almacen;
+use App\Models\ProductoAlmacen;
+use App\Models\ProductoAlmacenUnidadDerivada;
+use App\Services\Cache\ProductoCacheService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AlmacenController extends Controller
 {
@@ -27,6 +31,34 @@ class AlmacenController extends Controller
 
         return response()->json([
             'data' => $almacenes,
+        ]);
+    }
+
+    /**
+     * Devuelve el estado de replicación de cada almacén destino respecto al origen.
+     * GET /api/almacenes/{id}/estado-replicacion
+     */
+    public function estadoReplicacion(int $id): JsonResponse
+    {
+        $totalOrigen = ProductoAlmacen::where('almacen_id', $id)->count();
+
+        $almacenes = Almacen::where('id', '!=', $id)
+            ->get()
+            ->map(function ($almacen) use ($id, $totalOrigen) {
+                $totalDestino = ProductoAlmacen::where('almacen_id', $almacen->id)->count();
+                return [
+                    'id'              => $almacen->id,
+                    'name'            => $almacen->name,
+                    'total_productos' => $totalDestino,
+                    'replicado'       => $totalDestino >= $totalOrigen && $totalOrigen > 0,
+                ];
+            });
+
+        return response()->json([
+            'data' => [
+                'total_origen' => $totalOrigen,
+                'almacenes'    => $almacenes,
+            ],
         ]);
     }
 
@@ -118,6 +150,103 @@ class AlmacenController extends Controller
 
             throw $e;
         }
+    }
+
+    /**
+     * Replica todos los productos del almacén origen a los demás almacenes activos.
+     * Crea ProductoAlmacen con stock 0 y copia todas las unidades derivadas (precios).
+     * No sobreescribe registros que ya existen.
+     */
+    public function replicarProductos(Request $request, int $id): JsonResponse
+    {
+        Almacen::findOrFail($id);
+
+        $productosOrigen = ProductoAlmacen::where('almacen_id', $id)
+            ->with('unidadesDerivadas')
+            ->get();
+
+        $destinoIds = $request->input('almacenes_destino', []);
+
+        $query = Almacen::where('id', '!=', $id);
+        if (!empty($destinoIds)) {
+            $query->whereIn('id', $destinoIds);
+        }
+        $almacenesDestino = $query->get();
+
+        if ($almacenesDestino->isEmpty()) {
+            return response()->json([
+                'message' => 'No hay otros almacenes activos para replicar.',
+                'data' => ['creados' => 0, 'ya_existian' => 0, 'almacenes_actualizados' => 0],
+            ]);
+        }
+
+        $creados = 0;
+        $yaExistian = 0;
+
+        DB::transaction(function () use ($productosOrigen, $almacenesDestino, &$creados, &$yaExistian) {
+            foreach ($almacenesDestino as $almacenDestino) {
+                foreach ($productosOrigen as $paOrigen) {
+                    $existe = ProductoAlmacen::where('producto_id', $paOrigen->producto_id)
+                        ->where('almacen_id', $almacenDestino->id)
+                        ->exists();
+
+                    if ($existe) {
+                        $yaExistian++;
+                        continue;
+                    }
+
+                    $paDestino = ProductoAlmacen::create([
+                        'producto_id'          => $paOrigen->producto_id,
+                        'almacen_id'           => $almacenDestino->id,
+                        'stock_fraccion'       => 0,
+                        'costo'                => $paOrigen->costo,
+                        'costo_anterior'       => $paOrigen->costo_anterior,
+                        'costo_actual'         => $paOrigen->costo_actual,
+                        'stock_costo_anterior' => 0,
+                        'stock_costo_actual'   => 0,
+                        'ubicacion_id'         => null,
+                    ]);
+
+                    foreach ($paOrigen->unidadesDerivadas as $ud) {
+                        ProductoAlmacenUnidadDerivada::create([
+                            'producto_almacen_id'              => $paDestino->id,
+                            'unidad_derivada_id'               => $ud->unidad_derivada_id,
+                            'factor'                           => $ud->factor,
+                            'orden'                            => $ud->orden,
+                            'peso'                             => $ud->peso,
+                            'precio_publico'                   => $ud->precio_publico,
+                            'comision_publico'                 => $ud->comision_publico,
+                            'precio_especial'                  => $ud->precio_especial,
+                            'comision_especial'                => $ud->comision_especial,
+                            'activador_especial'               => $ud->activador_especial,
+                            'precio_minimo'                    => $ud->precio_minimo,
+                            'comision_minimo'                  => $ud->comision_minimo,
+                            'activador_minimo'                 => $ud->activador_minimo,
+                            'precio_ultimo'                    => $ud->precio_ultimo,
+                            'comision_ultimo'                  => $ud->comision_ultimo,
+                            'activador_ultimo'                 => $ud->activador_ultimo,
+                            'producto_complementario_id'       => $ud->producto_complementario_id,
+                            'producto_complementario_cantidad' => $ud->producto_complementario_cantidad,
+                        ]);
+                    }
+
+                    $creados++;
+                }
+
+                app(ProductoCacheService::class)->invalidateProductosAlmacen($almacenDestino->id);
+            }
+        });
+
+        $msg = "Replicación completada: {$creados} productos creados en {$almacenesDestino->count()} almacén(es). {$yaExistian} ya existían.";
+
+        return response()->json([
+            'message' => $msg,
+            'data' => [
+                'creados'               => $creados,
+                'ya_existian'           => $yaExistian,
+                'almacenes_actualizados' => $almacenesDestino->count(),
+            ],
+        ]);
     }
 
     /**
