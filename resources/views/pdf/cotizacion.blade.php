@@ -12,12 +12,6 @@
     {{-- Info del cliente --}}
     @include('pdf.layout.info-grid', ['filas' => $filas])
 
-    {{-- Texto intro --}}
-    <div style="{{ $bloques['obs_valor']['css'] ?? 'font-size: 7pt;' }} margin-bottom: 8px; margin-top: 5px;">
-        De nuestra consideracion: Por medio de la presente es grato saludarlos
-        y a la vez cotizarle los siguientes productos:
-    </div>
-
     {{-- Tabla de productos --}}
     @include('pdf.layout.table', [
         'columnas' => [
