@@ -565,15 +565,19 @@ class VentaPdfService
                 'peso'       => !empty($ov['peso']) ? $ov['peso'] : $def['peso'],
                 'alineacion' => !empty($ov['alineacion']) ? $ov['alineacion'] : $def['alineacion'],
                 'fuente'     => !empty($ov['fuente']) ? $ov['fuente'] : $def['fuente'],
+                'cursiva'    => isset($ov['cursiva']) ? (bool) $ov['cursiva'] : false,
+                'subrayado'  => isset($ov['subrayado']) ? (bool) $ov['subrayado'] : false,
             ];
             // Generar string CSS listo para inyectar
             $resultado[$key]['css'] = sprintf(
-                'color: %s; font-size: %dpt; font-weight: %s; text-align: %s; font-family: "%s", Arial, sans-serif;',
+                'color: %s; font-size: %dpt; font-weight: %s; text-align: %s; font-family: "%s", Arial, sans-serif; font-style: %s; text-decoration: %s;',
                 $resultado[$key]['color'],
                 $resultado[$key]['tamano'],
                 $resultado[$key]['peso'],
                 $resultado[$key]['alineacion'],
-                $resultado[$key]['fuente']
+                $resultado[$key]['fuente'],
+                $resultado[$key]['cursiva'] ? 'italic' : 'normal',
+                $resultado[$key]['subrayado'] ? 'underline' : 'none'
             );
         }
 

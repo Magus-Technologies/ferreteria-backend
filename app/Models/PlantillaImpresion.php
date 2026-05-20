@@ -78,6 +78,9 @@ class PlantillaImpresion extends Model
         'tamano' => null,
         'peso' => null,
         'alineacion' => null,
+        'cursiva' => null,
+        'subrayado' => null,
+        'fuente' => null,
     ];
 
     public static function defaultEstilosSecciones(): array
