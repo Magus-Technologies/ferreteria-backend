@@ -37,34 +37,24 @@
         'minFilas' => 10,
     ])
 
-    {{-- Observaciones --}}
-    <div style="margin-top: 10px;">
-        <div style="border: 2px solid #fadc06; border-radius: 8px; padding: 8px; width: 60%; display: inline-block;">
-            <div style="font-size: 8pt; font-weight: bold; margin-bottom: 4px;">OBSERVACIONES</div>
-            <div style="font-size: 6pt; line-height: 1.5;">{{ $observaciones }}</div>
-        </div>
-    </div>
+    {{-- SON + Observaciones + Totales --}}
+    @include('pdf.layout.totales', [
+        'son' => $son,
+        'moneda' => 'SOLES',
+        'observaciones' => $observaciones,
+        'totales' => [
+            ['label' => 'SUBTOTAL', 'valor' => number_format($calculos['subtotal'], 2)],
+            ['label' => 'IGV (18%)', 'valor' => number_format($calculos['igv'], 2)],
+            ['label' => 'TOTAL', 'valor' => number_format($calculos['total'], 2)],
+        ],
+    ])
 
-    {{-- Totales alineados a la derecha --}}
-    <table style="width: 100%; margin-top: 10px;">
-        <tr>
-            <td style="width: 70%;"></td>
-            <td style="width: 30%;">
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr style="border-bottom: 1px solid #ccc;">
-                        <td style="padding: 4px; font-size: 9pt; font-weight: bold;">SUBTOTAL:</td>
-                        <td style="padding: 4px; font-size: 9pt; text-align: right;">
-                            S/ {{ number_format($calculos['subtotal'], 2) }}
-                        </td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #ccc;">
-                        <td style="padding: 4px; font-size: 9pt; font-weight: bold;">IGV (18%):</td>
-                        <td style="padding: 4px; font-size: 9pt; text-align: right;">
-                            S/ {{ number_format($calculos['igv'], 2) }}
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
+    {{-- Footer --}}
+    @include('pdf.layout.footer', [
+        'mensajeFinalHtml' => (!empty($plantilla) && $plantilla->despedida_activo)
+            ? $plantilla->mensaje_despedida
+            : null,
+        'mensajeFinal' => 'GRACIAS POR SU PREFERENCIA!',
+        'consultaUrl' => $consultaUrl ?? null,
+    ])
 @endsection

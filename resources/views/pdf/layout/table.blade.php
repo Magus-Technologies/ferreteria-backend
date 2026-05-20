@@ -1,4 +1,4 @@
- {--
+{{--
     Tabla de productos generica
     Recibe:
         $columnas = [
