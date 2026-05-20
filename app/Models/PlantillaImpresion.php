@@ -44,6 +44,10 @@ class PlantillaImpresion extends Model
         'observaciones_default' => '- NINGUNA',
         'leyenda_consulta' => 'Consulte su documento en:',
         'leyenda_representacion' => 'Representacion impresa del comprobante electronico',
+        // Flags específicos de cotización
+        'ocultar_canjear' => false,
+        'ocultar_despedida' => false,
+        'ocultar_cuentas_bancarias' => false,
     ];
 
     /**

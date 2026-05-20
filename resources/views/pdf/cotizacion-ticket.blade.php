@@ -139,9 +139,11 @@
         <div style="{{ $bloques['obs_valor']['css'] ?? 'font-size:7pt;' }}">{!! nl2br(e($observaciones)) !!}</div>
     </div>
 
+    @if(empty($msg['ocultar_despedida']))
     <div class="separator"></div>
     <div style="margin-top: 2px; text-align: center;">
         <div style="{{ $bloques['despedida_footer']['css'] ?? 'font-size:7pt;font-weight:bold;text-align:center;' }}">{!! ($plantilla->despedida_activo ?? false) && !empty($plantilla->mensaje_despedida) ? $plantilla->mensaje_despedida : 'GRACIAS POR SU PREFERENCIA!' !!}</div>
     </div>
+    @endif
 </body>
 </html>

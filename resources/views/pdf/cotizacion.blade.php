@@ -13,7 +13,7 @@
     @include('pdf.layout.info-grid', ['filas' => $filas])
 
     {{-- Texto intro --}}
-    <div style="font-size: 7pt; margin-bottom: 8px; margin-top: 5px;">
+    <div style="{{ $bloques['obs_valor']['css'] ?? 'font-size: 7pt;' }} margin-bottom: 8px; margin-top: 5px;">
         De nuestra consideracion: Por medio de la presente es grato saludarlos
         y a la vez cotizarle los siguientes productos:
     </div>
@@ -60,14 +60,24 @@
     ])
 
     {{-- Footer --}}
-    <div style="text-align: center; margin-top: 15px; font-size: 8pt;">
+    @if(empty($msg['ocultar_despedida']))
+    <div style="{{ $bloques['despedida_footer']['css'] ?? 'font-size: 8pt; text-align: center; font-weight: bold;' }} margin-top: 15px;">
         Sin otro particular, esperando su pronta respuesta.
-        <span style="font-weight: bold;">GRACIAS POR SU PREFERENCIA! DIOS LES BENDIGA!</span>
+        @if(($plantilla->despedida_activo ?? false) && !empty($plantilla->mensaje_despedida))
+            {!! $plantilla->mensaje_despedida !!}
+        @else
+            GRACIAS POR SU PREFERENCIA! DIOS LES BENDIGA!
+        @endif
     </div>
-    <div style="text-align: center; font-size: 7pt; margin-bottom: 15px;">
+    @endif
+    @if(empty($msg['ocultar_canjear']))
+    <div style="{{ $bloques['despedida_footer']['css'] ?? 'font-size: 7pt; text-align: center; font-weight: bold;' }} margin-bottom: 15px;">
         - CANJEAR POR BOLETA O FACTURA -
     </div>
+    @endif
 
     {{-- Tabla de cuentas bancarias --}}
-    @include('pdf.layout.cuentas-bancarias')
+    @if(empty($msg['ocultar_cuentas_bancarias']))
+        @include('pdf.layout.cuentas-bancarias', ['est' => $est, 'bloques' => $bloques])
+    @endif
 @endsection
