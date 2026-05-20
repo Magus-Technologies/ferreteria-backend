@@ -132,11 +132,6 @@ class TransferenciaStockController extends Controller
                 $factor = (float) $unidadDerivada->factor;
                 $cantidadFraccion = $factor * $cantidad;
 
-                // Validar stock suficiente en origen
-                if ((float) $productoAlmacenOrigen->stock_fraccion < $cantidadFraccion) {
-                    throw new \Exception('Stock insuficiente para el producto: ' . ($productoAlmacenOrigen->producto->name ?? $productoId) . '. Stock actual: ' . $productoAlmacenOrigen->stock_fraccion);
-                }
-
                 // Obtener o crear ProductoAlmacen DESTINO
                 $productoAlmacenDestino = ProductoAlmacen::firstOrCreate(
                     [

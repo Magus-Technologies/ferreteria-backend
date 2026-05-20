@@ -30,6 +30,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::apiResource('almacenes', AlmacenController::class)->middleware('broadcast:almacenes');
     Route::patch('almacenes/{id}/toggle-activo', [AlmacenController::class, 'toggleActivo'])->middleware('broadcast:almacenes');
+    Route::get('almacenes/{id}/estado-replicacion', [AlmacenController::class, 'estadoReplicacion']);
+    Route::post('almacenes/{id}/replicar-a-todos', [AlmacenController::class, 'replicarProductos']);
     Route::apiResource('categorias', CategoriaController::class)->middleware('broadcast:categorias');
     Route::apiResource('marcas', MarcaController::class)->middleware('broadcast:marcas');
     Route::apiResource('ubicaciones', UbicacionController::class)->middleware('broadcast:ubicaciones');
