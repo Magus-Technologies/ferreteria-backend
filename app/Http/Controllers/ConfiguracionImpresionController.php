@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ConfiguracionImpresion;
 use App\Models\PlantillaImpresion;
+use App\Models\PlantillaImpresionDetalle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
@@ -229,6 +230,40 @@ class ConfiguracionImpresionController extends Controller
         if (!$empresaId) {
             return response()->json(['success' => false, 'message' => 'Sin empresa activa'], 400);
         }
+        // Soportar plantillas específicas por comprobante + formato
+        $comprobante = $request->query('comprobante');
+        $formato = $request->query('formato');
+
+        if ($comprobante || $formato) {
+            $q = PlantillaImpresionDetalle::where('empresa_id', $empresaId);
+            if ($comprobante) $q->where('comprobante', $comprobante);
+            if ($formato) $q->where('formato', $formato);
+            $detalle = $q->first();
+
+            if ($detalle) {
+                // Usamos los defaults del modelo principal y aplicamos los valores del detalle
+                $base = PlantillaImpresion::obtenerPara($empresaId);
+                $estilos = array_merge(PlantillaImpresion::DEFAULT_ESTILOS, $detalle->estilos ?? []);
+                $mensajes_extra = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $detalle->mensajes_extra ?? []);
+                $estilos_secciones = array_merge(PlantillaImpresion::defaultEstilosSecciones(), $detalle->estilos_secciones ?? []);
+
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'empresa_id' => (int) $empresaId,
+                        'mensaje_despedida' => $base->mensaje_despedida,
+                        'despedida_activo' => (bool) $base->despedida_activo,
+                        'logos_nota_venta' => $base->logos_nota_venta ?? [],
+                        'estilos' => $estilos,
+                        'mensajes_extra' => $mensajes_extra,
+                        'estilos_secciones' => $estilos_secciones,
+                        'bloques_catalogo' => PlantillaImpresion::BLOQUES,
+                        'comprobante' => $comprobante,
+                        'formato' => $formato,
+                    ],
+                ]);
+            }
+        }
 
         $plantilla = PlantillaImpresion::obtenerPara($empresaId);
 
@@ -257,6 +292,7 @@ class ConfiguracionImpresionController extends Controller
             return response()->json(['success' => false, 'message' => 'Sin empresa activa'], 400);
         }
 
+        // Permitimos enviar opcionalmente comprobante+formato para guardar una plantilla específica
         $validated = $request->validate([
             'mensaje_despedida' => 'nullable|string',
             'despedida_activo' => 'boolean',
@@ -281,8 +317,35 @@ class ConfiguracionImpresionController extends Controller
             'estilos_secciones.*.tamano' => 'nullable|integer|min:5|max:24',
             'estilos_secciones.*.peso' => 'nullable|string|in:normal,bold',
             'estilos_secciones.*.alineacion' => 'nullable|string|in:left,center,right',
+            'comprobante' => 'nullable|string|max:80',
+            'formato' => 'nullable|string|max:30',
         ]);
+        $comprobante = $validated['comprobante'] ?? null;
+        $formato = $validated['formato'] ?? null;
 
+        // Si se especifica comprobante/formato, guardamos en la tabla de detalles
+        if ($comprobante || $formato) {
+            $detalle = PlantillaImpresionDetalle::updateOrCreate(
+                [
+                    'empresa_id' => $empresaId,
+                    'comprobante' => $comprobante,
+                    'formato' => $formato,
+                ],
+                [
+                    'estilos' => $validated['estilos'] ?? null,
+                    'mensajes_extra' => $validated['mensajes_extra'] ?? null,
+                    'estilos_secciones' => $validated['estilos_secciones'] ?? null,
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Plantilla de impresión (detalle) actualizada correctamente',
+                'data' => $detalle,
+            ]);
+        }
+
+        // Guardar plantilla global (comportamiento previo)
         $plantilla = PlantillaImpresion::updateOrCreate(
             ['empresa_id' => $empresaId],
             $validated

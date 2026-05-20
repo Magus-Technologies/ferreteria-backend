@@ -35,7 +35,7 @@ class VentaPdfService
         $codigoQr = $this->obtenerCodigoQr($venta);
         $consultaUrl = $this->getConsultaUrl();
 
-        $plantilla = PlantillaImpresion::obtenerPara((int) $empresa->id);
+        $plantilla = PlantillaImpresion::obtenerParaConFormato((int) $empresa->id, 'venta', 'A4');
         $esNotaVenta = ($venta->tipo_documento->value ?? '') === 'nv';
         $logosExtras = $esNotaVenta ? $this->obtenerLogosExtras($plantilla->logos_nota_venta ?? []) : [];
 
@@ -230,6 +230,12 @@ class VentaPdfService
             ];
         }
 
+        // Cargar plantilla específica para ticket (si existe) y resolver estilos
+        $plantilla = PlantillaImpresion::obtenerParaConFormato((int) $empresa->id, 'venta', 'Ticket');
+        $est = $this->resolverEstilos($plantilla->estilos ?? []);
+        $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
+        $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
+
         $fecha = $venta->fecha;
 
         $data = [
@@ -255,9 +261,13 @@ class VentaPdfService
             'productos' => $productos,
             'calculos' => $calculos,
             'son' => PdfService::numeroALetras($calculos['total']),
-            'observaciones' => $venta->descripcion ?: '- NINGUNA',
+            'observaciones' => $venta->descripcion ?: ($msg['observaciones_default'] ?? '- NINGUNA'),
             'vales' => $sinVales ? [] : $vales,
             'consultaUrl' => $this->getConsultaUrl(),
+            'plantilla' => $plantilla,
+            'est' => $est,
+            'msg' => $msg,
+            'bloques' => $bloques,
         ];
 
         $filename = "TICKET-{$venta->serie}-{$venta->numero}.pdf";

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\PlantillaImpresionDetalle;
 
 class PlantillaImpresion extends Model
 {
@@ -86,6 +87,38 @@ class PlantillaImpresion extends Model
             $defaults[$key] = self::ESTILO_BLOQUE_VACIO;
         }
         return $defaults;
+    }
+
+    /**
+     * Obtener plantilla considerando un comprobante y formato específicos.
+     * Si existe un detalle para (empresa, comprobante, formato) devuelve los
+     * estilos/mensajes/estilos_secciones aplicando defaults; en caso contrario
+     * devuelve la plantilla global (misma forma que obtenerPara).
+     */
+    public static function obtenerParaConFormato(int $empresaId, ?string $comprobante = null, ?string $formato = null): self
+    {
+        if ($comprobante || $formato) {
+            $q = PlantillaImpresionDetalle::where('empresa_id', $empresaId);
+            if ($comprobante) $q->where('comprobante', $comprobante);
+            if ($formato) $q->where('formato', $formato);
+            $detalle = $q->first();
+
+            if ($detalle) {
+                // Construimos un objeto similar a PlantillaImpresion con campos resueltos
+                $base = self::obtenerPara($empresaId);
+                $plantilla = new self();
+                $plantilla->empresa_id = $empresaId;
+                $plantilla->mensaje_despedida = $base->mensaje_despedida;
+                $plantilla->despedida_activo = $base->despedida_activo;
+                $plantilla->logos_nota_venta = $base->logos_nota_venta;
+                $plantilla->estilos = array_merge(self::DEFAULT_ESTILOS, $detalle->estilos ?? []);
+                $plantilla->mensajes_extra = array_merge(self::DEFAULT_MENSAJES_EXTRA, $detalle->mensajes_extra ?? []);
+                $plantilla->estilos_secciones = array_merge(self::defaultEstilosSecciones(), $detalle->estilos_secciones ?? []);
+                return $plantilla;
+            }
+        }
+
+        return self::obtenerPara($empresaId);
     }
 
     public static function obtenerPara(int $empresaId): self
