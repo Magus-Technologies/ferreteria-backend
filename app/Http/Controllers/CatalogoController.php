@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CatalogoCargo;
 use App\Models\CatalogoEstadoCivil;
 use App\Models\Role;
 use Illuminate\Http\JsonResponse;
@@ -89,7 +90,7 @@ class CatalogoController extends Controller
             ['codigo' => 'ALMACENERO', 'descripcion' => 'Almacenero', 'role_id' => 3],
             ['codigo' => 'CONTADOR', 'descripcion' => 'Contador', 'role_id' => 4],
             ['codigo' => 'DESPACHADOR', 'descripcion' => 'Despachador', 'role_id' => 9],
-            ['codigo' => 'CONDUCTOR', 'descripcion' => 'Conductor', 'role_id' => 2], // Usa rol vendedor
+            ['codigo' => 'CONDUCTOR', 'descripcion' => 'Conductor', 'role_id' => 2],
         ];
 
         return response()->json([
@@ -99,23 +100,125 @@ class CatalogoController extends Controller
 
     /**
      * Obtener lista de cargos/ocupaciones
-     * GET /api/catalogos/cargos
+     * GET /api/catalogos/cargos?parent={codigo}
+     * Opcional: ?only_parent_of={codigo} devuelve solo el cargo padre del codigo proporcionado
      */
-    public function cargos(): JsonResponse
+    public function cargos(Request $request): JsonResponse
     {
-        $cargos = [
-            ['codigo' => 'ADMINISTRADOR GERENCIA', 'descripcion' => 'Administrador Gerencia'],
-            ['codigo' => 'GERENTE GENERAL GERENCIA', 'descripcion' => 'Gerente General Gerencia'],
-            ['codigo' => 'VENDEDOR', 'descripcion' => 'Vendedor'],
-            ['codigo' => 'ASISTENTE CONTABLE', 'descripcion' => 'Asistente Contable'],
-            ['codigo' => 'ALMACENERO', 'descripcion' => 'Almacenero'],
-            ['codigo' => 'CONDUCTOR MOTO-OBRERO', 'descripcion' => 'Conductor Moto-Obrero'],
-            ['codigo' => 'OBRERO-CONDUCTOR', 'descripcion' => 'Obrero-Conductor'],
-            ['codigo' => 'AYUDANTE DE CAMION', 'descripcion' => 'Ayudante de Camión'],
-        ];
+        // Si se solicita el padre de un cargo específico, devolver solo ese padre
+        if ($request->has('only_parent_of')) {
+            $cargo = CatalogoCargo::where('codigo', $request->input('only_parent_of'))->first();
+            if ($cargo && !empty($cargo->parent)) {
+                $parent = CatalogoCargo::where('codigo', $cargo->parent)
+                    ->first(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff']);
+
+                return response()->json([
+                    'data' => $parent ? [$parent] : []
+                ]);
+            }
+
+            return response()->json(['data' => []]);
+        }
+
+        $query = CatalogoCargo::activos()->ordenado();
+
+        // Si viene parámetro parent, filtrar solo hijos del parent
+        if ($request->has('parent')) {
+            $query->where('parent', $request->input('parent'));
+        }
+
+        $cargos = $query->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff']);
 
         return response()->json([
             'data' => $cargos
         ]);
+    }
+
+    /**
+     * Guardar un cargo nuevo
+     * POST /api/catalogos/cargos
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([        
+            'codigo' => ['required', 'string', 'max:120', 'unique:catalogo_cargos,codigo'],
+            'descripcion' => ['required', 'string', 'max:255'],
+            'parent' => ['nullable', 'string', 'max:120'],
+            'highlight' => ['sometimes', 'boolean'],
+            'staff' => ['sometimes', 'boolean'],
+        ]);
+
+        if (!empty($validated['parent'])) {
+            CatalogoCargo::where('codigo', $validated['parent'])->firstOrFail();
+        }
+
+        $cargo = CatalogoCargo::create($validated);
+
+        return response()->json([
+            'data' => $cargo
+        ], 201);
+    }
+
+    /**
+     * Obtener un cargo por código
+     * GET /api/catalogos/cargos/{codigo}
+     */
+    public function show(string $codigo): JsonResponse
+    {
+        $cargo = CatalogoCargo::where('codigo', $codigo)
+            ->firstOrFail(['codigo', 'descripcion', 'parent', 'highlight', 'staff']);
+
+        return response()->json([
+            'data' => $cargo
+        ]);
+    }
+
+    /**
+     * Actualizar un cargo existente
+     * PUT /api/catalogos/cargos/{codigo}
+     */
+    public function update(Request $request, string $codigo): JsonResponse
+    {
+        $cargo = CatalogoCargo::where('codigo', $codigo)->firstOrFail();
+
+        $validated = $request->validate([
+            'codigo' => ['required', 'string', 'max:120', 'unique:catalogo_cargos,codigo,' . $cargo->id],
+            'descripcion' => ['required', 'string', 'max:255'],
+            'parent' => ['nullable', 'string', 'max:120'],
+            'highlight' => ['sometimes', 'boolean'],
+            'staff' => ['sometimes', 'boolean'],
+        ]);
+
+        if (!empty($validated['parent']) && $validated['parent'] === $cargo->codigo) {
+            return response()->json(['message' => 'Un cargo no puede reportar a sí mismo.'], 422);
+        }
+
+        if (!empty($validated['parent'])) {
+            CatalogoCargo::where('codigo', $validated['parent'])->firstOrFail();
+        }
+
+        $oldCodigo = $cargo->codigo;
+        $cargo->update($validated);
+
+        if ($oldCodigo !== $cargo->codigo) {
+            CatalogoCargo::where('parent', $oldCodigo)->update(['parent' => $cargo->codigo]);
+        }
+
+        return response()->json([
+            'data' => $cargo
+        ]);
+    }
+
+    /**
+     * Eliminar un cargo
+     * DELETE /api/catalogos/cargos/{codigo}
+     */
+    public function destroy(string $codigo): JsonResponse
+    {
+        $cargo = CatalogoCargo::where('codigo', $codigo)->firstOrFail();
+        CatalogoCargo::where('parent', $cargo->codigo)->update(['parent' => null]);
+        $cargo->delete();
+
+        return response()->json([], 204);
     }
 }

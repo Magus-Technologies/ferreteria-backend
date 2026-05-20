@@ -26,6 +26,8 @@ class CrearRequerimientoInternoRequest extends FormRequest
             'duracion_cantidad' => 'nullable|integer|min:1',
             'duracion_unidad' => 'nullable|string|max:20',
             'proveedor_sugerido_id' => ['nullable', 'integer', 'exists:proveedor,id'],
+            'vehiculo_id' => ['nullable', 'integer'],
+            'afecta_calendario' => ['nullable', 'boolean'],
             // OC/SOC - Productos
             'productos' => [
                 $esOCOSOC ? 'required' : 'nullable',

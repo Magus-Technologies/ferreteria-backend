@@ -22,8 +22,11 @@ class DatabaseSeeder extends Seeder
             'email' => 'test@example.com',
         ]);
 
-        // Ejecutar seeders de permisos
+        // Ejecutar seeders de catálogos públicos y permisos
         $this->call([
+            CatalogoTipoDocumentoSeeder::class,
+            CatalogoGeneroSeeder::class,
+            CatalogoRoleSistemaSeeder::class,
             CajaPermissionsSeeder::class,
             VendedorPermissionsSeeder::class,
             JarumyUserPermissionsSeeder::class,

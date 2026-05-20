@@ -49,6 +49,10 @@ Route::prefix('catalogos')->group(function () {
     Route::get('/generos', [CatalogoController::class, 'generos']);
     Route::get('/roles-sistema', [CatalogoController::class, 'rolesSistema']);
     Route::get('/cargos', [CatalogoController::class, 'cargos']);
+    Route::post('/cargos', [CatalogoController::class, 'store']);
+    Route::get('/cargos/{codigo}', [CatalogoController::class, 'show']);
+    Route::put('/cargos/{codigo}', [CatalogoController::class, 'update']);
+    Route::delete('/cargos/{codigo}', [CatalogoController::class, 'destroy']);
 });
 Route::get('/roles', [CatalogoController::class, 'roles']);
 

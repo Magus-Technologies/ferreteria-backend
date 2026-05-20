@@ -52,13 +52,17 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                 'codigo' => $codigo,
                 'titulo' => $data['titulo'],
                 'cargo' => $data['cargo'],
+                'assigned_cargo_id' => $data['assigned_cargo_id'] ?? null,
                 'fecha_requerida' => $data['fecha_requerida'],
                 'prioridad' => $data['prioridad'],
                 'tipo_solicitud' => $data['tipo_solicitud'],
                 'observaciones' => $data['observaciones'] ?? null,
+                'afecta_calendario' => $data['afecta_calendario'] ?? false,
+                'vehiculo_id' => $data['vehiculo_id'] ?? null,
                 'duracion_cantidad' => $data['duracion_cantidad'] ?? null,
                 'duracion_unidad' => $data['duracion_unidad'] ?? null,
                 'estado' => 'pendiente',
+                'approval_state' => 'pendiente',
                 'proveedor_sugerido_id' => $data['proveedor_sugerido_id'] ?? null,
                 'user_id' => $data['user_id'],
             ]);
@@ -149,6 +153,8 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
     public function cambiarEstado(int $id, string $nuevoEstado): RequerimientoInterno
     {
         try {
+            DB::beginTransaction();
+
             $requerimiento = $this->repository->findById($id);
 
             if (!$requerimiento) {
@@ -173,13 +179,30 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
             }
 
             $this->repository->cambiarEstado($id, $nuevoEstado);
+            $requerimiento = $this->repository->findById($id);
 
+            // Si se aprueba y afecta calendario con vehiculo_id -> crear bloqueo
+            if ($nuevoEstado === 'aprobado' && $requerimiento->afecta_calendario && $requerimiento->vehiculo_id) {
+                \App\Models\VehiculoMantenimiento::create([
+                    'vehiculo_id' => $requerimiento->vehiculo_id,
+                    'requerimiento_id' => $requerimiento->id,
+                    'tipo' => 'mantenimiento',
+                    'descripcion' => 'Bloque creado por aprobación de requerimiento ' . $requerimiento->codigo,
+                    'fecha_inicio' => $requerimiento->fecha_requerida ?? now(),
+                    'fecha_fin' => $requerimiento->fecha_requerida ? \Carbon\Carbon::parse($requerimiento->fecha_requerida)->addHours(2) : now()->addHours(2),
+                    'estado' => 'aprobado',
+                ]);
+            }
+
+            DB::commit();
 
             return $this->repository->findById($id);
 
         } catch (RequerimientoInternoException $e) {
+            DB::rollBack();
             throw $e;
         } catch (\Exception $e) {
+            DB::rollBack();
             Log::error('Error al cambiar estado de requerimiento', [
                 'requerimiento_id' => $id,
                 'error' => $e->getMessage(),
