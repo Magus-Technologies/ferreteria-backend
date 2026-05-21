@@ -219,12 +219,34 @@ class RequerimientoInternoController extends Controller
 
             // Si afecta calendario y existe vehiculo_id -> crear bloqueo
             if ($requerimiento->afecta_calendario && $requerimiento->vehiculo_id) {
+                $fechaInicio = $requerimiento->fecha_requerida ?? now();
+                $fechaFin = \Carbon\Carbon::parse($fechaInicio);
+                
+                // Calcular fecha_fin basada en duracion_cantidad y duracion_unidad
+                if ($requerimiento->duracion_cantidad && $requerimiento->duracion_unidad) {
+                    $cantidad = (int) $requerimiento->duracion_cantidad;
+                    $unidad = strtolower($requerimiento->duracion_unidad);
+                    
+                    if ($unidad === 'dias' || $unidad === 'día') {
+                        // Si es 1 día, el fin es el mismo día a las 23:59:59
+                        // Si es 2 días, el fin es el día siguiente a las 23:59:59, etc.
+                        $fechaFin->addDays($cantidad - 1)->endOfDay();
+                    } elseif ($unidad === 'horas' || $unidad === 'hora') {
+                        $fechaFin->addHours($cantidad);
+                    } elseif ($unidad === 'minutos' || $unidad === 'minuto') {
+                        $fechaFin->addMinutes($cantidad);
+                    }
+                } else {
+                    // Por defecto, 2 horas si no hay duración especificada
+                    $fechaFin->addHours(2);
+                }
+                
                 \App\Models\VehiculoMantenimiento::create([
                     'vehiculo_id' => $requerimiento->vehiculo_id,
                     'tipo' => 'mantenimiento',
                     'descripcion' => 'Bloque creado por aprobación de requerimiento ' . $requerimiento->codigo,
-                    'fecha_inicio' => $requerimiento->fecha_requerida ?? now(),
-                    'fecha_fin' => $requerimiento->fecha_requerida ? now()->addHours(2) : now()->addHours(2),
+                    'fecha_inicio' => $fechaInicio,
+                    'fecha_fin' => $fechaFin,
                     'estado' => 'aprobado',
                     'created_by' => $request->user()->id ?? null,
                 ]);
