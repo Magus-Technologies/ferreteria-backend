@@ -28,6 +28,11 @@ class RequerimientoInternoController extends Controller
             'desde', 'hasta', 'search',
         ]);
 
+        // Agregar el cargo del usuario actual si no está especificado
+        if (empty($filters['cargo']) && auth()->check()) {
+            $filters['cargo'] = auth()->user()->cargo;
+        }
+
         $perPage = $request->get('per_page', 20);
         $requerimientos = $this->service->listarPaginado($filters, $perPage);
 
@@ -175,17 +180,27 @@ class RequerimientoInternoController extends Controller
     {
         $requerimiento = $this->service->obtenerPorId($id);
 
-        // Validar permiso por cargo: comparar user.cargo (codigo) con catalogo_cargos.codigo
-        $cargoAsignado = null;
-        if ($requerimiento->assigned_cargo_id) {
-            $cargoAsignado = \App\Models\CatalogoCargo::find($requerimiento->assigned_cargo_id);
+        // Validar que el requerimiento esté en estado pendiente o en revisión
+        if (!in_array($requerimiento->approval_state, ['pendiente', 'en_revision'])) {
+            return response()->json(['message' => 'El requerimiento no está en estado para ser aprobado'], 400);
         }
 
-        $userCargoCodigo = $request->user()->cargo ?? null;
+        // Validar permiso por cargo: comparar user.cargo con requerimiento.cargo (case-insensitive)
+        $userCargo = $request->user()->cargo ?? null;
+        $requerimientoCargo = $requerimiento->cargo ?? null;
         $isSupervisor = $request->user()->es_supervisor ?? false;
 
-        if (!$isSupervisor && $cargoAsignado && $cargoAsignado->codigo !== $userCargoCodigo) {
-            return response()->json(['message' => 'No autorizado para aprobar este requerimiento'], 403);
+        // Comparación case-insensitive
+        $cargoMatch = $userCargo && $requerimientoCargo && 
+                      strtolower($userCargo) === strtolower($requerimientoCargo);
+
+        // Solo el usuario con el cargo requerido o supervisor puede aprobar
+        if (!$isSupervisor && !$cargoMatch) {
+            return response()->json([
+                'message' => 'No autorizado. Solo usuarios con cargo ' . $requerimientoCargo . ' pueden aprobar',
+                'required_cargo' => $requerimientoCargo,
+                'user_cargo' => $userCargo
+            ], 403);
         }
 
         DB::beginTransaction();
@@ -220,10 +235,154 @@ class RequerimientoInternoController extends Controller
 
             DB::commit();
 
-            return response()->json(['data' => $requerimiento]);
+            return (new RequerimientoInternoResource($requerimiento))
+                ->additional(['message' => 'Requerimiento aprobado exitosamente']);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Error al aprobar', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Rechazar requerimiento (solo cargo asignado)
+     */
+    public function rechazar(Request $request, int $id)
+    {
+        $request->validate([
+            'reason' => 'required|string|max:500',
+        ]);
+
+        $requerimiento = $this->service->obtenerPorId($id);
+
+        // Validar que el requerimiento esté en estado pendiente o en revisión
+        if (!in_array($requerimiento->approval_state, ['pendiente', 'en_revision'])) {
+            return response()->json(['message' => 'El requerimiento no está en estado para ser rechazado'], 400);
+        }
+
+        // Validar permiso por cargo: comparar user.cargo con requerimiento.cargo (case-insensitive)
+        $userCargo = $request->user()->cargo ?? null;
+        $requerimientoCargo = $requerimiento->cargo ?? null;
+        $isSupervisor = $request->user()->es_supervisor ?? false;
+
+        // Comparación case-insensitive
+        $cargoMatch = $userCargo && $requerimientoCargo && 
+                      strtolower($userCargo) === strtolower($requerimientoCargo);
+
+        // Solo el usuario con el cargo requerido o supervisor puede rechazar
+        if (!$isSupervisor && !$cargoMatch) {
+            return response()->json([
+                'message' => 'No autorizado. Solo usuarios con cargo ' . $requerimientoCargo . ' pueden rechazar',
+                'required_cargo' => $requerimientoCargo,
+                'user_cargo' => $userCargo
+            ], 403);
+        }
+
+        DB::beginTransaction();
+        try {
+            $requerimiento->approval_state = 'rechazado';
+            $requerimiento->save();
+
+            // Registrar en approval_history
+            \App\Models\ApprovalHistory::create([
+                'requerimiento_id' => $requerimiento->id,
+                'from_cargo_id' => $requerimiento->assigned_cargo_id,
+                'to_cargo_id' => $requerimiento->assigned_cargo_id,
+                'user_id' => $request->user()->id ?? null,
+                'action' => 'rechazar',
+                'reason' => $request->input('reason'),
+            ]);
+
+            DB::commit();
+
+            return (new RequerimientoInternoResource($requerimiento))
+                ->additional(['message' => 'Requerimiento rechazado']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error al rechazar', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Escalar a cargo superior (pasar a superior jerárquico)
+     */
+    public function escalarASuperior(Request $request, int $id)
+    {
+        $request->validate([
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $requerimiento = $this->service->obtenerPorId($id);
+
+        // Validar que el requerimiento esté en estado pendiente o en revisión
+        if (!in_array($requerimiento->approval_state, ['pendiente', 'en_revision'])) {
+            return response()->json(['message' => 'El requerimiento no está en estado para ser escalado'], 400);
+        }
+
+        // Validar permiso por cargo: comparar user.cargo con requerimiento.cargo (case-insensitive)
+        $userCargo = $request->user()->cargo ?? null;
+        $requerimientoCargo = $requerimiento->cargo ?? null;
+        $isSupervisor = $request->user()->es_supervisor ?? false;
+
+        // Comparación case-insensitive
+        $cargoMatch = $userCargo && $requerimientoCargo && 
+                      strtolower($userCargo) === strtolower($requerimientoCargo);
+
+        // Solo el usuario con el cargo requerido o supervisor puede escalar
+        if (!$isSupervisor && !$cargoMatch) {
+            return response()->json([
+                'message' => 'No autorizado. Solo usuarios con cargo ' . $requerimientoCargo . ' pueden escalar',
+                'required_cargo' => $requerimientoCargo,
+                'user_cargo' => $userCargo
+            ], 403);
+        }
+
+        // Obtener cargo superior desde catalogo_cargos
+        // Buscar el cargo actual por descripción (case-insensitive)
+        $cargoActual = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($requerimientoCargo)])
+            ->first();
+
+        if (!$cargoActual) {
+            return response()->json(['message' => 'Cargo no encontrado en el catálogo'], 400);
+        }
+
+        if (!$cargoActual->parent) {
+            return response()->json(['message' => 'No existe cargo superior en el organigrama'], 400);
+        }
+
+        // Buscar el cargo superior por código
+        $cargoSuperior = \App\Models\CatalogoCargo::where('codigo', $cargoActual->parent)->first();
+
+        if (!$cargoSuperior) {
+            return response()->json(['message' => 'Cargo superior no encontrado'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Actualizar assigned_cargo_id al cargo superior
+            $requerimiento->assigned_cargo_id = $cargoSuperior->id;
+            $requerimiento->approval_state = 'en_revision';
+            $requerimiento->save();
+
+            // Registrar en approval_history
+            \App\Models\ApprovalHistory::create([
+                'requerimiento_id' => $requerimiento->id,
+                'from_cargo_id' => $cargoActual->id,
+                'to_cargo_id' => $cargoSuperior->id,
+                'user_id' => $request->user()->id ?? null,
+                'action' => 'escalar',
+                'reason' => $request->input('reason') ?? 'Escalado a superior jerárquico',
+            ]);
+
+            DB::commit();
+
+            return (new RequerimientoInternoResource($requerimiento))
+                ->additional([
+                    'message' => 'Requerimiento escalado a ' . $cargoSuperior->descripcion,
+                    'escalado_a' => $cargoSuperior->descripcion
+                ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error al escalar', 'error' => $e->getMessage()], 500);
         }
     }
 

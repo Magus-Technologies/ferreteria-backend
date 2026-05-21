@@ -32,6 +32,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Aprobación por cargo
         Route::post('/{id}/pasar-aprobacion', [RequerimientoInternoController::class, 'pasarAprobacion']);
         Route::post('/{id}/aprobar', [RequerimientoInternoController::class, 'aprobar']);
+        Route::post('/{id}/rechazar', [RequerimientoInternoController::class, 'rechazar']);
+        Route::post('/{id}/escalar-superior', [RequerimientoInternoController::class, 'escalarASuperior']);
         Route::get('/{id}/approval_history', [RequerimientoInternoController::class, 'approvalHistory']);
     });
 
