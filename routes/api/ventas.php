@@ -156,7 +156,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // TRANSFERENCIAS DE STOCK (entre almacenes)
     // ============================================
-    Route::apiResource('transferencias-stock', \App\Http\Controllers\TransferenciaStockController::class)->only(['index', 'store', 'update', 'destroy'])->middleware('broadcast:transferencias-stock');
+    Route::apiResource('transferencias-stock', \App\Http\Controllers\TransferenciaStockController::class)->only(['index', 'show', 'store', 'update', 'destroy'])->middleware('broadcast:transferencias-stock');
 
     // ============================================
     // RECEPCIONES DE ALMACÉN

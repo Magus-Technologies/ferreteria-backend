@@ -224,6 +224,26 @@ class TransferenciaStockController extends Controller
     }
 
     /**
+     * GET /api/transferencias-stock/{id}
+     */
+    public function show(int $id): JsonResponse
+    {
+        $transferencia = TransferenciaStock::with([
+            'almacenOrigen:id,name',
+            'almacenDestino:id,name',
+            'user:id,name',
+            'productos' => function ($q) {
+                $q->with([
+                    'productoAlmacenOrigen.producto:id,name,cod_producto',
+                    'unidadDerivadaInmutable:id,name',
+                ]);
+            },
+        ])->findOrFail($id);
+
+        return response()->json(['data' => $transferencia]);
+    }
+
+    /**
      * PUT /api/transferencias-stock/{id}
      * Revierte el stock original y aplica los nuevos movimientos.
      */
