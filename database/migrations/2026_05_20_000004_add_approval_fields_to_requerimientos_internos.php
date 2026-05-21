@@ -12,7 +12,7 @@ return new class extends Migration
             $table->boolean('afecta_calendario')->default(false)->after('observaciones');
             $table->unsignedBigInteger('assigned_cargo_id')->nullable()->index()->after('cargo');
             $table->enum('approval_state', ['pendiente','en_revision','aprobado','rechazado'])->default('pendiente')->after('assigned_cargo_id');
-            $table->unsignedBigInteger('approved_by')->nullable()->index()->after('approval_state');
+            $table->string('approved_by')->nullable()->index()->after('approval_state');
             $table->dateTime('approved_at')->nullable()->after('approved_by');
             $table->text('approval_note')->nullable()->after('approved_at');
 
