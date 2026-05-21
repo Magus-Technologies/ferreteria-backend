@@ -40,6 +40,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('tipos-ingreso-salida', TipoIngresoSalidaController::class)->middleware('broadcast:tipos-ingreso-salida');
     Route::apiResource('tipos-servicio', TipoServicioController::class)->middleware('broadcast:tipos-servicio');
     Route::apiResource('vehiculos', VehiculoController::class)->middleware('broadcast:vehiculos');
+    // Vehículo - Disponibilidad y mantenimientos
+    Route::get('vehiculos/{id}/disponibilidad', [\App\Http\Controllers\VehiculoDisponibilidadController::class, 'disponibilidad']);
+    Route::post('vehiculos/{id}/mantenimientos', [\App\Http\Controllers\VehiculoDisponibilidadController::class, 'store']);
+    Route::get('vehiculos/{id}/mantenimientos', [\App\Http\Controllers\VehiculoDisponibilidadController::class, 'index']);
 
     // ============================================
     // UBIGEO (Departamentos, Provincias, Distritos)

@@ -9,6 +9,7 @@ use App\Services\Interfaces\RequerimientoInternoServiceInterface;
 use App\Services\Pdf\RequerimientoInternoPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
 use App\Mail\RequerimientoInternoMail;
 
 class RequerimientoInternoController extends Controller
@@ -126,4 +127,118 @@ class RequerimientoInternoController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Pasar aprobación a otro cargo
+     */
+    public function pasarAprobacion(Request $request, int $id)
+    {
+        $request->validate([
+            'to_cargo_id' => 'required|integer',
+            'reason' => 'nullable|string',
+        ]);
+
+        $requerimiento = $this->service->obtenerPorId($id);
+
+        DB::beginTransaction();
+        try {
+            $fromCargo = $requerimiento->assigned_cargo_id ?? null;
+
+            // Registrar en historial
+            \App\Models\ApprovalHistory::create([
+                'requerimiento_id' => $requerimiento->id,
+                'from_cargo_id' => $fromCargo,
+                'to_cargo_id' => $request->input('to_cargo_id'),
+                'user_id' => $request->user()->id ?? null,
+                'action' => 'pasar',
+                'reason' => $request->input('reason'),
+            ]);
+
+            // Actualizar assigned_cargo_id y estado
+            $requerimiento->assigned_cargo_id = $request->input('to_cargo_id');
+            $requerimiento->approval_state = 'en_revision';
+            $requerimiento->save();
+
+            DB::commit();
+
+            return response()->json(['data' => $requerimiento]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error al pasar aprobación', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Aprobar requerimiento (solo cargo asignado)
+     */
+    public function aprobar(Request $request, int $id)
+    {
+        $requerimiento = $this->service->obtenerPorId($id);
+
+        // Validar permiso por cargo: comparar user.cargo (codigo) con catalogo_cargos.codigo
+        $cargoAsignado = null;
+        if ($requerimiento->assigned_cargo_id) {
+            $cargoAsignado = \App\Models\CatalogoCargo::find($requerimiento->assigned_cargo_id);
+        }
+
+        $userCargoCodigo = $request->user()->cargo ?? null;
+        $isSupervisor = $request->user()->es_supervisor ?? false;
+
+        if (!$isSupervisor && $cargoAsignado && $cargoAsignado->codigo !== $userCargoCodigo) {
+            return response()->json(['message' => 'No autorizado para aprobar este requerimiento'], 403);
+        }
+
+        DB::beginTransaction();
+        try {
+            $requerimiento->approval_state = 'aprobado';
+            $requerimiento->approved_by = $request->user()->id ?? null;
+            $requerimiento->approved_at = now();
+            $requerimiento->save();
+
+            // Si afecta calendario y existe vehiculo_id -> crear bloqueo
+            if ($requerimiento->afecta_calendario && $requerimiento->vehiculo_id) {
+                \App\Models\VehiculoMantenimiento::create([
+                    'vehiculo_id' => $requerimiento->vehiculo_id,
+                    'tipo' => 'mantenimiento',
+                    'descripcion' => 'Bloque creado por aprobación de requerimiento ' . $requerimiento->codigo,
+                    'fecha_inicio' => $requerimiento->fecha_requerida ?? now(),
+                    'fecha_fin' => $requerimiento->fecha_requerida ? now()->addHours(2) : now()->addHours(2),
+                    'estado' => 'aprobado',
+                    'created_by' => $request->user()->id ?? null,
+                ]);
+            }
+
+            // Registrar en approval_history
+            \App\Models\ApprovalHistory::create([
+                'requerimiento_id' => $requerimiento->id,
+                'from_cargo_id' => $requerimiento->assigned_cargo_id,
+                'to_cargo_id' => $requerimiento->assigned_cargo_id,
+                'user_id' => $request->user()->id ?? null,
+                'action' => 'aprobar',
+                'reason' => $request->input('reason') ?? null,
+            ]);
+
+            DB::commit();
+
+            return response()->json(['data' => $requerimiento]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error al aprobar', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Obtener historial de aprobaciones
+     */
+    public function approvalHistory(int $id)
+    {
+        $requerimiento = $this->service->obtenerPorId($id);
+
+        $history = \App\Models\ApprovalHistory::where('requerimiento_id', $requerimiento->id)
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        return response()->json(['data' => $history]);
+    }
 }
+

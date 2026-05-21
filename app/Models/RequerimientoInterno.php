@@ -15,16 +15,39 @@ class RequerimientoInterno extends Model
         'codigo',
         'titulo',
         'cargo',
+        'assigned_cargo_id',
         'fecha_requerida',
         'prioridad',
         'tipo_solicitud',
         'observaciones',
+        'afecta_calendario',
         'estado',
         'duracion_cantidad',
         'duracion_unidad',
         'proveedor_sugerido_id',
         'user_id',
+        'vehiculo_id',
+        'approval_state',
+        'approved_by',
+        'approved_at',
+        'approval_note',
     ];
+
+    // Relaciones adicionales
+    public function vehiculoMantenimiento(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(VehiculoMantenimiento::class, 'requerimiento_id');
+    }
+
+    public function approvalHistory(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ApprovalHistory::class, 'requerimiento_id');
+    }
+
+    public function assignedCargo(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(CatalogoCargo::class, 'assigned_cargo_id');
+    }
 
     protected function casts(): array
     {
@@ -60,6 +83,11 @@ class RequerimientoInterno extends Model
     public function ordenesCompra(): HasMany
     {
         return $this->hasMany(OrdenCompra::class, 'requerimiento_id');
+    }
+
+    public function vehiculo(): BelongsTo
+    {
+        return $this->belongsTo(Vehiculo::class, 'vehiculo_id');
     }
 
     // ============= HELPERS =============

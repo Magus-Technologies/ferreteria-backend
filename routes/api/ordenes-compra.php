@@ -28,6 +28,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/{id}/estado', [RequerimientoInternoController::class, 'updateEstado']);
         Route::patch('/productos/{productoId}/actualizar-cantidad-ordenada', [RequerimientoInternoController::class, 'actualizarCantidadOrdenada']);
         Route::post('/{id}/enviar-correo', [RequerimientoInternoController::class, 'enviarCorreo']);
+
+        // Aprobación por cargo
+        Route::post('/{id}/pasar-aprobacion', [RequerimientoInternoController::class, 'pasarAprobacion']);
+        Route::post('/{id}/aprobar', [RequerimientoInternoController::class, 'aprobar']);
+        Route::get('/{id}/approval_history', [RequerimientoInternoController::class, 'approvalHistory']);
     });
 
     // ============================================

@@ -96,4 +96,38 @@ class VehiculoController extends Controller
             'message' => 'Vehículo desactivado exitosamente',
         ]);
     }
+
+    /**
+     * Verificar disponibilidad del vehículo en una fecha
+     */
+    public function verificarDisponibilidad(Request $request, $id): JsonResponse
+    {
+        $request->validate([
+            'fecha' => 'required|date_format:Y-m-d',
+        ]);
+
+        $vehiculo = Vehiculo::findOrFail($id);
+        $fecha = $request->input('fecha');
+
+        // Verificar si hay mantenimiento programado para esa fecha
+        $mantenimiento = \App\Models\VehiculoMantenimiento::where('vehiculo_id', $id)
+            ->where('estado', 'aprobado')
+            ->whereDate('fecha_inicio', '<=', $fecha)
+            ->whereDate('fecha_fin', '>=', $fecha)
+            ->first();
+
+        if ($mantenimiento) {
+            return response()->json([
+                'disponible' => false,
+                'razon' => "El vehículo está en mantenimiento desde " . 
+                    \Carbon\Carbon::parse($mantenimiento->fecha_inicio)->format('d/m/Y') . 
+                    " hasta " . 
+                    \Carbon\Carbon::parse($mantenimiento->fecha_fin)->format('d/m/Y'),
+            ]);
+        }
+
+        return response()->json([
+            'disponible' => true,
+        ]);
+    }
 }

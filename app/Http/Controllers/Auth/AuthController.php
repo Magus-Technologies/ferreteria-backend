@@ -64,6 +64,7 @@ class AuthController extends Controller
                 'empresa' => $user->empresa,
                 'all_restrictions' => $allRestrictions,
                 'rol_sistema' => $user->rol_sistema,
+                'cargo' => $user->cargo,
                 'vehiculo_id' => $user->vehiculo_id,
                 'vehiculo' => $user->vehiculo,
             ],
@@ -107,6 +108,7 @@ class AuthController extends Controller
             'empresa' => $user->empresa,
             'all_restrictions' => $allRestrictions,
             'rol_sistema' => $user->rol_sistema,
+            'cargo' => $user->cargo,
             'vehiculo_id' => $user->vehiculo_id,
             'vehiculo' => $user->vehiculo,
         ]);
