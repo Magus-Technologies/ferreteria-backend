@@ -28,6 +28,11 @@ class RequerimientoInternoController extends Controller
             'desde', 'hasta', 'search',
         ]);
 
+        // Agregar el cargo del usuario actual si no está especificado
+        if (empty($filters['cargo']) && auth()->check()) {
+            $filters['cargo'] = auth()->user()->cargo;
+        }
+
         $perPage = $request->get('per_page', 20);
         $requerimientos = $this->service->listarPaginado($filters, $perPage);
 

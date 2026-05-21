@@ -25,6 +25,14 @@ class RequerimientoInternoResource extends JsonResource
             'duracion_cantidad' => $this->duracion_cantidad,
             'duracion_unidad' => $this->duracion_unidad,
             'vehiculo_id' => $this->vehiculo_id,
+            'vehiculo' => $this->whenLoaded('vehiculo', function () {
+                return $this->vehiculo ? [
+                    'id' => $this->vehiculo->id,
+                    'name' => $this->vehiculo->name,
+                    'tipo' => $this->vehiculo->tipo,
+                    'placa' => $this->vehiculo->placa,
+                ] : null;
+            }),
             'afecta_calendario' => $this->afecta_calendario,
             'estado' => $this->estado,
             'estado_solicitud' => $this->calcularEstadoSolicitud(),
