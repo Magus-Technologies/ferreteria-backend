@@ -54,6 +54,14 @@ class AuthController extends Controller
         // Crear token
         $token = $user->createToken('auth-token')->plainTextToken;
 
+        // Obtener el ID del cargo del usuario
+        $cargoId = null;
+        if ($user->cargo) {
+            $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($user->cargo)])
+                ->first();
+            $cargoId = $catalogoCargo?->id;
+        }
+
         return response()->json([
             'user' => [
                 'id' => $user->id,
@@ -65,6 +73,7 @@ class AuthController extends Controller
                 'all_restrictions' => $allRestrictions,
                 'rol_sistema' => $user->rol_sistema,
                 'cargo' => $user->cargo,
+                'cargo_id' => $cargoId,
                 'vehiculo_id' => $user->vehiculo_id,
                 'vehiculo' => $user->vehiculo,
             ],
@@ -99,6 +108,14 @@ class AuthController extends Controller
         // Calcular efectivo disponible del vendedor desde las distribuciones
         $efectivoDisponible = $this->calcularEfectivoVendedor($user->id);
 
+        // Obtener el ID del cargo del usuario
+        $cargoId = null;
+        if ($user->cargo) {
+            $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($user->cargo)])
+                ->first();
+            $cargoId = $catalogoCargo?->id;
+        }
+
         return response()->json([
             'id' => $user->id,
             'name' => $user->name,
@@ -109,6 +126,7 @@ class AuthController extends Controller
             'all_restrictions' => $allRestrictions,
             'rol_sistema' => $user->rol_sistema,
             'cargo' => $user->cargo,
+            'cargo_id' => $cargoId,
             'vehiculo_id' => $user->vehiculo_id,
             'vehiculo' => $user->vehiculo,
         ]);

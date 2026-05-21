@@ -24,13 +24,20 @@ class RequerimientoInternoController extends Controller
     public function index(Request $request)
     {
         $filters = $request->only([
-            'estado', 'tipo_solicitud', 'cargo', 'prioridad',
+            'estado', 'tipo_solicitud', 'assigned_cargo_id', 'prioridad',
             'desde', 'hasta', 'search',
         ]);
 
-        // Agregar el cargo del usuario actual si no está especificado
-        if (empty($filters['cargo']) && auth()->check()) {
-            $filters['cargo'] = auth()->user()->cargo;
+        // Agregar el assigned_cargo_id del usuario actual si no está especificado
+        if (empty($filters['assigned_cargo_id']) && auth()->check()) {
+            $userCargo = auth()->user()->cargo;
+            if ($userCargo) {
+                $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($userCargo)])
+                    ->first();
+                if ($catalogoCargo) {
+                    $filters['assigned_cargo_id'] = $catalogoCargo->id;
+                }
+            }
         }
 
         $perPage = $request->get('per_page', 20);
