@@ -13,6 +13,7 @@ class Almacen extends Model
         'name',
         'direccion',
         'activo',
+        'empresa_dir_slot',
     ];
 
     protected function casts(): array
