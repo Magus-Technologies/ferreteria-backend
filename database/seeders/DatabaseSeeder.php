@@ -15,21 +15,13 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+      
 
         // Ejecutar seeders de catálogos públicos y permisos
         $this->call([
-            CatalogoTipoDocumentoSeeder::class,
-            CatalogoGeneroSeeder::class,
-            CatalogoRoleSistemaSeeder::class,
-            CajaPermissionsSeeder::class,
-            VendedorPermissionsSeeder::class,
-            JarumyUserPermissionsSeeder::class,
+          
+            CatalogoCargoSeeder::class,
+        
         ]);
     }
 }
