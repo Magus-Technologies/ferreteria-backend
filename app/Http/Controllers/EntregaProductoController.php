@@ -534,11 +534,42 @@ class EntregaProductoController extends Controller
             'chofer_id' => 'nullable|string',
             'vehiculo_id' => 'nullable|integer|exists:vehiculo,id',
             'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
+            'productos_entregados' => 'sometimes|array',
+            'productos_entregados.*.unidad_derivada_venta_id' => 'required_with:productos_entregados|integer',
+            'productos_entregados.*.cantidad_entregada' => 'required_with:productos_entregados|numeric|min:0',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
             $entrega = EntregaProducto::with('productosEntregados')->findOrFail($id);
             $venta = Venta::find($entrega->venta_id);
+
+            if (! empty($validated['productos_entregados'])) {
+                $detallesExistentes = $entrega->productosEntregados->keyBy('unidad_derivada_venta_id');
+
+                foreach ($validated['productos_entregados'] as $detalleActualizado) {
+                    $unidadDerivadaVentaId = (int) $detalleActualizado['unidad_derivada_venta_id'];
+                    $cantidadNueva = (float) $detalleActualizado['cantidad_entregada'];
+
+                    /** @var DetalleEntregaProducto|null $detalleExistente */
+                    $detalleExistente = $detallesExistentes->get($unidadDerivadaVentaId);
+
+                    if (! $detalleExistente) {
+                        throw new \Exception("No se encontró el detalle de entrega para la unidad {$unidadDerivadaVentaId}");
+                    }
+
+                    $cantidadProgramadaOriginal = (float) $detalleExistente->cantidad_entregada;
+                    if ($cantidadNueva > $cantidadProgramadaOriginal) {
+                        throw new \Exception(
+                            "La cantidad entregada ({$cantidadNueva}) no puede ser mayor a la cantidad programada ({$cantidadProgramadaOriginal})"
+                        );
+                    }
+
+                    $detalleExistente->cantidad_entregada = $cantidadNueva;
+                    $detalleExistente->save();
+                }
+
+                $entrega->load('productosEntregados');
+            }
 
             // Si el estado pasa a ENTREGADO ahora (no estaba antes), registrar
             // al usuario que lo marcó. No sobrescribir si ya estaba en 'en'.
