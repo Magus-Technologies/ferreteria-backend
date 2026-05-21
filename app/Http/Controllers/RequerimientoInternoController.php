@@ -222,10 +222,25 @@ class RequerimientoInternoController extends Controller
                 $fechaInicio = $requerimiento->fecha_requerida ?? now();
                 $fechaFin = \Carbon\Carbon::parse($fechaInicio);
                 
+                Log::info('🔧 CONTROLLER - MANTENIMIENTO - Iniciando creación', [
+                    'requerimiento_id' => $requerimiento->id,
+                    'codigo' => $requerimiento->codigo,
+                    'fecha_requerida' => $requerimiento->fecha_requerida,
+                    'duracion_cantidad' => $requerimiento->duracion_cantidad,
+                    'duracion_unidad' => $requerimiento->duracion_unidad,
+                    'vehiculo_id' => $requerimiento->vehiculo_id,
+                    'fechaInicio_parsed' => $fechaInicio->format('Y-m-d H:i:s'),
+                ]);
+                
                 // Calcular fecha_fin basada en duracion_cantidad y duracion_unidad
                 if ($requerimiento->duracion_cantidad && $requerimiento->duracion_unidad) {
                     $cantidad = (int) $requerimiento->duracion_cantidad;
                     $unidad = strtolower($requerimiento->duracion_unidad);
+                    
+                    Log::info('🔧 CONTROLLER - MANTENIMIENTO - Duracion especificada', [
+                        'cantidad' => $cantidad,
+                        'unidad' => $unidad,
+                    ]);
                     
                     if ($unidad === 'dias' || $unidad === 'día') {
                         // Si es 1 día, el fin es el mismo día a las 23:59:59
@@ -238,10 +253,16 @@ class RequerimientoInternoController extends Controller
                     }
                 } else {
                     // Por defecto, 2 horas si no hay duración especificada
+                    Log::info('🔧 CONTROLLER - MANTENIMIENTO - Sin duracion, usando default 2 horas');
                     $fechaFin->addHours(2);
                 }
                 
-                \App\Models\VehiculoMantenimiento::create([
+                Log::info('🔧 CONTROLLER - MANTENIMIENTO - Fechas calculadas', [
+                    'fecha_inicio' => $fechaInicio->format('Y-m-d H:i:s'),
+                    'fecha_fin' => $fechaFin->format('Y-m-d H:i:s'),
+                ]);
+                
+                $mantenimiento = \App\Models\VehiculoMantenimiento::create([
                     'vehiculo_id' => $requerimiento->vehiculo_id,
                     'tipo' => 'mantenimiento',
                     'descripcion' => 'Bloque creado por aprobación de requerimiento ' . $requerimiento->codigo,
@@ -249,6 +270,12 @@ class RequerimientoInternoController extends Controller
                     'fecha_fin' => $fechaFin,
                     'estado' => 'aprobado',
                     'created_by' => $request->user()->id ?? null,
+                ]);
+                
+                Log::info('✅ CONTROLLER - MANTENIMIENTO - Creado exitosamente', [
+                    'mantenimiento_id' => $mantenimiento->id,
+                    'fecha_inicio_guardada' => $mantenimiento->fecha_inicio->format('Y-m-d H:i:s'),
+                    'fecha_fin_guardada' => $mantenimiento->fecha_fin->format('Y-m-d H:i:s'),
                 ]);
             }
 
