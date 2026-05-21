@@ -497,13 +497,11 @@ class VentaController extends Controller
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
             $noDescontarStock = ($validated['descontar_stock'] ?? 'si') === 'no';
             $stockYaAplicado = (bool) ($validated['stock_ya_aplicado'] ?? false);
-            $esCredito = ($validated['forma_de_pago'] ?? null) === 'cr';
             $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
                 && ! $noDescontarStock
-                && ! $stockYaAplicado
-                && ! $esCredito;
+                && ! $stockYaAplicado;
             
             // CAPTURAR STOCK ANTERIOR ANTES DE DECREMENTAR (para kardex)
             // Capturar SIEMPRE si no está en espera (porque se registrará en kardex)

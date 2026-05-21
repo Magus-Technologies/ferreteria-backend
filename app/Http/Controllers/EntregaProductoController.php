@@ -496,8 +496,10 @@ class EntregaProductoController extends Controller
         $entrega = EntregaProducto::with([
             'venta:id,serie,numero,cliente_id,almacen_id',
             'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono,email',
-            'venta.entregasProductos:id,venta_id,grupo_entrega_id,estado_entrega,tipo_entrega,tipo_despacho,fecha_programada,created_at',
+            'venta.entregasProductos:id,venta_id,grupo_entrega_id,estado_entrega,tipo_entrega,tipo_despacho,fecha_entrega,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones,chofer_id,vehiculo_id,quien_entrega,tipo_pedido,cargo_destino,user_id,user_entregado_id,created_at',
             'venta.entregasProductos.productosEntregados:id,entrega_producto_id,unidad_derivada_venta_id,cantidad_entregada',
+            'venta.entregasProductos.despachador:id,name,telefono,celular,email',
+            'venta.entregasProductos.vehiculo:id,name,tipo,placa',
             'venta.almacen:id,name',
             'almacenSalida:id,name',
             'despachador:id,name,telefono,celular,email',
