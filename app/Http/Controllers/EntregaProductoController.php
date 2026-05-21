@@ -14,6 +14,7 @@ use App\Models\ProductoAlmacen;
 use App\Services\FirebaseNotificationService;
 use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 
 class EntregaProductoController extends Controller
@@ -320,7 +321,11 @@ class EntregaProductoController extends Controller
                 $cantidadPendiente = (float) $unidadDerivadaVenta->cantidad_pendiente;
 
                 if ($cantidadEntregada > $cantidadPendiente) {
-                    throw new \Exception("La cantidad entregada ({$cantidadEntregada}) no puede ser mayor a la cantidad pendiente ({$cantidadPendiente})");
+                    throw ValidationException::withMessages([
+                        'productos_entregados' => [
+                            "La cantidad entregada ({$cantidadEntregada}) no puede ser mayor a la cantidad pendiente ({$cantidadPendiente})",
+                        ],
+                    ]);
                 }
 
                 // Crear detalle de entrega
