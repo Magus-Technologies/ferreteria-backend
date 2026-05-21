@@ -28,8 +28,8 @@ class RequerimientoInternoController extends Controller
             'desde', 'hasta', 'search',
         ]);
 
-        // Agregar el assigned_cargo_id del usuario actual si no está especificado
-        if (empty($filters['assigned_cargo_id']) && auth()->check()) {
+        // Solo agregar el assigned_cargo_id si está explícitamente solicitado en la query
+        if ($request->has('assigned_cargo_id') && empty($filters['assigned_cargo_id']) && auth()->check()) {
             $userCargo = auth()->user()->cargo;
             if ($userCargo) {
                 $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($userCargo)])

@@ -74,8 +74,8 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
             $query->where('tipo_solicitud', $filters['tipo_solicitud']);
         }
 
-        if (isset($filters['assigned_cargo_id'])) {
-            // Búsqueda por ID del cargo asignado
+        if (!empty($filters['assigned_cargo_id'])) {
+            // Búsqueda por ID del cargo asignado - solo si está especificado
             $query->where('assigned_cargo_id', $filters['assigned_cargo_id']);
         }
 
