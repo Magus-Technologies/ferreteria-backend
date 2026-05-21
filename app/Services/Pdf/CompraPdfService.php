@@ -3,6 +3,7 @@
 namespace App\Services\Pdf;
 
 use App\Models\Compra;
+use App\Models\FuentePersonalizada;
 use App\Models\PlantillaImpresion;
 use Illuminate\Http\Response;
 
@@ -20,6 +21,7 @@ class CompraPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
         $observaciones = $compra->descripcion ?: $msg['observaciones_default'];
         $consultaUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/') . '/consulta';
 
@@ -39,6 +41,7 @@ class CompraPdfService
             'msg' => $msg,
             'bloques' => $bloques,
             'consultaUrl' => $consultaUrl,
+            'font_face_css' => $fontFaceCss,
         ];
 
         $filename = "Compra-{$compra->serie}-{$compra->numero}.pdf";

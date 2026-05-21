@@ -5,6 +5,7 @@ use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\ConfiguracionImpresionController;
 use App\Http\Controllers\ConfiguracionNotificacionController;
 use App\Http\Controllers\EmpresaController;
+use App\Http\Controllers\FuentePersonalizadaController;
 use App\Http\Controllers\GuiaRemisionController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\QzTrayController;
@@ -208,6 +209,12 @@ Route::middleware('auth:sanctum')->group(function () {
         // Plantilla HTML por empresa (cabecera / inferior / despedida + logos NV)
         Route::get('/plantilla', [ConfiguracionImpresionController::class, 'showPlantilla']);
         Route::post('/plantilla', [ConfiguracionImpresionController::class, 'updatePlantilla']);
+
+        // Fuentes personalizadas
+        Route::get('/fuentes-personalizadas', [FuentePersonalizadaController::class, 'index']);
+        Route::post('/fuentes-personalizadas/upload', [FuentePersonalizadaController::class, 'upload']);
+        Route::post('/fuentes-personalizadas/download', [FuentePersonalizadaController::class, 'download']);
+        Route::delete('/fuentes-personalizadas/{id}', [FuentePersonalizadaController::class, 'destroy']);
 
         Route::get('/{tipo_documento}', [ConfiguracionImpresionController::class, 'index']);
         Route::get('/{tipo_documento}/{campo}', [ConfiguracionImpresionController::class, 'show']);

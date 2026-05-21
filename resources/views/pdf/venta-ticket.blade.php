@@ -9,6 +9,7 @@
             size: 80mm auto;
             margin: 3mm;
         }
+        {!! $font_face_css ?? '' !!}
         body {
             font-family: Helvetica, Arial, sans-serif;
             font-size: 7pt;

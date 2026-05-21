@@ -10,6 +10,8 @@
             margin: 10mm 12mm 15mm 12mm;
         }
 
+        {!! $font_face_css ?? '' !!}
+
         body {
             font-family: "{{ ($est['fuente'] ?? 'Helvetica') }}", Arial, sans-serif;
             font-size: {{ ($est['font_pt'] ?? 8) }}pt;

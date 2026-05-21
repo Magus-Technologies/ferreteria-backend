@@ -3,6 +3,7 @@
 namespace App\Services\Pdf;
 
 use App\Models\Cotizacion;
+use App\Models\FuentePersonalizada;
 use App\Models\PlantillaImpresion;
 use Illuminate\Http\Response;
 
@@ -24,6 +25,7 @@ class CotizacionPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
         $observaciones = $cotizacion->observaciones ?: $this->observacionesDefault();
 
         $data = [
@@ -42,6 +44,7 @@ class CotizacionPdfService
             'est' => $est,
             'msg' => $msg,
             'bloques' => $bloques,
+            'font_face_css' => $fontFaceCss,
         ];
 
         $filename = "COTIZACION-{$cotizacion->numero}.pdf";
@@ -60,6 +63,7 @@ class CotizacionPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
         $observaciones = $cotizacion->observaciones ?: $this->observacionesDefault();
 
         $data = [
@@ -81,6 +85,7 @@ class CotizacionPdfService
             'est' => $est,
             'msg' => $msg,
             'bloques' => $bloques,
+            'font_face_css' => $fontFaceCss,
         ];
 
         $filename = "TICKET-{$cotizacion->numero}.pdf";

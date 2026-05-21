@@ -4,6 +4,7 @@ namespace App\Services\Pdf;
 
 use App\Models\ComprobanteElectronico;
 use App\Models\Empresa;
+use App\Models\FuentePersonalizada;
 use App\Models\PlantillaImpresion;
 use App\Models\Venta;
 use Endroid\QrCode\Builder\Builder;
@@ -42,6 +43,7 @@ class VentaPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
         $observaciones = $venta->descripcion ?: $msg['observaciones_default'];
 
         $data = [
@@ -62,6 +64,7 @@ class VentaPdfService
             'est' => $est,
             'msg' => $msg,
             'bloques' => $bloques,
+            'font_face_css' => $fontFaceCss,
         ];
 
         $filename = "{$venta->tipo_documento->value}-{$venta->serie}-{$venta->numero}.pdf";
@@ -235,6 +238,7 @@ class VentaPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
 
         $fecha = $venta->fecha;
 
@@ -268,6 +272,7 @@ class VentaPdfService
             'est' => $est,
             'msg' => $msg,
             'bloques' => $bloques,
+            'font_face_css' => $fontFaceCss,
         ];
 
         $filename = "TICKET-{$venta->serie}-{$venta->numero}.pdf";
