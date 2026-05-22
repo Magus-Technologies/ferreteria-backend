@@ -43,7 +43,10 @@ class VentaPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
-        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss(
+            (int) $empresa->id,
+            FuentePersonalizada::extraerFuentesUsadas($plantilla->estilos ?? [], $plantilla->estilos_secciones ?? [])
+        );
         $observaciones = $venta->descripcion ?: $msg['observaciones_default'];
 
         $data = [
@@ -238,7 +241,10 @@ class VentaPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
-        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss(
+            (int) $empresa->id,
+            FuentePersonalizada::extraerFuentesUsadas($plantilla->estilos ?? [], $plantilla->estilos_secciones ?? [])
+        );
 
         $fecha = $venta->fecha;
 

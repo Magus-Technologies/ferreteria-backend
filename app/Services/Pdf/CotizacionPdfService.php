@@ -25,7 +25,10 @@ class CotizacionPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
-        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss(
+            (int) $empresa->id,
+            FuentePersonalizada::extraerFuentesUsadas($plantilla->estilos ?? [], $plantilla->estilos_secciones ?? [])
+        );
         $observaciones = $cotizacion->observaciones ?: $this->observacionesDefault();
 
         $data = [
@@ -63,7 +66,10 @@ class CotizacionPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
-        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss(
+            (int) $empresa->id,
+            FuentePersonalizada::extraerFuentesUsadas($plantilla->estilos ?? [], $plantilla->estilos_secciones ?? [])
+        );
         $observaciones = $cotizacion->observaciones ?: $this->observacionesDefault();
 
         $data = [

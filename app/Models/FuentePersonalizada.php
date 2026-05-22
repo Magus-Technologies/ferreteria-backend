@@ -29,12 +29,29 @@ class FuentePersonalizada extends Model
     }
 
     /**
-     * Genera el CSS @font-face para todas las fuentes personalizadas de una empresa.
+     * Genera el CSS @font-face para las fuentes personalizadas de una empresa.
      * Usa URL file:/// con slashes normalizados para que funcione en Windows y Linux.
+     *
+     * Si se pasa $nombresUsados, sólo declara las fuentes cuyos nombres estén
+     * en esa lista (case-insensitive). Esto evita que Dompdf intente parsear
+     * fuentes no usadas y reviente con un 500.
+     *
+     * @param int $empresaId
+     * @param array<string>|null $nombresUsados Lista de nombres de fuentes a declarar. null = todas.
      */
-    public static function generarFontFaceCss(int $empresaId): string
+    public static function generarFontFaceCss(int $empresaId, ?array $nombresUsados = null): string
     {
-        $fuentes = self::where('empresa_id', $empresaId)->get();
+        $query = self::where('empresa_id', $empresaId);
+
+        if (is_array($nombresUsados)) {
+            // Si la lista está vacía, no hay nada que generar
+            if (empty($nombresUsados)) return '';
+            $lower = array_map('strtolower', $nombresUsados);
+            // Filtrar por nombre case-insensitive
+            $query->whereRaw('LOWER(nombre) IN (' . implode(',', array_fill(0, count($lower), '?')) . ')', $lower);
+        }
+
+        $fuentes = $query->get();
         if ($fuentes->isEmpty()) return '';
 
         $css = '';
@@ -63,6 +80,30 @@ class FuentePersonalizada extends Model
             $css .= "@font-face { font-family: '{$fuente->nombre}'; src: url('{$url}') format('{$format}'); font-weight: normal; font-style: italic; }\n";
         }
         return $css;
+    }
+
+    /**
+     * Extrae los nombres únicos de fuentes referenciadas por una plantilla:
+     * - la fuente principal en estilos.fuente
+     * - cualquier override en estilos_secciones.{seccion}.fuente
+     */
+    public static function extraerFuentesUsadas(?array $estilos, ?array $estilosSecciones): array
+    {
+        $nombres = [];
+
+        if (!empty($estilos['fuente'])) {
+            $nombres[] = (string) $estilos['fuente'];
+        }
+
+        if (is_array($estilosSecciones)) {
+            foreach ($estilosSecciones as $seccion) {
+                if (is_array($seccion) && !empty($seccion['fuente'])) {
+                    $nombres[] = (string) $seccion['fuente'];
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($nombres, fn ($n) => $n !== '')));
     }
 
     /**

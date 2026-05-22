@@ -21,7 +21,10 @@ class CompraPdfService
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
         $bloques = $this->resolverEstilosBloques($est, $plantilla->estilos_secciones ?? []);
-        $fontFaceCss = FuentePersonalizada::generarFontFaceCss((int) $empresa->id);
+        $fontFaceCss = FuentePersonalizada::generarFontFaceCss(
+            (int) $empresa->id,
+            FuentePersonalizada::extraerFuentesUsadas($plantilla->estilos ?? [], $plantilla->estilos_secciones ?? [])
+        );
         $observaciones = $compra->descripcion ?: $msg['observaciones_default'];
         $consultaUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/') . '/consulta';
 
