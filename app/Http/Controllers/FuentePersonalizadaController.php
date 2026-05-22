@@ -56,11 +56,21 @@ class FuentePersonalizadaController extends Controller
                 'required', 'string', 'max:80',
                 Rule::unique('fuentes_personalizadas')->where('empresa_id', $empresaId),
             ],
-            // Solo TTF y OTF: son los únicos formatos soportados por Dompdf (motor PDF).
-            // WOFF/WOFF2 no funcionan en el PDF.
-            'archivo' => 'required|file|mimes:ttf,otf|max:5120',
-        ], [
-            'archivo.mimes' => 'Solo se permiten archivos .ttf u .otf (formatos soportados por el PDF).',
+            // Solo TTF y OTF: son los únicos formatos soportados por Dompdf.
+            // Validamos por extensión del archivo original (no por MIME), porque
+            // muchos navegadores/SO reportan los TTF como application/octet-stream.
+            'archivo' => [
+                'required',
+                'file',
+                'max:5120',
+                function ($attribute, $value, $fail) {
+                    if (!$value) return;
+                    $ext = strtolower($value->getClientOriginalExtension());
+                    if (!in_array($ext, ['ttf', 'otf'], true)) {
+                        $fail('Solo se permiten archivos .ttf u .otf (formatos soportados por el PDF).');
+                    }
+                },
+            ],
         ]);
 
         $file = $request->file('archivo');
