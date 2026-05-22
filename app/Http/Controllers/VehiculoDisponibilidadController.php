@@ -87,7 +87,7 @@ class VehiculoDisponibilidadController extends Controller
                 ];
             });
 
-        $data = $entregas->merge($mantenimientos)->values();
+        $data = collect(array_merge($entregas->toArray(), $mantenimientos->toArray()));
 
         return response()->json(['data' => $data]);
     }
