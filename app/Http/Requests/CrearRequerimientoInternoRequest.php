@@ -51,7 +51,7 @@ class CrearRequerimientoInternoRequest extends FormRequest
             'servicios.*.presupuesto_referencial' => ['nullable', 'numeric', 'min:0'],
             'servicios.*.detalles' => ['nullable', 'string'],
             'servicios.*.duracion_cantidad' => ['nullable', 'integer', 'min:1'],
-            'servicios.*.duracion_unidad' => ['nullable', 'string', 'in:horas,dias,semanas'],
+            'servicios.*.duracion_unidad' => ['nullable', 'string', 'in:minutos,horas,dias'],
         ];
     }
 

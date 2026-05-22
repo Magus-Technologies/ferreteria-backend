@@ -64,11 +64,25 @@ class VehiculoDisponibilidadController extends Controller
             ->when($hasta, fn($q) => $q->whereDate('fecha_programada', '<=', $hasta))
             ->get()
             ->map(function ($e) {
+                $start = $e->fecha_programada->copy();
+                if ($e->hora_inicio) {
+                    [$h, $m] = array_pad(explode(':', $e->hora_inicio), 2, 0);
+                    $start->setTime((int) $h, (int) $m, 0);
+                }
+
+                if ($e->hora_fin) {
+                    $end = $e->fecha_programada->copy();
+                    [$h, $m] = array_pad(explode(':', $e->hora_fin), 2, 0);
+                    $end->setTime((int) $h, (int) $m, 0);
+                } else {
+                    $end = $start->copy()->addMinutes(30);
+                }
+
                 return [
                     'tipo' => 'entrega',
-                    'start' => $e->fecha_programada->toIso8601String(),
-                    'end' => optional($e->fecha_programada)->addMinutes($e->duracion ?? 30)->toIso8601String(),
-                    'meta' => ['id' => $e->id, 'venta' => $e->venta_codigo ?? null],
+                    'start' => $start->toIso8601String(),
+                    'end' => $end->toIso8601String(),
+                    'meta' => ['id' => $e->id, 'venta_id' => $e->venta_id],
                 ];
             });
 

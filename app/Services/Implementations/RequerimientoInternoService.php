@@ -48,11 +48,19 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
 
             $codigo = RequerimientoInterno::generarCodigo();
 
+            // Resolver assigned_cargo_id a partir del nombre del cargo si no viene explícito
+            $assignedCargoId = $data['assigned_cargo_id'] ?? null;
+            if ($assignedCargoId === null && !empty($data['cargo'])) {
+                $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($data['cargo'])])
+                    ->first();
+                $assignedCargoId = $catalogoCargo?->id;
+            }
+
             $requerimiento = $this->repository->create([
                 'codigo' => $codigo,
                 'titulo' => $data['titulo'],
                 'cargo' => $data['cargo'],
-                'assigned_cargo_id' => $data['assigned_cargo_id'] ?? null,
+                'assigned_cargo_id' => $assignedCargoId,
                 'fecha_requerida' => $data['fecha_requerida'],
                 'prioridad' => $data['prioridad'],
                 'tipo_solicitud' => $data['tipo_solicitud'],
@@ -110,6 +118,8 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                         'fecha_inicio_estimada' => $srv['fecha_inicio_estimada'] ?? null,
                         'presupuesto_referencial' => $srv['presupuesto_referencial'] ?? null,
                         'detalles' => $srv['detalles'] ?? null,
+                        'duracion_cantidad' => $srv['duracion_cantidad'] ?? null,
+                        'duracion_unidad' => $srv['duracion_unidad'] ?? null,
                     ]);
                 }
             }
@@ -183,64 +193,24 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
 
             // Si se aprueba y afecta calendario con vehiculo_id -> crear bloqueo
             if ($nuevoEstado === 'aprobado' && $requerimiento->afecta_calendario && $requerimiento->vehiculo_id) {
-                $fechaInicio = $requerimiento->fecha_requerida ?? now();
-                $fechaFin = \Carbon\Carbon::parse($fechaInicio);
-                
-                Log::info('🔧 MANTENIMIENTO - Iniciando creación', [
-                    'requerimiento_id' => $requerimiento->id,
-                    'codigo' => $requerimiento->codigo,
-                    'fecha_requerida' => $requerimiento->fecha_requerida,
-                    'duracion_cantidad' => $requerimiento->duracion_cantidad,
-                    'duracion_unidad' => $requerimiento->duracion_unidad,
-                    'vehiculo_id' => $requerimiento->vehiculo_id,
-                    'fechaInicio_parsed' => $fechaInicio->format('Y-m-d H:i:s'),
-                ]);
-                
-                // Calcular fecha_fin basada en duracion_cantidad y duracion_unidad
-                if ($requerimiento->duracion_cantidad && $requerimiento->duracion_unidad) {
-                    $cantidad = (int) $requerimiento->duracion_cantidad;
-                    $unidad = strtolower($requerimiento->duracion_unidad);
-                    
-                    Log::info('🔧 MANTENIMIENTO - Duracion especificada', [
-                        'cantidad' => $cantidad,
-                        'unidad' => $unidad,
+                $bloque = \App\Support\BloqueMantenimientoCalculator::calcular($requerimiento);
+
+                if ($bloque === null) {
+                    Log::warning('No se creó bloqueo de mantenimiento: no hay fechas para calcularlo', [
+                        'requerimiento_id' => $requerimiento->id,
+                        'codigo' => $requerimiento->codigo,
                     ]);
-                    
-                    if ($unidad === 'dias' || $unidad === 'día') {
-                        // Si es 1 día, el fin es el mismo día a las 23:59:59
-                        // Si es 2 días, el fin es el día siguiente a las 23:59:59, etc.
-                        $fechaFin->addDays($cantidad - 1)->endOfDay();
-                    } elseif ($unidad === 'horas' || $unidad === 'hora') {
-                        $fechaFin->addHours($cantidad);
-                    } elseif ($unidad === 'minutos' || $unidad === 'minuto') {
-                        $fechaFin->addMinutes($cantidad);
-                    }
                 } else {
-                    // Por defecto, 2 horas si no hay duración especificada
-                    Log::info('🔧 MANTENIMIENTO - Sin duracion, usando default 2 horas');
-                    $fechaFin->addHours(2);
+                    \App\Models\VehiculoMantenimiento::create([
+                        'vehiculo_id' => $requerimiento->vehiculo_id,
+                        'requerimiento_id' => $requerimiento->id,
+                        'tipo' => 'mantenimiento',
+                        'descripcion' => 'Bloque creado por aprobación de requerimiento ' . $requerimiento->codigo,
+                        'fecha_inicio' => $bloque['fecha_inicio'],
+                        'fecha_fin' => $bloque['fecha_fin'],
+                        'estado' => 'aprobado',
+                    ]);
                 }
-                
-                Log::info('🔧 MANTENIMIENTO - Fechas calculadas', [
-                    'fecha_inicio' => $fechaInicio->format('Y-m-d H:i:s'),
-                    'fecha_fin' => $fechaFin->format('Y-m-d H:i:s'),
-                ]);
-                
-                $mantenimiento = \App\Models\VehiculoMantenimiento::create([
-                    'vehiculo_id' => $requerimiento->vehiculo_id,
-                    'requerimiento_id' => $requerimiento->id,
-                    'tipo' => 'mantenimiento',
-                    'descripcion' => 'Bloque creado por aprobación de requerimiento ' . $requerimiento->codigo,
-                    'fecha_inicio' => $fechaInicio,
-                    'fecha_fin' => $fechaFin,
-                    'estado' => 'aprobado',
-                ]);
-                
-                Log::info('✅ MANTENIMIENTO - Creado exitosamente', [
-                    'mantenimiento_id' => $mantenimiento->id,
-                    'fecha_inicio_guardada' => $mantenimiento->fecha_inicio->format('Y-m-d H:i:s'),
-                    'fecha_fin_guardada' => $mantenimiento->fecha_fin->format('Y-m-d H:i:s'),
-                ]);
             }
 
             DB::commit();

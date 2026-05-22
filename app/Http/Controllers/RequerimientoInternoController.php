@@ -29,13 +29,17 @@ class RequerimientoInternoController extends Controller
             'desde', 'hasta', 'search',
         ]);
 
-        // Solo agregar el assigned_cargo_id si está explícitamente solicitado en la query
-        if ($request->has('assigned_cargo_id') && empty($filters['assigned_cargo_id']) && auth()->check()) {
-            $userCargo = auth()->user()->cargo;
-            if ($userCargo) {
-                $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($userCargo)])
+        // Restringir por cargo del usuario cuando no es raíz ni supervisor y
+        // no envió un assigned_cargo_id explícito en la query.
+        if (empty($filters['assigned_cargo_id']) && auth()->check()) {
+            $user = auth()->user();
+            $isSupervisor = $user->es_supervisor ?? false;
+
+            if (!$isSupervisor && $user->cargo) {
+                $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($user->cargo)])
                     ->first();
-                if ($catalogoCargo) {
+
+                if ($catalogoCargo && $catalogoCargo->parent !== null) {
                     $filters['assigned_cargo_id'] = $catalogoCargo->id;
                 }
             }
@@ -197,13 +201,18 @@ class RequerimientoInternoController extends Controller
         $userCargo = $request->user()->cargo ?? null;
         $requerimientoCargo = $requerimiento->cargo ?? null;
         $isSupervisor = $request->user()->es_supervisor ?? false;
+        $isRootCargo = false;
+        if ($userCargo) {
+            $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($userCargo)])->first();
+            $isRootCargo = $catalogoCargo && $catalogoCargo->parent === null;
+        }
 
         // Comparación case-insensitive
         $cargoMatch = $userCargo && $requerimientoCargo && 
                       strtolower($userCargo) === strtolower($requerimientoCargo);
 
-        // Solo el usuario con el cargo requerido o supervisor puede aprobar
-        if (!$isSupervisor && !$cargoMatch) {
+        // Solo el usuario con el cargo requerido, supervisor o cargo raíz puede aprobar
+        if (!$isSupervisor && !$isRootCargo && !$cargoMatch) {
             return response()->json([
                 'message' => 'No autorizado. Solo usuarios con cargo ' . $requerimientoCargo . ' pueden aprobar',
                 'required_cargo' => $requerimientoCargo,
@@ -220,64 +229,25 @@ class RequerimientoInternoController extends Controller
 
             // Si afecta calendario y existe vehiculo_id -> crear bloqueo
             if ($requerimiento->afecta_calendario && $requerimiento->vehiculo_id) {
-                $fechaInicio = $requerimiento->fecha_requerida ?? now();
-                $fechaFin = \Carbon\Carbon::parse($fechaInicio);
-                
-                Log::info('🔧 CONTROLLER - MANTENIMIENTO - Iniciando creación', [
-                    'requerimiento_id' => $requerimiento->id,
-                    'codigo' => $requerimiento->codigo,
-                    'fecha_requerida' => $requerimiento->fecha_requerida,
-                    'duracion_cantidad' => $requerimiento->duracion_cantidad,
-                    'duracion_unidad' => $requerimiento->duracion_unidad,
-                    'vehiculo_id' => $requerimiento->vehiculo_id,
-                    'fechaInicio_parsed' => $fechaInicio->format('Y-m-d H:i:s'),
-                ]);
-                
-                // Calcular fecha_fin basada en duracion_cantidad y duracion_unidad
-                if ($requerimiento->duracion_cantidad && $requerimiento->duracion_unidad) {
-                    $cantidad = (int) $requerimiento->duracion_cantidad;
-                    $unidad = strtolower($requerimiento->duracion_unidad);
-                    
-                    Log::info('🔧 CONTROLLER - MANTENIMIENTO - Duracion especificada', [
-                        'cantidad' => $cantidad,
-                        'unidad' => $unidad,
+                $bloque = \App\Support\BloqueMantenimientoCalculator::calcular($requerimiento);
+
+                if ($bloque === null) {
+                    Log::warning('No se creó bloqueo de mantenimiento: no hay fechas para calcularlo', [
+                        'requerimiento_id' => $requerimiento->id,
+                        'codigo' => $requerimiento->codigo,
                     ]);
-                    
-                    if ($unidad === 'dias' || $unidad === 'día') {
-                        // Si es 1 día, el fin es el mismo día a las 23:59:59
-                        // Si es 2 días, el fin es el día siguiente a las 23:59:59, etc.
-                        $fechaFin->addDays($cantidad - 1)->endOfDay();
-                    } elseif ($unidad === 'horas' || $unidad === 'hora') {
-                        $fechaFin->addHours($cantidad);
-                    } elseif ($unidad === 'minutos' || $unidad === 'minuto') {
-                        $fechaFin->addMinutes($cantidad);
-                    }
                 } else {
-                    // Por defecto, 2 horas si no hay duración especificada
-                    Log::info('🔧 CONTROLLER - MANTENIMIENTO - Sin duracion, usando default 2 horas');
-                    $fechaFin->addHours(2);
+                    \App\Models\VehiculoMantenimiento::create([
+                        'vehiculo_id' => $requerimiento->vehiculo_id,
+                        'requerimiento_id' => $requerimiento->id,
+                        'tipo' => 'mantenimiento',
+                        'descripcion' => 'Bloque creado por aprobación de requerimiento ' . $requerimiento->codigo,
+                        'fecha_inicio' => $bloque['fecha_inicio'],
+                        'fecha_fin' => $bloque['fecha_fin'],
+                        'estado' => 'aprobado',
+                        'created_by' => $request->user()->id ?? null,
+                    ]);
                 }
-                
-                Log::info('🔧 CONTROLLER - MANTENIMIENTO - Fechas calculadas', [
-                    'fecha_inicio' => $fechaInicio->format('Y-m-d H:i:s'),
-                    'fecha_fin' => $fechaFin->format('Y-m-d H:i:s'),
-                ]);
-                
-                $mantenimiento = \App\Models\VehiculoMantenimiento::create([
-                    'vehiculo_id' => $requerimiento->vehiculo_id,
-                    'tipo' => 'mantenimiento',
-                    'descripcion' => 'Bloque creado por aprobación de requerimiento ' . $requerimiento->codigo,
-                    'fecha_inicio' => $fechaInicio,
-                    'fecha_fin' => $fechaFin,
-                    'estado' => 'aprobado',
-                    'created_by' => $request->user()->id ?? null,
-                ]);
-                
-                Log::info('✅ CONTROLLER - MANTENIMIENTO - Creado exitosamente', [
-                    'mantenimiento_id' => $mantenimiento->id,
-                    'fecha_inicio_guardada' => $mantenimiento->fecha_inicio->format('Y-m-d H:i:s'),
-                    'fecha_fin_guardada' => $mantenimiento->fecha_fin->format('Y-m-d H:i:s'),
-                ]);
             }
 
             // Registrar en approval_history
@@ -320,13 +290,18 @@ class RequerimientoInternoController extends Controller
         $userCargo = $request->user()->cargo ?? null;
         $requerimientoCargo = $requerimiento->cargo ?? null;
         $isSupervisor = $request->user()->es_supervisor ?? false;
+        $isRootCargo = false;
+        if ($userCargo) {
+            $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($userCargo)])->first();
+            $isRootCargo = $catalogoCargo && $catalogoCargo->parent === null;
+        }
 
         // Comparación case-insensitive
         $cargoMatch = $userCargo && $requerimientoCargo && 
                       strtolower($userCargo) === strtolower($requerimientoCargo);
 
-        // Solo el usuario con el cargo requerido o supervisor puede rechazar
-        if (!$isSupervisor && !$cargoMatch) {
+        // Solo el usuario con el cargo requerido, supervisor o cargo raíz puede rechazar
+        if (!$isSupervisor && !$isRootCargo && !$cargoMatch) {
             return response()->json([
                 'message' => 'No autorizado. Solo usuarios con cargo ' . $requerimientoCargo . ' pueden rechazar',
                 'required_cargo' => $requerimientoCargo,
@@ -379,13 +354,18 @@ class RequerimientoInternoController extends Controller
         $userCargo = $request->user()->cargo ?? null;
         $requerimientoCargo = $requerimiento->cargo ?? null;
         $isSupervisor = $request->user()->es_supervisor ?? false;
+        $isRootCargo = false;
+        if ($userCargo) {
+            $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($userCargo)])->first();
+            $isRootCargo = $catalogoCargo && $catalogoCargo->parent === null;
+        }
 
         // Comparación case-insensitive
         $cargoMatch = $userCargo && $requerimientoCargo && 
                       strtolower($userCargo) === strtolower($requerimientoCargo);
 
-        // Solo el usuario con el cargo requerido o supervisor puede escalar
-        if (!$isSupervisor && !$cargoMatch) {
+        // Solo el usuario con el cargo requerido, supervisor o cargo raíz puede escalar
+        if (!$isSupervisor && !$isRootCargo && !$cargoMatch) {
             return response()->json([
                 'message' => 'No autorizado. Solo usuarios con cargo ' . $requerimientoCargo . ' pueden escalar',
                 'required_cargo' => $requerimientoCargo,
@@ -440,6 +420,72 @@ class RequerimientoInternoController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Error al escalar', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Reasignar a cualquier cargo (solo cargo raíz / supervisor).
+     */
+    public function reasignar(Request $request, int $id)
+    {
+        $request->validate([
+            'to_cargo_id' => 'required|integer|exists:catalogo_cargos,id',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $requerimiento = $this->service->obtenerPorId($id);
+
+        if (!in_array($requerimiento->approval_state, ['pendiente', 'en_revision'])) {
+            return response()->json(['message' => 'El requerimiento no está en estado para ser reasignado'], 400);
+        }
+
+        $userCargo = $request->user()->cargo ?? null;
+        $isSupervisor = $request->user()->es_supervisor ?? false;
+        $isRootCargo = false;
+        if ($userCargo) {
+            $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($userCargo)])->first();
+            $isRootCargo = $catalogoCargo && $catalogoCargo->parent === null;
+        }
+
+        if (!$isSupervisor && !$isRootCargo) {
+            return response()->json([
+                'message' => 'No autorizado. Solo cargo raíz o supervisor puede reasignar a cualquier cargo.',
+            ], 403);
+        }
+
+        $cargoDestino = \App\Models\CatalogoCargo::find($request->input('to_cargo_id'));
+        if (!$cargoDestino) {
+            return response()->json(['message' => 'Cargo destino no encontrado'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $fromCargoId = $requerimiento->assigned_cargo_id;
+
+            $requerimiento->assigned_cargo_id = $cargoDestino->id;
+            $requerimiento->cargo = $cargoDestino->descripcion;
+            $requerimiento->approval_state = 'pendiente';
+            $requerimiento->save();
+
+            \App\Models\ApprovalHistory::create([
+                'requerimiento_id' => $requerimiento->id,
+                'from_cargo_id' => $fromCargoId,
+                'to_cargo_id' => $cargoDestino->id,
+                'user_id' => $request->user()->id ?? null,
+                'action' => 'reasignar',
+                'reason' => $request->input('reason') ?? 'Reasignado por cargo raíz',
+            ]);
+
+            DB::commit();
+
+            return (new RequerimientoInternoResource($requerimiento))
+                ->additional([
+                    'message' => 'Requerimiento reasignado a ' . $cargoDestino->descripcion,
+                    'reasignado_a' => $cargoDestino->descripcion,
+                ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error al reasignar', 'error' => $e->getMessage()], 500);
         }
     }
 

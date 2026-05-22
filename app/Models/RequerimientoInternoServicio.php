@@ -25,7 +25,7 @@ class RequerimientoInternoServicio extends Model
     protected function casts(): array
     {
         return [
-            'fecha_inicio_estimada' => 'date:Y-m-d',
+            'fecha_inicio_estimada' => 'datetime:Y-m-d H:i',
             'presupuesto_referencial' => 'decimal:2',
             'duracion_cantidad' => 'integer',
         ];

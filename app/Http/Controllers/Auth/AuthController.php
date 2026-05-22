@@ -54,12 +54,14 @@ class AuthController extends Controller
         // Crear token
         $token = $user->createToken('auth-token')->plainTextToken;
 
-        // Obtener el ID del cargo del usuario
+        // Obtener el ID del cargo del usuario y si es raíz (parent=null)
         $cargoId = null;
+        $esRootCargo = false;
         if ($user->cargo) {
             $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($user->cargo)])
                 ->first();
             $cargoId = $catalogoCargo?->id;
+            $esRootCargo = $catalogoCargo && $catalogoCargo->parent === null;
         }
 
         return response()->json([
@@ -74,6 +76,7 @@ class AuthController extends Controller
                 'rol_sistema' => $user->rol_sistema,
                 'cargo' => $user->cargo,
                 'cargo_id' => $cargoId,
+                'es_root_cargo' => $esRootCargo,
                 'vehiculo_id' => $user->vehiculo_id,
                 'vehiculo' => $user->vehiculo,
             ],
@@ -108,12 +111,14 @@ class AuthController extends Controller
         // Calcular efectivo disponible del vendedor desde las distribuciones
         $efectivoDisponible = $this->calcularEfectivoVendedor($user->id);
 
-        // Obtener el ID del cargo del usuario
+        // Obtener el ID del cargo del usuario y si es raíz (parent=null)
         $cargoId = null;
+        $esRootCargo = false;
         if ($user->cargo) {
             $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($user->cargo)])
                 ->first();
             $cargoId = $catalogoCargo?->id;
+            $esRootCargo = $catalogoCargo && $catalogoCargo->parent === null;
         }
 
         return response()->json([
@@ -127,6 +132,7 @@ class AuthController extends Controller
             'rol_sistema' => $user->rol_sistema,
             'cargo' => $user->cargo,
             'cargo_id' => $cargoId,
+            'es_root_cargo' => $esRootCargo,
             'vehiculo_id' => $user->vehiculo_id,
             'vehiculo' => $user->vehiculo,
         ]);
