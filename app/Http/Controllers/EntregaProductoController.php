@@ -268,7 +268,11 @@ class EntregaProductoController extends Controller
                     ->sum(fn ($detalle) => (float) ($detalle['cantidad_entregada'] ?? 0));
 
                 if ($totalPendienteRegistrado <= 0) {
-                    throw new \Exception('Despacho en tienda con entrega por almacén requiere una cantidad pendiente mayor a 0.');
+                    throw ValidationException::withMessages([
+                        'productos_entregados' => [
+                            'Despacho en tienda con entrega por almacén requiere una cantidad pendiente mayor a 0.',
+                        ],
+                    ]);
                 }
             }
 
@@ -559,14 +563,31 @@ class EntregaProductoController extends Controller
                     $detalleExistente = $detallesExistentes->get($unidadDerivadaVentaId);
 
                     if (! $detalleExistente) {
-                        throw new \Exception("No se encontró el detalle de entrega para la unidad {$unidadDerivadaVentaId}");
+                        throw ValidationException::withMessages([
+                            'productos_entregados' => [
+                                "No se encontró el detalle de entrega para la unidad {$unidadDerivadaVentaId}",
+                            ],
+                        ]);
                     }
 
                     $cantidadProgramadaOriginal = (float) $detalleExistente->cantidad_entregada;
                     if ($cantidadNueva > $cantidadProgramadaOriginal) {
-                        throw new \Exception(
-                            "La cantidad entregada ({$cantidadNueva}) no puede ser mayor a la cantidad programada ({$cantidadProgramadaOriginal})"
-                        );
+                        throw ValidationException::withMessages([
+                            'productos_entregados' => [
+                                "La cantidad entregada ({$cantidadNueva}) no puede ser mayor a la cantidad programada ({$cantidadProgramadaOriginal})",
+                            ],
+                        ]);
+                    }
+
+                    $cantidadLiberada = $cantidadProgramadaOriginal - $cantidadNueva;
+                    $esTramoPendienteSinReserva =
+                        in_array($entrega->tipo_entrega, ['pa', 'rt'], true) &&
+                        $entrega->tipo_despacho === 'in' &&
+                        $entrega->quien_entrega === 'almacen';
+
+                    if ($cantidadLiberada > 0 && ! $esTramoPendienteSinReserva) {
+                        UnidadDerivadaInmutableVenta::whereKey($unidadDerivadaVentaId)
+                            ->increment('cantidad_pendiente', $cantidadLiberada);
                     }
 
                     $detalleExistente->cantidad_entregada = $cantidadNueva;
@@ -616,7 +637,11 @@ class EntregaProductoController extends Controller
                         $cantidadPendiente = (float) $unidadDerivadaVenta->cantidad_pendiente;
 
                         if ($cantidadEntregada > $cantidadPendiente) {
-                            throw new \Exception("La cantidad entregada ({$cantidadEntregada}) no puede ser mayor a la cantidad pendiente ({$cantidadPendiente})");
+                            throw ValidationException::withMessages([
+                                'productos_entregados' => [
+                                    "La cantidad entregada ({$cantidadEntregada}) no puede ser mayor a la cantidad pendiente ({$cantidadPendiente})",
+                                ],
+                            ]);
                         }
 
                         $unidadDerivadaVenta->decrement('cantidad_pendiente', $cantidadEntregada);
