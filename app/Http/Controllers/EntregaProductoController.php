@@ -579,6 +579,17 @@ class EntregaProductoController extends Controller
                         ]);
                     }
 
+                    $cantidadLiberada = $cantidadProgramadaOriginal - $cantidadNueva;
+                    $esTramoPendienteSinReserva =
+                        in_array($entrega->tipo_entrega, ['pa', 'rt'], true) &&
+                        $entrega->tipo_despacho === 'in' &&
+                        $entrega->quien_entrega === 'almacen';
+
+                    if ($cantidadLiberada > 0 && ! $esTramoPendienteSinReserva) {
+                        UnidadDerivadaInmutableVenta::whereKey($unidadDerivadaVentaId)
+                            ->increment('cantidad_pendiente', $cantidadLiberada);
+                    }
+
                     $detalleExistente->cantidad_entregada = $cantidadNueva;
                     $detalleExistente->save();
                 }
