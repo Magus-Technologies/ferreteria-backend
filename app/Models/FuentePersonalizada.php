@@ -39,6 +39,14 @@ class FuentePersonalizada extends Model
 
         $css = '';
         foreach ($fuentes as $fuente) {
+            // Saltar cualquier fuente que no sea TTF u OTF: Dompdf solo soporta
+            // esos dos formatos y, si se le pasa un WOFF/WOFF2 disfrazado como
+            // truetype o un archivo corrupto, lanza excepción y devuelve 500.
+            $ext = strtolower(pathinfo($fuente->archivo_path, PATHINFO_EXTENSION));
+            if (!in_array($ext, ['ttf', 'otf'], true)) {
+                continue;
+            }
+
             $path = Storage::disk('public')->path($fuente->archivo_path);
 
             // Verificar existencia antes de declarar el @font-face: si el archivo no
@@ -48,7 +56,7 @@ class FuentePersonalizada extends Model
             }
 
             $url = self::pathToFileUrl($path);
-            $format = self::formatoMime($fuente->tipo_mime, $fuente->archivo_path);
+            $format = $ext === 'otf' ? 'opentype' : 'truetype';
 
             $css .= "@font-face { font-family: '{$fuente->nombre}'; src: url('{$url}') format('{$format}'); font-weight: normal; font-style: normal; }\n";
             $css .= "@font-face { font-family: '{$fuente->nombre}'; src: url('{$url}') format('{$format}'); font-weight: bold; font-style: normal; }\n";
