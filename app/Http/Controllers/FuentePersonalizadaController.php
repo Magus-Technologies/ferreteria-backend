@@ -56,7 +56,11 @@ class FuentePersonalizadaController extends Controller
                 'required', 'string', 'max:80',
                 Rule::unique('fuentes_personalizadas')->where('empresa_id', $empresaId),
             ],
-            'archivo' => 'required|file|mimes:ttf,otf,woff,woff2|max:5120',
+            // Solo TTF y OTF: son los únicos formatos soportados por Dompdf (motor PDF).
+            // WOFF/WOFF2 no funcionan en el PDF.
+            'archivo' => 'required|file|mimes:ttf,otf|max:5120',
+        ], [
+            'archivo.mimes' => 'Solo se permiten archivos .ttf u .otf (formatos soportados por el PDF).',
         ]);
 
         $file = $request->file('archivo');
@@ -116,12 +120,22 @@ class FuentePersonalizadaController extends Controller
 
             $content = $response->body();
             $mime = $response->header('Content-Type', 'font/ttf');
+
+            // Solo aceptar TTF/OTF: Dompdf no soporta WOFF/WOFF2.
+            // Detectamos por mime o por extensión de la URL.
+            $urlExt = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
             $ext = match (true) {
-                str_contains($mime, 'woff2') => 'woff2',
-                str_contains($mime, 'woff') => 'woff',
-                str_contains($mime, 'opentype') => 'otf',
-                default => 'ttf',
+                str_contains($mime, 'opentype') || $urlExt === 'otf' => 'otf',
+                str_contains($mime, 'ttf') || str_contains($mime, 'truetype') || $urlExt === 'ttf' => 'ttf',
+                default => null,
             };
+
+            if ($ext === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La URL no apunta a un archivo .ttf u .otf válido (formatos soportados por el PDF).',
+                ], 422);
+            }
 
             $safeName = Str::slug($nombre) . '.' . $ext;
             $path = "fonts/{$empresaId}/{$safeName}";
