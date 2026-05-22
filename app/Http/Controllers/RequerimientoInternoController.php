@@ -8,6 +8,7 @@ use App\Http\Resources\RequerimientoInternoResource;
 use App\Services\Interfaces\RequerimientoInternoServiceInterface;
 use App\Services\Pdf\RequerimientoInternoPdfService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\DB;
 use App\Mail\RequerimientoInternoMail;
