@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\GuiaRemision;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class GuiaPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(string $guiaId, string $formato = 'a4'): Response
     {
         $guia = $this->obtenerGuia($guiaId);
@@ -24,7 +27,9 @@ class GuiaPdfService
 
     private function generarA4($guia, $empresa, array $detalles, float $pesoTotal): Response
     {
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'guia', 'A4');
+
+        $data = array_merge([
             'guia' => $guia,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -36,7 +41,7 @@ class GuiaPdfService
             'observaciones' => $guia->observaciones ?: '-',
             'codigoQr' => $guia->sunat_codigo_qr,
             'consultaUrl' => $this->getConsultaUrl(),
-        ];
+        ], $estilos);
 
         $filename = "GRE-{$guia->serie}-{$guia->numero}.pdf";
 
@@ -76,7 +81,9 @@ class GuiaPdfService
             ?: trim(($chofer?->nombres ?? '') . ' ' . ($chofer?->apellidos ?? ''))
             ?: '-';
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'guia', 'Ticket');
+
+        $data = array_merge([
             'titulo' => $this->getTituloDocumento($guia) . "\n" . $guia->numero_completo,
             'tipoGuiaTitulo' => $this->getTituloDocumento($guia),
             'empresa' => $empresa,
@@ -104,7 +111,7 @@ class GuiaPdfService
             'referencia' => $guia->referencia ?: null,
             'codigoQr' => $guia->sunat_codigo_qr,
             'consultaUrl' => $this->getConsultaUrl(),
-        ];
+        ], $estilos);
 
         $filename = "TICKET-GRE-{$guia->serie}-{$guia->numero}.pdf";
 

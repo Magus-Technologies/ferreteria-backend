@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\EntregaProducto;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class EntregaProductoPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(int $id, string $formato = 'ticket'): Response
     {
         $entrega = EntregaProducto::with([
@@ -146,7 +149,12 @@ class EntregaProductoPdfService
             fn ($producto) => (float) ($producto['recibido'] ?? 0) > 0
         );
 
-        $data = [
+        $formatoPlantilla = $formato === 'a4' ? 'A4' : 'Ticket';
+        $estilos = $empresa
+            ? $this->prepararDatosPlantilla((int) $empresa->id, 'entrega', $formatoPlantilla)
+            : ['est' => [], 'msg' => [], 'bloques' => [], 'font_face_css' => ''];
+
+        $data = array_merge([
             'entrega' => $entrega,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo ?? null),
@@ -164,7 +172,7 @@ class EntregaProductoPdfService
             'tipoDocumentoTitulo' => $tipoDocumentoTitulo,
             'numeroDocumento' => $nroVenta,
             'filas' => $filas,
-        ];
+        ], $estilos);
 
         // Nombre del archivo según el estado de la entrega — coincide con el
         // título que el blade renderiza adentro.

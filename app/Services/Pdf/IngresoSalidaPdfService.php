@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\IngresoSalida;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class IngresoSalidaPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(int $id, string $formato = 'a4'): Response
     {
         $ingreso = $this->obtenerIngresoSalida($id);
@@ -21,7 +24,9 @@ class IngresoSalidaPdfService
             return $this->generarTicket($ingreso, $empresa, $tipoDoc, $nroDoc, $productos, $total);
         }
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'ingreso-salida', 'A4');
+
+        $data = array_merge([
             'ingreso' => $ingreso,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -31,15 +36,17 @@ class IngresoSalidaPdfService
             'total' => $total,
             'filas' => $this->prepararInfoGeneral($ingreso, $tipoDoc),
             'son' => PdfService::numeroALetras($total),
-            'observaciones' => $ingreso->descripcion ?: '- NINGUNA',
-        ];
+            'observaciones' => $ingreso->descripcion ?: ($estilos['msg']['observaciones_default'] ?? '- NINGUNA'),
+        ], $estilos);
 
         return PdfService::render('pdf.ingreso-salida', $data, "IS-{$nroDoc}.pdf");
     }
 
     private function generarTicket($ingreso, $empresa, string $tipoDoc, string $nroDoc, array $productos, float $total): Response
     {
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'ingreso-salida', 'Ticket');
+
+        $data = array_merge([
             'ingreso' => $ingreso,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -48,7 +55,7 @@ class IngresoSalidaPdfService
             'productos' => $productos,
             'total' => $total,
             'son' => PdfService::numeroALetras($total),
-        ];
+        ], $estilos);
 
         return PdfService::render(
             'pdf.ingreso-salida-ticket',

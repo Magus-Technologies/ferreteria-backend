@@ -5,14 +5,16 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>{{ $titulo ?? 'Ticket' }}</title>
     <style>
+        {!! $font_face_css ?? '' !!}
+
         @page {
             size: 80mm auto;
             margin: 3mm;
         }
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 7pt;
-            color: #000;
+            font-family: "{{ $est['fuente'] ?? 'Helvetica' }}", Helvetica, Arial, sans-serif;
+            font-size: {{ $est['font_pt'] ?? 7 }}pt;
+            color: {{ $est['color_texto'] ?? '#000' }};
             line-height: 1.3;
             width: 74mm;
             margin: 0;
@@ -21,10 +23,8 @@
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .text-bold { font-weight: bold; }
-        .separator { border-top: 1px dashed #000; margin: 4px 0; }
+        .separator { border-top: 1px dashed {{ $est['color_borde'] ?? '#000' }}; margin: 4px 0; }
         table { width: 100%; border-collapse: collapse; }
-        .label { font-weight: bold; text-transform: uppercase; font-size: 5pt; }
-        .value { font-size: 5pt; }
     </style>
 </head>
 <body>
@@ -34,20 +34,24 @@
             <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
         @endif
         <div style="margin-top: 2px;">
-            <div class="text-bold" style="font-size: 9pt;">{{ $empresa->razon_social }}</div>
-            <div class="text-bold">R.U.C. {{ $empresa->ruc }}</div>
-            <div>{{ $empresa->direccion }}</div>
-            <div><span class="text-bold">Cel:</span> {{ $empresa->telefono }}</div>
-            <div><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+            <div style="{{ $bloques['empresa_razon']['css'] ?? '' }}">{{ $empresa->razon_social }}</div>
+            <div style="{{ $bloques['caja_ruc']['css'] ?? '' }}">R.U.C. {{ $empresa->ruc }}</div>
+            <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}">{{ $empresa->direccion }}</div>
+            @if($empresa->telefono)
+            <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}"><span class="text-bold">Cel:</span> {{ $empresa->telefono }}</div>
+            @endif
+            @if($empresa->email)
+            <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}"><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+            @endif
         </div>
     </div>
 
     <div class="separator"></div>
 
     {{-- Tipo documento y numero --}}
-    <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        {{ $tipoGuiaTitulo ?? 'GUIA DE REMISION' }}<br>
-        {{ $numeroDocumento }}
+    <div style="padding: 4px 0;">
+        <div style="{{ $bloques['caja_tipo']['css'] ?? '' }}">{{ $tipoGuiaTitulo ?? 'GUIA DE REMISION' }}</div>
+        <div style="{{ $bloques['caja_numero']['css'] ?? '' }}">{{ $numeroDocumento }}</div>
     </div>
 
     <div class="separator"></div>
@@ -56,33 +60,33 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label" style="width: 50%;">F. Emisi&oacute;n: <span class="value">{{ $fechaEmision }}</span></td>
-                <td class="label" style="width: 50%;">F. Traslado: <span class="value">{{ $fechaTraslado }}</span></td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }} width: 50%;">F. Emisi&oacute;n: <span style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $fechaEmision }}</span></td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }} width: 50%;">F. Traslado: <span style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $fechaTraslado }}</span></td>
             </tr>
             <tr>
-                <td class="label">Motivo:</td>
-                <td class="value">{{ $motivoTraslado }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">Motivo:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $motivoTraslado }}</td>
             </tr>
             <tr>
-                <td class="label">Modalidad:</td>
-                <td class="value">{{ $modalidad }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">Modalidad:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $modalidad }}</td>
             </tr>
             <tr>
-                <td class="label">P. Partida:</td>
-                <td class="value">{{ $puntoPartida }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">P. Partida:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $puntoPartida }}</td>
             </tr>
             <tr>
-                <td class="label">P. Llegada:</td>
-                <td class="value">{{ $puntoLlegada }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">P. Llegada:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $puntoLlegada }}</td>
             </tr>
             <tr>
-                <td class="label" style="width: 50%;">Vehiculo: <span class="value">{{ $vehiculoPlaca }}</span></td>
-                <td class="label" style="width: 50%;">Chofer: <span class="value">{{ $choferDni }}</span></td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }} width: 50%;">Vehiculo: <span style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $vehiculoPlaca }}</span></td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }} width: 50%;">Chofer: <span style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $choferDni }}</span></td>
             </tr>
             @if($choferNombre !== '-')
             <tr>
-                <td class="label">Nombre:</td>
-                <td class="value">{{ $choferNombre }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">Nombre:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $choferNombre }}</td>
             </tr>
             @endif
         </table>
@@ -94,12 +98,12 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label">{{ strlen($clienteDocumento ?? '') === 11 ? 'RUC:' : 'DNI:' }}</td>
-                <td class="value">{{ $clienteDocumento }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">{{ strlen($clienteDocumento ?? '') === 11 ? 'RUC:' : 'DNI:' }}</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $clienteDocumento }}</td>
             </tr>
             <tr>
-                <td class="label">Destinatario:</td>
-                <td class="value">{{ $clienteNombre }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">Destinatario:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $clienteNombre }}</td>
             </tr>
         </table>
     </div>
@@ -109,12 +113,12 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label">{{ strlen($compradorDocumento ?? '') === 11 ? 'RUC:' : 'DNI:' }} Comprador:</td>
-                <td class="value">{{ $compradorDocumento }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">{{ strlen($compradorDocumento ?? '') === 11 ? 'RUC:' : 'DNI:' }} Comprador:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $compradorDocumento }}</td>
             </tr>
             <tr>
-                <td class="label">Comprador:</td>
-                <td class="value">{{ $compradorNombre }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">Comprador:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $compradorNombre }}</td>
             </tr>
         </table>
     </div>
@@ -125,12 +129,12 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label">Almac&eacute;n Origen:</td>
-                <td class="value">{{ $almacenOrigen ?? '-' }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">Almac&eacute;n Origen:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $almacenOrigen ?? '-' }}</td>
             </tr>
             <tr>
-                <td class="label">Almac&eacute;n Destino:</td>
-                <td class="value">{{ $almacenDestino ?? '-' }}</td>
+                <td style="{{ $bloques['info_label']['css'] ?? '' }}">Almac&eacute;n Destino:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $almacenDestino ?? '-' }}</td>
             </tr>
         </table>
     </div>
@@ -142,20 +146,20 @@
     <div style="padding-top: 4px;">
         <table>
             <thead>
-                <tr style="border-bottom: 1px solid #000;">
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 40%;">Descripci&oacute;n</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 15%;">Cant.</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 20%;">Unid.</th>
-                    <th class="text-bold" style="font-size: 6pt; text-align: left; width: 25%;">Peso(kg)</th>
+                <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
+                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 40%;">Descripci&oacute;n</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 15%;">Cant.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 20%;">Unid.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 25%;">Peso(kg)</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach($detalles as $i => $d)
-                <tr style="border-bottom: 1px solid #000;{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ $d['nombre'] }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ number_format($d['cantidad'], 0) }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ $d['unidad'] }}</td>
-                    <td style="font-size: 6pt; padding: 3px 0;">{{ $d['peso'] > 0 ? number_format($d['peso'], 2) : '-' }}</td>
+                <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['nombre'] }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ number_format($d['cantidad'], 0) }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['unidad'] }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['peso'] > 0 ? number_format($d['peso'], 2) : '-' }}</td>
                 </tr>
                 @endforeach
             </tbody>
@@ -166,19 +170,20 @@
     <div style="margin-top: 4px;">
         <table>
             <tr>
-                <td class="text-bold" style="font-size: 7pt;">PESO TOTAL</td>
-                <td class="text-right text-bold" style="font-size: 7pt;">{{ number_format($pesoTotal, 2) }} KG</td>
+                <td style="{{ $bloques['total_label']['css'] ?? '' }}">PESO TOTAL</td>
+                <td style="{{ $bloques['total_valor']['css'] ?? '' }}">{{ number_format($pesoTotal, 2) }} KG</td>
             </tr>
         </table>
     </div>
 
     {{-- Observaciones --}}
-    <div style="font-size: 7pt; margin-top: 4px;">
+    <div style="margin-top: 4px;">
         @if(!empty($referencia))
-        <span class="text-bold">Referencia:</span> {{ $referencia }}<br>
+        <div style="{{ $bloques['obs_label']['css'] ?? '' }}">Referencia:</div>
+        <div style="{{ $bloques['obs_valor']['css'] ?? '' }} margin-bottom: 4px;">{{ $referencia }}</div>
         @endif
-        <span class="text-bold">Observaciones:</span><br>
-        {{ $observaciones }}
+        <div style="{{ $bloques['obs_label']['css'] ?? '' }}">{{ $msg['label_observaciones'] ?? 'OBSERVACIONES' }}</div>
+        <div style="{{ $bloques['obs_valor']['css'] ?? '' }}">{{ $observaciones }}</div>
     </div>
 
     {{-- QR --}}

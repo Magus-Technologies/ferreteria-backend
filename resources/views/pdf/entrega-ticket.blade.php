@@ -5,14 +5,16 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>Ticket Entrega #{{ $entrega->id }}</title>
     <style>
+        {!! $font_face_css ?? '' !!}
+
         @page {
             size: 80mm auto;
             margin: 3mm;
         }
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 7pt;
-            color: #000;
+            font-family: "{{ $est['fuente'] ?? 'Helvetica' }}", Helvetica, Arial, sans-serif;
+            font-size: {{ $est['font_pt'] ?? 7 }}pt;
+            color: {{ $est['color_texto'] ?? '#000' }};
             line-height: 1.3;
             width: 74mm;
             margin: 0;
@@ -22,17 +24,14 @@
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .text-bold { font-weight: bold; }
-        .separator { border-top: 1px dashed #000; margin: 4px 0; }
+        .separator { border-top: 1px dashed {{ $est['color_borde'] ?? '#000' }}; margin: 4px 0; }
         .section-title {
-            font-size: 7pt;
             font-weight: bold;
             text-align: center;
             margin-bottom: 2px;
             padding-top: 4px;
-            border-top: 1px dashed #000;
+            border-top: 1px dashed {{ $est['color_borde'] ?? '#000' }};
         }
-        .label { font-weight: bold; text-transform: uppercase; font-size: 5pt; }
-        .value { font-size: 5pt; }
     </style>
 </head>
 <body>
@@ -42,14 +41,14 @@
             <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
         @endif
         <div style="margin-top: 2px;">
-            <div class="text-bold" style="font-size: 9pt;">{{ $empresa->razon_social ?? '' }}</div>
-            <div class="text-bold">R.U.C. {{ $empresa->ruc ?? '' }}</div>
-            <div>{{ $empresa->direccion ?? '' }}</div>
+            <div style="{{ $bloques['empresa_razon']['css'] ?? '' }}">{{ $empresa->razon_social ?? '' }}</div>
+            <div style="{{ $bloques['caja_ruc']['css'] ?? '' }}">R.U.C. {{ $empresa->ruc ?? '' }}</div>
+            <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}">{{ $empresa->direccion ?? '' }}</div>
             @if($empresa->telefono ?? $empresa->celular ?? null)
-                <div><span class="text-bold">Cel:</span> {{ $empresa->telefono ?? $empresa->celular }}</div>
+                <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}"><span class="text-bold">Cel:</span> {{ $empresa->telefono ?? $empresa->celular }}</div>
             @endif
             @if($empresa->email ?? null)
-                <div><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+                <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}"><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
             @endif
         </div>
     </div>
@@ -68,12 +67,11 @@
             default => 'TICKET DE ENTREGA',
         };
     @endphp
-    <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        {{ $tituloPdf }}<br>
-        <span style="font-size: 7pt;">Venta: {{ $nroVenta }}</span>
+    <div style="padding: 4px 0;">
+        <div style="{{ $bloques['caja_tipo']['css'] ?? '' }}">{{ $tituloPdf }}</div>
+        <div style="{{ $bloques['caja_numero']['css'] ?? '' }}">Venta: {{ $nroVenta }}</div>
         @if(($entregasTotales ?? 1) > 1)
-            <br>
-            <span style="font-size: 7pt; color: #ca3438">Entrega {{ $entregaNumero }} de {{ $entregasTotales }}</span>
+            <div style="{{ $bloques['caja_numero']['css'] ?? '' }} color: #ca3438;">Entrega {{ $entregaNumero }} de {{ $entregasTotales }}</div>
         @endif
     </div>
 
@@ -85,29 +83,29 @@
             <tr>
                 <td style="width: 50%; vertical-align: top; padding-right: 4px;">
                     <table>
-                        <tr><td class="label">FECHA ENTREGA:</td></tr>
-                        <tr><td class="value">{{ $entrega->fecha_entrega ? \Carbon\Carbon::parse($entrega->fecha_entrega)->format('d/m/Y') : '-' }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">FECHA ENTREGA:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $entrega->fecha_entrega ? \Carbon\Carbon::parse($entrega->fecha_entrega)->format('d/m/Y') : '-' }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
-                        <tr><td class="label">TIPO ENTREGA:</td></tr>
-                        <tr><td class="value">{{ $tipoEntregaLabel }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">TIPO ENTREGA:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $tipoEntregaLabel }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
-                        <tr><td class="label">DESPACHADOR:</td></tr>
-                        <tr><td class="value">{{ $entrega->despachador->name ?? $entrega->user->name ?? '-' }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">DESPACHADOR:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $entrega->despachador->name ?? $entrega->user->name ?? '-' }}</td></tr>
                     </table>
                 </td>
                 <td style="width: 50%; vertical-align: top; padding-left: 4px;">
                     <table>
                         @if($entrega->fecha_programada)
-                        <tr><td class="label">FECHA PROGRAMADA:</td></tr>
-                        <tr><td class="value">{{ \Carbon\Carbon::parse($entrega->fecha_programada)->format('d/m/Y') }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">FECHA PROGRAMADA:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ \Carbon\Carbon::parse($entrega->fecha_programada)->format('d/m/Y') }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
                         @endif
-                        <tr><td class="label">TIPO DESPACHO:</td></tr>
-                        <tr><td class="value">{{ $tipoDespachoLabel }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">TIPO DESPACHO:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $tipoDespachoLabel }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
                         @if($entrega->hora_inicio || $entrega->hora_fin)
-                        <tr><td class="label">HORARIO:</td></tr>
-                        <tr><td class="value">{{ $entrega->hora_inicio ?? '' }} - {{ $entrega->hora_fin ?? '' }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">HORARIO:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $entrega->hora_inicio ?? '' }} - {{ $entrega->hora_fin ?? '' }}</td></tr>
                         @endif
                     </table>
                 </td>
@@ -116,11 +114,11 @@
     </div>
 
     {{-- Datos del Cliente --}}
-    <div class="section-title">DATOS DEL CLIENTE</div>
-    <table style="font-size: 6pt; padding: 2px 0;">
+    <div class="section-title" style="{{ $bloques['obs_label']['css'] ?? '' }}">DATOS DEL CLIENTE</div>
+    <table style="padding: 2px 0;">
         <tr>
-            <td class="label" style="width: 25%;">CLIENTE:</td>
-            <td class="value">
+            <td style="{{ $bloques['info_label']['css'] ?? '' }} width: 25%;">CLIENTE:</td>
+            <td style="{{ $bloques['info_valor']['css'] ?? '' }}">
                 @if($cliente)
                     {{ $cliente->razon_social ?? ($cliente->nombres . ' ' . ($cliente->apellidos ?? '')) }}
                 @else
@@ -129,60 +127,59 @@
             </td>
         </tr>
         <tr>
-            <td class="label">DOCUMENTO:</td>
-            <td class="value">{{ $cliente->numero_documento ?? '-' }}</td>
+            <td style="{{ $bloques['info_label']['css'] ?? '' }}">DOCUMENTO:</td>
+            <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $cliente->numero_documento ?? '-' }}</td>
         </tr>
         <tr>
-            <td class="label">TELÉFONO:</td>
-            <td class="value">{{ $cliente->telefono ?? $cliente->celular ?? '-' }}</td>
+            <td style="{{ $bloques['info_label']['css'] ?? '' }}">TEL&Eacute;FONO:</td>
+            <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $cliente->telefono ?? $cliente->celular ?? '-' }}</td>
         </tr>
         <tr>
-            <td class="label">DIRECCIÓN:</td>
-            <td class="value">{{ $entrega->direccion_entrega ?? '-' }}</td>
+            <td style="{{ $bloques['info_label']['css'] ?? '' }}">DIRECCI&Oacute;N:</td>
+            <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $entrega->direccion_entrega ?? '-' }}</td>
         </tr>
     </table>
 
-    {{-- Tabla productos — si la venta editada realmente retiró producto o
-         cantidad, eso se refleja como "Recib." dentro de esta misma tabla. --}}
-    <div class="section-title">PRODUCTOS</div>
-    <table style="font-size: 5pt;">
-        <tr style="border-bottom: 1px solid #000;">
-            <td class="text-bold" style="width: 30px;">Cód.</td>
-            <td class="text-bold">Producto</td>
-            <td class="text-bold text-center" style="width: 30px;">Unidad</td>
+    {{-- Tabla productos --}}
+    <div class="section-title" style="{{ $bloques['obs_label']['css'] ?? '' }}">PRODUCTOS</div>
+    <table>
+        <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 30px;">C&oacute;d.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left;">Producto</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} width: 30px;">Unidad</td>
             @if($mostrarRecibido)
-            <td class="text-bold text-center" style="width: 25px;">Recib.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} width: 25px;">Recib.</td>
             @endif
-            <td class="text-bold text-center" style="width: 25px;">Entreg.</td>
-            <td class="text-bold text-center" style="width: 25px;">Pend.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} width: 25px;">Entreg.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} width: 25px;">Pend.</td>
         </tr>
         @foreach($productosTabla as $i => $p)
         <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
-            <td>{{ $p['codigo'] }}</td>
-            <td>{{ $p['nombre'] }}</td>
-            <td class="text-center">{{ $p['unidad'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }}">{{ $p['codigo'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }}">{{ $p['nombre'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ $p['unidad'] }}</td>
             @if($mostrarRecibido)
-            <td class="text-center">{{ number_format($p['recibido'], 0) }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ number_format($p['recibido'], 0) }}</td>
             @endif
-            <td class="text-center">{{ number_format($p['entregado'], 0) }}</td>
-            <td class="text-center">{{ number_format($p['pendiente'], 0) }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ number_format($p['entregado'], 0) }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ number_format($p['pendiente'], 0) }}</td>
         </tr>
         @endforeach
     </table>
 
     {{-- Total items --}}
     <table style="margin-top: 4px;">
-        <tr style="border-top: 2px solid #000; background-color: #f0f0f0;">
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold;">TOTAL ITEMS</td>
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: right;">{{ count($productosTabla) }}</td>
+        <tr style="border-top: 2px solid {{ $est['color_borde'] ?? '#000' }}; background-color: #f0f0f0;">
+            <td style="{{ $bloques['total_label']['css'] ?? '' }} padding: 4px;">TOTAL ITEMS</td>
+            <td style="{{ $bloques['total_valor']['css'] ?? '' }} padding: 4px;">{{ count($productosTabla) }}</td>
         </tr>
     </table>
 
     {{-- Observaciones --}}
     @if($entrega->observaciones)
-    <div style="margin-top: 4px; font-size: 6pt;">
-        <span class="text-bold">Observaciones:</span><br>
-        {{ $entrega->observaciones }}
+    <div style="margin-top: 4px;">
+        <div style="{{ $bloques['obs_label']['css'] ?? '' }}">{{ $msg['label_observaciones'] ?? 'OBSERVACIONES' }}</div>
+        <div style="{{ $bloques['obs_valor']['css'] ?? '' }}">{{ $entrega->observaciones }}</div>
     </div>
     @endif
 

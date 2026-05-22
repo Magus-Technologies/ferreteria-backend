@@ -5,14 +5,16 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>Ticket {{ $numeroDocumento }}</title>
     <style>
+        {!! $font_face_css ?? '' !!}
+
         @page {
             size: 80mm auto;
             margin: 3mm;
         }
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 7pt;
-            color: #000;
+            font-family: "{{ $est['fuente'] ?? 'Helvetica' }}", Helvetica, Arial, sans-serif;
+            font-size: {{ $est['font_pt'] ?? 7 }}pt;
+            color: {{ $est['color_texto'] ?? '#000' }};
             line-height: 1.3;
             width: 74mm;
             margin: 0;
@@ -21,10 +23,8 @@
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .text-bold { font-weight: bold; }
-        .separator { border-top: 1px dashed #000; margin: 4px 0; }
+        .separator { border-top: 1px dashed {{ $est['color_borde'] ?? '#000' }}; margin: 4px 0; }
         table { width: 100%; border-collapse: collapse; }
-        .label { font-weight: bold; text-transform: uppercase; font-size: 5pt; }
-        .value { font-size: 5pt; }
     </style>
 </head>
 <body>
@@ -34,20 +34,24 @@
             <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
         @endif
         <div style="margin-top: 2px;">
-            <div class="text-bold" style="font-size: 9pt;">{{ $empresa->razon_social }}</div>
-            <div class="text-bold">R.U.C. {{ $empresa->ruc }}</div>
-            <div>{{ $empresa->direccion }}</div>
-            <div><span class="text-bold">Cel:</span> {{ $empresa->telefono }}</div>
-            <div><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+            <div style="{{ $bloques['empresa_razon']['css'] ?? '' }}">{{ $empresa->razon_social }}</div>
+            <div style="{{ $bloques['caja_ruc']['css'] ?? '' }}">R.U.C. {{ $empresa->ruc }}</div>
+            <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}">{{ $empresa->direccion }}</div>
+            @if($empresa->telefono)
+            <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}"><span class="text-bold">Cel:</span> {{ $empresa->telefono }}</div>
+            @endif
+            @if($empresa->email)
+            <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}"><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+            @endif
         </div>
     </div>
 
     <div class="separator"></div>
 
     {{-- Tipo documento y numero --}}
-    <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        {{ $tipoDocumentoTitulo }}<br>
-        {{ $numeroDocumento }}
+    <div style="padding: 4px 0;">
+        <div style="{{ $bloques['caja_tipo']['css'] ?? '' }}">{{ $tipoDocumentoTitulo }}</div>
+        <div style="{{ $bloques['caja_numero']['css'] ?? '' }}">{{ $numeroDocumento }}</div>
     </div>
 
     <div class="separator"></div>
@@ -58,8 +62,8 @@
             @foreach($filas as $fila)
                 @foreach($fila as $k => $v)
                 <tr>
-                    <td class="label" style="width: 45%;">{{ $k }}:</td>
-                    <td class="value">{{ $v }}</td>
+                    <td style="{{ $bloques['info_label']['css'] ?? '' }} width: 45%;">{{ $k }}:</td>
+                    <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $v }}</td>
                 </tr>
                 @endforeach
             @endforeach
@@ -74,8 +78,8 @@
             @foreach($filasProveedor as $fila)
                 @foreach($fila as $k => $v)
                 <tr>
-                    <td class="label" style="width: 45%;">{{ $k }}:</td>
-                    <td class="value">{{ $v }}</td>
+                    <td style="{{ $bloques['info_label']['css'] ?? '' }} width: 45%;">{{ $k }}:</td>
+                    <td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $v }}</td>
                 </tr>
                 @endforeach
             @endforeach
@@ -102,17 +106,17 @@
     <div style="padding-top: 4px;">
         <table>
             <thead>
-                <tr style="border-bottom: 1px solid #000;">
+                <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
                     @foreach($colsActivas as $c)
-                    <th class="text-bold" style="font-size: 6pt; text-align: left;">{!! $colsTicket[$c] !!}</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left;">{!! $colsTicket[$c] !!}</th>
                     @endforeach
                 </tr>
             </thead>
             <tbody>
                 @foreach($productos as $i => $p)
-                <tr style="border-bottom: 1px solid #000;{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
+                <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
                     @foreach($colsActivas as $c)
-                    <td style="font-size: 6pt; padding: 3px 0;">
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">
                         @if($c === 'codigo'){{ $p['codigo'] }}
                         @elseif($c === 'producto'){{ $p['nombre'] }}
                         @elseif($c === 'marca'){{ $p['marca'] }}
@@ -139,27 +143,27 @@
     <div style="margin-top: 4px;">
         <table>
             @if($verSubtotal)
-            <tr style="border-bottom: 1px solid #000;">
-                <td class="text-bold" style="font-size: 7pt;">SUBTOTAL</td>
-                <td class="text-right" style="font-size: 7pt;">{{ $monedaSimbolo }} {{ number_format($calculos['subtotal'] ?? 0, 2) }}</td>
+            <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
+                <td style="{{ $bloques['total_label']['css'] ?? '' }}">SUBTOTAL</td>
+                <td style="{{ $bloques['total_valor']['css'] ?? '' }}">{{ $monedaSimbolo }} {{ number_format($calculos['subtotal'] ?? 0, 2) }}</td>
             </tr>
             @endif
             @if($verFlete)
-            <tr style="border-bottom: 1px solid #000;">
-                <td class="text-bold" style="font-size: 7pt;">FLETE</td>
-                <td class="text-right" style="font-size: 7pt;">{{ $monedaSimbolo }} {{ number_format($calculos['flete_total'], 2) }}</td>
+            <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
+                <td style="{{ $bloques['total_label']['css'] ?? '' }}">FLETE</td>
+                <td style="{{ $bloques['total_valor']['css'] ?? '' }}">{{ $monedaSimbolo }} {{ number_format($calculos['flete_total'], 2) }}</td>
             </tr>
             @endif
             @if($verPercepcion)
-            <tr style="border-bottom: 1px solid #000;">
-                <td class="text-bold" style="font-size: 7pt;">PERCEPCI&Oacute;N</td>
-                <td class="text-right" style="font-size: 7pt;">{{ $monedaSimbolo }} {{ number_format($calculos['percepcion'], 2) }}</td>
+            <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
+                <td style="{{ $bloques['total_label']['css'] ?? '' }}">PERCEPCI&Oacute;N</td>
+                <td style="{{ $bloques['total_valor']['css'] ?? '' }}">{{ $monedaSimbolo }} {{ number_format($calculos['percepcion'], 2) }}</td>
             </tr>
             @endif
             @if($verTotal)
             <tr>
-                <td class="text-bold" style="font-size: 7pt;">TOTAL</td>
-                <td class="text-right text-bold" style="font-size: 7pt;">{{ $monedaSimbolo }} {{ number_format($calculos['total'] ?? 0, 2) }}</td>
+                <td style="{{ $bloques['total_label']['css'] ?? '' }}">TOTAL</td>
+                <td style="{{ $bloques['total_valor']['css'] ?? '' }}">{{ $monedaSimbolo }} {{ number_format($calculos['total'] ?? 0, 2) }}</td>
             </tr>
             @endif
         </table>
@@ -167,15 +171,15 @@
 
     {{-- SON --}}
     @if(!empty($son))
-    <div style="font-size: 6pt; margin-top: 4px;">
-        <span class="text-bold">SON:</span> {{ $son }}
+    <div style="{{ $bloques['son']['css'] ?? '' }} margin-top: 4px;">
+        SON: {{ $son }}
     </div>
     @endif
 
     {{-- Observaciones --}}
-    <div style="font-size: 7pt; margin-top: 4px;">
-        <span class="text-bold">Observaciones:</span><br>
-        {{ $observaciones }}
+    <div style="margin-top: 4px;">
+        <div style="{{ $bloques['obs_label']['css'] ?? '' }}">{{ $msg['label_observaciones'] ?? 'OBSERVACIONES' }}</div>
+        <div style="{{ $bloques['obs_valor']['css'] ?? '' }}">{{ $observaciones }}</div>
     </div>
 </body>
 </html>

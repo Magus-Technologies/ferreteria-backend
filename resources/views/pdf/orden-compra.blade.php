@@ -9,14 +9,15 @@
         'numeroDocumento' => $numeroDocumento,
     ])
 
-    {{-- Información General --}}
-    @include('pdf.layout.info-grid', ['filas' => $filas])
-
-    {{-- Proveedor --}}
-    <div style="font-size: 9pt; font-weight: bold; padding-left: 8px; padding-top: 4px; padding-bottom: 2px;">
-        Proveedor
-    </div>
-    @include('pdf.layout.info-grid', ['filas' => $filasProveedor])
+    {{-- Información General + Proveedor (un solo recuadro continuo) --}}
+    @php
+        $filasInfoProveedor = array_merge(
+            $filas,
+            [['__titulo' => 'Proveedor']],
+            $filasProveedor
+        );
+    @endphp
+    @include('pdf.layout.info-grid', ['filas' => $filasInfoProveedor])
 
     {{-- Tabla de Productos --}}
     @php
@@ -91,11 +92,14 @@
         </div>
     @endif
 
-    {{-- Condiciones de Pago --}}
-    <div style="margin-top: 10px; font-size: 9pt; font-weight: bold; padding-left: 8px; padding-bottom: 2px;">
-        Condiciones de Pago
-    </div>
-    @include('pdf.layout.info-grid', ['filas' => $filasPago])
+    {{-- Condiciones de Pago (con título dentro del recuadro) --}}
+    @php
+        $filasCondPago = array_merge(
+            [['__titulo' => 'Condiciones de Pago']],
+            $filasPago
+        );
+    @endphp
+    @include('pdf.layout.info-grid', ['filas' => $filasCondPago])
 
     {{-- Footer --}}
     @include('pdf.layout.footer', [

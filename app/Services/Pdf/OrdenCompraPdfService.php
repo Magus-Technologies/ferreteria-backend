@@ -3,13 +3,16 @@
 namespace App\Services\Pdf;
 
 use App\Models\OrdenCompra;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class OrdenCompraPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(int $id, ?array $columnas = null, string $formato = 'a4'): Response
     {
-        $data = $this->prepararData($id, $columnas);
+        $data = $this->prepararData($id, $columnas, $formato);
 
         if ($formato === 'ticket') {
             return PdfService::render(
@@ -26,7 +29,7 @@ class OrdenCompraPdfService
 
     public function generarBinario(int $id, ?array $columnas = null, string $formato = 'a4'): string
     {
-        $data = $this->prepararData($id, $columnas);
+        $data = $this->prepararData($id, $columnas, $formato);
 
         if ($formato === 'ticket') {
             return PdfService::output(
@@ -40,7 +43,7 @@ class OrdenCompraPdfService
         return PdfService::output('pdf.orden-compra', $data);
     }
 
-    private function prepararData(int $id, ?array $columnas = null): array
+    private function prepararData(int $id, ?array $columnas = null, string $formato = 'a4'): array
     {
         $orden = $this->obtenerOrden($id);
         $empresa = $orden->user->empresa;
@@ -49,7 +52,10 @@ class OrdenCompraPdfService
         $productos = $this->prepararProductos($orden);
         $calculos = $this->calcularTotales($orden, $productos);
 
-        return [
+        $formatoPlantilla = $formato === 'ticket' ? 'Ticket' : 'A4';
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'orden-compra', $formatoPlantilla);
+
+        return array_merge([
             'orden' => $orden,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -63,9 +69,9 @@ class OrdenCompraPdfService
             'filasPago' => $this->prepararInfoPago($orden),
             'son' => PdfService::numeroALetras($calculos['total']),
             'moneda' => $orden->tipo_moneda === 'd' ? 'DOLARES' : 'SOLES',
-            'observaciones' => '- NINGUNA',
+            'observaciones' => $estilos['msg']['observaciones_default'] ?? '- NINGUNA',
             'columnas' => $columnas, // Añadido soporte para columnas seleccionables!
-        ];
+        ], $estilos);
     }
 
     private function obtenerOrden(int $id): OrdenCompra
