@@ -25,7 +25,7 @@ class RequerimientoInternoController extends Controller
     public function index(Request $request)
     {
         $filters = $request->only([
-            'estado', 'tipo_solicitud', 'assigned_cargo_id', 'prioridad',
+            'estado', 'approval_state', 'tipo_solicitud', 'assigned_cargo_id', 'prioridad',
             'desde', 'hasta', 'search',
         ]);
 

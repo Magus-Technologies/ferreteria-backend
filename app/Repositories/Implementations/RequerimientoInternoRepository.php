@@ -65,6 +65,11 @@ class RequerimientoInternoRepository implements RequerimientoInternoRepositoryIn
 
     private function applyFilters($query, array $filters): void
     {
+        if (!empty($filters['approval_state'])) {
+            $estados = is_array($filters['approval_state']) ? $filters['approval_state'] : explode(',', $filters['approval_state']);
+            $query->whereIn('approval_state', (array)$estados);
+        }
+
         if (!empty($filters['estado'])) {
             $estados = is_array($filters['estado']) ? $filters['estado'] : explode(',', $filters['estado']);
             $query->whereIn('estado', (array)$estados);
