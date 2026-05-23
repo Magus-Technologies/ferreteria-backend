@@ -2168,12 +2168,17 @@ class VentaController extends Controller
         $detalles = [];
 
         foreach ($venta['productos_por_almacen'] ?? [] as $producto) {
-            // Calcular cantidad total en unidad base
+            // Cantidad total en unidad base + monto total en S/ (precio × cantidad).
+            // El monto se usa para evaluar si la venta supera `cantidad_minima`
+            // del vale, que ahora representa el PRECIO MÍNIMO en S/.
             $cantidadTotal = 0;
+            $precioTotal = 0;
             foreach ($producto['unidades_derivadas'] ?? [] as $unidad) {
                 $cantidad = (float) ($unidad['cantidad'] ?? 0);
                 $factor = (float) ($unidad['factor'] ?? 1);
+                $precio = (float) ($unidad['precio'] ?? 0);
                 $cantidadTotal += $cantidad * $factor;
+                $precioTotal += $cantidad * $precio;
             }
 
             // Intentar obtener producto_id y categoria_id
@@ -2203,6 +2208,7 @@ class VentaController extends Controller
                     'producto_id' => $productoId,
                     'categoria_id' => $categoriaId,
                     'cantidad' => $cantidadTotal,
+                    'precio_total' => $precioTotal,
                 ];
             }
         }

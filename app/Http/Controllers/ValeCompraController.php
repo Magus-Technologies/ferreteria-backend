@@ -389,7 +389,12 @@ class ValeCompraController extends Controller
     public function valesAplicables(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'cantidad_total' => 'required|numeric|min:0',
+            // `precio_total` = monto total de la venta en S/ (suma de
+            // precio_venta * cantidad por línea). Reemplaza al anterior
+            // `cantidad_total` (que sumaba unidades). El campo de BD
+            // `cantidad_minima` ahora representa el precio mínimo en S/
+            // — nombre histórico mantenido para evitar migración.
+            'precio_total' => 'required|numeric|min:0',
             'categoria_ids' => 'nullable|array',
             'categoria_ids.*' => 'integer',
             'producto_ids' => 'nullable|array',
@@ -399,7 +404,7 @@ class ValeCompraController extends Controller
 
         $vales = ValeCompra::activos()
             ->vigentes()
-            ->where('cantidad_minima', '<=', $validated['cantidad_total'])
+            ->where('cantidad_minima', '<=', $validated['precio_total'])
             ->with(['productoGratis', 'categorias', 'productos'])
             ->get();
 
