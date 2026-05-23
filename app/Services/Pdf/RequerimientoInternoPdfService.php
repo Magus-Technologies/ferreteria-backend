@@ -7,24 +7,34 @@ use Illuminate\Http\Response;
 
 class RequerimientoInternoPdfService
 {
-    public function generar(int $id, ?array $columnas = null): Response
+    public function generar(int $id, ?string $formato = 'a4', ?array $columnas = null): Response
     {
-        $data = $this->prepararData($id, $columnas);
+        $data = $this->prepararData($id, $formato, $columnas);
+        $tipo = $data['requerimiento']->tipo_solicitud;
+        $view = $this->getViewName($tipo, $formato);
+        $filename = "{$data['requerimiento']->codigo}-LOG-F-03.pdf";
 
-        return PdfService::render(
-            'pdf.requerimiento-interno',
-            $data,
-            "{$data['requerimiento']->codigo}-LOG-F-03.pdf",
-        );
+        return PdfService::render($view, $data, $filename);
     }
 
-    public function generarBinario(int $id, ?array $columnas = null): string
+    public function generarBinario(int $id, ?string $formato = 'a4', ?array $columnas = null): string
     {
-        $data = $this->prepararData($id, $columnas);
-        return PdfService::output('pdf.requerimiento-interno', $data);
+        $data = $this->prepararData($id, $formato, $columnas);
+        $tipo = $data['requerimiento']->tipo_solicitud;
+        $view = $this->getViewName($tipo, $formato);
+
+        return PdfService::output($view, $data);
     }
 
-    private function prepararData(int $id, ?array $columnas = null): array
+    private function getViewName(string $tipo, string $formato): string
+    {
+        $tipoMap = ['OC' => 'compra', 'SOC' => 'compra', 'OS' => 'servicio'];
+        $key = $tipoMap[$tipo] ?? 'compra';
+
+        return "pdf.requerimiento-{$key}-{$formato}";
+    }
+
+    private function prepararData(int $id, string $formato, ?array $columnas = null): array
     {
         $requerimiento = $this->obtenerRequerimiento($id);
         $empresa = $requerimiento->user->empresa;
@@ -35,6 +45,7 @@ class RequerimientoInternoPdfService
             : '—';
 
         $productos = $this->prepararProductos($requerimiento);
+        $servicios = $this->prepararServicios($requerimiento);
 
         return [
             'requerimiento' => $requerimiento,
@@ -42,7 +53,8 @@ class RequerimientoInternoPdfService
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'fechaFormato' => $fechaFormato,
             'productos' => $productos,
-            'columnas' => $columnas, // Soporte para columnas seleccionables
+            'servicios' => $servicios,
+            'columnas' => $columnas,
         ];
     }
 
@@ -53,6 +65,7 @@ class RequerimientoInternoPdfService
             'proveedorSugerido',
             'productos.producto.unidadMedida',
             'servicios',
+            'vehiculo',
         ])->findOrFail($id);
     }
 
@@ -69,13 +82,45 @@ class RequerimientoInternoPdfService
             })->toArray();
         }
 
+        if ($requerimiento->tipo_solicitud === 'SOC' && $requerimiento->productos->isNotEmpty()) {
+            return $requerimiento->productos->map(function ($prod) {
+                return [
+                    'codigo' => $prod->producto?->cod_producto ?? '—',
+                    'cantidad' => $prod->cantidad,
+                    'unidad' => $prod->unidad ?? $prod->producto?->unidadMedida?->name ?? 'UND',
+                    'descripcion' => $prod->producto?->name ?? $prod->nombre_adicional ?? '—',
+                ];
+            })->toArray();
+        }
+
+        return [];
+    }
+
+    private function prepararServicios(RequerimientoInterno $requerimiento): array
+    {
         if ($requerimiento->tipo_solicitud === 'OS' && $requerimiento->servicios->isNotEmpty()) {
             return $requerimiento->servicios->map(function ($srv) {
+                $horario = '';
+                if ($srv->hora_inicio && $srv->hora_fin) {
+                    $horario = "{$srv->hora_inicio} - {$srv->hora_fin}";
+                } elseif ($srv->duracion_cantidad && $srv->duracion_unidad) {
+                    $horario = "{$srv->duracion_cantidad} {$srv->duracion_unidad}";
+                }
+
+                $presupuesto = '—';
+                if ($srv->presupuesto_referencial) {
+                    $presupuesto = 'S/. ' . number_format((float) $srv->presupuesto_referencial, 2, '.', ',');
+                }
+
                 return [
-                    'codigo' => '—',
-                    'cantidad' => 1,
-                    'unidad' => 'SRV',
-                    'descripcion' => ($srv->tipo_servicio ? $srv->tipo_servicio . ': ' : '') . $srv->descripcion_servicio . ($srv->detalles ? " (" . $srv->detalles . ")" : ""),
+                    'tipo' => $srv->tipo_servicio ?? '—',
+                    'descripcion' => $srv->descripcion_servicio ?? '—',
+                    'lugar' => $srv->lugar_ejecucion ?? '—',
+                    'horario' => $horario,
+                    'duracion' => $srv->duracion_cantidad
+                        ? "{$srv->duracion_cantidad} {$srv->duracion_unidad}"
+                        : '—',
+                    'presupuesto' => $presupuesto,
                 ];
             })->toArray();
         }
