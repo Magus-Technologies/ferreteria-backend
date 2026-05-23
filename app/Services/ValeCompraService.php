@@ -22,14 +22,16 @@ class ValeCompraService
     public function aplicarValesAutomaticos(Venta $venta, array $detallesVenta): Collection
     {
         try {
-            // 1. Calcular datos de la venta
-            $cantidadTotal = $this->calcularCantidadTotal($detallesVenta);
+            // 1. Calcular datos de la venta. El umbral del vale es por PRECIO
+            // (monto total en S/), no por cantidad de unidades. El nombre de
+            // columna `cantidad_minima` se mantiene por compatibilidad histórica.
+            $precioTotal = $this->calcularPrecioTotal($detallesVenta);
             $categorias = $this->extraerCategorias($detallesVenta);
             $productos = $this->extraerProductos($detallesVenta);
 
 
             // 2. Buscar vales potencialmente aplicables
-            $valesPotenciales = $this->buscarValesPotenciales($cantidadTotal);
+            $valesPotenciales = $this->buscarValesPotenciales($precioTotal);
 
             // 3. Filtrar vales por modalidad y restricciones
             $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $venta) {
@@ -40,7 +42,7 @@ class ValeCompraService
             // 4. Aplicar cada vale
             $valesAplicados = collect();
             foreach ($valesAplicables as $vale) {
-                $aplicado = $this->aplicarVale($vale, $venta, $cantidadTotal);
+                $aplicado = $this->aplicarVale($vale, $venta, $precioTotal);
                 if ($aplicado) {
                     $valesAplicados->push($aplicado);
                 }
@@ -61,12 +63,15 @@ class ValeCompraService
     }
 
     /**
-     * Calcular cantidad total de productos en la venta
+     * Calcular monto total de la venta en S/ (suma de precio_total por línea).
+     * El controller `prepararDetallesVentaParaVales` calcula `precio_total`
+     * como `precio × cantidad` por unidad derivada. Si falta el campo
+     * (legacy callers), se asume 0 — el vale no se activará para esa línea.
      */
-    private function calcularCantidadTotal(array $detallesVenta): float
+    private function calcularPrecioTotal(array $detallesVenta): float
     {
         return collect($detallesVenta)->sum(function($detalle) {
-            return $detalle['cantidad'] ?? 0;
+            return $detalle['precio_total'] ?? 0;
         });
     }
 
@@ -97,14 +102,16 @@ class ValeCompraService
     }
 
     /**
-     * Buscar vales potencialmente aplicables
+     * Buscar vales potencialmente aplicables comparando contra el monto total
+     * de la venta en S/. `cantidad_minima` aquí representa el precio mínimo
+     * (nombre histórico de columna sin migrar).
      */
-    private function buscarValesPotenciales(float $cantidadTotal): Collection
+    private function buscarValesPotenciales(float $precioTotal): Collection
     {
         return ValeCompra::with(['categorias', 'productos', 'productoGratis'])
             ->activos()
             ->vigentes()
-            ->where('cantidad_minima', '<=', $cantidadTotal)
+            ->where('cantidad_minima', '<=', $precioTotal)
             ->get();
     }
 
@@ -199,16 +206,19 @@ class ValeCompraService
     private function aplicarVale(
         ValeCompra $vale,
         Venta $venta,
-        float $cantidadProductos
+        float $precioTotal
     ): ?ValeCompraAplicado {
         DB::beginTransaction();
 
         try {
+            // `cantidad_productos` es el nombre histórico de la columna;
+            // ahora almacena el MONTO TOTAL en S/ que disparó la activación
+            // del vale (paridad con `cantidad_minima` que ya es precio).
             $aplicado = ValeCompraAplicado::create([
                 'vale_compra_id' => $vale->id,
                 'venta_id' => $venta->id,
                 'cliente_id' => $venta->cliente_id,
-                'cantidad_productos' => $cantidadProductos,
+                'cantidad_productos' => $precioTotal,
                 'descuento_aplicado' => $vale->descuento_valor,
                 'descuento_tipo' => $vale->descuento_tipo,
                 'genera_vale_futuro' => $vale->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA',

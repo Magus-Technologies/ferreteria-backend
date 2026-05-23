@@ -296,8 +296,8 @@
             <div class="info-box">
                 <table class="info-table">
                     <tr>
-                        <td class="info-label">Compra minima</td>
-                        <td class="info-val">{{ $cantidadMinima }} und.</td>
+                        <td class="info-label">Precio minimo</td>
+                        <td class="info-val">S/ {{ number_format((float) $cantidadMinima, 2) }}</td>
                     </tr>
                     <tr>
                         <td class="info-label">Modalidad</td>

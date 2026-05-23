@@ -360,15 +360,22 @@ class EntregaProductoPdfService
 
             $cantidadEstaEntrega = (float) ($detalle->cantidad_entregada ?? 0);
 
-            // Recojo en tienda: el PDF debe reflejar el estado REAL de la línea
-            // de venta (total / entregado / pendiente), no solo la cantidad del
-            // detalle original de la entrega. Esto cubre el caso donde la venta
-            // se editó después de una entrega parcial en tienda.
-            if ($entrega->tipo_entrega === 'rt' && $udv) {
+            // El PDF debe reflejar el estado REAL de la línea de venta
+            // (total / entregado / pendiente), no solo la cantidad del detalle
+            // de esta entrega puntual. Esto aplica a cualquier tipo de entrega
+            // (Recojo en Tienda, Domicilio, Parcial) y cubre el caso donde la
+            // venta ya tuvo entregas previas o se editó después.
+            //
+            // Ejemplo: venta de 10 unidades, primera entrega de 5 (esta).
+            //   $cantidadEstaEntrega = 5
+            //   $udv->cantidad = 10, $udv->cantidad_pendiente = 5
+            //   El ticket debe mostrar Entreg=5, Pend=5 (global), no Pend=0.
+            if ($udv) {
                 $total = (float) ($udv->cantidad ?? $cantidadEstaEntrega);
                 $pendiente = max(0.0, (float) ($udv->cantidad_pendiente ?? 0));
                 $entregado = max(0.0, $total - $pendiente);
             } else {
+                // Fallback defensivo cuando no hay relación con unidad de venta.
                 $total = $cantidadEstaEntrega;
                 $pendiente = $entregaTieneEntregaFisica ? 0.0 : $cantidadEstaEntrega;
                 $entregado = $entregaTieneEntregaFisica ? $cantidadEstaEntrega : 0.0;
