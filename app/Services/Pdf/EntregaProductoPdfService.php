@@ -98,8 +98,10 @@ class EntregaProductoPdfService
             default => strtoupper($entrega->estado_entrega ?? '-'),
         };
 
-        // Filas para info-grid (label => valor) — mismo formato que venta/cotización.
-        $filas = [
+        // Filas separadas en dos secciones para que el A4 las renderice con
+        // bloques de estilo distintos (cliente con info_label/valor, entrega
+        // con entrega_info_label/valor).
+        $filasCliente = [
             [
                 'CLIENTE' => $clienteNombre,
                 'DOC' => $cliente->numero_documento ?? '-',
@@ -108,6 +110,9 @@ class EntregaProductoPdfService
                 'TELEFONO' => $cliente->telefono ?? $cliente->celular ?? '-',
                 'DIRECCION' => $entrega->direccion_entrega ?? '-',
             ],
+        ];
+
+        $filasEntrega = [
             [
                 'F. ENTREGA' => $entrega->fecha_entrega
                     ? \Carbon\Carbon::parse($entrega->fecha_entrega)->format('d/m/Y H:i')
@@ -123,6 +128,9 @@ class EntregaProductoPdfService
                 'ESTADO' => $estadoLabel,
             ],
         ];
+
+        // Combinado para retrocompatibilidad por si algún consumidor lo usa
+        $filas = array_merge($filasCliente, $filasEntrega);
 
         // Productos anteriores — leemos del último registro de historial
         // con `accion='edicion'`. El objetivo no es mostrar un segundo bloque
@@ -172,6 +180,8 @@ class EntregaProductoPdfService
             'tipoDocumentoTitulo' => $tipoDocumentoTitulo,
             'numeroDocumento' => $nroVenta,
             'filas' => $filas,
+            'filasCliente' => $filasCliente,
+            'filasEntrega' => $filasEntrega,
         ], $estilos);
 
         // Nombre del archivo según el estado de la entrega — coincide con el

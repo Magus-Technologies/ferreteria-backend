@@ -65,6 +65,12 @@ trait ResuelveEstilosPlantilla
             'despedida_footer'  => ['color' => $est['color_texto'], 'tamano' => $est['font_pt'],    'peso' => 'bold',   'alineacion' => 'center', 'fuente' => $fg],
             'consulta_leyenda'  => ['color' => '#666666',           'tamano' => $est['font_sm_pt'], 'peso' => 'normal', 'alineacion' => 'center', 'fuente' => $fg],
             'consulta_url'      => ['color' => '#333333',           'tamano' => $est['font_sm_pt'], 'peso' => 'bold',   'alineacion' => 'center', 'fuente' => $fg],
+
+            // Específicos del comprobante Entrega (separados de info_label/valor para
+            // poder personalizar la sección de "FECHA ENTREGA / TIPO / DESPACHADOR..."
+            // independientemente de "DATOS DEL CLIENTE").
+            'entrega_info_label' => ['color' => $est['color_texto'], 'tamano' => $est['font_sm_pt'], 'peso' => 'bold',   'alineacion' => 'left',   'fuente' => $fg],
+            'entrega_info_valor' => ['color' => $est['color_texto'], 'tamano' => $est['font_sm_pt'], 'peso' => 'normal', 'alineacion' => 'left',   'fuente' => $fg],
         ];
 
         $resultado = [];

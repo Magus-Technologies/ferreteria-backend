@@ -10,9 +10,43 @@
         'numeroDocumento' => $numeroDocumento,
     ])
 
-    {{-- Info del cliente y de la entrega — usa el info-grid amarillo
-         (color tema #fadc06) igual que las ventas. --}}
-    @include('pdf.layout.info-grid', ['filas' => $filas])
+    {{-- Datos del cliente (usa info_label / info_valor) --}}
+    @include('pdf.layout.info-grid', ['filas' => $filasCliente ?? $filas, 'sinMargen' => true])
+
+    {{-- Datos de la entrega (usa entrega_info_label / entrega_info_valor para
+         poder personalizar estos estilos independientemente del cliente) --}}
+    @php
+        $colorBorde = $est['color_borde'] ?? '#fadc06';
+        $padPx = $est['pad_px'] ?? 4;
+        $borderThin = $est['border_thin_px'] ?? 1;
+        $cssEntregaLabel = $bloques['entrega_info_label']['css'] ?? '';
+        $cssEntregaValor = $bloques['entrega_info_valor']['css'] ?? '';
+        $filasEntregaList = $filasEntrega ?? [];
+    @endphp
+    @if(count($filasEntregaList) > 0)
+        <table style="width: 100%; border: {{ $borderThin }}px solid {{ $colorBorde }}; border-top: 0; margin-bottom: 10px; border-collapse: collapse;">
+            @foreach($filasEntregaList as $fila)
+                <tr style="min-height: 18px;">
+                    @php($celdas = 0)
+                    @foreach($fila as $label => $valor)
+                        <td style="{{ $cssEntregaLabel }} width: {{ $loop->first ? '12%' : '15%' }}; padding: {{ $padPx }}px;">
+                            {{ $label }}
+                        </td>
+                        <td style="{{ $cssEntregaValor }} width: {{ $loop->first ? '38%' : '35%' }}; padding: {{ $padPx }}px;">
+                            : {{ $valor }}
+                        </td>
+                        @php($celdas++)
+                    @endforeach
+                    @if($celdas < 2)
+                        @for($i = $celdas; $i < 2; $i++)
+                            <td style="width: 15%; padding: {{ $padPx }}px;"></td>
+                            <td style="width: 35%; padding: {{ $padPx }}px;"></td>
+                        @endfor
+                    @endif
+                </tr>
+            @endforeach
+        </table>
+    @endif
 
     @if(($entregasTotales ?? 1) > 1)
         <div style="margin: 8px 0 10px; padding: 6px 10px; border: 1px solid #fadc06; background: #fff9db; font-size: 8pt; font-weight: bold; text-align: center;">

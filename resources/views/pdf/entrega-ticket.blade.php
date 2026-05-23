@@ -83,29 +83,29 @@
             <tr>
                 <td style="width: 50%; vertical-align: top; padding-right: 4px;">
                     <table>
-                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">FECHA ENTREGA:</td></tr>
-                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $entrega->fecha_entrega ? \Carbon\Carbon::parse($entrega->fecha_entrega)->format('d/m/Y') : '-' }}</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_label']['css'] ?? '' }}">FECHA ENTREGA:</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_valor']['css'] ?? '' }}">{{ $entrega->fecha_entrega ? \Carbon\Carbon::parse($entrega->fecha_entrega)->format('d/m/Y') : '-' }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
-                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">TIPO ENTREGA:</td></tr>
-                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $tipoEntregaLabel }}</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_label']['css'] ?? '' }}">TIPO ENTREGA:</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_valor']['css'] ?? '' }}">{{ $tipoEntregaLabel }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
-                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">DESPACHADOR:</td></tr>
-                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $entrega->despachador->name ?? $entrega->user->name ?? '-' }}</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_label']['css'] ?? '' }}">DESPACHADOR:</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_valor']['css'] ?? '' }}">{{ $entrega->despachador->name ?? $entrega->user->name ?? '-' }}</td></tr>
                     </table>
                 </td>
                 <td style="width: 50%; vertical-align: top; padding-left: 4px;">
                     <table>
                         @if($entrega->fecha_programada)
-                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">FECHA PROGRAMADA:</td></tr>
-                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ \Carbon\Carbon::parse($entrega->fecha_programada)->format('d/m/Y') }}</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_label']['css'] ?? '' }}">FECHA PROGRAMADA:</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_valor']['css'] ?? '' }}">{{ \Carbon\Carbon::parse($entrega->fecha_programada)->format('d/m/Y') }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
                         @endif
-                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">TIPO DESPACHO:</td></tr>
-                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $tipoDespachoLabel }}</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_label']['css'] ?? '' }}">TIPO DESPACHO:</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_valor']['css'] ?? '' }}">{{ $tipoDespachoLabel }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
                         @if($entrega->hora_inicio || $entrega->hora_fin)
-                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">HORARIO:</td></tr>
-                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $entrega->hora_inicio ?? '' }} - {{ $entrega->hora_fin ?? '' }}</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_label']['css'] ?? '' }}">HORARIO:</td></tr>
+                        <tr><td style="{{ $bloques['entrega_info_valor']['css'] ?? '' }}">{{ $entrega->hora_inicio ?? '' }} - {{ $entrega->hora_fin ?? '' }}</td></tr>
                         @endif
                     </table>
                 </td>

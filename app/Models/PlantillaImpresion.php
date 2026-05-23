@@ -72,6 +72,10 @@ class PlantillaImpresion extends Model
         'despedida_footer'   => 'Mensaje al pie (GRACIAS POR SU PREFERENCIA!)',
         'consulta_leyenda'   => 'Leyenda "Consulte su documento en:"',
         'consulta_url'       => 'URL del enlace de consulta',
+
+        // Bloques específicos del comprobante Entrega
+        'entrega_info_label' => 'Entrega: etiquetas datos de entrega (FECHA, TIPO, DESPACHADOR, etc.)',
+        'entrega_info_valor' => 'Entrega: valores datos de entrega',
     ];
 
     /**

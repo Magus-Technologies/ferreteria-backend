@@ -120,28 +120,34 @@
 
     {{-- Tabla productos --}}
     <div class="section-title" style="{{ $bloques['obs_label']['css'] ?? '' }}">PRODUCTOS</div>
-    <table>
+    <table style="font-size: 5pt; table-layout: fixed; width: 100%;">
         <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left;">Producto</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 35px;">C&oacute;digo</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 30px;">Cantidad</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 40px;">Unidad Derivada</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} width: 35px;">Stock Anterior</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} width: 35px;">Stock Nuevo</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: right; width: 35px;">Costo</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left; width: 12%;">C&oacute;d.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: right; width: 14%;">Cant.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left; width: 16%;">Unid.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: center; width: 16%;">St.Ant</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: center; width: 16%;">St.Nue</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: right; width: 14%;">Costo</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: right; width: 12%;">Total</td>
         </tr>
         @foreach($productos as $i => $p)
+        @php
+            $totalProd = ($p['costo'] ?? 0) * ($p['cantidad'] ?? 0);
+        @endphp
         <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
-            <td colspan="7" style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding-top: 2px;">{{ $p['nombre'] }}</td>
+            {{-- Línea 1: nombre del producto a todo el ancho --}}
+            <td colspan="7" style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 6pt; font-weight: bold; padding-top: 3px; word-wrap: break-word;">
+                {{ $i + 1 }}. {{ $p['nombre'] }}
+            </td>
         </tr>
-        <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
-            <td></td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }}">{{ $p['codigo'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }}">{{ number_format($p['cantidad'], 3) }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }}">{{ $p['unidad'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ $p['stock_anterior_f'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ $p['stock_nuevo_f'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: right;">{{ number_format($p['costo'], 2) }}</td>
+        <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }}; border-bottom: 1px dotted {{ $est['color_borde'] ?? '#999' }};">
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding-bottom: 2px;">{{ $p['codigo'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: right; padding-bottom: 2px;">{{ number_format($p['cantidad'], 2) }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding-bottom: 2px;">{{ $p['unidad'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-bottom: 2px;">{{ $p['stock_anterior_f'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-bottom: 2px;">{{ $p['stock_nuevo_f'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: right; padding-bottom: 2px;">{{ number_format($p['costo'], 2) }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: right; padding-bottom: 2px;">{{ number_format($totalProd, 2) }}</td>
         </tr>
         @endforeach
     </table>
