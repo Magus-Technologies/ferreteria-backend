@@ -1,115 +1,158 @@
-@extends('pdf.layout.document')
-
-@section('styles')
-    .bg-theme-light { background-color: #fffbeb; }
-    .border-theme-box {
-        border: 1.5px solid #fadc06;
-        border-radius: 4px;
-    }
-@endsection
-
-@section('content')
-    {{-- Header compacto --}}
-    <table style="width: 100%; margin-bottom: 6px;">
-        <tr>
-            <td style="width: 60px; vertical-align: middle;">
-                @if(!empty($logoPath))
-                <img src="{{ $logoPath }}" style="width: 50px;" />
-                @endif
-            </td>
-            <td style="vertical-align: middle;">
-                <div style="font-size: 8pt; font-weight: bold;">{{ $empresa->razon_social }}</div>
-                <div style="font-size: 6pt; color: #666;">{{ $empresa->telefono ?? '' }}</div>
-            </td>
-            <td style="width: 140px; vertical-align: middle; text-align: right;">
-                <div style="border: 1.5px solid #fadc06; border-radius: 4px; overflow: hidden; background-color: #fffbeb; text-align: center;">
-                    <div style="font-size: 7pt; font-weight: bold; background-color: #fadc06; padding: 2px;">OC</div>
-                    <div style="font-size: 9pt; font-weight: bold; padding: 2px;">{{ $requerimiento->codigo }}</div>
-                </div>
-            </td>
-        </tr>
-    </table>
-
-    {{-- Información General --}}
-    <table class="border-theme-box bg-theme-light" style="width: 100%; font-size: 7pt; margin-bottom: 8px; padding: 4px 6px;">
-        <tr>
-            <td style="font-weight: bold; text-transform: uppercase; font-size: 6.5pt; padding: 1px;">ÁREA:</td>
-            <td style="font-size: 7pt; padding: 1px;">{{ $requerimiento->cargo }}</td>
-            <td style="font-weight: bold; text-transform: uppercase; font-size: 6.5pt; padding: 1px;">FECHA:</td>
-            <td style="font-size: 7pt; padding: 1px;">{{ $fechaFormato }}</td>
-        </tr>
-        <tr>
-            <td style="font-weight: bold; text-transform: uppercase; font-size: 6.5pt; padding: 1px;">PRIORIDAD:</td>
-            <td style="font-size: 7pt; padding: 1px;">{{ $requerimiento->prioridad }}</td>
-            <td style="font-weight: bold; text-transform: uppercase; font-size: 6.5pt; padding: 1px;">ESTADO:</td>
-            <td style="font-size: 7pt; padding: 1px;">{{ $requerimiento->estado }}</td>
-        </tr>
-        <tr>
-            <td style="font-weight: bold; text-transform: uppercase; font-size: 6.5pt; padding: 1px;">SOLICITANTE:</td>
-            <td colspan="3" style="font-size: 7pt; padding: 1px;">{{ $requerimiento->user->name ?? '—' }}</td>
-        </tr>
-    </table>
-
-    {{-- Tabla de Productos --}}
-    <div style="font-size: 8pt; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid #fadc06;">
-        Productos Requeridos
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>{{ $titulo ?? 'Orden de Compra' }}</title>
+    <style>
+        @page {
+            size: 80mm auto;
+            margin: 3mm;
+        }
+        {!! $font_face_css ?? '' !!}
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            font-size: 7pt;
+            color: #000;
+            line-height: 1.3;
+            width: 74mm;
+            margin: 0;
+            padding: 0;
+        }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .text-bold { font-weight: bold; }
+        .separator { border-top: 1px dashed #000; margin: 4px 0; }
+        table { width: 100%; border-collapse: collapse; }
+    </style>
+</head>
+<body>
+    {{-- Header: Logo + Empresa --}}
+    <div class="text-center" style="margin-bottom: 4px;">
+        @if(!empty($logoPath))
+            <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
+        @endif
+        <div style="margin-top: 2px;">
+            <div style="font-weight:bold; font-size:9pt;">{{ $empresa->razon_social }}</div>
+            <div style="font-weight:bold; font-size:7pt;">R.U.C. {{ $empresa->ruc }}</div>
+            <div style="font-size:6pt;">{{ $empresa->direccion }}</div>
+            @if(!empty($empresa->telefono ?? $empresa->celular))
+                <div style="font-size:6pt;"><span class="text-bold">Cel:</span> {{ $empresa->telefono ?? $empresa->celular }}</div>
+            @endif
+            @if(!empty($empresa->email))
+                <div style="font-size:6pt;"><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+            @endif
+        </div>
     </div>
-    <table style="width: 100%; border: 1px solid #fadc06; border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-        <tr style="background-color: #fadc06;">
-            <td style="padding: 2px; font-size: 6.5pt; font-weight: bold; text-align: center; width: 12%;">CÓDIGO</td>
-            <td style="padding: 2px; font-size: 6.5pt; font-weight: bold; text-align: center; width: 15%;">CANT</td>
-            <td style="padding: 2px; font-size: 6.5pt; font-weight: bold; text-align: center; width: 10%;">U.M</td>
-            <td style="padding: 2px; font-size: 6.5pt; font-weight: bold; text-align: left;">DESCRIPCIÓN</td>
-        </tr>
-        @forelse($productos as $i => $item)
-        <tr style="border-bottom: 1px solid #fadc06; background-color: {{ $i % 2 === 0 ? '#fafafa' : '#fff' }};">
-            <td style="padding: 2px; font-size: 6.5pt; text-align: center;">{{ $item['codigo'] }}</td>
-            <td style="padding: 2px; font-size: 6.5pt; text-align: center;">{{ $item['cantidad'] }}</td>
-            <td style="padding: 2px; font-size: 6.5pt; text-align: center;">{{ $item['unidad'] }}</td>
-            <td style="padding: 2px; font-size: 6.5pt;">{{ $item['descripcion'] }}</td>
-        </tr>
-        @empty
-        <tr>
-            <td colspan="4" style="padding: 4px; text-align: center; font-style: italic; color: #666; font-size: 6.5pt;">Sin productos registrados</td>
-        </tr>
-        @endforelse
-    </table>
+
+    <div class="separator"></div>
+
+    {{-- Tipo documento y número --}}
+    <div style="padding: 4px 0; text-align: center;">
+        <div style="font-weight:bold; font-size:9pt;">ORDEN DE COMPRA</div>
+        <div style="font-weight:bold; font-size:9pt;">{{ $requerimiento->codigo }}</div>
+        <div style="font-size:6pt;">LOG-F-03</div>
+    </div>
+
+    <div class="separator"></div>
+
+    {{-- Info general --}}
+    <div style="padding: 2px 0 6px;">
+        <table>
+            <tr>
+                <td style="width:40%; text-transform:uppercase; font-weight:bold; font-size:6pt;">Área:</td>
+                <td style="font-size:6pt;">{{ $requerimiento->cargo }}</td>
+            </tr>
+            <tr>
+                <td style="text-transform:uppercase; font-weight:bold; font-size:6pt;">Fecha:</td>
+                <td style="font-size:6pt;">{{ $fechaFormato }}</td>
+            </tr>
+            <tr>
+                <td style="text-transform:uppercase; font-weight:bold; font-size:6pt;">Prioridad:</td>
+                <td style="font-size:6pt;">{{ $requerimiento->prioridad }}</td>
+            </tr>
+            <tr>
+                <td style="text-transform:uppercase; font-weight:bold; font-size:6pt;">Estado:</td>
+                <td style="font-size:6pt;">{{ $requerimiento->estado }}</td>
+            </tr>
+            <tr>
+                <td style="text-transform:uppercase; font-weight:bold; font-size:6pt;">Solicitante:</td>
+                <td style="font-size:6pt;">{{ $requerimiento->user->name ?? '—' }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="separator"></div>
+
+    {{-- Tabla de productos --}}
+    <div style="padding-top: 4px;">
+        <table>
+            <thead>
+                <tr style="border-bottom: 1px solid #000;">
+                    <th style="text-align:center; width:20%; font-weight:bold; font-size:6pt;">Cód.</th>
+                    <th style="text-align:center; width:15%; font-weight:bold; font-size:6pt;">Cant</th>
+                    <th style="text-align:center; width:15%; font-weight:bold; font-size:6pt;">U.M</th>
+                    <th style="text-align:left; font-weight:bold; font-size:6pt;">Descripción</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($productos as $i => $item)
+                <tr style="border-bottom: 1px solid #000;">
+                    <td style="padding:2px 0; text-align:center; font-size:6pt;">{{ $item['codigo'] }}</td>
+                    <td style="padding:2px 0; text-align:center; font-size:6pt;">{{ $item['cantidad'] }}</td>
+                    <td style="padding:2px 0; text-align:center; font-size:6pt;">{{ $item['unidad'] }}</td>
+                    <td style="padding:2px 0; font-size:6pt;">{{ $item['descripcion'] }}</td>
+                </tr>
+                @empty
+                <tr>
+                    <td colspan="4" style="padding:4px; text-align:center; font-style:italic; color:#666; font-size:6pt;">Sin productos registrados</td>
+                </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
 
     {{-- Observaciones --}}
     @if($requerimiento->observaciones)
-    <table class="border-theme-box bg-theme-light" style="width: 100%; margin-bottom: 8px; padding: 4px 6px; font-size: 6.5pt;">
-        <tr>
-            <td>
-                <span style="font-weight: bold;">Obs:</span> {{ $requerimiento->observaciones }}
-            </td>
-        </tr>
-    </table>
+    <div class="separator"></div>
+    <div style="margin-top: 4px;">
+        <div style="font-weight:bold; font-size:6pt; text-transform:uppercase;">Observaciones:</div>
+        <div style="font-size:6pt;">{{ $requerimiento->observaciones }}</div>
+    </div>
     @endif
 
-    {{-- Proveedor Sugerido --}}
+    {{-- Proveedor sugerido --}}
     @if($requerimiento->proveedorSugerido)
-    <table class="border-theme-box bg-theme-light" style="width: 100%; margin-bottom: 8px; padding: 4px 6px; font-size: 6.5pt;">
-        <tr>
-            <td style="font-weight: bold; text-transform: uppercase;">PROV:</td>
-            <td>{{ $requerimiento->proveedorSugerido->razon_social }}</td>
-            <td style="font-weight: bold; text-transform: uppercase;">RUC:</td>
-            <td>{{ $requerimiento->proveedorSugerido->ruc }}</td>
-        </tr>
-    </table>
+    <div class="separator"></div>
+    <div style="margin-top: 4px;">
+        <table>
+            <tr>
+                <td style="text-transform:uppercase; font-weight:bold; font-size:6pt; width:40%;">Proveedor:</td>
+                <td style="font-size:6pt;">{{ $requerimiento->proveedorSugerido->razon_social }}</td>
+            </tr>
+            <tr>
+                <td style="text-transform:uppercase; font-weight:bold; font-size:6pt;">RUC:</td>
+                <td style="font-size:6pt;">{{ $requerimiento->proveedorSugerido->ruc }}</td>
+            </tr>
+        </table>
+    </div>
     @endif
+
+    <div class="separator"></div>
 
     {{-- Firmas --}}
-    <table style="width: 100%; margin-top: 12px;">
+    <table style="margin-top: 12px;">
         <tr>
-            <td style="width: 33%; text-align: center; vertical-align: bottom; font-size: 6pt;">
-                <div style="border-top: 1px solid #000; margin-top: 16px; padding-top: 2px;">Responsable</div>
+            <td style="width:33%; text-align:center; vertical-align:bottom; font-size:5pt;">
+                <div style="border-top: 1px solid #000; margin-top: 18px; padding-top: 2px;">Responsable</div>
             </td>
-            <td style="width: 33%; text-align: center; vertical-align: bottom; font-size: 6pt;">
-                <div style="border-top: 1px solid #000; margin-top: 16px; padding-top: 2px;">Solicitante</div>
+            <td style="width:33%; text-align:center; vertical-align:bottom; font-size:5pt;">
+                <div style="border-top: 1px solid #000; margin-top: 18px; padding-top: 2px;">Solicitante</div>
             </td>
-            <td style="width: 33%; text-align: center; vertical-align: bottom; font-size: 6pt;">
-                <div style="border-top: 1px solid #000; margin-top: 16px; padding-top: 2px;">Supervisor</div>
+            <td style="width:33%; text-align:center; vertical-align:bottom; font-size:5pt;">
+                <div style="border-top: 1px solid #000; margin-top: 18px; padding-top: 2px;">Supervisor</div>
             </td>
         </tr>
     </table>
-@endsection
+</body>
+</html>

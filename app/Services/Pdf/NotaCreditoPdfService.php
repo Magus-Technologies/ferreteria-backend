@@ -7,7 +7,7 @@ use Illuminate\Http\Response;
 
 class NotaCreditoPdfService
 {
-    public function generar(string $id): Response
+    public function generar(string $id, string $formato = 'a4'): Response
     {
         $nota = $this->obtenerNota($id);
         $empresa = $nota->usuario->empresa;
@@ -53,7 +53,8 @@ class NotaCreditoPdfService
 
         $filename = "NC-{$numeroCompleto}.pdf";
 
-        return PdfService::render('pdf.nota-credito', $data, $filename);
+        $view = $formato === 'ticket' ? 'pdf.nota-credito-ticket' : 'pdf.nota-credito';
+        return PdfService::render($view, $data, $filename);
     }
 
     private function obtenerNota(string $id): NotaCredito

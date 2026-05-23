@@ -14,7 +14,7 @@ class RequerimientoInternoPdfService
         $view = $this->getViewName($tipo, $formato);
         $filename = "{$data['requerimiento']->codigo}-LOG-F-03.pdf";
 
-        return PdfService::render($view, $data, $filename);
+        return PdfService::render($view, $data, $filename, 'portrait', $this->paperSizeFor($formato));
     }
 
     public function generarBinario(int $id, ?string $formato = 'a4', ?array $columnas = null): string
@@ -23,7 +23,16 @@ class RequerimientoInternoPdfService
         $tipo = $data['requerimiento']->tipo_solicitud;
         $view = $this->getViewName($tipo, $formato);
 
-        return PdfService::output($view, $data);
+        return PdfService::output($view, $data, 'portrait', $this->paperSizeFor($formato));
+    }
+
+    /**
+     * Tamaño de papel según formato. Ticket = 80mm de ancho (226.77 pt),
+     * alto suficiente para que dompdf no recorte el contenido.
+     */
+    private function paperSizeFor(?string $formato): ?array
+    {
+        return $formato === 'ticket' ? [0, 0, 226.77, 841.89] : null;
     }
 
     private function getViewName(string $tipo, string $formato): string
