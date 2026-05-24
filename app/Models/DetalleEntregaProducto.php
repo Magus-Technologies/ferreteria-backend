@@ -85,9 +85,23 @@ class DetalleEntregaProducto extends Model
         }
     }
 
+    /**
+     * NO-OP defensivo.
+     *
+     * Antes este setter sobreescribía `cantidad_solicitada` con la cantidad
+     * "entregada" que viene en el payload legacy — bug destructivo: si el
+     * frontend mandaba cantidad_entregada=5 sobre una entrega solicitada de
+     * 10, el total se reducía a 5 perdiendo la referencia del pedido original.
+     *
+     * En el modelo "1 orden + N eventos" la cantidad entregada se calcula
+     * sumando los `DetalleEntregaEvento` con `entregaevento.estado='en'`. Por
+     * eso este setter ya NO escribe en BD. Si llega cantidad_entregada en el
+     * payload se ignora silenciosamente — el camino correcto es crear un
+     * `EntregaEvento` vía `POST /entregas-productos/{id}/eventos`.
+     */
     public function setCantidadEntregadaAttribute($value): void
     {
-        $this->setCantidadSolicitadaAttribute($value);
+        // Intencionalmente vacío — ver docblock.
     }
 
     public function getCantidadSolicitadaAttribute($value): float
