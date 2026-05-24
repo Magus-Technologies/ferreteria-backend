@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\RecepcionAlmacen;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class RecepcionAlmacenPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(int $id, string $formato = 'a4'): Response
     {
         $recepcion = $this->obtenerRecepcion($id);
@@ -21,8 +24,9 @@ class RecepcionAlmacenPdfService
         }
 
         $src = $recepcion->compra ?? $recepcion->ordenCompra;
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'recepcion-almacen', 'A4');
 
-        $data = [
+        $data = array_merge([
             'recepcion' => $recepcion,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -33,8 +37,8 @@ class RecepcionAlmacenPdfService
             'filas' => $this->prepararInfoGeneral($recepcion, $src),
             'filasProveedor' => $this->prepararInfoProveedor($recepcion, $src),
             'filasTransportista' => $this->prepararInfoTransportista($recepcion),
-            'observaciones' => $recepcion->observaciones ?: '- NINGUNA',
-        ];
+            'observaciones' => $recepcion->observaciones ?: ($estilos['msg']['observaciones_default'] ?? '- NINGUNA'),
+        ], $estilos);
 
         return PdfService::render('pdf.recepcion-almacen', $data, "RA-{$nroDoc}.pdf");
     }
@@ -42,8 +46,9 @@ class RecepcionAlmacenPdfService
     private function generarTicket($recepcion, $empresa, string $nroDoc, array $productos, float $total): Response
     {
         $src = $recepcion->compra ?? $recepcion->ordenCompra;
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'recepcion-almacen', 'Ticket');
 
-        $data = [
+        $data = array_merge([
             'recepcion' => $recepcion,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -51,7 +56,7 @@ class RecepcionAlmacenPdfService
             'productos' => $productos,
             'total' => $total,
             'src' => $src,
-        ];
+        ], $estilos);
 
         return PdfService::render(
             'pdf.recepcion-almacen-ticket',

@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\TransferenciaStock;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class TransferenciaStockPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(int $id, string $formato = 'ticket'): Response
     {
         $transferencia = $this->obtenerTransferencia($id);
@@ -17,18 +20,20 @@ class TransferenciaStockPdfService
         $productos = $this->prepararProductos($transferencia);
         $total = $this->calcularTotal($productos);
 
-        $data = [
-            'transferencia' => $transferencia,
-            'empresa' => $empresa,
-            'logoPath' => PdfService::getLogoPath($empresa->logo),
-            'tipoDoc' => $tipoDoc,
-            'nroDoc' => $nroDoc,
-            'productos' => $productos,
-            'total' => $total,
-            'son' => PdfService::numeroALetras($total),
-        ];
-
         if ($formato === 'ticket') {
+            $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'transferencia-stock', 'Ticket');
+
+            $data = array_merge([
+                'transferencia' => $transferencia,
+                'empresa' => $empresa,
+                'logoPath' => PdfService::getLogoPath($empresa->logo),
+                'tipoDoc' => $tipoDoc,
+                'nroDoc' => $nroDoc,
+                'productos' => $productos,
+                'total' => $total,
+                'son' => PdfService::numeroALetras($total),
+            ], $estilos);
+
             return PdfService::render(
                 'pdf.transferencia-stock-ticket',
                 $data,
@@ -38,10 +43,22 @@ class TransferenciaStockPdfService
             );
         }
 
-        $data['filas'] = $this->prepararInfoGeneral($transferencia);
-        $data['tipoDocumentoTitulo'] = $tipoDoc;
-        $data['numeroDocumento'] = $nroDoc;
-        $data['observaciones'] = $transferencia->descripcion ?: '- NINGUNA';
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'transferencia-stock', 'A4');
+
+        $data = array_merge([
+            'transferencia' => $transferencia,
+            'empresa' => $empresa,
+            'logoPath' => PdfService::getLogoPath($empresa->logo),
+            'tipoDoc' => $tipoDoc,
+            'nroDoc' => $nroDoc,
+            'productos' => $productos,
+            'total' => $total,
+            'son' => PdfService::numeroALetras($total),
+            'filas' => $this->prepararInfoGeneral($transferencia),
+            'tipoDocumentoTitulo' => $tipoDoc,
+            'numeroDocumento' => $nroDoc,
+            'observaciones' => $transferencia->descripcion ?: ($estilos['msg']['observaciones_default'] ?? '- NINGUNA'),
+        ], $estilos);
 
         return PdfService::render('pdf.transferencia-stock', $data, "TS-{$nroDoc}.pdf");
     }

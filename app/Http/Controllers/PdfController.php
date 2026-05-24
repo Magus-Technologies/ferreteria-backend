@@ -65,14 +65,16 @@ class PdfController extends Controller
         return $service->generar($id);
     }
 
-    public function notaCredito(string $id, NotaCreditoPdfService $service): Response
+    public function notaCredito(string $id, Request $request, NotaCreditoPdfService $service): Response
     {
-        return $service->generar($id);
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
     }
 
-    public function notaDebito(string $id, NotaDebitoPdfService $service): Response
+    public function notaDebito(string $id, Request $request, NotaDebitoPdfService $service): Response
     {
-        return $service->generar($id);
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
     }
 
     public function cierreCaja(string $id, Request $request, CierreCajaPdfService $service): Response
@@ -112,9 +114,10 @@ class PdfController extends Controller
         return $service->generar($id, $formato);
     }
 
-    public function requerimientoInterno(int $id, RequerimientoInternoPdfService $service): Response
+    public function requerimientoInterno(int $id, Request $request, RequerimientoInternoPdfService $service): Response
     {
-        return $service->generar($id);
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $formato);
     }
 
     public function entregaProducto(int $id, Request $request, EntregaProductoPdfService $service): Response
