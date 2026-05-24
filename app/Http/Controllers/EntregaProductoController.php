@@ -66,6 +66,10 @@ class EntregaProductoController extends Controller
                 'userEntregado:id,name',
                 'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
                 'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
+                // Entregas hermanas de la misma venta — necesarias para calcular
+                // totales acumulados de entregado/programado en el detalle de entrega.
+                'venta.entregasProductos:id,venta_id,estado_entrega',
+                'venta.entregasProductos.productosEntregados:id,entrega_producto_id,unidad_derivada_venta_id,cantidad_solicitada',
             ]);
 
         // Filter by venta_id
@@ -336,7 +340,7 @@ class EntregaProductoController extends Controller
                 DetalleEntregaProducto::create([
                     'entrega_producto_id' => $entrega->id,
                     'unidad_derivada_venta_id' => $detalle['unidad_derivada_venta_id'],
-                    'cantidad_entregada' => $cantidadEntregada,
+                    'cantidad_solicitada' => $cantidadEntregada,
                     'ubicacion' => $detalle['ubicacion'] ?? null,
                 ]);
 
@@ -505,8 +509,9 @@ class EntregaProductoController extends Controller
         $entrega = EntregaProducto::with([
             'venta:id,serie,numero,cliente_id,almacen_id',
             'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono,email',
+            'venta.cliente.direcciones:id,cliente_id,tipo,direccion,referencia,latitud,longitud',
             'venta.entregasProductos:id,venta_id,grupo_entrega_id,estado_entrega,tipo_entrega,tipo_despacho,fecha_entrega,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones,chofer_id,vehiculo_id,quien_entrega,tipo_pedido,cargo_destino,user_id,user_entregado_id,created_at',
-            'venta.entregasProductos.productosEntregados:id,entrega_producto_id,unidad_derivada_venta_id,cantidad_entregada',
+            'venta.entregasProductos.productosEntregados:id,entrega_producto_id,unidad_derivada_venta_id,cantidad_solicitada',
             'venta.entregasProductos.despachador:id,name,telefono,celular,email',
             'venta.entregasProductos.vehiculo:id,name,tipo,placa',
             'venta.almacen:id,name',
@@ -549,7 +554,10 @@ class EntregaProductoController extends Controller
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
-            $entrega = EntregaProducto::with('productosEntregados')->findOrFail($id);
+            $entrega = EntregaProducto::with([
+                'productosEntregados',
+                'productosEntregados.unidadDerivadaVenta',
+            ])->findOrFail($id);
             $venta = Venta::find($entrega->venta_id);
 
             if (! empty($validated['productos_entregados'])) {
@@ -570,16 +578,58 @@ class EntregaProductoController extends Controller
                         ]);
                     }
 
-                    $cantidadProgramadaOriginal = (float) $detalleExistente->cantidad_entregada;
-                    if ($cantidadNueva > $cantidadProgramadaOriginal) {
-                        throw ValidationException::withMessages([
-                            'productos_entregados' => [
-                                "La cantidad entregada ({$cantidadNueva}) no puede ser mayor a la cantidad programada ({$cantidadProgramadaOriginal})",
-                            ],
-                        ]);
+                    $cantidadProgramadaOriginal = (float) $detalleExistente->cantidad_solicitada;
+
+                    // Placeholder delivery (created via "Omitir" in crear-venta):
+                    // cantidad_entregada = 0 means no stock was reserved at create time.
+                    // Validate against UDV cantidad_pendiente and consume it immediately
+                    // (same moment store() would consume it for regular deliveries).
+                    $esPlaceholderOmitido = ($cantidadProgramadaOriginal === 0.0);
+
+                    if ($esPlaceholderOmitido) {
+                        $udv = $detalleExistente->unidadDerivadaVenta;
+                        $maxPermitido = $udv ? (float) $udv->cantidad_pendiente : 0.0;
+                        if ($cantidadNueva > $maxPermitido) {
+                            throw ValidationException::withMessages([
+                                'productos_entregados' => [
+                                    "La cantidad a entregar ({$cantidadNueva}) supera la cantidad disponible ({$maxPermitido})",
+                                ],
+                            ]);
+                        }
+                        // Consume UDV pendiente and decrement stock right now —
+                        // the Domicilio flow sends 'ec' + amounts together but
+                        // 'en' arrives later without amounts, so we can't wait.
+                        if ($cantidadNueva > 0 && $udv) {
+                            $udv->decrement('cantidad_pendiente', $cantidadNueva);
+
+                            if (! ($venta?->stock_aplicado ?? false)) {
+                                $productoAlmacen = $udv->productoAlmacenVenta?->productoAlmacen;
+                                if ($productoAlmacen) {
+                                    $fraccion = $cantidadNueva * (float) $udv->factor;
+                                    $productoAlmacen->decrement('stock_fraccion', $fraccion);
+
+                                    ComplementarioStockService::procesarComplementarioPorFactor(
+                                        $productoAlmacen->id,
+                                        (float) $udv->factor,
+                                        $cantidadNueva,
+                                        $entrega->almacen_salida_id,
+                                        false
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        if ($cantidadNueva > $cantidadProgramadaOriginal) {
+                            throw ValidationException::withMessages([
+                                'productos_entregados' => [
+                                    "La cantidad entregada ({$cantidadNueva}) no puede ser mayor a la cantidad programada ({$cantidadProgramadaOriginal})",
+                                ],
+                            ]);
+                        }
                     }
 
-                    $cantidadLiberada = $cantidadProgramadaOriginal - $cantidadNueva;
+                    // Placeholder: nothing was reserved before, so nothing to release.
+                    $cantidadLiberada = $esPlaceholderOmitido ? 0.0 : ($cantidadProgramadaOriginal - $cantidadNueva);
                     $esTramoPendienteSinReserva =
                         in_array($entrega->tipo_entrega, ['pa', 'rt'], true) &&
                         $entrega->tipo_despacho === 'in' &&
@@ -590,7 +640,7 @@ class EntregaProductoController extends Controller
                             ->increment('cantidad_pendiente', $cantidadLiberada);
                     }
 
-                    $detalleExistente->cantidad_entregada = $cantidadNueva;
+                    $detalleExistente->cantidad_solicitada = $cantidadNueva;
                     $detalleExistente->save();
                 }
 
@@ -628,10 +678,10 @@ class EntregaProductoController extends Controller
                         $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
                         if (! $unidadDerivadaVenta) continue;
 
-                        $cantidadEntregada = (float) $detalle->cantidad_entregada;
+                        $cantidadEntregada = (float) $detalle->cantidad_solicitada;
                         if ($cantidadEntregada <= 0 && $entrega->tipo_entrega === 'rt') {
                             $cantidadEntregada = (float) $unidadDerivadaVenta->cantidad_pendiente;
-                            $detalle->cantidad_entregada = $cantidadEntregada;
+                            $detalle->cantidad_solicitada = $cantidadEntregada;
                             $detalle->save();
                         }
                         $cantidadPendiente = (float) $unidadDerivadaVenta->cantidad_pendiente;
@@ -663,6 +713,7 @@ class EntregaProductoController extends Controller
                         }
                     }
                 }
+
             }
 
             // Update entrega
@@ -719,7 +770,7 @@ class EntregaProductoController extends Controller
             foreach ($entrega->productosEntregados as $detalle) {
                 $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
                 if ($unidadDerivadaVenta) {
-                    $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_entregada);
+                    $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_solicitada);
                 }
             }
 
@@ -766,20 +817,20 @@ class EntregaProductoController extends Controller
                 $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
                 if (! $unidadDerivadaVenta) continue;
 
-                $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_entregada);
+                $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_solicitada);
 
                 // Revertir stock solo si se descontó al entregar (Parcial/legacy)
                 if ($stockDescontadoAlEntregar) {
                     $productoAlmacen = $unidadDerivadaVenta->productoAlmacenVenta?->productoAlmacen;
                     if ($productoAlmacen) {
-                        $cantidadEnFraccion = (float) $detalle->cantidad_entregada * (float) $unidadDerivadaVenta->factor;
+                        $cantidadEnFraccion = (float) $detalle->cantidad_solicitada * (float) $unidadDerivadaVenta->factor;
                         $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
 
                         // Revertir producto complementario
                         ComplementarioStockService::procesarComplementarioPorFactor(
                             $productoAlmacen->id,
                             (float) $unidadDerivadaVenta->factor,
-                            (float) $detalle->cantidad_entregada,
+                            (float) $detalle->cantidad_solicitada,
                             $entrega->almacen_salida_id,
                             true // ingreso (revertir)
                         );

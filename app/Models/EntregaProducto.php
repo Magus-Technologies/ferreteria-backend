@@ -138,11 +138,58 @@ class EntregaProducto extends Model
     }
 
     /**
-     * Relación: Tiene muchos productos entregados
+     * Relación: Tiene muchos productos entregados (líneas SOLICITADAS).
+     * Mantiene el nombre histórico — la "cantidad entregada" ahora se calcula
+     * sumando los eventos físicos asociados (ver `DetalleEntregaProducto`).
      */
     public function productosEntregados(): HasMany
     {
         return $this->hasMany(DetalleEntregaProducto::class, 'entrega_producto_id');
+    }
+
+    /**
+     * Relación: Tiene muchos eventos de despacho físico — cada uno con su
+     * propio chofer, fecha programada, vehículo y estado. Un pedido de 10 ud
+     * que se despacha en 3 viajes tiene 3 eventos colgando de UNA sola
+     * `entregaproducto`.
+     */
+    public function eventos(): HasMany
+    {
+        return $this->hasMany(EntregaEvento::class, 'entrega_producto_id');
+    }
+
+    /**
+     * Recalcula y persiste `estado_entrega` a partir de los eventos:
+     *   - 'en'  → todas las líneas solicitadas están cubiertas por eventos 'en'
+     *   - 'ec'  → hay al menos un evento 'ec' (en camino) o entrega parcial
+     *   - 'pe'  → no hay eventos activos
+     */
+    public function recalcularEstado(): void
+    {
+        $this->load(['productosEntregados.eventosDetalle.entregaEvento']);
+
+        $todoEntregado = true;
+        $hayEnCamino = false;
+        $hayAlgunaEntrega = false;
+
+        foreach ($this->productosEntregados as $det) {
+            $entregado = (float) $det->cantidad_entregada;
+            $enCamino = (float) $det->cantidad_en_camino;
+            $solicitada = (float) $det->cantidad_solicitada;
+
+            if ($entregado > 0) $hayAlgunaEntrega = true;
+            if ($enCamino > 0) $hayEnCamino = true;
+            if ($entregado + 0.001 < $solicitada) $todoEntregado = false;
+        }
+
+        $nuevoEstado = $todoEntregado && $hayAlgunaEntrega
+            ? 'en'
+            : ($hayEnCamino || $hayAlgunaEntrega ? 'ec' : 'pe');
+
+        if ($this->estado_entrega !== $nuevoEstado) {
+            $this->estado_entrega = $nuevoEstado;
+            $this->saveQuietly();
+        }
     }
 
     /**
