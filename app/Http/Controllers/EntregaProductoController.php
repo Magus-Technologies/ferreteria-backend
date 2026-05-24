@@ -421,6 +421,18 @@ class EntregaProductoController extends Controller
                 }
             }
 
+            // Si la nueva entrega es una HIJA (modelo N-hijas), recalcular
+            // el estado agregado de la MADRE para que refleje la nueva actividad.
+            if (
+                ! empty($validated['grupo_entrega_id']) &&
+                (int) $validated['grupo_entrega_id'] !== (int) $entrega->id
+            ) {
+                $madre = EntregaProducto::find($validated['grupo_entrega_id']);
+                if ($madre) {
+                    $madre->recalcularEstado();
+                }
+            }
+
             return response()->json([
                 'data' => $entrega->load([
                     'venta:id,serie,numero,cliente_id',
@@ -802,7 +814,8 @@ class EntregaProductoController extends Controller
             // Update entrega
             $entrega->update($validated);
 
-            // Recalcular estado lógico de la entrega en base a los eventos creados.
+            // Recalcular estado lógico de la entrega.
+            // Si es una hija (modelo N-hijas), recalcularEstado() delegará a la madre.
             $entrega->recalcularEstado();
 
             return response()->json([

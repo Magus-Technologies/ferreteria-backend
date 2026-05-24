@@ -374,6 +374,66 @@ class EntregaEventoController extends Controller
         });
     }
 
+    /**
+     * POST /entregas-productos/{entregaId}/eventos/confirmar-en-camino
+     *
+     * Promueve TODOS los eventos en estado 'ec' (En Camino) a 'en' (Entregado)
+     * para una entrega lógica. Aplica el stock real de cada uno y marca al
+     * usuario que confirmó la entrega. Usado por el botón "Confirmar Entrega"
+     * cuando el chofer regresa y reporta éxito de un viaje completo.
+     */
+    public function confirmarEnCamino(Request $request, string $entregaId)
+    {
+        return DB::transaction(function () use ($entregaId, $request) {
+            $entrega = EntregaProducto::with('productosEntregados')->findOrFail($entregaId);
+            $venta = Venta::find($entrega->venta_id);
+            $userId = $request->user()?->id ?? $entrega->user_id;
+
+            $eventos = EntregaEvento::where('entrega_producto_id', $entregaId)
+                ->where('estado', 'ec')
+                ->with('detalles')
+                ->get();
+
+            if ($eventos->isEmpty()) {
+                return response()->json([
+                    'message' => 'No hay eventos En Camino para confirmar',
+                    'error' => 'SIN_EVENTOS_EC',
+                ], 422);
+            }
+
+            $detallesIndex = $entrega->productosEntregados->keyBy('id');
+
+            foreach ($eventos as $evento) {
+                $evento->estado = 'en';
+                $evento->fecha_ejecutada = now();
+                $evento->user_entregado_id = $userId;
+                $evento->save();
+
+                foreach ($evento->detalles as $detEvento) {
+                    $detallePadre = $detallesIndex->get($detEvento->detalle_entrega_producto_id);
+                    if ($detallePadre) {
+                        $this->aplicarStock(
+                            $detallePadre,
+                            (float) $detEvento->cantidad,
+                            $entrega,
+                            $venta,
+                        );
+                    }
+                }
+            }
+
+            $entrega->recalcularEstado();
+
+            return response()->json([
+                'data' => [
+                    'eventos_confirmados' => $eventos->count(),
+                    'entrega_estado' => $entrega->fresh()->estado_entrega,
+                ],
+                'message' => "Se confirmaron {$eventos->count()} entrega(s) En Camino",
+            ]);
+        });
+    }
+
     public function destroy(string $entregaId, string $eventoId)
     {
         return DB::transaction(function () use ($entregaId, $eventoId) {

@@ -166,6 +166,36 @@ class EntregaProducto extends Model
      */
     public function recalcularEstado(): void
     {
+        // ── Modelo N-hijas (Opción A): delegar si soy una hija ──────────
+        // Una hija tiene grupo_entrega_id != null Y != su propio id.
+        if ($this->grupo_entrega_id && (int) $this->grupo_entrega_id !== (int) $this->id) {
+            $madre = static::find($this->grupo_entrega_id);
+            if ($madre) {
+                $madre->recalcularEstado();
+            }
+            return;
+        }
+
+        // Soy la madre (o entrega standalone) — contar hijas activas
+        $hijas = static::where('grupo_entrega_id', $this->id)
+            ->where('id', '!=', $this->id)
+            ->whereNotIn('estado_entrega', ['ca'])
+            ->get();
+
+        if ($hijas->count() > 0) {
+            $todasEn     = $hijas->every(fn ($h) => $h->estado_entrega === 'en');
+            $hayActividad = $hijas->contains(fn ($h) => in_array($h->estado_entrega, ['ec', 'en']));
+
+            $nuevoEstado = $todasEn ? 'en' : ($hayActividad ? 'ec' : 'pe');
+
+            if ($this->estado_entrega !== $nuevoEstado) {
+                $this->estado_entrega = $nuevoEstado;
+                $this->saveQuietly();
+            }
+            return;
+        }
+
+        // ── Modelo eventos (fallback / Opción B legacy): sin hijas ──────
         $this->load(['productosEntregados.eventosDetalle.entregaEvento']);
 
         $todoEntregado = true;

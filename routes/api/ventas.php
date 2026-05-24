@@ -175,6 +175,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Eventos de despacho físico anidados bajo una orden de entrega
     Route::get('entregas-productos/{entregaId}/eventos', [EntregaEventoController::class, 'index']);
     Route::post('entregas-productos/{entregaId}/eventos', [EntregaEventoController::class, 'store'])->middleware('broadcast:entregas-productos');
+    Route::post('entregas-productos/{entregaId}/eventos/confirmar-en-camino', [EntregaEventoController::class, 'confirmarEnCamino'])->middleware('broadcast:entregas-productos');
     Route::put('entregas-productos/{entregaId}/eventos/{eventoId}', [EntregaEventoController::class, 'update'])->middleware('broadcast:entregas-productos');
     Route::post('entregas-productos/{entregaId}/eventos/{eventoId}/anular', [EntregaEventoController::class, 'anular'])->middleware('broadcast:entregas-productos');
     Route::delete('entregas-productos/{entregaId}/eventos/{eventoId}', [EntregaEventoController::class, 'destroy'])->middleware('broadcast:entregas-productos');
