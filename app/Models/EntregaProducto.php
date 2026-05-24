@@ -183,6 +183,20 @@ class EntregaProducto extends Model
             ->get();
 
         if ($hijas->count() > 0) {
+            // Si la madre es un tramo inmediato (pa/rt + in + almacen) ya
+            // confirmado ('en'), su estado directo prevalece. No se baja a
+            // 'pe'/'ec' por hijas programadas aún pendientes — esas tienen su
+            // propio ciclo independiente.
+            $esTramoInmediatoMadreConfirmado =
+                in_array($this->tipo_entrega, ['pa', 'rt']) &&
+                $this->tipo_despacho === 'in' &&
+                $this->quien_entrega === 'almacen' &&
+                $this->estado_entrega === 'en';
+
+            if ($esTramoInmediatoMadreConfirmado) {
+                return;
+            }
+
             $todasEn     = $hijas->every(fn ($h) => $h->estado_entrega === 'en');
             $hayActividad = $hijas->contains(fn ($h) => in_array($h->estado_entrega, ['ec', 'en']));
 

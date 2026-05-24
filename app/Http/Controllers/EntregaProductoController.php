@@ -816,7 +816,20 @@ class EntregaProductoController extends Controller
 
             // Recalcular estado lógico de la entrega.
             // Si es una hija (modelo N-hijas), recalcularEstado() delegará a la madre.
-            $entrega->recalcularEstado();
+            //
+            // Excepción: tramo inmediato propio (pa/rt + in + almacen) confirmado
+            // como 'en'. Si se recalculara desde las hijas (tramos programados aún
+            // pendientes), la madre volvería a 'pe' incorrectamente.
+            // La confirmación directa del tramo inmediato prevalece.
+            $esTramoInmediatoConfirmadoAhora =
+                ($estadoNuevo === 'en') &&
+                in_array($entrega->tipo_entrega, ['pa', 'rt']) &&
+                $entrega->tipo_despacho === 'in' &&
+                $entrega->quien_entrega === 'almacen';
+
+            if (! $esTramoInmediatoConfirmadoAhora) {
+                $entrega->recalcularEstado();
+            }
 
             return response()->json([
                 'data' => $entrega->fresh([
