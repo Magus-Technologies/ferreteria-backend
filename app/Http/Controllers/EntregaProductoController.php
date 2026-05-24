@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Enums\EstadoDeVenta;
+use App\Models\DetalleEntregaEvento;
 use App\Models\DetalleEntregaProducto;
+use App\Models\EntregaEvento;
 use App\Models\EntregaProducto;
 use App\Models\RequerimientoInterno;
 use App\Models\UnidadDerivadaInmutableVenta;
@@ -560,6 +562,9 @@ class EntregaProductoController extends Controller
             ])->findOrFail($id);
             $venta = Venta::find($entrega->venta_id);
 
+            // Detalles para el EntregaEvento que se crea al final del loop.
+            $eventDetalles = [];
+
             if (! empty($validated['productos_entregados'])) {
                 $detallesExistentes = $entrega->productosEntregados->keyBy('unidad_derivada_venta_id');
 
@@ -581,7 +586,7 @@ class EntregaProductoController extends Controller
                     $cantidadProgramadaOriginal = (float) $detalleExistente->cantidad_solicitada;
 
                     // Placeholder delivery (created via "Omitir" in crear-venta):
-                    // cantidad_entregada = 0 means no stock was reserved at create time.
+                    // cantidad_solicitada = 0 means no stock was reserved at create time.
                     // Validate against UDV cantidad_pendiente and consume it immediately
                     // (same moment store() would consume it for regular deliveries).
                     $esPlaceholderOmitido = ($cantidadProgramadaOriginal === 0.0);
@@ -618,6 +623,11 @@ class EntregaProductoController extends Controller
                                 }
                             }
                         }
+
+                        // Placeholder: update cantidad_solicitada to the actual delivery
+                        // amount so that the event accessor reflects the real order size.
+                        $detalleExistente->cantidad_solicitada = $cantidadNueva;
+                        $detalleExistente->save();
                     } else {
                         if ($cantidadNueva > $cantidadProgramadaOriginal) {
                             throw ValidationException::withMessages([
@@ -640,11 +650,55 @@ class EntregaProductoController extends Controller
                             ->increment('cantidad_pendiente', $cantidadLiberada);
                     }
 
-                    $detalleExistente->cantidad_solicitada = $cantidadNueva;
-                    $detalleExistente->save();
+                    // ── Acumular para crear el EntregaEvento al final del loop ──
+                    // NON-placeholder: cantidad_solicitada permanece intacta (= lo que
+                    // se ordenó). El evento registra lo realmente despachado.
+                    if ($cantidadNueva > 0) {
+                        $eventDetalles[] = [
+                            'detalle_entrega_producto_id' => $detalleExistente->id,
+                            'cantidad' => $cantidadNueva,
+                        ];
+                    }
                 }
 
                 $entrega->load('productosEntregados');
+            }
+
+            // ── Crear EntregaEvento si hay productos despachados ──
+            // El estado del evento coincide con el estado_entrega solicitado
+            // (ec = en camino, en = entregado directo). Si no se envían
+            // productos (Call 2 del flujo Domicilio), el evento ya existe.
+            $estadoEventoNuevo = $validated['estado_entrega'] ?? null;
+            if (! empty($eventDetalles) && in_array($estadoEventoNuevo, ['ec', 'en'])) {
+                $userId = auth()->id() ?? $entrega->user_id;
+                $evento = EntregaEvento::create([
+                    'entrega_producto_id' => $entrega->id,
+                    'estado'              => $estadoEventoNuevo,
+                    'fecha_programada'    => $validated['fecha_programada'] ?? null,
+                    'fecha_ejecutada'     => $estadoEventoNuevo === 'en' ? now() : null,
+                    'hora_inicio'         => $validated['hora_inicio'] ?? null,
+                    'hora_fin'            => $validated['hora_fin'] ?? null,
+                    'chofer_id'           => $validated['chofer_id'] ?? null,
+                    'vehiculo_id'         => $validated['vehiculo_id'] ?? null,
+                    'quien_entrega'       => $validated['quien_entrega'] ?? null,
+                    'tipo_pedido'         => $validated['tipo_pedido'] ?? 'interno',
+                    'cargo_destino'       => $validated['cargo_destino'] ?? null,
+                    'direccion_entrega'   => $validated['direccion_entrega'] ?? null,
+                    'referencia_entrega'  => $validated['referencia_entrega'] ?? null,
+                    'latitud'             => $validated['latitud'] ?? null,
+                    'longitud'            => $validated['longitud'] ?? null,
+                    'observaciones'       => $validated['observaciones'] ?? null,
+                    'user_id'             => $userId,
+                    'user_entregado_id'   => $estadoEventoNuevo === 'en' ? $userId : null,
+                ]);
+
+                foreach ($eventDetalles as $det) {
+                    DetalleEntregaEvento::create([
+                        'entrega_evento_id'           => $evento->id,
+                        'detalle_entrega_producto_id' => $det['detalle_entrega_producto_id'],
+                        'cantidad'                    => $det['cantidad'],
+                    ]);
+                }
             }
 
             // Si el estado pasa a ENTREGADO ahora (no estaba antes), registrar
@@ -652,6 +706,24 @@ class EntregaProductoController extends Controller
             $estadoNuevo = $validated['estado_entrega'] ?? null;
             $estadoAnterior = $entrega->estado_entrega;
             if ($estadoNuevo === 'en' && $estadoAnterior !== 'en') {
+                // Call 2 del flujo Domicilio: los productos llegaron en Call 1
+                // (evento 'ec'), ahora confirmamos la entrega. Transicionamos el
+                // evento 'ec' más reciente a 'en'.
+                if (empty($eventDetalles)) {
+                    $eventoEc = EntregaEvento::where('entrega_producto_id', $entrega->id)
+                        ->where('estado', 'ec')
+                        ->latest()
+                        ->first();
+                    if ($eventoEc) {
+                        $userId = auth()->id() ?? $entrega->user_id;
+                        $eventoEc->update([
+                            'estado'            => 'en',
+                            'user_entregado_id' => $userId,
+                            'fecha_ejecutada'   => now(),
+                        ]);
+                    }
+                }
+
                 $validated['user_entregado_id'] = auth()->id();
                 // Si la entrega tenía una anulación previa registrada, se
                 // limpia ahora que vuelve a entregarse correctamente.
@@ -718,6 +790,9 @@ class EntregaProductoController extends Controller
 
             // Update entrega
             $entrega->update($validated);
+
+            // Recalcular estado lógico de la entrega en base a los eventos creados.
+            $entrega->recalcularEstado();
 
             return response()->json([
                 'data' => $entrega->fresh([
