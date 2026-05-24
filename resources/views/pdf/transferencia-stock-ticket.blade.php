@@ -5,14 +5,16 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>{{ $nroDoc }}</title>
     <style>
+        {!! $font_face_css ?? '' !!}
+
         @page {
             size: 80mm auto;
             margin: 3mm;
         }
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 7pt;
-            color: #000;
+            font-family: "{{ $est['fuente'] ?? 'Helvetica' }}", Helvetica, Arial, sans-serif;
+            font-size: {{ $est['font_pt'] ?? 7 }}pt;
+            color: {{ $est['color_texto'] ?? '#000' }};
             line-height: 1.3;
             width: 74mm;
             margin: 0;
@@ -22,17 +24,14 @@
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .text-bold { font-weight: bold; }
-        .separator { border-top: 1px dashed #000; margin: 4px 0; }
+        .separator { border-top: 1px dashed {{ $est['color_borde'] ?? '#000' }}; margin: 4px 0; }
         .section-title {
-            font-size: 7pt;
             font-weight: bold;
             text-align: center;
             margin-bottom: 2px;
             padding-top: 4px;
-            border-top: 1px dashed #000;
+            border-top: 1px dashed {{ $est['color_borde'] ?? '#000' }};
         }
-        .label { font-weight: bold; text-transform: uppercase; font-size: 5pt; }
-        .value { font-size: 5pt; }
     </style>
 </head>
 <body>
@@ -42,103 +41,101 @@
             <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
         @endif
         <div style="margin-top: 2px;">
-            <div class="text-bold" style="font-size: 9pt;">{{ $empresa->razon_social }}</div>
-            <div class="text-bold">R.U.C. {{ $empresa->ruc }}</div>
-            <div>{{ $empresa->direccion }}</div>
+            <div style="{{ $bloques['empresa_razon']['css'] ?? '' }}">{{ $empresa->razon_social }}</div>
+            <div style="{{ $bloques['caja_ruc']['css'] ?? '' }}">R.U.C. {{ $empresa->ruc }}</div>
+            <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}">{{ $empresa->direccion }}</div>
             @if($empresa->telefono ?? $empresa->celular ?? null)
-                <div><span class="text-bold">Cel:</span> {{ $empresa->telefono ?? $empresa->celular }}</div>
+                <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}"><span class="text-bold">Cel:</span> {{ $empresa->telefono ?? $empresa->celular }}</div>
             @endif
             @if($empresa->email ?? null)
-                <div><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+                <div style="{{ $bloques['empresa_direccion']['css'] ?? '' }}"><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
             @endif
         </div>
     </div>
 
     <div class="separator"></div>
 
-    <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        {{ $tipoDoc }}<br>
-        {{ $nroDoc }}
+    <div class="text-center" style="padding: 4px 0;">
+        <div style="{{ $bloques['caja_tipo']['css'] ?? '' }}">{{ $tipoDoc }} ELECTRÓNICA</div>
+        <div style="{{ $bloques['caja_numero']['css'] ?? '' }}">{{ $nroDoc }}</div>
     </div>
 
     <div class="separator"></div>
 
-    {{-- Info en 2 columnas --}}
+    {{-- Info --}}
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
                 <td style="width: 50%; vertical-align: top; padding-right: 4px;">
                     <table>
-                        <tr><td class="label">FECHA DE EMISIÓN:</td></tr>
-                        <tr><td class="value">{{ \App\Services\Pdf\PdfService::formatFecha($transferencia->fecha) }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">F. EMISIÓN:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ \App\Services\Pdf\PdfService::formatFecha($transferencia->fecha) }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
-                        <tr><td class="label">ALMACÉN ORIGEN:</td></tr>
-                        <tr><td class="value">{{ $transferencia->almacenOrigen->name ?? '-' }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">ORIGEN:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $transferencia->almacenOrigen->name ?? '-' }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
-                        <tr><td class="label">USUARIO:</td></tr>
-                        <tr><td class="value">{{ $transferencia->user->name ?? '-' }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">USUARIO:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $transferencia->user->name ?? '-' }}</td></tr>
                     </table>
                 </td>
                 <td style="width: 50%; vertical-align: top; padding-left: 4px;">
                     <table>
-                        <tr><td class="label">ESTADO:</td></tr>
-                        <tr><td class="value">{{ $transferencia->estado ? 'ACTIVO' : 'ANULADO' }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">F. TRASLADO:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ \App\Services\Pdf\PdfService::formatFecha($transferencia->fecha_traslado) }}</td></tr>
                         <tr><td style="height: 3px;"></td></tr>
-                        <tr><td class="label">ALMACÉN DESTINO:</td></tr>
-                        <tr><td class="value">{{ $transferencia->almacenDestino->name ?? '-' }}</td></tr>
-                        <tr><td style="height: 3px;"></td></tr>
-                        <tr><td class="label">OBSERVACIONES:</td></tr>
-                        <tr><td class="value">{{ $transferencia->descripcion ?? '-' }}</td></tr>
+                        <tr><td style="{{ $bloques['info_label']['css'] ?? '' }}">DESTINO:</td></tr>
+                        <tr><td style="{{ $bloques['info_valor']['css'] ?? '' }}">{{ $transferencia->almacenDestino->name ?? '-' }}</td></tr>
                     </table>
                 </td>
             </tr>
         </table>
     </div>
 
+    {{-- Motivo --}}
+    @if($transferencia->motivo ?? null)
+        <div class="section-title" style="{{ $bloques['info_label']['css'] ?? '' }}">MOTIVO DE TRASLADO</div>
+        <div style="{{ $bloques['info_valor']['css'] ?? '' }} padding: 3px;">{{ $transferencia->motivo->name ?? $transferencia->motivo }}</div>
+    @endif
+
     {{-- Tabla productos --}}
-    <div class="section-title">PRODUCTOS TRANSFERIDOS</div>
+    <div class="section-title" style="{{ $bloques['obs_label']['css'] ?? '' }}">PRODUCTOS</div>
     <table style="font-size: 5pt;">
-        <tr style="border-bottom: 1px solid #000;">
-            <td class="text-bold">Producto</td>
-            <td class="text-bold" style="width: 30px;">Cant.</td>
-            <td class="text-bold" style="width: 35px;">Unidad</td>
-            <td class="text-bold text-center" style="width: 30px;">Stk Ant. Orig.</td>
-            <td class="text-bold text-center" style="width: 30px;">Stk Nvo. Orig.</td>
-            <td class="text-bold text-center" style="width: 30px;">Stk Ant. Dest.</td>
-            <td class="text-bold text-center" style="width: 30px;">Stk Nvo. Dest.</td>
+        <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left; width: 35px;">Cód.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left;">Producto</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: center; width: 40px;">Unidad</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: center; width: 30px;">Cant.</td>
         </tr>
         @foreach($productos as $i => $p)
         <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
-            <td colspan="7" style="padding-top: 2px;">{{ $p['codigo'] }} - {{ $p['nombre'] }}</td>
-        </tr>
-        <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
-            <td></td>
-            <td>{{ number_format($p['cantidad'], 3) }}</td>
-            <td>{{ $p['unidad'] }}</td>
-            <td class="text-center">{{ $p['stk_ant_origen_f'] }}</td>
-            <td class="text-center">{{ $p['stk_nvo_origen_f'] }}</td>
-            <td class="text-center">{{ $p['stk_ant_destino_f'] }}</td>
-            <td class="text-center">{{ $p['stk_nvo_destino_f'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding-top: 2px;">{{ $p['codigo'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding-top: 2px;">{{ $p['nombre'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-top: 2px;">{{ $p['unidad'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-top: 2px;">{{ number_format($p['cantidad'], 0) }}</td>
         </tr>
         @endforeach
     </table>
 
     {{-- Total --}}
     <table style="margin-top: 4px;">
-        <tr style="border-top: 2px solid #000; background-color: #f0f0f0;">
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold;">TOTAL COSTO</td>
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: right;">S/ {{ number_format($total, 2) }}</td>
+        <tr style="border-top: 2px solid {{ $est['color_borde'] ?? '#000' }}; background-color: #f0f0f0;">
+            <td style="{{ $bloques['total_label']['css'] ?? '' }} padding: 4px;">TOTAL</td>
+            <td style="{{ $bloques['total_valor']['css'] ?? '' }} padding: 4px;">S/ {{ number_format($total, 2) }}</td>
         </tr>
     </table>
-    <div style="text-align: center; font-size: 6pt; margin-top: 2px;">
-        {{ $son }} SOLES
+
+    {{-- Son --}}
+    <div style="{{ $bloques['son']['css'] ?? '' }} font-size: 5pt; padding-top: 2px;">
+        SON: {{ $son ?? '' }}
     </div>
 
     {{-- Observaciones --}}
-    <div style="margin-top: 4px; font-size: 6pt;">
-        <span class="text-bold">Observaciones:</span><br>
-        {{ $transferencia->descripcion ?? '-' }}
+    @if($transferencia->descripcion)
+    <div class="section-title" style="{{ $bloques['obs_label']['css'] ?? '' }}">{{ $msg['label_observaciones'] ?? 'OBSERVACIONES' }}</div>
+    <div style="padding: 3px; {{ $bloques['obs_valor']['css'] ?? '' }}">
+        {{ $transferencia->descripcion }}
     </div>
+    @endif
 
     {{-- Footer --}}
     <div style="margin-top: 6px; padding-top: 4px; border-top: 1px dashed #000;">
