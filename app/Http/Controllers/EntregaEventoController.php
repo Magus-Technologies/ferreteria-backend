@@ -94,6 +94,17 @@ class EntregaEventoController extends Controller
                 }
                 $pendiente = (float) $detallePadre->cantidad_pendiente_detalle;
                 $cantidad = (float) $det['cantidad'];
+
+                // Fallback defensivo: si el pendiente calculado es 0 pero la UDV
+                // aún tiene stock pendiente, usar ese valor. Cubre registros donde
+                // cantidad_solicitada fue corrompida por el flujo pre-evento.
+                if ($pendiente <= 0.001) {
+                    $udv = UnidadDerivadaInmutableVenta::find($detallePadre->unidad_derivada_venta_id);
+                    if ($udv && (float) $udv->cantidad_pendiente > 0.001) {
+                        $pendiente = (float) $udv->cantidad_pendiente;
+                    }
+                }
+
                 if ($cantidad > $pendiente + 0.001) {
                     throw ValidationException::withMessages([
                         'detalles' => [

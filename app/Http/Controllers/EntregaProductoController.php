@@ -624,9 +624,10 @@ class EntregaProductoController extends Controller
                             }
                         }
 
-                        // Placeholder: update cantidad_solicitada to the actual delivery
-                        // amount so that the event accessor reflects the real order size.
-                        $detalleExistente->cantidad_solicitada = $cantidadNueva;
+                        // Placeholder: set cantidad_solicitada to the FULL UDV pendiente
+                        // (captured before the decrement) so the accessor has room for
+                        // future events (usuario puede seguir entregando el resto).
+                        $detalleExistente->cantidad_solicitada = $maxPermitido;
                         $detalleExistente->save();
                     } else {
                         if ($cantidadNueva > $cantidadProgramadaOriginal) {
