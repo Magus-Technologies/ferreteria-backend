@@ -42,6 +42,7 @@ class DetalleEntregaProducto extends Model
     protected $appends = [
         'cantidad_entregada',
         'cantidad_en_camino',
+        'cantidad_programada',
         'cantidad_pendiente_detalle',
     ];
 
@@ -166,14 +167,37 @@ class DetalleEntregaProducto extends Model
             ->sum('detalleentregaevento.cantidad');
     }
 
-    /** Pendiente de despachar para ESTA línea: solicitada − entregada − en_camino */
+    /** Cantidad reservada como evento PROGRAMADO (estado 'pr') — aún no en camino */
+    public function getCantidadProgramadaAttribute(): float
+    {
+        if ($this->relationLoaded('eventosDetalle')) {
+            return (float) $this->eventosDetalle
+                ->filter(fn ($d) => optional($d->entregaEvento)->estado === 'pr')
+                ->sum('cantidad');
+        }
+
+        return (float) DetalleEntregaEvento::query()
+            ->join('entregaevento', 'entregaevento.id', '=', 'detalleentregaevento.entrega_evento_id')
+            ->where('detalleentregaevento.detalle_entrega_producto_id', $this->id)
+            ->where('entregaevento.estado', 'pr')
+            ->sum('detalleentregaevento.cantidad');
+    }
+
+    /**
+     * Pendiente SIN ASIGNAR para esta línea:
+     *   solicitada − entregada − en_camino − programada
+     *
+     * Incluye 'pr' (programado) porque ya está reservado para un evento
+     * futuro y NO debe contarse como "libre para configurar".
+     */
     public function getCantidadPendienteDetalleAttribute(): float
     {
         return max(
             0.0,
             (float) $this->cantidad_solicitada
                 - $this->cantidad_entregada
-                - $this->cantidad_en_camino,
+                - $this->cantidad_en_camino
+                - $this->cantidad_programada,
         );
     }
 }

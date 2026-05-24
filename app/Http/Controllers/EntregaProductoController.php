@@ -84,24 +84,34 @@ class EntregaProductoController extends Controller
             $query->where('almacen_salida_id', $request->almacen_salida_id);
         }
 
-        // Filter by chofer_id (incluye entregas sin despachador + externos de su cargo)
+        // Filter by chofer_id.
+        // - DESPACHADOR autenticado: solo ve SUS entregas asignadas.
+        // - Otros roles: mantiene el comportamiento histórico (incluye pool
+        //   sin asignar + pedidos externos por cargo).
         if ($request->has('chofer_id')) {
-            $user = User::find($request->chofer_id);
-            $query->where(function ($q) use ($request, $user) {
-                $q->where('chofer_id', $request->chofer_id)
-                  ->orWhere(function ($q2) {
-                      $q2->whereNull('chofer_id')->where('estado_entrega', 'pe');
-                  });
-                // También mostrar pedidos externos pendientes para el cargo del usuario
-                if ($user && $user->cargo) {
-                    $q->orWhere(function ($q2) use ($user) {
-                        $q2->where('tipo_pedido', 'externo')
-                           ->where('cargo_destino', $user->cargo)
-                           ->where('estado_entrega', 'pe')
-                           ->whereNull('chofer_id');
-                    });
-                }
-            });
+            $authUser = $request->user();
+            $esDespachadorAutenticado = strtoupper((string) ($authUser->rol_sistema ?? '')) === 'DESPACHADOR';
+
+            if ($esDespachadorAutenticado && $authUser) {
+                $query->where('chofer_id', $authUser->id);
+            } else {
+                $user = User::find($request->chofer_id);
+                $query->where(function ($q) use ($request, $user) {
+                    $q->where('chofer_id', $request->chofer_id)
+                      ->orWhere(function ($q2) {
+                          $q2->whereNull('chofer_id')->where('estado_entrega', 'pe');
+                      });
+                    // También mostrar pedidos externos pendientes para el cargo del usuario
+                    if ($user && $user->cargo) {
+                        $q->orWhere(function ($q2) use ($user) {
+                            $q2->where('tipo_pedido', 'externo')
+                               ->where('cargo_destino', $user->cargo)
+                               ->where('estado_entrega', 'pe')
+                               ->whereNull('chofer_id');
+                        });
+                    }
+                });
+            }
         }
 
         if ($request->has('vehiculo_id')) {
