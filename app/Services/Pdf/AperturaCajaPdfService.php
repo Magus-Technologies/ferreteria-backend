@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\AperturaCierreCaja;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class AperturaCajaPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(string $id, string $formato = 'ticket'): Response
     {
         $apertura = $this->obtenerApertura($id);
@@ -25,14 +28,16 @@ class AperturaCajaPdfService
 
         $nroDoc = 'APERTURA-' . $apertura->id;
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'apertura-caja', 'Ticket');
+
+        $data = array_merge($estilos, [
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'apertura' => $apertura,
             'nroDoc' => $nroDoc,
             'conteo' => $conteo,
             'distribuciones' => $distribuciones,
-        ];
+        ]);
 
         $filename = "{$nroDoc}.pdf";
 

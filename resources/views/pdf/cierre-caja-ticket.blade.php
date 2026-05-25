@@ -4,14 +4,37 @@
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>{{ $nroDoc }}</title>
+    @php
+        $est = $est ?? [];
+        $bloques = $bloques ?? [];
+        $colorBorde = $est['color_borde'] ?? '#000';
+        $borderThin = $est['border_thin_px'] ?? 1;
+        $borderPx = $est['border_px'] ?? 2;
+        $padPx = $est['pad_px'] ?? 4;
+        $fuente = $est['fuente'] ?? 'Helvetica';
+        $fontPt = $est['font_pt'] ?? 7;
+
+        $cssEmpresaRazon = $bloques['empresa_razon']['css'] ?? '';
+        $cssEmpresaDir = $bloques['empresa_direccion']['css'] ?? '';
+        $cssCajaRuc = $bloques['caja_ruc']['css'] ?? '';
+        $cssCajaTipo = $bloques['caja_tipo']['css'] ?? '';
+        $cssCajaNumero = $bloques['caja_numero']['css'] ?? '';
+        $cssInfoLabel = $bloques['info_label']['css'] ?? '';
+        $cssInfoValor = $bloques['info_valor']['css'] ?? '';
+        $cssTablaHeader = $bloques['tabla_header']['css'] ?? '';
+        $cssTablaFila = $bloques['tabla_fila']['css'] ?? '';
+        $cssTotalLabel = $bloques['total_label']['css'] ?? '';
+        $cssTotalValor = $bloques['total_valor']['css'] ?? '';
+    @endphp
     <style>
         @page {
             size: 80mm auto;
             margin: 3mm;
         }
+        {!! $font_face_css ?? '' !!}
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 7pt;
+            font-family: "{{ $fuente }}", Arial, sans-serif;
+            font-size: {{ $fontPt }}pt;
             color: #000;
             line-height: 1.3;
             width: 74mm;
@@ -21,18 +44,13 @@
         table { border-collapse: collapse; width: 100%; }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
-        .text-bold { font-weight: bold; }
-        .separator { border-top: 1px dashed #000; margin: 4px 0; }
+        .separator { border-top: {{ $borderThin }}px dashed {{ $colorBorde }}; margin: 4px 0; }
         .section-title {
-            font-size: 7pt;
-            font-weight: bold;
             text-align: center;
             margin-bottom: 2px;
             padding-top: 4px;
-            border-top: 1px dashed #000;
+            border-top: {{ $borderThin }}px dashed {{ $colorBorde }};
         }
-        .label { font-weight: bold; text-transform: uppercase; font-size: 5pt; }
-        .value { font-size: 5pt; }
         .bg-gray { background-color: #f0f0f0; }
         .bg-green { background-color: #e8f5e9; }
         .bg-red { background-color: #ffebee; }
@@ -43,20 +61,20 @@
     </style>
 </head>
 <body>
-    {{-- Header: Logo + Empresa (mismo estilo que venta-ticket) --}}
+    {{-- Header: Logo + Empresa --}}
     <div class="text-center" style="margin-bottom: 4px;">
         @if(!empty($logoPath))
             <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
         @endif
         <div style="margin-top: 2px;">
-            <div class="text-bold" style="font-size: 9pt;">{{ $empresa->razon_social }}</div>
-            <div class="text-bold">R.U.C. {{ $empresa->ruc }}</div>
-            <div>{{ $empresa->direccion }}</div>
+            <div style="{{ $cssEmpresaRazon }}">{{ $empresa->razon_social }}</div>
+            <div style="{{ $cssCajaRuc }}">R.U.C. {{ $empresa->ruc }}</div>
+            <div style="{{ $cssEmpresaDir }}">{{ $empresa->direccion }}</div>
             @if($empresa->telefono ?? $empresa->celular ?? null)
-                <div><span class="text-bold">Cel:</span> {{ $empresa->telefono ?? $empresa->celular }}</div>
+                <div style="{{ $cssEmpresaDir }}"><strong>Cel:</strong> {{ $empresa->telefono ?? $empresa->celular }}</div>
             @endif
             @if($empresa->email ?? null)
-                <div><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+                <div style="{{ $cssEmpresaDir }}"><strong>Email:</strong> {{ $empresa->email }}</div>
             @endif
         </div>
     </div>
@@ -64,9 +82,9 @@
     <div class="separator"></div>
 
     {{-- Tipo documento y número --}}
-    <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        CIERRE DE CAJA ELECTRÓNICA<br>
-        {{ $nroDoc }}
+    <div class="text-center" style="padding: 4px 0;">
+        <div style="{{ $cssCajaTipo }}">CIERRE DE CAJA ELECTRÓNICA</div>
+        <div style="{{ $cssCajaNumero }}">{{ $nroDoc }}</div>
     </div>
 
     <div class="separator"></div>
@@ -75,112 +93,112 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label" style="width: 25%;">F. APERTURA:</td>
-                <td class="value">{{ \App\Services\Pdf\PdfService::formatFecha($cierre->fecha_apertura) }}</td>
-                <td class="label" style="width: 25%;">HORA:</td>
-                <td class="value">{{ \App\Services\Pdf\PdfService::formatFecha($cierre->fecha_apertura, 'H:i') }}</td>
+                <td style="{{ $cssInfoLabel }} width: 25%;">F. APERTURA:</td>
+                <td style="{{ $cssInfoValor }}">{{ \App\Services\Pdf\PdfService::formatFecha($cierre->fecha_apertura) }}</td>
+                <td style="{{ $cssInfoLabel }} width: 25%;">HORA:</td>
+                <td style="{{ $cssInfoValor }}">{{ \App\Services\Pdf\PdfService::formatFecha($cierre->fecha_apertura, 'H:i') }}</td>
             </tr>
             @if($cierre->fecha_cierre)
             <tr>
-                <td class="label">F. CIERRE:</td>
-                <td class="value">{{ \App\Services\Pdf\PdfService::formatFecha($cierre->fecha_cierre) }}</td>
-                <td class="label">HORA:</td>
-                <td class="value">{{ \App\Services\Pdf\PdfService::formatFecha($cierre->fecha_cierre, 'H:i') }}</td>
+                <td style="{{ $cssInfoLabel }}">F. CIERRE:</td>
+                <td style="{{ $cssInfoValor }}">{{ \App\Services\Pdf\PdfService::formatFecha($cierre->fecha_cierre) }}</td>
+                <td style="{{ $cssInfoLabel }}">HORA:</td>
+                <td style="{{ $cssInfoValor }}">{{ \App\Services\Pdf\PdfService::formatFecha($cierre->fecha_cierre, 'H:i') }}</td>
             </tr>
             @endif
             <tr>
-                <td class="label">CAJA:</td>
-                <td class="value" colspan="3">{{ $cierre->cajaPrincipal->name ?? '-' }}</td>
+                <td style="{{ $cssInfoLabel }}">CAJA:</td>
+                <td style="{{ $cssInfoValor }}" colspan="3">{{ $cierre->cajaPrincipal->name ?? '-' }}</td>
             </tr>
             <tr>
-                <td class="label">USUARIO:</td>
-                <td class="value" colspan="3">{{ $cierre->user->name ?? '-' }}</td>
+                <td style="{{ $cssInfoLabel }}">USUARIO:</td>
+                <td style="{{ $cssInfoValor }}" colspan="3">{{ $cierre->user->name ?? '-' }}</td>
             </tr>
             <tr>
-                <td class="label">SUPERVISOR:</td>
-                <td class="value" colspan="3">{{ $cierre->supervisor->name ?? '-' }}</td>
+                <td style="{{ $cssInfoLabel }}">SUPERVISOR:</td>
+                <td style="{{ $cssInfoValor }}" colspan="3">{{ $cierre->supervisor->name ?? '-' }}</td>
             </tr>
         </table>
     </div>
 
     {{-- Resumen de Saldos --}}
-    <div class="section-title">RESUMEN DE SALDOS</div>
-    <table style="font-size: 6pt;">
+    <div class="section-title" style="{{ $cssInfoLabel }}">RESUMEN DE SALDOS</div>
+    <table>
         <tr>
-            <td>Efectivo Inicial:</td>
-            <td class="text-right text-bold">S/ {{ number_format($resumen['efectivo_inicial'], 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Efectivo Inicial:</td>
+            <td style="{{ $cssTotalValor }} text-align: right;">S/ {{ number_format($resumen['efectivo_inicial'], 2) }}</td>
         </tr>
     </table>
 
     {{-- Movimientos de Caja --}}
-    <div class="section-title">MOVIMIENTOS DE CAJA</div>
-    <table style="font-size: 6pt;">
+    <div class="section-title" style="{{ $cssInfoLabel }}">MOVIMIENTOS DE CAJA</div>
+    <table>
         @if($otrosIngresos > 0)
         <tr>
-            <td>Otros Ingresos:</td>
-            <td class="text-right">S/ {{ number_format($otrosIngresos, 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Otros Ingresos:</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($otrosIngresos, 2) }}</td>
         </tr>
         @endif
         @if($resumen['total_prestamos_recibidos'] > 0)
         <tr>
-            <td>Préstamos Recibidos ({{ count($resumen['prestamos_recibidos']) }}):</td>
-            <td class="text-right">S/ {{ number_format($resumen['total_prestamos_recibidos'], 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Préstamos Recibidos ({{ count($resumen['prestamos_recibidos']) }}):</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($resumen['total_prestamos_recibidos'], 2) }}</td>
         </tr>
         @endif
         @if($gastos > 0)
         <tr>
-            <td>Gastos:</td>
-            <td class="text-right">S/ {{ number_format($gastos, 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Gastos:</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($gastos, 2) }}</td>
         </tr>
         @endif
         @if($resumen['total_prestamos_dados'] > 0)
         <tr>
-            <td>Préstamos Dados ({{ count($resumen['prestamos_dados']) }}):</td>
-            <td class="text-right">S/ {{ number_format($resumen['total_prestamos_dados'], 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Préstamos Dados ({{ count($resumen['prestamos_dados']) }}):</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($resumen['total_prestamos_dados'], 2) }}</td>
         </tr>
         @endif
     </table>
 
     {{-- Totales Generales --}}
-    <div class="section-title">TOTALES GENERALES</div>
-    <table style="font-size: 6pt;">
+    <div class="section-title" style="{{ $cssInfoLabel }}">TOTALES GENERALES</div>
+    <table>
         <tr>
-            <td class="text-bold">Resumen Ventas:</td>
-            <td class="text-right text-bold">S/ {{ number_format($resumen['total_ventas'], 2) }}</td>
+            <td style="{{ $cssTotalLabel }}">Resumen Ventas:</td>
+            <td style="{{ $cssTotalValor }} text-align: right;">S/ {{ number_format($resumen['total_ventas'], 2) }}</td>
         </tr>
         <tr>
-            <td>Resumen Ingresos:</td>
-            <td class="text-right">S/ {{ number_format($resumen['total_ingresos'], 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Resumen Ingresos:</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($resumen['total_ingresos'], 2) }}</td>
         </tr>
         <tr>
-            <td>Resumen Egresos:</td>
-            <td class="text-right">S/ {{ number_format($resumen['total_egresos'], 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Resumen Egresos:</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($resumen['total_egresos'], 2) }}</td>
         </tr>
         <tr class="bg-gray">
-            <td style="padding: 3px; font-size: 7pt;" class="text-bold">Total en Caja (Efectivo):</td>
-            <td style="padding: 3px; font-size: 7pt;" class="text-right text-bold">S/ {{ number_format($montoEsperado, 2) }}</td>
+            <td style="{{ $cssTotalLabel }} padding: 3px;">Total en Caja (Efectivo):</td>
+            <td style="{{ $cssTotalValor }} padding: 3px; text-align: right;">S/ {{ number_format($montoEsperado, 2) }}</td>
         </tr>
     </table>
 
     {{-- Cierre Físico --}}
-    <div class="section-title">CIERRE FÍSICO</div>
+    <div class="section-title" style="{{ $cssInfoLabel }}">CIERRE FÍSICO</div>
     @if($cierre->monto_cierre_efectivo !== null)
-    <table style="font-size: 6pt;">
+    <table>
         <tr>
-            <td>Dinero Efectivo:</td>
-            <td class="text-right">S/ {{ number_format($montoCierre, 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Dinero Efectivo:</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($montoCierre, 2) }}</td>
         </tr>
         <tr>
-            <td>Total Cuentas:</td>
-            <td class="text-right">S/ {{ number_format($totalCuentas, 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Total Cuentas:</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($totalCuentas, 2) }}</td>
         </tr>
         <tr class="bg-gray">
-            <td style="padding: 3px; font-size: 7pt;" class="text-bold">Total Cierre Físico:</td>
-            <td style="padding: 3px; font-size: 7pt;" class="text-right text-bold">S/ {{ number_format($montoCierre + $totalCuentas, 2) }}</td>
+            <td style="{{ $cssTotalLabel }} padding: 3px;">Total Cierre Físico:</td>
+            <td style="{{ $cssTotalValor }} padding: 3px; text-align: right;">S/ {{ number_format($montoCierre + $totalCuentas, 2) }}</td>
         </tr>
     </table>
     @else
-    <div class="bg-yellow" style="padding: 3px; text-align: center; font-size: 6pt; color: #856404;">
+    <div class="bg-yellow" style="padding: 3px; text-align: center; color: #856404;">
         Pendiente de cierre
     </div>
     @endif
@@ -205,12 +223,12 @@
             $denomsConValor = array_filter($denominaciones, fn($d) => ($conteo[$d['key']] ?? 0) > 0);
         @endphp
         @if(count($denomsConValor) > 0)
-        <div class="section-title">DESGLOSE DE DENOMINACIONES</div>
-        <table style="font-size: 6pt;">
-            <tr style="border-bottom: 1px solid #000;">
-                <td class="text-bold">Denominación</td>
-                <td class="text-bold text-center" style="width: 30px;">Cant.</td>
-                <td class="text-bold text-right" style="width: 45px;">Total</td>
+        <div class="section-title" style="{{ $cssInfoLabel }}">DESGLOSE DE DENOMINACIONES</div>
+        <table>
+            <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
+                <td style="{{ $cssTablaHeader }}">Denominación</td>
+                <td style="{{ $cssTablaHeader }} text-align: center; width: 30px;">Cant.</td>
+                <td style="{{ $cssTablaHeader }} text-align: right; width: 45px;">Total</td>
             </tr>
             @foreach($denomsConValor as $i => $denom)
                 @php
@@ -218,39 +236,39 @@
                     $subtotalDenom = $cantidad * $denom['valor'];
                 @endphp
                 <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
-                    <td>{{ $denom['label'] }}</td>
-                    <td class="text-center">{{ $cantidad }}</td>
-                    <td class="text-right">S/ {{ number_format($subtotalDenom, 2) }}</td>
+                    <td style="{{ $cssTablaFila }}">{{ $denom['label'] }}</td>
+                    <td style="{{ $cssTablaFila }} text-align: center;">{{ $cantidad }}</td>
+                    <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($subtotalDenom, 2) }}</td>
                 </tr>
             @endforeach
-            <tr class="bg-gray" style="border-top: 1px solid #000;">
-                <td class="text-bold">Total</td>
+            <tr class="bg-gray" style="border-top: {{ $borderThin }}px solid {{ $colorBorde }};">
+                <td style="{{ $cssTotalLabel }}">Total</td>
                 <td></td>
-                <td class="text-right text-bold">S/ {{ number_format($montoCierre, 2) }}</td>
+                <td style="{{ $cssTotalValor }} text-align: right;">S/ {{ number_format($montoCierre, 2) }}</td>
             </tr>
         </table>
         @endif
     @endif
 
     {{-- Diferencias --}}
-    <div class="section-title">DIFERENCIAS</div>
-    <table style="font-size: 6pt;">
+    <div class="section-title" style="{{ $cssInfoLabel }}">DIFERENCIAS</div>
+    <table>
         <tr class="bg-blue">
-            <td style="padding: 2px 4px;" class="text-bold">Monto Esperado:</td>
-            <td style="padding: 2px 4px;" class="text-right text-bold">S/ {{ number_format($montoEsperado, 2) }}</td>
+            <td style="{{ $cssTotalLabel }} padding: 2px 4px;">Monto Esperado:</td>
+            <td style="{{ $cssTotalValor }} padding: 2px 4px; text-align: right;">S/ {{ number_format($montoEsperado, 2) }}</td>
         </tr>
         @if($cierre->monto_cierre_efectivo !== null)
         <tr>
-            <td>Sobrante:</td>
-            <td class="text-right color-green">S/ {{ number_format($sobrante, 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Sobrante:</td>
+            <td style="{{ $cssTablaFila }} text-align: right;" class="color-green">S/ {{ number_format($sobrante, 2) }}</td>
         </tr>
         <tr>
-            <td>Faltante:</td>
-            <td class="text-right color-red">S/ {{ number_format($faltante, 2) }}</td>
+            <td style="{{ $cssTablaFila }}">Faltante:</td>
+            <td style="{{ $cssTablaFila }} text-align: right;" class="color-red">S/ {{ number_format($faltante, 2) }}</td>
         </tr>
         <tr style="background-color: {{ $diferencia < 0 ? '#ffebee' : '#e8f5e9' }};">
-            <td style="padding: 3px; font-size: 7pt;" class="text-bold">Diferencia Total:</td>
-            <td style="padding: 3px; font-size: 7pt;" class="text-right text-bold {{ $diferencia < 0 ? 'color-red' : 'color-green' }}">
+            <td style="{{ $cssTotalLabel }} padding: 3px;">Diferencia Total:</td>
+            <td style="{{ $cssTotalValor }} padding: 3px; text-align: right;" class="{{ $diferencia < 0 ? 'color-red' : 'color-green' }}">
                 S/ {{ number_format($diferencia, 2) }}
             </td>
         </tr>
@@ -264,32 +282,32 @@
     </table>
 
     {{-- Observaciones --}}
-    <div class="section-title">OBSERVACIONES</div>
-    <div class="bg-yellow" style="padding: 3px; font-size: 6pt;">
+    <div class="section-title" style="{{ $cssInfoLabel }}">OBSERVACIONES</div>
+    <div class="bg-yellow" style="padding: 3px;">
         {{ $cierre->comentarios ?: '-' }}
     </div>
 
     {{-- Estado del Cierre --}}
     @if($cierre->monto_cierre_efectivo !== null)
-    <div class="section-title">ESTADO DEL CIERRE</div>
-    <div style="padding: 4px; text-align: center; font-size: 8pt; font-weight: bold; background-color: {{ $diferencia == 0 ? '#e8f5e9' : '#ffebee' }}; color: {{ $diferencia == 0 ? 'green' : 'red' }};">
+    <div class="section-title" style="{{ $cssInfoLabel }}">ESTADO DEL CIERRE</div>
+    <div style="padding: 4px; text-align: center; font-weight: bold; background-color: {{ $diferencia == 0 ? '#e8f5e9' : '#ffebee' }}; color: {{ $diferencia == 0 ? 'green' : 'red' }}; font-size: {{ $fontPt + 1 }}pt;">
         {{ $diferencia == 0 ? '✓ CAJA CUADRADA' : ($diferencia > 0 ? '⚠ SOBRANTE' : '⚠ FALTANTE') }}
     </div>
     @endif
 
     {{-- Métodos de Pago --}}
-    <div class="section-title">MÉTODOS DE PAGO</div>
-    <table style="font-size: 6pt;">
-        <tr style="border-bottom: 1px solid #000;">
-            <td class="text-bold">Método</td>
-            <td class="text-bold text-center" style="width: 25px;">Cant.</td>
-            <td class="text-bold text-right" style="width: 45px;">Total</td>
+    <div class="section-title" style="{{ $cssInfoLabel }}">MÉTODOS DE PAGO</div>
+    <table>
+        <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
+            <td style="{{ $cssTablaHeader }}">Método</td>
+            <td style="{{ $cssTablaHeader }} text-align: center; width: 25px;">Cant.</td>
+            <td style="{{ $cssTablaHeader }} text-align: right; width: 45px;">Total</td>
         </tr>
         @forelse($resumen['detalle_metodos_pago'] as $i => $metodo)
         <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
-            <td>{{ $metodo['label'] }}</td>
-            <td class="text-center">{{ $metodo['cantidad_transacciones'] ?? 0 }}</td>
-            <td class="text-right">{{ number_format($metodo['total'] ?? 0, 2) }}</td>
+            <td style="{{ $cssTablaFila }}">{{ $metodo['label'] }}</td>
+            <td style="{{ $cssTablaFila }} text-align: center;">{{ $metodo['cantidad_transacciones'] ?? 0 }}</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">{{ number_format($metodo['total'] ?? 0, 2) }}</td>
         </tr>
         @empty
         <tr>
@@ -300,12 +318,12 @@
 
     {{-- Total Ventas --}}
     <table style="margin-top: 4px;">
-        <tr style="border-top: 2px solid #000; background-color: #f0f0f0;">
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold;">TOTAL VENTAS</td>
-            <td style="padding: 4px; font-size: 8pt; font-weight: bold; text-align: right;">S/ {{ number_format($resumen['total_ventas'], 2) }}</td>
+        <tr style="border-top: {{ $borderPx }}px solid {{ $colorBorde }}; background-color: #f0f0f0;">
+            <td style="{{ $cssTotalLabel }} padding: 4px;">TOTAL VENTAS</td>
+            <td style="{{ $cssTotalValor }} padding: 4px; text-align: right;">S/ {{ number_format($resumen['total_ventas'], 2) }}</td>
         </tr>
     </table>
-    <div style="text-align: center; font-size: 6pt; margin-top: 2px;">
+    <div style="text-align: center; margin-top: 2px; font-size: {{ max(6, $fontPt - 1) }}pt;">
         {{ \App\Services\Pdf\PdfService::numeroALetras($resumen['total_ventas']) }} SOLES
     </div>
 </body>
