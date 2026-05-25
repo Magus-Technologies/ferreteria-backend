@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\PagoDeCompra;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class PagoCompraPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(string $pagoId): Response
     {
         $pago = PagoDeCompra::with([
@@ -34,7 +37,9 @@ class PagoCompraPdfService
             ? $pago->despliegueDePago->metodoDePago->name . ' / ' . $pago->despliegueDePago->name
             : $pago->despliegueDePago?->name ?? '-';
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'pago-compra', 'Ticket');
+
+        $data = array_merge($estilos, [
             'empresa'        => $empresa,
             'logoPath'       => PdfService::getLogoPath($empresa->logo),
             'pago'           => $pago,
@@ -47,7 +52,7 @@ class PagoCompraPdfService
             'totalNeto'      => number_format($totalCompra, 2),
             'totalPagado'    => number_format($totalPagado, 2),
             'saldoPendiente' => number_format(max(0, $saldoPendiente), 2),
-        ];
+        ]);
 
         $filename = "pago-compra-{$pago->id}.pdf";
 

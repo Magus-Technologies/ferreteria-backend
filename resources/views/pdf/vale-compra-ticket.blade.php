@@ -4,14 +4,32 @@
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>Vale {{ $vale->codigo }}</title>
+    @php
+        $est = $est ?? [];
+        $bloques = $bloques ?? [];
+        // El vale tiene un esquema decorativo propio (naranja). Si el editor
+        // define un color_tema, se aplica como acento; si no, se usa naranja.
+        $colorTema = $est['color_tema'] ?? '#D97706';
+        $fuente = $est['fuente'] ?? 'Helvetica';
+        $fontPt = $est['font_pt'] ?? 7;
+
+        $cssEmpresaRazon = $bloques['empresa_razon']['css'] ?? '';
+        $cssEmpresaDir = $bloques['empresa_direccion']['css'] ?? '';
+        $cssCajaTipo = $bloques['caja_tipo']['css'] ?? '';
+        $cssCajaNumero = $bloques['caja_numero']['css'] ?? '';
+        $cssInfoLabel = $bloques['info_label']['css'] ?? '';
+        $cssInfoValor = $bloques['info_valor']['css'] ?? '';
+        $cssDespedida = $bloques['despedida_footer']['css'] ?? '';
+    @endphp
     <style>
         @page {
             size: 80mm auto;
             margin: 3mm;
         }
+        {!! $font_face_css ?? '' !!}
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 7pt;
+            font-family: "{{ $fuente }}", Arial, sans-serif;
+            font-size: {{ $fontPt }}pt;
             color: #1F2937;
             line-height: 1.3;
             width: 74mm;
@@ -19,47 +37,26 @@
             padding: 0;
         }
         .text-center { text-align: center; }
-        .text-right { text-align: right; }
         .text-bold { font-weight: bold; }
-        .text-upper { text-transform: uppercase; }
 
         .outer-border {
-            border: 2.5px solid #D97706;
+            border: 2.5px solid {{ $colorTema }};
             border-radius: 8px;
             padding: 4px;
         }
         .inner-border {
-            border: 1px dashed #D97706;
+            border: 1px dashed {{ $colorTema }};
             border-radius: 6px;
             padding: 8px;
         }
-
-        /* Decorativo */
         .deco {
-            font-size: 7pt;
             text-align: center;
             letter-spacing: 2px;
-            color: #D97706;
+            color: {{ $colorTema }};
             margin: 2px 0;
         }
-
-        /* Empresa */
-        .empresa-nombre {
-            font-size: 9pt;
-            font-weight: bold;
-            text-align: center;
-            text-transform: uppercase;
-            color: #1F2937;
-        }
-        .empresa-datos {
-            font-size: 5.5pt;
-            text-align: center;
-            color: #6B7280;
-        }
-
-        /* Banner tipo */
         .banner {
-            background-color: #D97706;
+            background-color: {{ $colorTema }};
             width: 100%;
             padding: 5px 8px;
             border-radius: 4px;
@@ -67,62 +64,29 @@
             margin: 5px 0;
         }
         .banner-text {
-            font-size: 12pt;
             font-weight: bold;
             color: #fff;
             text-transform: uppercase;
             letter-spacing: 3px;
+            font-size: {{ $fontPt + 5 }}pt;
         }
         .banner-sub {
-            font-size: 7pt;
             color: #fff;
             margin-top: 1px;
+            font-size: {{ $fontPt }}pt;
         }
-
-        /* Codigo */
         .codigo-box {
             background-color: #FEF3C7;
             padding: 4px 14px;
             border-radius: 4px;
-            border: 1.5px solid #D97706;
+            border: 1.5px solid {{ $colorTema }};
             text-align: center;
             display: inline-block;
             margin: 3px 0;
         }
-        .codigo-label {
-            font-size: 5.5pt;
-            color: #92400E;
-            text-transform: uppercase;
-            font-weight: bold;
-        }
-        .codigo-texto {
-            font-size: 13pt;
-            font-weight: bold;
-            letter-spacing: 4px;
-            color: #92400E;
-        }
-
-        /* Nombre */
-        .nombre {
-            font-size: 8pt;
-            font-weight: bold;
-            text-align: center;
-            text-transform: uppercase;
-            color: #1F2937;
-            margin: 3px 0 1px;
-        }
-        .desc {
-            font-size: 6pt;
-            text-align: center;
-            color: #6B7280;
-            font-style: italic;
-            margin-bottom: 3px;
-        }
-
-        /* Hero beneficio */
         .hero-box {
             width: 100%;
-            border: 2.5px solid #D97706;
+            border: 2.5px solid {{ $colorTema }};
             border-radius: 6px;
             padding: 8px 6px;
             text-align: center;
@@ -130,30 +94,23 @@
             margin: 4px 0;
         }
         .hero-texto {
-            font-size: 20pt;
+            font-size: {{ $fontPt + 13 }}pt;
             font-weight: bold;
             color: #92400E;
         }
         .hero-sub {
-            font-size: 7pt;
             color: #92400E;
             text-transform: uppercase;
             letter-spacing: 1px;
             font-weight: bold;
+            font-size: {{ $fontPt }}pt;
         }
-
-        /* Separadores */
-        .sep {
-            border-top: 1px dashed #D97706;
-            margin: 4px 0;
-        }
+        .sep { border-top: 1px dashed {{ $colorTema }}; margin: 4px 0; }
         .sep-fuerte {
-            border-top: 2px solid #D97706;
+            border-top: 2px solid {{ $colorTema }};
             margin: 4px auto;
             width: 70%;
         }
-
-        /* Info box */
         .info-box {
             width: 100%;
             background-color: #FEF3C7;
@@ -161,57 +118,19 @@
             padding: 6px;
             margin: 3px 0;
         }
-        .info-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .info-table td {
-            padding: 1.5px 0;
-            font-size: 6pt;
-        }
-        .info-label {
-            font-weight: bold;
-            text-transform: uppercase;
-            color: #92400E;
-        }
-        .info-val {
-            text-align: right;
-            color: #1F2937;
-            font-weight: bold;
-        }
-
-        /* Listas */
-        .lista-title {
-            font-size: 6.5pt;
-            font-weight: bold;
-            text-transform: uppercase;
-            color: #92400E;
-            margin-bottom: 2px;
-        }
-        .lista-item {
-            font-size: 6pt;
-            padding-left: 6px;
-            color: #1F2937;
-            margin-bottom: 1px;
-        }
-
-        /* Badges */
-        .badges-row {
-            text-align: center;
-            margin: 3px 0;
-        }
+        .info-table { width: 100%; border-collapse: collapse; }
+        .info-table td { padding: 1.5px 0; }
+        .badges-row { text-align: center; margin: 3px 0; }
         .badge {
-            background-color: #D97706;
+            background-color: {{ $colorTema }};
             color: #fff;
-            font-size: 5.5pt;
             font-weight: bold;
             padding: 2px 6px;
             border-radius: 3px;
             display: inline-block;
             margin: 1px;
+            font-size: {{ max(5, $fontPt - 1) }}pt;
         }
-
-        /* Condiciones */
         .cond-box {
             width: 100%;
             border: 1px solid #D1D5DB;
@@ -220,47 +139,27 @@
             text-align: center;
             margin: 3px 0;
         }
-        .cond-title {
-            font-size: 6pt;
-            font-weight: bold;
-            text-transform: uppercase;
-            color: #6B7280;
-            margin-bottom: 1px;
-        }
-        .cond-item {
-            font-size: 5pt;
-            color: #9CA3AF;
-        }
-
-        /* Footer */
-        .footer {
-            font-size: 5pt;
-            text-align: center;
-            color: #9CA3AF;
-            margin-top: 2px;
-        }
     </style>
 </head>
 <body>
     <div class="outer-border">
         <div class="inner-border">
 
-            {{-- Decorativo --}}
             <div class="deco">- - - - - - - - - - -</div>
 
             {{-- Empresa --}}
             <div style="margin-bottom: 4px;">
-                <div class="empresa-nombre">
+                <div style="{{ $cssEmpresaRazon }}">
                     {{ $empresa->razon_social ?? $empresa->nombre_comercial ?? 'FERRETERIA' }}
                 </div>
                 @if($empresa->ruc)
-                    <div class="empresa-datos">RUC: {{ $empresa->ruc }}</div>
+                    <div style="{{ $cssEmpresaDir }}">RUC: {{ $empresa->ruc }}</div>
                 @endif
                 @if($empresa->direccion)
-                    <div class="empresa-datos">{{ $empresa->direccion }}</div>
+                    <div style="{{ $cssEmpresaDir }}">{{ $empresa->direccion }}</div>
                 @endif
                 @if($empresa->telefono)
-                    <div class="empresa-datos">Tel: {{ $empresa->telefono }}</div>
+                    <div style="{{ $cssEmpresaDir }}">Tel: {{ $empresa->telefono }}</div>
                 @endif
             </div>
 
@@ -273,15 +172,15 @@
             {{-- Codigo --}}
             <div class="text-center">
                 <div class="codigo-box">
-                    <div class="codigo-label">Codigo</div>
-                    <div class="codigo-texto">{{ $vale->codigo }}</div>
+                    <div style="{{ $cssInfoLabel }} color: #92400E;">Codigo</div>
+                    <div style="{{ $cssCajaNumero }} font-size: {{ $fontPt + 6 }}pt; letter-spacing: 4px; color: #92400E;">{{ $vale->codigo }}</div>
                 </div>
             </div>
 
             {{-- Nombre --}}
-            <div class="nombre">{{ $vale->nombre }}</div>
+            <div class="text-center text-bold" style="margin: 3px 0 1px; text-transform: uppercase; font-size: {{ $fontPt + 1 }}pt;">{{ $vale->nombre }}</div>
             @if($vale->descripcion)
-                <div class="desc">{{ $vale->descripcion }}</div>
+                <div class="text-center" style="font-style: italic; color: #6B7280; margin-bottom: 3px; font-size: {{ max(5, $fontPt - 1) }}pt;">{{ $vale->descripcion }}</div>
             @endif
 
             {{-- HERO beneficio --}}
@@ -296,37 +195,37 @@
             <div class="info-box">
                 <table class="info-table">
                     <tr>
-                        <td class="info-label">Precio minimo</td>
-                        <td class="info-val">S/ {{ number_format((float) $cantidadMinima, 2) }}</td>
+                        <td style="{{ $cssInfoLabel }} color: #92400E;">Precio minimo</td>
+                        <td style="{{ $cssInfoValor }} text-align: right; font-weight: bold;">S/ {{ number_format((float) $cantidadMinima, 2) }}</td>
                     </tr>
                     <tr>
-                        <td class="info-label">Modalidad</td>
-                        <td class="info-val">{{ $modalidadLabel }}</td>
+                        <td style="{{ $cssInfoLabel }} color: #92400E;">Modalidad</td>
+                        <td style="{{ $cssInfoValor }} text-align: right; font-weight: bold;">{{ $modalidadLabel }}</td>
                     </tr>
                     <tr>
-                        <td class="info-label">Desde</td>
-                        <td class="info-val">{{ $fechaInicio }}</td>
+                        <td style="{{ $cssInfoLabel }} color: #92400E;">Desde</td>
+                        <td style="{{ $cssInfoValor }} text-align: right; font-weight: bold;">{{ $fechaInicio }}</td>
                     </tr>
                     <tr>
-                        <td class="info-label">Hasta</td>
-                        <td class="info-val">{{ $fechaFin }}</td>
+                        <td style="{{ $cssInfoLabel }} color: #92400E;">Hasta</td>
+                        <td style="{{ $cssInfoValor }} text-align: right; font-weight: bold;">{{ $fechaFin }}</td>
                     </tr>
                     @if($vale->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA' && $vale->fecha_validez_vale)
                         <tr>
-                            <td class="info-label">Vale valido hasta</td>
-                            <td class="info-val">{{ \App\Services\Pdf\PdfService::formatFecha($vale->fecha_validez_vale) }}</td>
+                            <td style="{{ $cssInfoLabel }} color: #92400E;">Vale valido hasta</td>
+                            <td style="{{ $cssInfoValor }} text-align: right; font-weight: bold;">{{ \App\Services\Pdf\PdfService::formatFecha($vale->fecha_validez_vale) }}</td>
                         </tr>
                     @endif
                     @if($vale->usa_limite_por_cliente && $vale->limite_usos_cliente)
                         <tr>
-                            <td class="info-label">Max. por cliente</td>
-                            <td class="info-val">{{ $vale->limite_usos_cliente }} uso(s)</td>
+                            <td style="{{ $cssInfoLabel }} color: #92400E;">Max. por cliente</td>
+                            <td style="{{ $cssInfoValor }} text-align: right; font-weight: bold;">{{ $vale->limite_usos_cliente }} uso(s)</td>
                         </tr>
                     @endif
                     @if($vale->usa_limite_stock)
                         <tr>
-                            <td class="info-label">Disponibles</td>
-                            <td class="info-val">{{ $vale->stock_disponible ?? 0 }}</td>
+                            <td style="{{ $cssInfoLabel }} color: #92400E;">Disponibles</td>
+                            <td style="{{ $cssInfoValor }} text-align: right; font-weight: bold;">{{ $vale->stock_disponible ?? 0 }}</td>
                         </tr>
                     @endif
                 </table>
@@ -335,9 +234,9 @@
             {{-- Productos --}}
             @if($productos && count($productos) > 0)
                 <div style="margin: 3px 0;">
-                    <div class="lista-title">Productos aplicables</div>
+                    <div style="{{ $cssInfoLabel }} color: #92400E; margin-bottom: 2px;">Productos aplicables</div>
                     @foreach($productos as $p)
-                        <div class="lista-item">- {{ $p->cod_producto }}: {{ $p->name }}</div>
+                        <div style="padding-left: 6px; margin-bottom: 1px; font-size: {{ max(5, $fontPt - 1) }}pt;">- {{ $p->cod_producto }}: {{ $p->name }}</div>
                     @endforeach
                 </div>
             @endif
@@ -345,9 +244,9 @@
             {{-- Categorias --}}
             @if($categorias && count($categorias) > 0)
                 <div style="margin: 3px 0;">
-                    <div class="lista-title">Categorias aplicables</div>
+                    <div style="{{ $cssInfoLabel }} color: #92400E; margin-bottom: 2px;">Categorias aplicables</div>
                     @foreach($categorias as $c)
-                        <div class="lista-item">- {{ $c->name }}</div>
+                        <div style="padding-left: 6px; margin-bottom: 1px; font-size: {{ max(5, $fontPt - 1) }}pt;">- {{ $c->name }}</div>
                     @endforeach
                 </div>
             @endif
@@ -355,7 +254,7 @@
             {{-- Precios badges --}}
             @if(count($precios) > 0)
                 <div style="margin: 3px 0;">
-                    <div class="lista-title text-center">Aplica a precios</div>
+                    <div class="text-center" style="{{ $cssInfoLabel }} color: #92400E;">Aplica a precios</div>
                     <div class="badges-row">
                         @foreach($precios as $precio)
                             <span class="badge">{{ $precio }}</span>
@@ -368,17 +267,15 @@
 
             {{-- Condiciones --}}
             <div class="cond-box">
-                <div class="cond-title">Condiciones de uso</div>
-                <div class="cond-item">Valido unicamente en tienda</div>
-                <div class="cond-item">No acumulable con otras promociones</div>
-                <div class="cond-item">Sujeto a disponibilidad de stock</div>
+                <div style="{{ $cssInfoLabel }} color: #6B7280; margin-bottom: 1px;">Condiciones de uso</div>
+                <div style="color: #9CA3AF; font-size: {{ max(5, $fontPt - 2) }}pt;">Valido unicamente en tienda</div>
+                <div style="color: #9CA3AF; font-size: {{ max(5, $fontPt - 2) }}pt;">No acumulable con otras promociones</div>
+                <div style="color: #9CA3AF; font-size: {{ max(5, $fontPt - 2) }}pt;">Sujeto a disponibilidad de stock</div>
             </div>
 
-            {{-- Decorativo --}}
             <div class="deco">- - - - - - - - - - -</div>
 
-            {{-- Footer --}}
-            <div class="footer">
+            <div style="{{ $cssDespedida }} margin-top: 2px;">
                 Generado el {{ now()->format('d/m/Y H:i') }}
             </div>
 

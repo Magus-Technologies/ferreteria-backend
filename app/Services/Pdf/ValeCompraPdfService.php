@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\ValeCompra;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class ValeCompraPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     private const TIPO_LABELS = [
         'SORTEO' => 'SORTEO',
         'DESCUENTO_MISMA_COMPRA' => 'DESCUENTO',
@@ -40,7 +43,9 @@ class ValeCompraPdfService
             $vale->aplica_precio_ultimo ? 'Ultimo' : null,
         ])->filter()->values()->all();
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'vale-compra', 'Ticket');
+
+        $data = array_merge($estilos, [
             'vale' => $vale,
             'empresa' => $empresa,
             'tipoLabel' => self::TIPO_LABELS[$vale->tipo_promocion] ?? 'VALE',
@@ -53,7 +58,7 @@ class ValeCompraPdfService
             'productos' => $vale->productos,
             'categorias' => $vale->categorias,
             'precios' => $precios,
-        ];
+        ]);
 
         $filename = "VALE-{$vale->codigo}.pdf";
 

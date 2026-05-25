@@ -4,14 +4,33 @@
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>Comprobante de Pago</title>
+    @php
+        $est = $est ?? [];
+        $bloques = $bloques ?? [];
+        $colorBorde = $est['color_borde'] ?? '#000';
+        $borderThin = $est['border_thin_px'] ?? 1;
+        $borderPx = $est['border_px'] ?? 2;
+        $padPx = $est['pad_px'] ?? 4;
+        $fuente = $est['fuente'] ?? 'Helvetica';
+        $fontPt = $est['font_pt'] ?? 7;
+
+        $cssCajaTipo = $bloques['caja_tipo']['css'] ?? '';
+        $cssCajaNumero = $bloques['caja_numero']['css'] ?? '';
+        $cssInfoLabel = $bloques['info_label']['css'] ?? '';
+        $cssInfoValor = $bloques['info_valor']['css'] ?? '';
+        $cssTotalLabel = $bloques['total_label']['css'] ?? '';
+        $cssTotalValor = $bloques['total_valor']['css'] ?? '';
+        $cssDespedida = $bloques['despedida_footer']['css'] ?? '';
+    @endphp
     <style>
         @page {
             size: 80mm auto;
             margin: 3mm;
         }
+        {!! $font_face_css ?? '' !!}
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 7pt;
+            font-family: "{{ $fuente }}", Arial, sans-serif;
+            font-size: {{ $fontPt }}pt;
             color: #000;
             line-height: 1.3;
             width: 74mm;
@@ -20,13 +39,9 @@
         }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
-        .text-bold { font-weight: bold; }
-        .separator { border-top: 1px dashed #000; margin: 4px 0; }
-        .separator-double { border-top: 2px solid #000; margin: 4px 0; }
+        .separator { border-top: {{ $borderThin }}px dashed {{ $colorBorde }}; margin: 4px 0; }
+        .separator-double { border-top: {{ $borderPx }}px solid {{ $colorBorde }}; margin: 4px 0; }
         table { width: 100%; border-collapse: collapse; }
-        .label { font-weight: bold; text-transform: uppercase; font-size: 5pt; }
-        .value { font-size: 5pt; }
-        .monto-grande { font-size: 14pt; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -38,7 +53,7 @@
 
     <div class="separator-double"></div>
 
-    <div class="text-center text-bold" style="font-size: 10pt; padding: 4px 0;">
+    <div class="text-center" style="{{ $cssCajaTipo }} padding: 4px 0;">
         COMPROBANTE DE PAGO
     </div>
 
@@ -47,23 +62,23 @@
     <div style="padding: 2px 0 4px;">
         <table>
             <tr>
-                <td class="label" style="width: 35%;">Fecha Pago:</td>
-                <td class="value">{{ \Carbon\Carbon::parse($pago->fecha)->format('d/m/Y') }}</td>
+                <td style="{{ $cssInfoLabel }} width: 35%; padding: {{ $padPx - 2 }}px 0;">Fecha Pago:</td>
+                <td style="{{ $cssInfoValor }} padding: {{ $padPx - 2 }}px 0;">{{ \Carbon\Carbon::parse($pago->fecha)->format('d/m/Y') }}</td>
             </tr>
             <tr>
-                <td class="label">M&eacute;todo Pago:</td>
-                <td class="value">{{ $metodoPago }}</td>
+                <td style="{{ $cssInfoLabel }} padding: {{ $padPx - 2 }}px 0;">M&eacute;todo Pago:</td>
+                <td style="{{ $cssInfoValor }} padding: {{ $padPx - 2 }}px 0;">{{ $metodoPago }}</td>
             </tr>
             @if($pago->numero_operacion)
             <tr>
-                <td class="label">N&deg; Operaci&oacute;n:</td>
-                <td class="value">{{ $pago->numero_operacion }}</td>
+                <td style="{{ $cssInfoLabel }} padding: {{ $padPx - 2 }}px 0;">N&deg; Operaci&oacute;n:</td>
+                <td style="{{ $cssInfoValor }} padding: {{ $padPx - 2 }}px 0;">{{ $pago->numero_operacion }}</td>
             </tr>
             @endif
             @if($pago->numero_letra)
             <tr>
-                <td class="label">N&deg; Letra:</td>
-                <td class="value">{{ $pago->numero_letra }}</td>
+                <td style="{{ $cssInfoLabel }} padding: {{ $padPx - 2 }}px 0;">N&deg; Letra:</td>
+                <td style="{{ $cssInfoValor }} padding: {{ $padPx - 2 }}px 0;">{{ $pago->numero_letra }}</td>
             </tr>
             @endif
         </table>
@@ -72,26 +87,26 @@
     <div class="separator"></div>
 
     <div class="text-center" style="padding: 6px 0;">
-        <div class="label" style="font-size: 6pt; margin-bottom: 2px;">MONTO PAGADO</div>
-        <div class="monto-grande">S/. {{ number_format($pago->monto, 2) }}</div>
+        <div style="{{ $cssInfoLabel }} margin-bottom: 2px;">MONTO PAGADO</div>
+        <div style="{{ $cssCajaNumero }} font-size: 14pt; font-weight: bold;">S/. {{ number_format($pago->monto, 2) }}</div>
     </div>
 
     <div class="separator"></div>
 
     <div style="padding: 2px 0 4px;">
-        <div class="text-bold text-center" style="font-size: 7pt; margin-bottom: 3px;">REFERENCIA DE COMPRA</div>
+        <div class="text-center" style="{{ $cssInfoLabel }} margin-bottom: 3px;">REFERENCIA DE COMPRA</div>
         <table>
             <tr>
-                <td class="label" style="width: 35%;">Documento:</td>
-                <td class="value">{{ $tipoDoc }} {{ $nroDocumento }}</td>
+                <td style="{{ $cssInfoLabel }} width: 35%; padding: {{ $padPx - 2 }}px 0;">Documento:</td>
+                <td style="{{ $cssInfoValor }} padding: {{ $padPx - 2 }}px 0;">{{ $tipoDoc }} {{ $nroDocumento }}</td>
             </tr>
             <tr>
-                <td class="label">Proveedor:</td>
-                <td class="value">{{ $proveedorNombre }}</td>
+                <td style="{{ $cssInfoLabel }} padding: {{ $padPx - 2 }}px 0;">Proveedor:</td>
+                <td style="{{ $cssInfoValor }} padding: {{ $padPx - 2 }}px 0;">{{ $proveedorNombre }}</td>
             </tr>
             <tr>
-                <td class="label">RUC:</td>
-                <td class="value">{{ $proveedorRuc }}</td>
+                <td style="{{ $cssInfoLabel }} padding: {{ $padPx - 2 }}px 0;">RUC:</td>
+                <td style="{{ $cssInfoValor }} padding: {{ $padPx - 2 }}px 0;">{{ $proveedorRuc }}</td>
             </tr>
         </table>
     </div>
@@ -101,16 +116,16 @@
     <div style="padding: 2px 0 4px;">
         <table>
             <tr>
-                <td class="label" style="width: 55%;">Total de Compra:</td>
-                <td class="value text-right">S/. {{ $totalNeto }}</td>
+                <td style="{{ $cssInfoLabel }} width: 55%; padding: {{ $padPx - 2 }}px 0;">Total de Compra:</td>
+                <td style="{{ $cssInfoValor }} text-align: right; padding: {{ $padPx - 2 }}px 0;">S/. {{ $totalNeto }}</td>
             </tr>
             <tr>
-                <td class="label">Total Pagado:</td>
-                <td class="value text-right">S/. {{ $totalPagado }}</td>
+                <td style="{{ $cssInfoLabel }} padding: {{ $padPx - 2 }}px 0;">Total Pagado:</td>
+                <td style="{{ $cssInfoValor }} text-align: right; padding: {{ $padPx - 2 }}px 0;">S/. {{ $totalPagado }}</td>
             </tr>
             <tr>
-                <td class="text-bold" style="font-size: 7pt; padding-top: 2px;">SALDO PENDIENTE:</td>
-                <td class="text-bold text-right" style="font-size: 8pt; padding-top: 2px;">S/. {{ $saldoPendiente }}</td>
+                <td style="{{ $cssTotalLabel }} padding-top: 2px;">SALDO PENDIENTE:</td>
+                <td style="{{ $cssTotalValor }} text-align: right; padding-top: 2px;">S/. {{ $saldoPendiente }}</td>
             </tr>
         </table>
     </div>
@@ -119,13 +134,13 @@
 
     @if($pago->observacion)
     <div style="padding: 2px 0;">
-        <span class="label">Obs:</span>
-        <span class="value">{{ $pago->observacion }}</span>
+        <span style="{{ $cssInfoLabel }}">Obs:</span>
+        <span style="{{ $cssInfoValor }}">{{ $pago->observacion }}</span>
     </div>
     <div class="separator"></div>
     @endif
 
-    <div class="text-center" style="padding: 4px 0; font-size: 5pt;">
+    <div class="text-center" style="{{ $cssDespedida }} padding: 4px 0;">
         Comprobante de pago generado el {{ now()->format('d/m/Y H:i') }}
     </div>
 </body>
