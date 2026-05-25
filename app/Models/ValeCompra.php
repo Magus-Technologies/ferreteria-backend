@@ -44,8 +44,8 @@ class ValeCompra extends Model
     protected function casts(): array
     {
         return [
-            'cantidad_minima' => 'decimal:3',
-            'descuento_valor' => 'decimal:4',
+            'cantidad_minima' => 'decimal:2',
+            'descuento_valor' => 'decimal:2',
             'cantidad_producto_gratis' => 'decimal:3',
             'fecha_inicio' => 'date:Y-m-d',
             'fecha_fin' => 'date:Y-m-d',
