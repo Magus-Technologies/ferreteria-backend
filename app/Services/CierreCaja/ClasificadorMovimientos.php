@@ -197,7 +197,7 @@ class ClasificadorMovimientos
 
         $pagos = DB::table('desplieguedepagoventa as dpv')
             ->join('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
-            ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+            ->leftJoin('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
             ->leftJoin('sub_cajas as sc', 'mp.subcaja_id', '=', 'sc.id')
             ->leftJoin('numeros_operacion_pago as nop', 'dpv.numero_operacion_id', '=', 'nop.id')
             ->whereIn('dpv.venta_id', $ventaIds)
@@ -219,11 +219,13 @@ class ClasificadorMovimientos
         // Esto suma todas las transferencias BCP, BBVA, etc. juntas
         $resultado = $pagos->groupBy(function ($pago) {
             // Agrupar solo por banco y método, ignorando titular y sub-caja
-            return $pago->banco . '/' . $pago->metodo_pago;
+            $banco = $pago->banco ?? 'Sin Banco';
+            return $banco . '/' . $pago->metodo_pago;
         })->map(function ($grupo) {
             $primer = $grupo->first();
+            $banco = $primer->banco ?? 'Sin Banco';
             // Construir label con formato: Banco/Método
-            $label = "{$primer->banco}/{$primer->metodo_pago}";
+            $label = "{$banco}/{$primer->metodo_pago}";
 
             return [
                 'metodo_pago_id' => $primer->metodo_pago_id,
@@ -539,7 +541,7 @@ class ClasificadorMovimientos
 
         $pagosVentas = DB::table('desplieguedepagoventa as dpv')
             ->join('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
-            ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+            ->leftJoin('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
             ->whereIn('dpv.venta_id', $ventaIds)
             ->select([
                 'mp.id as metodo_pago_id',
@@ -555,7 +557,7 @@ class ClasificadorMovimientos
         // Obtener los pagos de compras desde pagodecompra
         $pagosCompras = DB::table('pagodecompra as pc')
             ->join('desplieguedepago as dp', 'pc.despliegue_de_pago_id', '=', 'dp.id')
-            ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+            ->leftJoin('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
             ->where('pc.estado', true) // Solo pagos activos
             ->select([
                 'mp.id as metodo_pago_id',
