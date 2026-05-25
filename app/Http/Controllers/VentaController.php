@@ -625,6 +625,7 @@ class VentaController extends Controller
                     DetalleEntregaProducto::create([
                         'entrega_producto_id' => $entregaAuto->id,
                         'unidad_derivada_venta_id' => $unidad->id,
+                        'cantidad_solicitada' => (float) $unidad->cantidad,
                         'cantidad_entregada' => $cantidadEntregadaInicial,
                     ]);
                     $unidad->update([
