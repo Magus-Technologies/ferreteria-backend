@@ -138,11 +138,102 @@ class EntregaProducto extends Model
     }
 
     /**
-     * Relación: Tiene muchos productos entregados
+     * Relación: Tiene muchos productos entregados (líneas SOLICITADAS).
+     * Mantiene el nombre histórico — la "cantidad entregada" ahora se calcula
+     * sumando los eventos físicos asociados (ver `DetalleEntregaProducto`).
      */
     public function productosEntregados(): HasMany
     {
         return $this->hasMany(DetalleEntregaProducto::class, 'entrega_producto_id');
+    }
+
+    /**
+     * Relación: Tiene muchos eventos de despacho físico — cada uno con su
+     * propio chofer, fecha programada, vehículo y estado. Un pedido de 10 ud
+     * que se despacha en 3 viajes tiene 3 eventos colgando de UNA sola
+     * `entregaproducto`.
+     */
+    public function eventos(): HasMany
+    {
+        return $this->hasMany(EntregaEvento::class, 'entrega_producto_id');
+    }
+
+    /**
+     * Recalcula y persiste `estado_entrega` a partir de los eventos:
+     *   - 'en'  → todas las líneas solicitadas están cubiertas por eventos 'en'
+     *   - 'ec'  → hay al menos un evento 'ec' (en camino) o entrega parcial
+     *   - 'pe'  → no hay eventos activos
+     */
+    public function recalcularEstado(): void
+    {
+        // ── Modelo N-hijas (Opción A): delegar si soy una hija ──────────
+        // Una hija tiene grupo_entrega_id != null Y != su propio id.
+        if ($this->grupo_entrega_id && (int) $this->grupo_entrega_id !== (int) $this->id) {
+            $madre = static::find($this->grupo_entrega_id);
+            if ($madre) {
+                $madre->recalcularEstado();
+            }
+            return;
+        }
+
+        // Soy la madre (o entrega standalone) — contar hijas activas
+        $hijas = static::where('grupo_entrega_id', $this->id)
+            ->where('id', '!=', $this->id)
+            ->whereNotIn('estado_entrega', ['ca'])
+            ->get();
+
+        if ($hijas->count() > 0) {
+            // Si la madre es un tramo inmediato (pa/rt + in + almacen) ya
+            // confirmado ('en'), su estado directo prevalece. No se baja a
+            // 'pe'/'ec' por hijas programadas aún pendientes — esas tienen su
+            // propio ciclo independiente.
+            $esTramoInmediatoMadreConfirmado =
+                in_array($this->tipo_entrega, ['pa', 'rt']) &&
+                $this->tipo_despacho === 'in' &&
+                $this->quien_entrega === 'almacen' &&
+                $this->estado_entrega === 'en';
+
+            if ($esTramoInmediatoMadreConfirmado) {
+                return;
+            }
+
+            $todasEn     = $hijas->every(fn ($h) => $h->estado_entrega === 'en');
+            $hayActividad = $hijas->contains(fn ($h) => in_array($h->estado_entrega, ['ec', 'en']));
+
+            $nuevoEstado = $todasEn ? 'en' : ($hayActividad ? 'ec' : 'pe');
+
+            if ($this->estado_entrega !== $nuevoEstado) {
+                $this->estado_entrega = $nuevoEstado;
+                $this->saveQuietly();
+            }
+            return;
+        }
+
+        // ── Modelo eventos (fallback / Opción B legacy): sin hijas ──────
+        $this->load(['productosEntregados.eventosDetalle.entregaEvento']);
+
+        $todoEntregado = true;
+        $hayEnCamino = false;
+        $hayAlgunaEntrega = false;
+
+        foreach ($this->productosEntregados as $det) {
+            $entregado = (float) $det->cantidad_entregada;
+            $enCamino = (float) $det->cantidad_en_camino;
+            $solicitada = (float) $det->cantidad_solicitada;
+
+            if ($entregado > 0) $hayAlgunaEntrega = true;
+            if ($enCamino > 0) $hayEnCamino = true;
+            if ($entregado + 0.001 < $solicitada) $todoEntregado = false;
+        }
+
+        $nuevoEstado = $todoEntregado && $hayAlgunaEntrega
+            ? 'en'
+            : ($hayEnCamino || $hayAlgunaEntrega ? 'ec' : 'pe');
+
+        if ($this->estado_entrega !== $nuevoEstado) {
+            $this->estado_entrega = $nuevoEstado;
+            $this->saveQuietly();
+        }
     }
 
     /**

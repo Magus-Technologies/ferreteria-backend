@@ -625,6 +625,7 @@ class VentaController extends Controller
                     DetalleEntregaProducto::create([
                         'entrega_producto_id' => $entregaAuto->id,
                         'unidad_derivada_venta_id' => $unidad->id,
+                        'cantidad_solicitada' => (float) $unidad->cantidad,
                         'cantidad_entregada' => $cantidadEntregadaInicial,
                     ]);
                     $unidad->update([
@@ -1377,6 +1378,67 @@ class VentaController extends Controller
             // Reflejar el nuevo estado del flag tras el update
             $venta->stock_aplicado = $descontarStockAhora;
             $venta->save();
+
+            // ── Transición especial: auto-crear entrega EnTienda cuando no existe ──
+            // Dos casos cubiertos:
+            //  A) 'ee' → 'cr': store() la saltó porque era venta en espera.
+            //  B) 'an' → 'cr': la venta fue anulada sin haber tenido entrega
+            //     (p.ej. se guardó como 'ee', se anuló y luego se recuperó).
+            //     La línea 1088 reactivaría entregas canceladas, pero si no
+            //     existía ninguna no hace nada — este bloque la crea.
+            //
+            // El guard !EntregaProducto::exists() evita doble-creación:
+            // si la venta 'an' SÍ tenía entrega, la línea 1088 ya la reactivó
+            // a 'pe' y este bloque no ejecuta.
+            if (
+                in_array($estadoAnterior, ['ee', 'an']) &&
+                ! in_array($estadoNuevo, ['ee', 'an']) &&
+                $tipoDespachoNuevo === 'et' &&
+                ! $omitirEntregaUpdate &&
+                ! EntregaProducto::where('venta_id', $id)->exists()
+            ) {
+                $quienEntregaAuto = $validated['quien_entrega'] ?? 'almacen';
+                $estadoEntregaAuto = $noDescontarStockUpdate
+                    ? 'en'
+                    : ($quienEntregaAuto === 'vendedor' ? 'en' : 'pe');
+
+                $entregaAuto = EntregaProducto::create([
+                    'venta_id'          => $venta->id,
+                    'tipo_entrega'      => 'rt',
+                    'tipo_despacho'     => 'in',
+                    'estado_entrega'    => $estadoEntregaAuto,
+                    'fecha_entrega'     => now(),
+                    'almacen_salida_id' => $validated['almacen_id'] ?? $venta->almacen_id,
+                    'user_id'           => $validated['user_id'] ?? $venta->user_id,
+                    'user_entregado_id' => $estadoEntregaAuto === 'en'
+                        ? ($validated['user_id'] ?? $venta->user_id)
+                        : null,
+                    'quien_entrega' => $quienEntregaAuto,
+                    'tipo_pedido'   => 'interno',
+                ]);
+
+                $unidadesVenta = UnidadDerivadaInmutableVenta::whereHas(
+                    'productoAlmacenVenta',
+                    fn ($q) => $q->where('venta_id', $venta->id)
+                )->get();
+
+                foreach ($unidadesVenta as $unidad) {
+                    $cantidadEntregadaInicial = $estadoEntregaAuto === 'en'
+                        ? (float) $unidad->cantidad
+                        : 0.0;
+                    DetalleEntregaProducto::create([
+                        'entrega_producto_id'    => $entregaAuto->id,
+                        'unidad_derivada_venta_id' => $unidad->id,
+                        'cantidad_solicitada'    => (float) $unidad->cantidad,
+                        'cantidad_entregada'     => $cantidadEntregadaInicial,
+                    ]);
+                    $unidad->update([
+                        'cantidad_pendiente' => $estadoEntregaAuto === 'en'
+                            ? 0
+                            : (float) $unidad->cantidad,
+                    ]);
+                }
+            }
 
             // If despliegue_de_pago_ventas is provided, update them
             if (isset($validated['despliegue_de_pago_ventas'])) {

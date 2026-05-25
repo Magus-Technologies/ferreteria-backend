@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Enums\EstadoDeVenta;
+use App\Models\DetalleEntregaEvento;
 use App\Models\DetalleEntregaProducto;
+use App\Models\EntregaEvento;
 use App\Models\EntregaProducto;
 use App\Models\RequerimientoInterno;
 use App\Models\UnidadDerivadaInmutableVenta;
@@ -66,6 +68,10 @@ class EntregaProductoController extends Controller
                 'userEntregado:id,name',
                 'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
                 'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
+                // Entregas hermanas de la misma venta — necesarias para calcular
+                // totales acumulados de entregado/programado en el detalle de entrega.
+                'venta.entregasProductos:id,venta_id,estado_entrega',
+                'venta.entregasProductos.productosEntregados:id,entrega_producto_id,unidad_derivada_venta_id,cantidad_solicitada',
             ]);
 
         // Filter by venta_id
@@ -78,24 +84,34 @@ class EntregaProductoController extends Controller
             $query->where('almacen_salida_id', $request->almacen_salida_id);
         }
 
-        // Filter by chofer_id (incluye entregas sin despachador + externos de su cargo)
+        // Filter by chofer_id.
+        // - DESPACHADOR autenticado: solo ve SUS entregas asignadas.
+        // - Otros roles: mantiene el comportamiento histórico (incluye pool
+        //   sin asignar + pedidos externos por cargo).
         if ($request->has('chofer_id')) {
-            $user = User::find($request->chofer_id);
-            $query->where(function ($q) use ($request, $user) {
-                $q->where('chofer_id', $request->chofer_id)
-                  ->orWhere(function ($q2) {
-                      $q2->whereNull('chofer_id')->where('estado_entrega', 'pe');
-                  });
-                // También mostrar pedidos externos pendientes para el cargo del usuario
-                if ($user && $user->cargo) {
-                    $q->orWhere(function ($q2) use ($user) {
-                        $q2->where('tipo_pedido', 'externo')
-                           ->where('cargo_destino', $user->cargo)
-                           ->where('estado_entrega', 'pe')
-                           ->whereNull('chofer_id');
-                    });
-                }
-            });
+            $authUser = $request->user();
+            $esDespachadorAutenticado = strtoupper((string) ($authUser->rol_sistema ?? '')) === 'DESPACHADOR';
+
+            if ($esDespachadorAutenticado && $authUser) {
+                $query->where('chofer_id', $authUser->id);
+            } else {
+                $user = User::find($request->chofer_id);
+                $query->where(function ($q) use ($request, $user) {
+                    $q->where('chofer_id', $request->chofer_id)
+                      ->orWhere(function ($q2) {
+                          $q2->whereNull('chofer_id')->where('estado_entrega', 'pe');
+                      });
+                    // También mostrar pedidos externos pendientes para el cargo del usuario
+                    if ($user && $user->cargo) {
+                        $q->orWhere(function ($q2) use ($user) {
+                            $q2->where('tipo_pedido', 'externo')
+                               ->where('cargo_destino', $user->cargo)
+                               ->where('estado_entrega', 'pe')
+                               ->whereNull('chofer_id');
+                        });
+                    }
+                });
+            }
         }
 
         if ($request->has('vehiculo_id')) {
@@ -336,7 +352,7 @@ class EntregaProductoController extends Controller
                 DetalleEntregaProducto::create([
                     'entrega_producto_id' => $entrega->id,
                     'unidad_derivada_venta_id' => $detalle['unidad_derivada_venta_id'],
-                    'cantidad_entregada' => $cantidadEntregada,
+                    'cantidad_solicitada' => $cantidadEntregada,
                     'ubicacion' => $detalle['ubicacion'] ?? null,
                 ]);
 
@@ -402,6 +418,18 @@ class EntregaProductoController extends Controller
                         $notifBody,
                         $notifData
                     );
+                }
+            }
+
+            // Si la nueva entrega es una HIJA (modelo N-hijas), recalcular
+            // el estado agregado de la MADRE para que refleje la nueva actividad.
+            if (
+                ! empty($validated['grupo_entrega_id']) &&
+                (int) $validated['grupo_entrega_id'] !== (int) $entrega->id
+            ) {
+                $madre = EntregaProducto::find($validated['grupo_entrega_id']);
+                if ($madre) {
+                    $madre->recalcularEstado();
                 }
             }
 
@@ -505,8 +533,9 @@ class EntregaProductoController extends Controller
         $entrega = EntregaProducto::with([
             'venta:id,serie,numero,cliente_id,almacen_id',
             'venta.cliente:id,nombres,apellidos,razon_social,numero_documento,telefono,email',
+            'venta.cliente.direcciones:id,cliente_id,tipo,direccion,referencia,latitud,longitud',
             'venta.entregasProductos:id,venta_id,grupo_entrega_id,estado_entrega,tipo_entrega,tipo_despacho,fecha_entrega,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones,chofer_id,vehiculo_id,quien_entrega,tipo_pedido,cargo_destino,user_id,user_entregado_id,created_at',
-            'venta.entregasProductos.productosEntregados:id,entrega_producto_id,unidad_derivada_venta_id,cantidad_entregada',
+            'venta.entregasProductos.productosEntregados:id,entrega_producto_id,unidad_derivada_venta_id,cantidad_solicitada',
             'venta.entregasProductos.despachador:id,name,telefono,celular,email',
             'venta.entregasProductos.vehiculo:id,name,tipo,placa',
             'venta.almacen:id,name',
@@ -549,8 +578,14 @@ class EntregaProductoController extends Controller
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
-            $entrega = EntregaProducto::with('productosEntregados')->findOrFail($id);
+            $entrega = EntregaProducto::with([
+                'productosEntregados',
+                'productosEntregados.unidadDerivadaVenta',
+            ])->findOrFail($id);
             $venta = Venta::find($entrega->venta_id);
+
+            // Detalles para el EntregaEvento que se crea al final del loop.
+            $eventDetalles = [];
 
             if (! empty($validated['productos_entregados'])) {
                 $detallesExistentes = $entrega->productosEntregados->keyBy('unidad_derivada_venta_id');
@@ -570,16 +605,64 @@ class EntregaProductoController extends Controller
                         ]);
                     }
 
-                    $cantidadProgramadaOriginal = (float) $detalleExistente->cantidad_entregada;
-                    if ($cantidadNueva > $cantidadProgramadaOriginal) {
-                        throw ValidationException::withMessages([
-                            'productos_entregados' => [
-                                "La cantidad entregada ({$cantidadNueva}) no puede ser mayor a la cantidad programada ({$cantidadProgramadaOriginal})",
-                            ],
-                        ]);
+                    $cantidadProgramadaOriginal = (float) $detalleExistente->cantidad_solicitada;
+
+                    // Placeholder delivery (created via "Omitir" in crear-venta):
+                    // cantidad_solicitada = 0 means no stock was reserved at create time.
+                    // Validate against UDV cantidad_pendiente and consume it immediately
+                    // (same moment store() would consume it for regular deliveries).
+                    $esPlaceholderOmitido = ($cantidadProgramadaOriginal === 0.0);
+
+                    if ($esPlaceholderOmitido) {
+                        $udv = $detalleExistente->unidadDerivadaVenta;
+                        $maxPermitido = $udv ? (float) $udv->cantidad_pendiente : 0.0;
+                        if ($cantidadNueva > $maxPermitido) {
+                            throw ValidationException::withMessages([
+                                'productos_entregados' => [
+                                    "La cantidad a entregar ({$cantidadNueva}) supera la cantidad disponible ({$maxPermitido})",
+                                ],
+                            ]);
+                        }
+                        // Consume UDV pendiente and decrement stock right now —
+                        // the Domicilio flow sends 'ec' + amounts together but
+                        // 'en' arrives later without amounts, so we can't wait.
+                        if ($cantidadNueva > 0 && $udv) {
+                            $udv->decrement('cantidad_pendiente', $cantidadNueva);
+
+                            if (! ($venta?->stock_aplicado ?? false)) {
+                                $productoAlmacen = $udv->productoAlmacenVenta?->productoAlmacen;
+                                if ($productoAlmacen) {
+                                    $fraccion = $cantidadNueva * (float) $udv->factor;
+                                    $productoAlmacen->decrement('stock_fraccion', $fraccion);
+
+                                    ComplementarioStockService::procesarComplementarioPorFactor(
+                                        $productoAlmacen->id,
+                                        (float) $udv->factor,
+                                        $cantidadNueva,
+                                        $entrega->almacen_salida_id,
+                                        false
+                                    );
+                                }
+                            }
+                        }
+
+                        // Placeholder: set cantidad_solicitada to the FULL UDV pendiente
+                        // (captured before the decrement) so the accessor has room for
+                        // future events (usuario puede seguir entregando el resto).
+                        $detalleExistente->cantidad_solicitada = $maxPermitido;
+                        $detalleExistente->save();
+                    } else {
+                        if ($cantidadNueva > $cantidadProgramadaOriginal) {
+                            throw ValidationException::withMessages([
+                                'productos_entregados' => [
+                                    "La cantidad entregada ({$cantidadNueva}) no puede ser mayor a la cantidad programada ({$cantidadProgramadaOriginal})",
+                                ],
+                            ]);
+                        }
                     }
 
-                    $cantidadLiberada = $cantidadProgramadaOriginal - $cantidadNueva;
+                    // Placeholder: nothing was reserved before, so nothing to release.
+                    $cantidadLiberada = $esPlaceholderOmitido ? 0.0 : ($cantidadProgramadaOriginal - $cantidadNueva);
                     $esTramoPendienteSinReserva =
                         in_array($entrega->tipo_entrega, ['pa', 'rt'], true) &&
                         $entrega->tipo_despacho === 'in' &&
@@ -590,11 +673,55 @@ class EntregaProductoController extends Controller
                             ->increment('cantidad_pendiente', $cantidadLiberada);
                     }
 
-                    $detalleExistente->cantidad_entregada = $cantidadNueva;
-                    $detalleExistente->save();
+                    // ── Acumular para crear el EntregaEvento al final del loop ──
+                    // NON-placeholder: cantidad_solicitada permanece intacta (= lo que
+                    // se ordenó). El evento registra lo realmente despachado.
+                    if ($cantidadNueva > 0) {
+                        $eventDetalles[] = [
+                            'detalle_entrega_producto_id' => $detalleExistente->id,
+                            'cantidad' => $cantidadNueva,
+                        ];
+                    }
                 }
 
                 $entrega->load('productosEntregados');
+            }
+
+            // ── Crear EntregaEvento si hay productos despachados ──
+            // El estado del evento coincide con el estado_entrega solicitado
+            // (ec = en camino, en = entregado directo). Si no se envían
+            // productos (Call 2 del flujo Domicilio), el evento ya existe.
+            $estadoEventoNuevo = $validated['estado_entrega'] ?? null;
+            if (! empty($eventDetalles) && in_array($estadoEventoNuevo, ['ec', 'en'])) {
+                $userId = auth()->id() ?? $entrega->user_id;
+                $evento = EntregaEvento::create([
+                    'entrega_producto_id' => $entrega->id,
+                    'estado'              => $estadoEventoNuevo,
+                    'fecha_programada'    => $validated['fecha_programada'] ?? null,
+                    'fecha_ejecutada'     => $estadoEventoNuevo === 'en' ? now() : null,
+                    'hora_inicio'         => $validated['hora_inicio'] ?? null,
+                    'hora_fin'            => $validated['hora_fin'] ?? null,
+                    'chofer_id'           => $validated['chofer_id'] ?? null,
+                    'vehiculo_id'         => $validated['vehiculo_id'] ?? null,
+                    'quien_entrega'       => $validated['quien_entrega'] ?? null,
+                    'tipo_pedido'         => $validated['tipo_pedido'] ?? 'interno',
+                    'cargo_destino'       => $validated['cargo_destino'] ?? null,
+                    'direccion_entrega'   => $validated['direccion_entrega'] ?? null,
+                    'referencia_entrega'  => $validated['referencia_entrega'] ?? null,
+                    'latitud'             => $validated['latitud'] ?? null,
+                    'longitud'            => $validated['longitud'] ?? null,
+                    'observaciones'       => $validated['observaciones'] ?? null,
+                    'user_id'             => $userId,
+                    'user_entregado_id'   => $estadoEventoNuevo === 'en' ? $userId : null,
+                ]);
+
+                foreach ($eventDetalles as $det) {
+                    DetalleEntregaEvento::create([
+                        'entrega_evento_id'           => $evento->id,
+                        'detalle_entrega_producto_id' => $det['detalle_entrega_producto_id'],
+                        'cantidad'                    => $det['cantidad'],
+                    ]);
+                }
             }
 
             // Si el estado pasa a ENTREGADO ahora (no estaba antes), registrar
@@ -602,6 +729,24 @@ class EntregaProductoController extends Controller
             $estadoNuevo = $validated['estado_entrega'] ?? null;
             $estadoAnterior = $entrega->estado_entrega;
             if ($estadoNuevo === 'en' && $estadoAnterior !== 'en') {
+                // Call 2 del flujo Domicilio: los productos llegaron en Call 1
+                // (evento 'ec'), ahora confirmamos la entrega. Transicionamos el
+                // evento 'ec' más reciente a 'en'.
+                if (empty($eventDetalles)) {
+                    $eventoEc = EntregaEvento::where('entrega_producto_id', $entrega->id)
+                        ->where('estado', 'ec')
+                        ->latest()
+                        ->first();
+                    if ($eventoEc) {
+                        $userId = auth()->id() ?? $entrega->user_id;
+                        $eventoEc->update([
+                            'estado'            => 'en',
+                            'user_entregado_id' => $userId,
+                            'fecha_ejecutada'   => now(),
+                        ]);
+                    }
+                }
+
                 $validated['user_entregado_id'] = auth()->id();
                 // Si la entrega tenía una anulación previa registrada, se
                 // limpia ahora que vuelve a entregarse correctamente.
@@ -628,10 +773,10 @@ class EntregaProductoController extends Controller
                         $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
                         if (! $unidadDerivadaVenta) continue;
 
-                        $cantidadEntregada = (float) $detalle->cantidad_entregada;
+                        $cantidadEntregada = (float) $detalle->cantidad_solicitada;
                         if ($cantidadEntregada <= 0 && $entrega->tipo_entrega === 'rt') {
                             $cantidadEntregada = (float) $unidadDerivadaVenta->cantidad_pendiente;
-                            $detalle->cantidad_entregada = $cantidadEntregada;
+                            $detalle->cantidad_solicitada = $cantidadEntregada;
                             $detalle->save();
                         }
                         $cantidadPendiente = (float) $unidadDerivadaVenta->cantidad_pendiente;
@@ -663,10 +808,28 @@ class EntregaProductoController extends Controller
                         }
                     }
                 }
+
             }
 
             // Update entrega
             $entrega->update($validated);
+
+            // Recalcular estado lógico de la entrega.
+            // Si es una hija (modelo N-hijas), recalcularEstado() delegará a la madre.
+            //
+            // Excepción: tramo inmediato propio (pa/rt + in + almacen) confirmado
+            // como 'en'. Si se recalculara desde las hijas (tramos programados aún
+            // pendientes), la madre volvería a 'pe' incorrectamente.
+            // La confirmación directa del tramo inmediato prevalece.
+            $esTramoInmediatoConfirmadoAhora =
+                ($estadoNuevo === 'en') &&
+                in_array($entrega->tipo_entrega, ['pa', 'rt']) &&
+                $entrega->tipo_despacho === 'in' &&
+                $entrega->quien_entrega === 'almacen';
+
+            if (! $esTramoInmediatoConfirmadoAhora) {
+                $entrega->recalcularEstado();
+            }
 
             return response()->json([
                 'data' => $entrega->fresh([
@@ -719,7 +882,7 @@ class EntregaProductoController extends Controller
             foreach ($entrega->productosEntregados as $detalle) {
                 $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
                 if ($unidadDerivadaVenta) {
-                    $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_entregada);
+                    $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_solicitada);
                 }
             }
 
@@ -766,20 +929,20 @@ class EntregaProductoController extends Controller
                 $unidadDerivadaVenta = $detalle->unidadDerivadaVenta;
                 if (! $unidadDerivadaVenta) continue;
 
-                $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_entregada);
+                $unidadDerivadaVenta->increment('cantidad_pendiente', (float) $detalle->cantidad_solicitada);
 
                 // Revertir stock solo si se descontó al entregar (Parcial/legacy)
                 if ($stockDescontadoAlEntregar) {
                     $productoAlmacen = $unidadDerivadaVenta->productoAlmacenVenta?->productoAlmacen;
                     if ($productoAlmacen) {
-                        $cantidadEnFraccion = (float) $detalle->cantidad_entregada * (float) $unidadDerivadaVenta->factor;
+                        $cantidadEnFraccion = (float) $detalle->cantidad_solicitada * (float) $unidadDerivadaVenta->factor;
                         $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
 
                         // Revertir producto complementario
                         ComplementarioStockService::procesarComplementarioPorFactor(
                             $productoAlmacen->id,
                             (float) $unidadDerivadaVenta->factor,
-                            (float) $detalle->cantidad_entregada,
+                            (float) $detalle->cantidad_solicitada,
                             $entrega->almacen_salida_id,
                             true // ingreso (revertir)
                         );

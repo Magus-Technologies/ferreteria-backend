@@ -47,13 +47,30 @@ class EntregaProductoPdfService
                 ])
                 ->values()
             : collect();
-        $entregasTotales = $esParcial ? 1 : max(1, $entregasVenta->count());
-        $entregaNumero = $esParcial
-            ? 1
-            : max(
-                1,
-                $entregasVenta->search(fn ($e) => (int) $e->id === (int) $entrega->id) + 1
-            );
+
+        // Para el modelo N-hijas: si esta entrega es una HIJA, numerarla dentro
+        // de su grupo (ej. "Despacho 1 de 2") en vez de contar todos los registros
+        // de la venta. Así "Entrega 3 de 4" ya no confunde al despachador.
+        $grupoId = $entrega->grupo_entrega_id;
+        $esHijaParaNumero = $grupoId && (int) $grupoId !== (int) $entrega->id;
+
+        if ($esParcial) {
+            $entregasTotales = 1;
+            $entregaNumero   = 1;
+        } elseif ($esHijaParaNumero) {
+            $hijasGrupo = $entregasVenta
+                ->filter(fn ($e) =>
+                    $e->grupo_entrega_id &&
+                    (int) $e->grupo_entrega_id === (int) $grupoId &&
+                    (int) $e->id !== (int) $grupoId
+                )
+                ->values();
+            $entregasTotales = max(1, $hijasGrupo->count());
+            $entregaNumero   = max(1, $hijasGrupo->search(fn ($e) => (int) $e->id === (int) $entrega->id) + 1);
+        } else {
+            $entregasTotales = max(1, $entregasVenta->count());
+            $entregaNumero   = max(1, $entregasVenta->search(fn ($e) => (int) $e->id === (int) $entrega->id) + 1);
+        }
 
         // Format venta number
         $serie = $entrega->venta->serie ?? '';
@@ -352,6 +369,12 @@ class EntregaProductoPdfService
         $entregaTieneEntregaFisica =
             $entrega->estado_entrega === 'en' || !is_null($entrega->user_entregado_id);
 
+        // Hija = tiene grupo_entrega_id distinto a su propio id.
+        // Para hijas mostramos cuánto entregó ESTE despacho + pendiente global.
+        // Para madres (o entregas sin grupo) mostramos el global (total − pendiente).
+        $esHija = $entrega->grupo_entrega_id &&
+                  (int) $entrega->grupo_entrega_id !== (int) $entrega->id;
+
         foreach ($entrega->productosEntregados as $detalle) {
             $udv = $detalle->unidadDerivadaVenta;
             $pav = $udv?->productoAlmacenVenta;
@@ -360,20 +383,18 @@ class EntregaProductoPdfService
 
             $cantidadEstaEntrega = (float) ($detalle->cantidad_entregada ?? 0);
 
-            // El PDF debe reflejar el estado REAL de la línea de venta
-            // (total / entregado / pendiente), no solo la cantidad del detalle
-            // de esta entrega puntual. Esto aplica a cualquier tipo de entrega
-            // (Recojo en Tienda, Domicilio, Parcial) y cubre el caso donde la
-            // venta ya tuvo entregas previas o se editó después.
-            //
-            // Ejemplo: venta de 10 unidades, primera entrega de 5 (esta).
-            //   $cantidadEstaEntrega = 5
-            //   $udv->cantidad = 10, $udv->cantidad_pendiente = 5
-            //   El ticket debe mostrar Entreg=5, Pend=5 (global), no Pend=0.
             if ($udv) {
                 $total = (float) ($udv->cantidad ?? $cantidadEstaEntrega);
                 $pendiente = max(0.0, (float) ($udv->cantidad_pendiente ?? 0));
-                $entregado = max(0.0, $total - $pendiente);
+
+                if ($esHija) {
+                    // Hija: mostrar lo que entregó este despacho específico y el
+                    // pendiente global restante del pedido (mismo UDV compartido).
+                    $entregado = $cantidadEstaEntrega;
+                } else {
+                    // Madre/única: entregado global = total − pendiente global.
+                    $entregado = max(0.0, $total - $pendiente);
+                }
             } else {
                 // Fallback defensivo cuando no hay relación con unidad de venta.
                 $total = $cantidadEstaEntrega;
