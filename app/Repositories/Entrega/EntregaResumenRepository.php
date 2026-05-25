@@ -63,12 +63,12 @@ class EntregaResumenRepository
                 'resumen.ultima_fecha_ejecutada',
             ]);
 
-        // Filtros de fecha
+        // Filtros de fecha (v.fecha es datetime — usar DATE() para comparar solo la parte de fecha)
         if (! empty($filtros['fecha_desde'])) {
-            $query->where('v.fecha', '>=', $filtros['fecha_desde']);
+            $query->whereRaw('DATE(v.fecha) >= ?', [$filtros['fecha_desde']]);
         }
         if (! empty($filtros['fecha_hasta'])) {
-            $query->where('v.fecha', '<=', $filtros['fecha_hasta']);
+            $query->whereRaw('DATE(v.fecha) <= ?', [$filtros['fecha_hasta']]);
         }
 
         // Solo ventas con entregas pendientes

@@ -224,6 +224,70 @@ class EntregaService
     }
 
     // ─────────────────────────────────────────────────────────────
+    // SYNC DESDE VENTA CONTROLLER
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Crea entrega + detalles en las tablas nuevas mirroreando lo que
+     * VentaController ya persistió en las tablas legacy.
+     *
+     * NO aplica stock (VentaController ya lo manejó),
+     * NO valida cantidades pendientes,
+     * NO envía notificaciones.
+     *
+     * @param array{
+     *   venta_id: string,
+     *   tipo_entrega: string,
+     *   tipo_despacho: string,
+     *   estado_entrega: string,
+     *   quien_entrega: string,
+     *   almacen_salida_id: int,
+     *   user_creador_id: string,
+     *   user_entregado_id: string|null,
+     *   fecha_creacion: string,
+     *   fecha_ejecutada: string|null,
+     *   tipo_pedido: string,
+     *   entrega_legacy_id: int|null,
+     *   productos: array<int, array{unidad_derivada_venta_id: int, cantidad: float}>,
+     * } $data
+     */
+    public function crearSync(array $data): Entrega
+    {
+        $tipoEntregaId  = TipoEntrega::where('codigo', $data['tipo_entrega'])->value('id');
+        $tipoDespachoId = TipoDespacho::where('codigo', $data['tipo_despacho'])->value('id');
+        $estadoEntregaId = EstadoEntrega::where('codigo', $data['estado_entrega'])->value('id');
+        $quienEntregaId  = QuienEntrega::where('codigo', $data['quien_entrega'])->value('id');
+
+        $entrega = Entrega::create([
+            'venta_id'                => $data['venta_id'],
+            'venta_entrega_secuencia' => $this->resumen->siguienteSecuencia($data['venta_id']),
+            'tipo_entrega_id'         => $tipoEntregaId,
+            'tipo_despacho_id'        => $tipoDespachoId,
+            'estado_entrega_id'       => $estadoEntregaId,
+            'quien_entrega_id'        => $quienEntregaId,
+            'almacen_salida_id'       => $data['almacen_salida_id'],
+            'tipo_pedido'             => $data['tipo_pedido'] ?? 'interno',
+            'user_creador_id'         => $data['user_creador_id'],
+            'user_entregado_id'       => $data['user_entregado_id'] ?? null,
+            'fecha_creacion'          => $data['fecha_creacion'],
+            'fecha_ejecutada'         => $data['fecha_ejecutada'] ?? null,
+            // Stock ya aplicado por VentaController — evita doble decremento
+            'stock_aplicado'          => true,
+            'entrega_legacy_id'       => $data['entrega_legacy_id'] ?? null,
+        ]);
+
+        foreach ($data['productos'] as $item) {
+            EntregaDetalle::create([
+                'entrega_id'               => $entrega->id,
+                'unidad_derivada_venta_id' => $item['unidad_derivada_venta_id'],
+                'cantidad'                 => $item['cantidad'],
+            ]);
+        }
+
+        return $entrega;
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // HELPERS
     // ─────────────────────────────────────────────────────────────
 
