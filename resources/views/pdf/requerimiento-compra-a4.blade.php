@@ -51,7 +51,7 @@
     <div style="font-size: 9pt; font-weight: bold; text-transform: uppercase; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #fadc06;">
         Información General
     </div>
-    <table class="border-theme-box bg-theme-light" style="width: 100%; font-size: 8pt; margin-bottom: 14px; padding: 6px 10px;">
+    <table class="border-theme-box" style="width: 100%; font-size: 8pt; margin-bottom: 14px; padding: 6px 10px;">
         <tr>
             <td style="width: 20%; font-weight: bold; text-transform: uppercase; font-size: 7.5pt; padding: 2px;">NÚMERO:</td>
             <td style="width: 30%; font-size: 8pt; padding: 2px;">{{ $requerimiento->codigo }}</td>
@@ -76,7 +76,7 @@
     <div style="font-size: 9pt; font-weight: bold; text-transform: uppercase; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #fadc06;">
         Solicitante y Responsable
     </div>
-    <table class="border-theme-box bg-theme-light" style="width: 100%; font-size: 8pt; margin-bottom: 14px; padding: 6px 10px;">
+    <table class="border-theme-box" style="width: 100%; font-size: 8pt; margin-bottom: 14px; padding: 6px 10px;">
         <tr>
             <td style="width: 20%; font-weight: bold; text-transform: uppercase; font-size: 7.5pt; padding: 2px;">SOLICITANTE:</td>
             <td style="width: 30%; font-size: 8pt; padding: 2px;">{{ $requerimiento->user->name ?? '—' }}</td>
@@ -134,7 +134,7 @@
     </table>
 
     {{-- Observaciones --}}
-    <table class="border-theme-box bg-theme-light" style="width: 100%; margin-bottom: 14px; padding: 8px 10px; font-size: 8pt;">
+    <table class="border-theme-box" style="width: 100%; margin-bottom: 14px; padding: 8px 10px; font-size: 8pt;">
         <tr>
             <td>
                 <span style="font-weight: bold;">Observaciones:</span><br>
@@ -148,7 +148,7 @@
     <div style="font-size: 9pt; font-weight: bold; text-transform: uppercase; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #fadc06;">
         Proveedor Sugerido
     </div>
-    <table class="border-theme-box bg-theme-light" style="width: 100%; font-size: 8pt; margin-bottom: 14px; padding: 6px 10px;">
+    <table class="border-theme-box" style="width: 100%; font-size: 8pt; margin-bottom: 14px; padding: 6px 10px;">
         <tr>
             <td style="width: 20%; font-weight: bold; text-transform: uppercase; font-size: 7.5pt; padding: 2px;">RAZÓN SOCIAL:</td>
             <td style="width: 30%; font-size: 8pt; padding: 2px;">{{ $requerimiento->proveedorSugerido->razon_social }}</td>
