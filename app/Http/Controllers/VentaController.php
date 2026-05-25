@@ -25,6 +25,7 @@ use App\Models\UnidadDerivadaInmutableVenta;
 use App\Models\Venta;
 use App\Models\ValeCompra;
 use App\Models\VentaHistorial;
+use App\Services\Entrega\EntregaService;
 use App\Services\Interfaces\FacturaServiceInterface;
 use App\Services\ValeCompraService;
 use App\Services\Producto\ComplementarioStockService;
@@ -36,7 +37,8 @@ class VentaController extends Controller
 {
     public function __construct(
         private FacturaServiceInterface $facturaService,
-        private ValeCompraService $valeCompraService
+        private ValeCompraService $valeCompraService,
+        private EntregaService $entregaService,
     ) {}
 
     /**
@@ -634,6 +636,27 @@ class VentaController extends Controller
                             : (float) $unidad->cantidad,
                     ]);
                 }
+
+                // Mirror a tablas nuevas (entrega + entrega_detalle)
+                // Stock NO se re-aplica — VentaController ya lo manejó arriba.
+                $this->entregaService->crearSync([
+                    'venta_id'          => $venta->id,
+                    'tipo_entrega'      => 'rt',
+                    'tipo_despacho'     => 'in',
+                    'estado_entrega'    => $estadoEntregaAuto,
+                    'quien_entrega'     => $quienEntregaAuto,
+                    'almacen_salida_id' => $validated['almacen_id'],
+                    'user_creador_id'   => $validated['user_id'],
+                    'user_entregado_id' => $estadoEntregaAuto === 'en' ? $validated['user_id'] : null,
+                    'fecha_creacion'    => now()->toDateString(),
+                    'fecha_ejecutada'   => $estadoEntregaAuto === 'en' ? now()->toDateTimeString() : null,
+                    'tipo_pedido'       => 'interno',
+                    'entrega_legacy_id' => $entregaAuto->id,
+                    'productos'         => $unidadesVenta->map(fn ($u) => [
+                        'unidad_derivada_venta_id' => $u->id,
+                        'cantidad'                 => (float) $u->cantidad,
+                    ])->toArray(),
+                ]);
 
                 // Si la venta NO aplicó stock en la rama inicial (ej. crédito en
                 // En Tienda), descontarlo aquí para que el comportamiento quede
