@@ -1379,13 +1379,20 @@ class VentaController extends Controller
             $venta->stock_aplicado = $descontarStockAhora;
             $venta->save();
 
-            // ── Transición 'ee' → venta real: auto-crear entrega EnTienda ──────────
-            // store() saltó autoCrearEntrega porque $estadoVentaStr === 'ee'.
-            // Al confirmar la venta en espera aquí (update), creamos esa entrega
-            // si aún no existe ninguna para esta venta.
+            // ── Transición especial: auto-crear entrega EnTienda cuando no existe ──
+            // Dos casos cubiertos:
+            //  A) 'ee' → 'cr': store() la saltó porque era venta en espera.
+            //  B) 'an' → 'cr': la venta fue anulada sin haber tenido entrega
+            //     (p.ej. se guardó como 'ee', se anuló y luego se recuperó).
+            //     La línea 1088 reactivaría entregas canceladas, pero si no
+            //     existía ninguna no hace nada — este bloque la crea.
+            //
+            // El guard !EntregaProducto::exists() evita doble-creación:
+            // si la venta 'an' SÍ tenía entrega, la línea 1088 ya la reactivó
+            // a 'pe' y este bloque no ejecuta.
             if (
-                $estadoAnterior === 'ee' &&
-                $estadoNuevo !== 'ee' &&
+                in_array($estadoAnterior, ['ee', 'an']) &&
+                ! in_array($estadoNuevo, ['ee', 'an']) &&
                 $tipoDespachoNuevo === 'et' &&
                 ! $omitirEntregaUpdate &&
                 ! EntregaProducto::where('venta_id', $id)->exists()
