@@ -1379,6 +1379,60 @@ class VentaController extends Controller
             $venta->stock_aplicado = $descontarStockAhora;
             $venta->save();
 
+            // ── Transición 'ee' → venta real: auto-crear entrega EnTienda ──────────
+            // store() saltó autoCrearEntrega porque $estadoVentaStr === 'ee'.
+            // Al confirmar la venta en espera aquí (update), creamos esa entrega
+            // si aún no existe ninguna para esta venta.
+            if (
+                $estadoAnterior === 'ee' &&
+                $estadoNuevo !== 'ee' &&
+                $tipoDespachoNuevo === 'et' &&
+                ! $omitirEntregaUpdate &&
+                ! EntregaProducto::where('venta_id', $id)->exists()
+            ) {
+                $quienEntregaAuto = $validated['quien_entrega'] ?? 'almacen';
+                $estadoEntregaAuto = $noDescontarStockUpdate
+                    ? 'en'
+                    : ($quienEntregaAuto === 'vendedor' ? 'en' : 'pe');
+
+                $entregaAuto = EntregaProducto::create([
+                    'venta_id'          => $venta->id,
+                    'tipo_entrega'      => 'rt',
+                    'tipo_despacho'     => 'in',
+                    'estado_entrega'    => $estadoEntregaAuto,
+                    'fecha_entrega'     => now(),
+                    'almacen_salida_id' => $validated['almacen_id'] ?? $venta->almacen_id,
+                    'user_id'           => $validated['user_id'] ?? $venta->user_id,
+                    'user_entregado_id' => $estadoEntregaAuto === 'en'
+                        ? ($validated['user_id'] ?? $venta->user_id)
+                        : null,
+                    'quien_entrega' => $quienEntregaAuto,
+                    'tipo_pedido'   => 'interno',
+                ]);
+
+                $unidadesVenta = UnidadDerivadaInmutableVenta::whereHas(
+                    'productoAlmacenVenta',
+                    fn ($q) => $q->where('venta_id', $venta->id)
+                )->get();
+
+                foreach ($unidadesVenta as $unidad) {
+                    $cantidadEntregadaInicial = $estadoEntregaAuto === 'en'
+                        ? (float) $unidad->cantidad
+                        : 0.0;
+                    DetalleEntregaProducto::create([
+                        'entrega_producto_id'    => $entregaAuto->id,
+                        'unidad_derivada_venta_id' => $unidad->id,
+                        'cantidad_solicitada'    => (float) $unidad->cantidad,
+                        'cantidad_entregada'     => $cantidadEntregadaInicial,
+                    ]);
+                    $unidad->update([
+                        'cantidad_pendiente' => $estadoEntregaAuto === 'en'
+                            ? 0
+                            : (float) $unidad->cantidad,
+                    ]);
+                }
+            }
+
             // If despliegue_de_pago_ventas is provided, update them
             if (isset($validated['despliegue_de_pago_ventas'])) {
                 // Delete existing despliegue_de_pago_ventas
