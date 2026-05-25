@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\CobroVenta;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class CobroVentaPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     /**
      * Generar PDF ticket de un cobro de venta.
      */
@@ -47,7 +50,9 @@ class CobroVentaPdfService
             ? $cobro->despliegueDePago->metodoDePago->name . ' / ' . $cobro->despliegueDePago->name
             : $cobro->despliegueDePago?->name ?? '-';
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'cobro-venta', 'Ticket');
+
+        $data = array_merge($estilos, [
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'cobro' => $cobro,
@@ -61,7 +66,7 @@ class CobroVentaPdfService
             'totalCobrado' => number_format($totalVenta, 2),
             'saldoPendiente' => number_format(max(0, $saldoPendiente), 2),
             'registradoPor' => $cobro->user?->name ?? '-',
-        ];
+        ]);
 
         $filename = "cobro-{$cobro->id}.pdf";
 

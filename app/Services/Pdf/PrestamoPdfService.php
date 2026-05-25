@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\Prestamo;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class PrestamoPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(string $prestamoId, string $formato = 'a4', ?array $columnas = null): Response
     {
         $prestamo = $this->obtenerPrestamo($prestamoId);
@@ -39,7 +42,9 @@ class PrestamoPdfService
             }
         }
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'prestamo', 'A4');
+
+        $data = array_merge($estilos, [
             'prestamo' => $prestamo,
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -53,7 +58,7 @@ class PrestamoPdfService
             'moneda' => $monedaNombre,
             'tipoOperacion' => $tipoOperacion,
             'columnas' => $columnas, // Soporte para columnas seleccionables
-        ];
+        ]);
 
         $filename = "PRESTAMO-{$prestamo->numero}.pdf";
 
@@ -69,7 +74,9 @@ class PrestamoPdfService
             ?: trim(($entidad?->nombres ?? '') . ' ' . ($entidad?->apellidos ?? ''))
             ?: 'ENTIDAD GENERAL';
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'prestamo', 'Ticket');
+
+        $data = array_merge($estilos, [
             'titulo' => "Ticket {$prestamo->numero}",
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
@@ -96,7 +103,7 @@ class PrestamoPdfService
             'observaciones' => $prestamo->observaciones ?: '- NINGUNA',
             'garantia' => $prestamo->garantia,
             'columnas' => $columnas, // Soporte para columnas seleccionables
-        ];
+        ]);
 
         $filename = "TICKET-PRESTAMO-{$prestamo->numero}.pdf";
 

@@ -4,14 +4,38 @@
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
     <title>{{ $titulo ?? 'Ticket' }}</title>
+    @php
+        $est = $est ?? [];
+        $bloques = $bloques ?? [];
+        $colorBorde = $est['color_borde'] ?? '#000';
+        $borderThin = $est['border_thin_px'] ?? 1;
+        $padPx = $est['pad_px'] ?? 4;
+        $fuente = $est['fuente'] ?? 'Helvetica';
+        $fontPt = $est['font_pt'] ?? 7;
+
+        $cssEmpresaRazon = $bloques['empresa_razon']['css'] ?? '';
+        $cssEmpresaDir = $bloques['empresa_direccion']['css'] ?? '';
+        $cssCajaRuc = $bloques['caja_ruc']['css'] ?? '';
+        $cssCajaTipo = $bloques['caja_tipo']['css'] ?? '';
+        $cssCajaNumero = $bloques['caja_numero']['css'] ?? '';
+        $cssInfoLabel = $bloques['info_label']['css'] ?? '';
+        $cssInfoValor = $bloques['info_valor']['css'] ?? '';
+        $cssTablaHeader = $bloques['tabla_header']['css'] ?? '';
+        $cssTablaFila = $bloques['tabla_fila']['css'] ?? '';
+        $cssTotalLabel = $bloques['total_label']['css'] ?? '';
+        $cssTotalValor = $bloques['total_valor']['css'] ?? '';
+        $cssObsLabel = $bloques['obs_label']['css'] ?? '';
+        $cssObsValor = $bloques['obs_valor']['css'] ?? '';
+    @endphp
     <style>
         @page {
             size: 80mm auto;
             margin: 3mm;
         }
+        {!! $font_face_css ?? '' !!}
         body {
-            font-family: Helvetica, Arial, sans-serif;
-            font-size: 7pt;
+            font-family: "{{ $fuente }}", Arial, sans-serif;
+            font-size: {{ $fontPt }}pt;
             color: #000;
             line-height: 1.3;
             width: 74mm;
@@ -20,11 +44,8 @@
         }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
-        .text-bold { font-weight: bold; }
-        .separator { border-top: 1px dashed #000; margin: 4px 0; }
+        .separator { border-top: {{ $borderThin }}px dashed {{ $colorBorde }}; margin: 4px 0; }
         table { width: 100%; border-collapse: collapse; }
-        .label { font-weight: bold; text-transform: uppercase; font-size: 5pt; }
-        .value { font-size: 5pt; }
     </style>
 </head>
 <body>
@@ -34,20 +55,20 @@
             <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
         @endif
         <div style="margin-top: 2px;">
-            <div class="text-bold" style="font-size: 9pt;">{{ $empresa->razon_social }}</div>
-            <div class="text-bold">R.U.C. {{ $empresa->ruc }}</div>
-            <div>{{ $empresa->direccion }}</div>
-            <div><span class="text-bold">Cel:</span> {{ $empresa->telefono }}</div>
-            <div><span class="text-bold">Email:</span> {{ $empresa->email }}</div>
+            <div style="{{ $cssEmpresaRazon }}">{{ $empresa->razon_social }}</div>
+            <div style="{{ $cssCajaRuc }}">R.U.C. {{ $empresa->ruc }}</div>
+            <div style="{{ $cssEmpresaDir }}">{{ $empresa->direccion }}</div>
+            <div style="{{ $cssEmpresaDir }}"><strong>Cel:</strong> {{ $empresa->telefono }}</div>
+            <div style="{{ $cssEmpresaDir }}"><strong>Email:</strong> {{ $empresa->email }}</div>
         </div>
     </div>
 
     <div class="separator"></div>
 
     {{-- Tipo documento y numero --}}
-    <div class="text-center text-bold" style="font-size: 9pt; padding: 4px 0;">
-        {{ $tipoOperacion }}<br>
-        {{ $numeroDocumento }}
+    <div class="text-center" style="padding: 4px 0;">
+        <div style="{{ $cssCajaTipo }}">{{ $tipoOperacion }}</div>
+        <div style="{{ $cssCajaNumero }}">{{ $numeroDocumento }}</div>
     </div>
 
     <div class="separator"></div>
@@ -56,29 +77,29 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label" style="width: 50%;">F. Emisi&oacute;n: <span class="value">{{ $fechaEmision }}</span></td>
-                <td class="label" style="width: 50%;">Hora: <span class="value">{{ $hora }}</span></td>
+                <td style="{{ $cssInfoLabel }} width: 50%;">F. Emisi&oacute;n: <span style="{{ $cssInfoValor }}">{{ $fechaEmision }}</span></td>
+                <td style="{{ $cssInfoLabel }} width: 50%;">Hora: <span style="{{ $cssInfoValor }}">{{ $hora }}</span></td>
             </tr>
             <tr>
-                <td class="label">F. Vencimiento:</td>
-                <td class="value">{{ $fechaVencimiento }}</td>
+                <td style="{{ $cssInfoLabel }}">F. Vencimiento:</td>
+                <td style="{{ $cssInfoValor }}">{{ $fechaVencimiento }}</td>
             </tr>
             <tr>
-                <td class="label">Vendedor:</td>
-                <td class="value">{{ $vendedor }}</td>
+                <td style="{{ $cssInfoLabel }}">Vendedor:</td>
+                <td style="{{ $cssInfoValor }}">{{ $vendedor }}</td>
             </tr>
             <tr>
-                <td class="label">Estado:</td>
-                <td class="value">{{ $estado }}</td>
+                <td style="{{ $cssInfoLabel }}">Estado:</td>
+                <td style="{{ $cssInfoValor }}">{{ $estado }}</td>
             </tr>
             <tr>
-                <td class="label">Moneda:</td>
-                <td class="value">{{ $monedaNombre }}</td>
+                <td style="{{ $cssInfoLabel }}">Moneda:</td>
+                <td style="{{ $cssInfoValor }}">{{ $monedaNombre }}</td>
             </tr>
             @if($tasaInteres)
             <tr>
-                <td class="label">Tasa Inter&eacute;s:</td>
-                <td class="value">{{ $tasaInteres }}</td>
+                <td style="{{ $cssInfoLabel }}">Tasa Inter&eacute;s:</td>
+                <td style="{{ $cssInfoValor }}">{{ $tasaInteres }}</td>
             </tr>
             @endif
         </table>
@@ -90,17 +111,17 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td class="label">{{ $esCliente ? 'Cliente:' : 'Proveedor:' }}</td>
-                <td class="value">{{ $entidadNombre }}</td>
+                <td style="{{ $cssInfoLabel }}">{{ $esCliente ? 'Cliente:' : 'Proveedor:' }}</td>
+                <td style="{{ $cssInfoValor }}">{{ $entidadNombre }}</td>
             </tr>
             <tr>
-                <td class="label">{{ strlen($entidadDocumento) === 11 ? 'RUC:' : 'DNI:' }}</td>
-                <td class="value">{{ $entidadDocumento }}</td>
+                <td style="{{ $cssInfoLabel }}">{{ strlen($entidadDocumento) === 11 ? 'RUC:' : 'DNI:' }}</td>
+                <td style="{{ $cssInfoValor }}">{{ $entidadDocumento }}</td>
             </tr>
             @if($entidadDireccion)
             <tr>
-                <td class="label">Direcci&oacute;n:</td>
-                <td class="value">{{ $entidadDireccion }}</td>
+                <td style="{{ $cssInfoLabel }}">Direcci&oacute;n:</td>
+                <td style="{{ $cssInfoValor }}">{{ $entidadDireccion }}</td>
             </tr>
             @endif
         </table>
@@ -124,17 +145,17 @@
     <div style="padding-top: 4px;">
         <table>
             <thead>
-                <tr style="border-bottom: 1px solid #000;">
+                <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
                     @foreach($colsActivas as $c)
-                    <th class="text-bold" style="font-size: 6pt; text-align: left;">{!! $colsTicket[$c] !!}</th>
+                    <th style="{{ $cssTablaHeader }} text-align: left;">{!! $colsTicket[$c] !!}</th>
                     @endforeach
                 </tr>
             </thead>
             <tbody>
                 @foreach($productos as $i => $p)
-                <tr style="border-bottom: 1px solid #000;{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
+                <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
                     @foreach($colsActivas as $c)
-                    <td style="font-size: 6pt; padding: 3px 0;">
+                    <td style="{{ $cssTablaFila }} padding: 3px 0;">
                         @if($c === 'producto'){{ $p['nombre'] }}
                         @elseif($c === 'cantidad'){{ number_format($p['cantidad'], 0) }}
                         @elseif($c === 'unidad'){{ $p['unidad'] }}
@@ -158,35 +179,36 @@
     <div style="margin-top: 4px;">
         <table>
             @if($verTotal)
-            <tr style="border-bottom: 1px solid #000;">
-                <td class="text-bold" style="font-size: 7pt;">MONTO TOTAL</td>
-                <td class="text-right text-bold" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoTotal, 2) }}</td>
+            <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
+                <td style="{{ $cssTotalLabel }}">MONTO TOTAL</td>
+                <td style="{{ $cssTotalValor }} text-align: right;">{{ $monedaSymbol }} {{ number_format($montoTotal, 2) }}</td>
             </tr>
             @endif
             @if($verPagado)
-            <tr style="border-bottom: 1px solid #000;">
-                <td class="text-bold" style="font-size: 7pt;">MONTO PAGADO</td>
-                <td class="text-right" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoPagado, 2) }}</td>
+            <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
+                <td style="{{ $cssTotalLabel }}">MONTO PAGADO</td>
+                <td style="{{ $cssTotalValor }} text-align: right;">{{ $monedaSymbol }} {{ number_format($montoPagado, 2) }}</td>
             </tr>
             @endif
             @if($verSaldo)
             <tr>
-                <td class="text-bold" style="font-size: 7pt;">SALDO PENDIENTE</td>
-                <td class="text-right text-bold" style="font-size: 7pt;">{{ $monedaSymbol }} {{ number_format($montoPendiente, 2) }}</td>
+                <td style="{{ $cssTotalLabel }}">SALDO PENDIENTE</td>
+                <td style="{{ $cssTotalValor }} text-align: right;">{{ $monedaSymbol }} {{ number_format($montoPendiente, 2) }}</td>
             </tr>
             @endif
         </table>
     </div>
 
     {{-- Observaciones --}}
-    <div style="font-size: 7pt; margin-top: 4px;">
-        <span class="text-bold">Observaciones:</span><br>
-        {{ $observaciones }}
+    <div style="margin-top: 4px;">
+        <div style="{{ $cssObsLabel }}">Observaciones:</div>
+        <div style="{{ $cssObsValor }}">{{ $observaciones }}</div>
     </div>
 
     @if($garantia)
-    <div style="font-size: 7pt; margin-top: 2px;">
-        <span class="text-bold">Garant&iacute;a:</span> {{ $garantia }}
+    <div style="margin-top: 2px;">
+        <span style="{{ $cssInfoLabel }}">Garant&iacute;a:</span>
+        <span style="{{ $cssInfoValor }}">{{ $garantia }}</span>
     </div>
     @endif
 </body>

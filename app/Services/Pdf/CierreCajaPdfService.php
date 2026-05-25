@@ -3,10 +3,13 @@
 namespace App\Services\Pdf;
 
 use App\Models\AperturaCierreCaja;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class CierreCajaPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(string $id, string $formato = 'ticket'): Response
     {
         $cierre = $this->obtenerCierre($id);
@@ -31,7 +34,9 @@ class CierreCajaPdfService
 
         $nroDoc = 'CIERRE-' . str_pad($cierre->id, 6, '0', STR_PAD_LEFT);
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'cierre-caja', $formato === 'a4' ? 'A4' : 'Ticket');
+
+        $data = array_merge($estilos, [
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'cierre' => $cierre,
@@ -46,7 +51,7 @@ class CierreCajaPdfService
             'otrosIngresos' => max($otrosIngresos, 0),
             'gastos' => max($gastos, 0),
             'conteo' => $cierre->conteo_billetes_monedas ? json_decode($cierre->conteo_billetes_monedas, true) : null,
-        ];
+        ]);
 
         $filename = "{$nroDoc}.pdf";
 

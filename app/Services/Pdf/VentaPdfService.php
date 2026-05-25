@@ -140,7 +140,9 @@ class VentaPdfService
             $barcodeBase64 = 'data:image/png;base64,' . base64_encode($barcodePng);
         }
 
-        $data = [
+        $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'vale-generado', 'Ticket');
+
+        $data = array_merge($estilos, [
             'empresa' => $empresa,
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'vale' => $vale,
@@ -148,7 +150,7 @@ class VentaPdfService
             'fechaEmision' => PdfService::formatFecha($venta->fecha),
             'qrBase64' => $qrBase64,
             'barcodeBase64' => $barcodeBase64,
-        ];
+        ]);
 
         $filename = "VALE-{$vale['codigo']}.pdf";
 
