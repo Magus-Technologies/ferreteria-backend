@@ -32,6 +32,8 @@ class ResumenVentaResource extends JsonResource
             'canceladas'               => (int) ($this->canceladas ?? 0),
             'proxima_fecha_programada' => $this->proxima_fecha_programada,
             'ultima_fecha_ejecutada'   => $this->ultima_fecha_ejecutada,
+            // true: venta sin ningún registro en `entrega` (domicilio omitida, etc.)
+            'sin_entregas'             => (bool) ($this->sin_entregas ?? false),
         ];
     }
 }

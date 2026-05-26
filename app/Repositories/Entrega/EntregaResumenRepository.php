@@ -43,7 +43,9 @@ class EntregaResumenRepository
                 '=',
                 'v.id'
             )
-            ->whereNotNull('resumen.venta_id') // solo ventas que tienen al menos una entrega
+            // Solo ventas con al menos un registro en `entrega`.
+            // Las ventas sin entrega se configuran desde Mis Ventas.
+            ->whereNotNull('resumen.venta_id')
             ->select([
                 'v.id as venta_id',
                 'v.serie',
@@ -71,7 +73,7 @@ class EntregaResumenRepository
             $query->whereRaw('DATE(v.fecha) <= ?', [$filtros['fecha_hasta']]);
         }
 
-        // Solo ventas con entregas pendientes
+        // Solo ventas con al menos una entrega pendiente de confirmar
         if (! empty($filtros['solo_con_pendientes'])) {
             $query->where('resumen.pendientes', '>', 0);
         }

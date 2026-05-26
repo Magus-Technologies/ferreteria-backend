@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Models\Venta;
 use App\Exceptions\UsuarioEnMantenimientoException;
 use App\Models\ProductoAlmacen;
+use App\Services\Entrega\EntregaService;
 use App\Services\FirebaseNotificationService;
 use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\Request;
@@ -22,10 +23,14 @@ use Illuminate\Support\Facades\DB;
 class EntregaProductoController extends Controller
 {
     private FirebaseNotificationService $firebaseService;
+    private EntregaService $entregaService;
 
-    public function __construct(FirebaseNotificationService $firebaseService)
-    {
-        $this->firebaseService = $firebaseService;
+    public function __construct(
+        FirebaseNotificationService $firebaseService,
+        EntregaService $entregaService,
+    ) {
+        $this->firebaseService  = $firebaseService;
+        $this->entregaService   = $entregaService;
     }
     /**
      * Display a listing of the resource (todas las entregas o por venta).
@@ -431,6 +436,41 @@ class EntregaProductoController extends Controller
                 if ($madre) {
                     $madre->recalcularEstado();
                 }
+            }
+
+            // Sincronizar a la nueva tabla `entrega` (migración paralela).
+            // stock_aplicado=true porque EntregaProductoController ya manejó
+            // el stock — EntregaService no debe decrementarlo de nuevo.
+            try {
+                $this->entregaService->crearSync([
+                    'venta_id'           => $validated['venta_id'],
+                    'tipo_entrega'       => $validated['tipo_entrega'],
+                    'tipo_despacho'      => $validated['tipo_despacho'] ?? 'in',
+                    'estado_entrega'     => $entrega->estado_entrega,  // 'pe' | 'en' | etc.
+                    'quien_entrega'      => $validated['quien_entrega'] ?? 'almacen',
+                    'almacen_salida_id'  => $validated['almacen_salida_id'],
+                    'chofer_id'          => $validated['chofer_id'] ?? null,
+                    'vehiculo_id'        => $validated['vehiculo_id'] ?? null,
+                    'tipo_pedido'        => $validated['tipo_pedido'] ?? 'interno',
+                    'fecha_creacion'     => $entrega->created_at,
+                    'fecha_ejecutada'    => null,
+                    'fecha_programada'   => $validated['fecha_programada'] ?? null,
+                    'hora_inicio'        => $validated['hora_inicio'] ?? null,
+                    'hora_fin'           => $validated['hora_fin'] ?? null,
+                    'direccion_entrega'  => $validated['direccion_entrega'] ?? null,
+                    'referencia_entrega' => $validated['referencia_entrega'] ?? null,
+                    'observaciones'      => $validated['observaciones'] ?? null,
+                    'user_creador_id'    => $validated['user_id'],
+                    'user_entregado_id'  => null,
+                    'entrega_legacy_id'  => $entrega->id,
+                    'productos'          => collect($validated['productos_entregados'])
+                        ->map(fn ($d) => [
+                            'unidad_derivada_venta_id' => $d['unidad_derivada_venta_id'],
+                            'cantidad' => $d['cantidad_entregada'],
+                        ])->all(),
+                ]);
+            } catch (\Throwable) {
+                // Sync no crítica — no rompe el flujo principal
             }
 
             return response()->json([
