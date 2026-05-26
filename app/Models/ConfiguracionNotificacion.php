@@ -34,6 +34,6 @@ class ConfiguracionNotificacion extends Model
      */
     public static function tipos(): array
     {
-        return ['cumpleanos', 'entrega', 'pago', 'vale', 'caja', 'vencimiento'];
+        return ['cumpleanos', 'entrega', 'pago', 'vale', 'caja', 'vencimiento', 'cotizacion_vence', 'prestamo_vence', 'promocion_termina', 'requerimiento_vence'];
     }
 }

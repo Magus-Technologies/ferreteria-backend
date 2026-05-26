@@ -136,7 +136,7 @@ class CalculadorResumenCaja
             // La sub-caja se obtiene desde transacciones_caja, no desde metododepago
             $pagos = \Illuminate\Support\Facades\DB::table('desplieguedepagoventa as dpv')
                 ->join('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
-                ->join('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
+                ->leftJoin('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
                 ->leftJoin('numeros_operacion_pago as nop', 'dpv.numero_operacion_id', '=', 'nop.id')
                 // Obtener la sub-caja desde transacciones_caja
                 ->leftJoin('transacciones_caja as tc', function ($join) use ($venta) {
@@ -167,9 +167,11 @@ class CalculadorResumenCaja
                 'total' => (float) $totalVenta,
                 'created_at' => $venta->created_at,
                 'pagos' => $pagos->map(function ($pago) {
+                    $banco = $pago->banco ?? 'Sin Banco';
+                    $metodoPagoFormateado = "{$banco}/{$pago->metodo_pago}";
                     return [
                         'sub_caja' => $pago->sub_caja ?? 'N/A',
-                        'metodo_pago' => "{$pago->banco}/{$pago->metodo_pago}",
+                        'metodo_pago' => $metodoPagoFormateado,
                         'monto' => (float) $pago->monto,
                         'numero_operacion' => $pago->numero_operacion,
                     ];

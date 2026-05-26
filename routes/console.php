@@ -36,3 +36,11 @@ Schedule::command('reservas:liberar-expiradas')
     ->withoutOverlapping()
     ->onOneServer()
     ->runInBackground();
+
+// Notificar a usuarios sobre cotizaciones y préstamos próximos a vencer
+// Se ejecuta diariamente a las 8:00 AM
+Schedule::command('notificaciones:vencimientos')
+    ->dailyAt('08:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->runInBackground();
