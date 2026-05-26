@@ -25,12 +25,26 @@ class VentaPdfService
 
         // Calcular sobrecargo total de todos los métodos de pago
         $sobrecargoTotal = $venta->despliegueDePagoVentas->sum('sobrecargo_aplicado') ?? 0;
-        
+
         $productos = $this->prepararProductos($venta, $sobrecargoTotal);
-        $calculos = $this->calcularTotales($productos, $sobrecargoTotal);
+
+        // Descuento por vales aplicados de tipo DESCUENTO_MISMA_COMPRA
+        $descuentoVale = $this->calcularDescuentoValesAplicados($venta, $productos);
+        $valesDescuento = $this->prepararValesDescuentoAplicados($venta, $productos);
+
+        // Calcular totales SIN incluir los productos regalados (subtotal=0 igual no afectaría,
+        // pero los mantenemos fuera del array que va a calcularTotales para evitar confusiones).
+        $calculos = $this->calcularTotales($productos, $sobrecargoTotal, $descuentoVale);
+
+        // Productos gratis por vales tipo PRODUCTO_GRATIS — se anexan al final del array
+        // de productos para que se muestren en el ticket sin sumar al total.
+        $productosGratis = $this->prepararProductosGratis($venta);
+        if (!empty($productosGratis)) {
+            $productos = array_merge($productos, $productosGratis);
+        }
 
         if ($formato === 'ticket') {
-            return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales);
+            return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales, $valesDescuento);
         }
 
         $codigoQr = $this->obtenerCodigoQr($venta);
@@ -57,6 +71,7 @@ class VentaPdfService
             'numeroDocumento' => $this->formatNumeroDocumento($venta),
             'productos' => $productos,
             'calculos' => $calculos,
+            'valesDescuento' => $valesDescuento,
             'codigoQr' => $codigoQr,
             'consultaUrl' => $consultaUrl,
             'filas' => $this->prepararInfoCliente($venta),
@@ -163,7 +178,7 @@ class VentaPdfService
         );
     }
 
-    private function generarTicket($venta, $empresa, array $productos, array $calculos, bool $sinVales = false): Response
+    private function generarTicket($venta, $empresa, array $productos, array $calculos, bool $sinVales = false, array $valesDescuento = []): Response
     {
         $cliente = $venta->cliente;
         $clienteNombre = $cliente?->razon_social
@@ -275,6 +290,7 @@ class VentaPdfService
             'son' => PdfService::numeroALetras($calculos['total']),
             'observaciones' => $venta->descripcion ?: ($msg['observaciones_default'] ?? '- NINGUNA'),
             'vales' => $sinVales ? [] : $vales,
+            'valesDescuento' => $valesDescuento,
             'consultaUrl' => $this->getConsultaUrl(),
             'plantilla' => $plantilla,
             'est' => $est,
@@ -319,21 +335,12 @@ class VentaPdfService
      */
     private function prepararProductos(Venta $venta, float $sobrecargoTotal = 0): array
     {
+        // $sobrecargoTotal se conserva en la firma por compatibilidad pero ya NO se
+        // distribuye en los precios unitarios: el ticket muestra el sobrecargo como
+        // línea separada (ver calcularTotales). Los productos se muestran con su
+        // precio REAL almacenado en la BD.
         $productos = [];
-        $subtotalTotal = 0;
 
-        // Primera pasada: calcular subtotal total
-        foreach ($venta->productosPorAlmacen as $pa) {
-            foreach ($pa->unidadesDerivadas as $ud) {
-                $cantidad = (float) $ud->cantidad;
-                $precio = (float) $ud->precio;
-                $descuento = (float) ($ud->descuento ?? 0);
-                $subtotal = $cantidad * $precio;
-                $subtotalTotal += $subtotal - $descuento;
-            }
-        }
-
-        // Segunda pasada: preparar productos con sobrecargo distribuido proporcionalmente
         foreach ($venta->productosPorAlmacen as $pa) {
             $producto = $pa->productoAlmacen->producto;
 
@@ -342,15 +349,6 @@ class VentaPdfService
                 $precio = (float) $ud->precio;
                 $descuento = (float) ($ud->descuento ?? 0);
                 $subtotal = $cantidad * $precio;
-                $neto = $subtotal - $descuento;
-
-                // Distribuir sobrecargo proporcionalmente
-                $sobrecargoProducto = $subtotalTotal > 0 ? ($neto / $subtotalTotal) * $sobrecargoTotal : 0;
-                $sobrecargoProductoPorcentaje = $neto > 0 ? ($sobrecargoProducto / $neto) * 100 : 0;
-                
-                // Precio unitario con sobrecargo incluido
-                $precioConSobrecargo = $cantidad > 0 ? $precio + ($sobrecargoProducto / $cantidad) : $precio;
-                $subtotalConSobrecargo = $subtotal + $sobrecargoProducto;
 
                 $productos[] = [
                     'codigo' => $producto->cod_producto ?? '',
@@ -358,11 +356,11 @@ class VentaPdfService
                     'marca' => $producto->marca->name ?? '',
                     'unidad' => $ud->unidadDerivadaInmutable->name ?? '',
                     'cantidad' => $cantidad,
-                    'precio' => $precioConSobrecargo,
+                    'precio' => $precio,
                     'descuento' => $descuento,
-                    'subtotal' => $subtotalConSobrecargo,
-                    'sobrecargo_porcentaje' => $sobrecargoProductoPorcentaje,
-                    'sobrecargo_valor' => $sobrecargoProducto,
+                    'subtotal' => $subtotal,
+                    'sobrecargo_porcentaje' => 0,
+                    'sobrecargo_valor' => 0,
                     'paquete_id' => $pa->paquete_id,
                     'paquete_nombre' => $pa->paquete_nombre,
                 ];
@@ -384,28 +382,142 @@ class VentaPdfService
     /**
      * Calcular subtotal, IGV y total.
      */
-    private function calcularTotales(array $productos, float $sobrecargoTotal = 0): array
+    private function calcularTotales(array $productos, float $sobrecargoTotal = 0, float $descuentoVale = 0): array
     {
-        $subtotal = array_sum(array_column($productos, 'subtotal'));
+        $subtotalBruto = array_sum(array_column($productos, 'subtotal'));
         $totalDescuento = array_sum(array_column($productos, 'descuento'));
-        
-        // El precio ya incluye IGV y el sobrecargo ya está en el subtotal
-        // No agregar sobrecargo nuevamente
-        $subtotalConSobrecargo = $subtotal - $totalDescuento;
-        
-        // Extraer el IGV del total (dividir por 1.18 para obtener base, luego calcular IGV)
-        $base = $subtotalConSobrecargo / 1.18;
-        $igv = $subtotalConSobrecargo - $base;
-        
-        // El total es el subtotal con sobrecargo (ya tiene IGV incluido)
-        $total = $subtotalConSobrecargo;
+
+        // Importe de los productos (con IGV incluido) menos descuentos por línea.
+        $importeProductos = $subtotalBruto - $totalDescuento;
+
+        // Importe neto después del descuento del vale (promoción).
+        $importeNeto = max(0, $importeProductos - $descuentoVale);
+
+        // Base e IGV se calculan sobre el importe neto (post descuentos).
+        $base = $importeNeto / 1.18;
+        $igv = $importeNeto - $base;
+
+        // El total final = neto + sobrecargo.
+        $total = $importeNeto + $sobrecargoTotal;
 
         return [
             'subtotal' => $base,
             'igv' => $igv,
+            'sobrecargo' => $sobrecargoTotal,
+            'descuento_vale' => $descuentoVale,
             'total' => $total,
             'total_descuento' => $totalDescuento,
         ];
+    }
+
+    /**
+     * Calcular el descuento total proveniente de vales aplicados de tipo
+     * DESCUENTO_MISMA_COMPRA. PORCENTAJE se aplica sobre el importe bruto de
+     * productos (post descuentos por línea). MONTO_FIJO se suma directamente.
+     * Los demás tipos (DESCUENTO_PROXIMA_COMPRA, PRODUCTO_GRATIS, DOS_POR_UNO,
+     * SORTEO) no generan descuento en esta misma venta.
+     */
+    private function calcularDescuentoValesAplicados(Venta $venta, array $productos): float
+    {
+        $subtotalBruto = array_sum(array_column($productos, 'subtotal'));
+        $totalDescuentoLinea = array_sum(array_column($productos, 'descuento'));
+        $baseDescuento = max(0, $subtotalBruto - $totalDescuentoLinea);
+
+        $descuento = 0;
+        foreach ($venta->valesAplicados as $va) {
+            $vale = $va->valeCompra;
+            if (!$vale) continue;
+            if ($vale->tipo_promocion !== 'DESCUENTO_MISMA_COMPRA') continue;
+
+            $valor = (float) ($vale->descuento_valor ?? 0);
+            if ($valor <= 0) continue;
+
+            if ($vale->descuento_tipo === 'PORCENTAJE') {
+                $descuento += $baseDescuento * $valor / 100;
+            } elseif ($vale->descuento_tipo === 'MONTO_FIJO') {
+                $descuento += $valor;
+            }
+        }
+
+        return round($descuento, 2);
+    }
+
+    /**
+     * Preparar lista de productos REGALADOS por vales de tipo PRODUCTO_GRATIS aplicados.
+     * Se muestran como filas adicionales en la tabla del ticket/A4 con subtotal = 0
+     * (no suman al total de la venta).
+     */
+    private function prepararProductosGratis(Venta $venta): array
+    {
+        $lista = [];
+        foreach ($venta->valesAplicados as $va) {
+            $vale = $va->valeCompra;
+            if (!$vale) continue;
+            if ($vale->tipo_promocion !== 'PRODUCTO_GRATIS') continue;
+
+            $productoGratis = $vale->productoGratis;
+            if (!$productoGratis) continue;
+
+            $cantidad = (float) ($vale->cantidad_producto_gratis ?? 1);
+
+            $lista[] = [
+                'codigo' => $productoGratis->cod_producto ?? '',
+                'nombre' => $productoGratis->name . ' (REGALO)',
+                'marca' => $productoGratis->marca->name ?? '',
+                'unidad' => $productoGratis->unidad_medida->name ?? 'UND',
+                'cantidad' => $cantidad,
+                'precio' => 0,
+                'descuento' => 0,
+                'subtotal' => 0,
+                'sobrecargo_porcentaje' => 0,
+                'sobrecargo_valor' => 0,
+                'paquete_id' => null,
+                'paquete_nombre' => null,
+                'es_gratis' => true,
+                'vale_nombre' => $vale->nombre,
+            ];
+        }
+        return $lista;
+    }
+
+    /**
+     * Preparar lista de vales DESCUENTO_MISMA_COMPRA aplicados con su info de
+     * descuento para mostrar en el ticket/A4 (nombre + beneficio + monto).
+     */
+    private function prepararValesDescuentoAplicados(Venta $venta, array $productos): array
+    {
+        $subtotalBruto = array_sum(array_column($productos, 'subtotal'));
+        $totalDescuentoLinea = array_sum(array_column($productos, 'descuento'));
+        $baseDescuento = max(0, $subtotalBruto - $totalDescuentoLinea);
+
+        $lista = [];
+        foreach ($venta->valesAplicados as $va) {
+            $vale = $va->valeCompra;
+            if (!$vale) continue;
+            if ($vale->tipo_promocion !== 'DESCUENTO_MISMA_COMPRA') continue;
+
+            $valor = (float) ($vale->descuento_valor ?? 0);
+            if ($valor <= 0) continue;
+
+            $monto = 0;
+            $beneficio = '';
+            if ($vale->descuento_tipo === 'PORCENTAJE') {
+                $monto = round($baseDescuento * $valor / 100, 2);
+                $beneficio = number_format($valor, 0) . '% DSCTO';
+            } elseif ($vale->descuento_tipo === 'MONTO_FIJO') {
+                $monto = round($valor, 2);
+                $beneficio = 'S/ ' . number_format($valor, 2) . ' DSCTO';
+            }
+
+            $lista[] = [
+                'codigo' => $vale->codigo,
+                'nombre' => $vale->nombre,
+                'beneficio' => $beneficio,
+                'monto' => $monto,
+            ];
+        }
+
+        return $lista;
     }
 
     /**

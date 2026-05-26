@@ -22,16 +22,19 @@ class ValeCompraService
     public function aplicarValesAutomaticos(Venta $venta, array $detallesVenta): Collection
     {
         try {
-            // 1. Calcular datos de la venta. El umbral del vale es por PRECIO
-            // (monto total en S/), no por cantidad de unidades. El nombre de
-            // columna `cantidad_minima` se mantiene por compatibilidad histórica.
+            // 1. Calcular datos de la venta: precio total (S/) y cantidad total (unidades).
+            // El umbral `cantidad_minima` del vale se interpreta según su tipo y modalidad:
+            // - Tipos basados en unidades (PRODUCTO_GRATIS, DOS_POR_UNO) → se compara contra cantidad.
+            // - Modalidades con productos específicos (POR_PRODUCTOS, MIXTO) → se compara contra cantidad.
+            // - Resto (DESCUENTO/SORTEO con CANTIDAD_MINIMA o POR_CATEGORIA) → se compara contra precio.
             $precioTotal = $this->calcularPrecioTotal($detallesVenta);
+            $cantidadTotal = $this->calcularCantidadTotal($detallesVenta);
             $categorias = $this->extraerCategorias($detallesVenta);
             $productos = $this->extraerProductos($detallesVenta);
 
 
-            // 2. Buscar vales potencialmente aplicables
-            $valesPotenciales = $this->buscarValesPotenciales($precioTotal);
+            // 2. Buscar vales potencialmente aplicables (filtro por umbral según tipo/modalidad)
+            $valesPotenciales = $this->buscarValesPotenciales($precioTotal, $cantidadTotal);
 
             // 3. Filtrar vales por modalidad y restricciones
             $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $venta) {
@@ -76,6 +79,37 @@ class ValeCompraService
     }
 
     /**
+     * Calcular cantidad total de unidades en la venta (suma de `cantidad` por línea).
+     * Usado para vales cuyo umbral está expresado en unidades (PRODUCTO_GRATIS,
+     * DOS_POR_UNO, o modalidad POR_PRODUCTOS / MIXTO).
+     */
+    private function calcularCantidadTotal(array $detallesVenta): float
+    {
+        return collect($detallesVenta)->sum(function($detalle) {
+            return $detalle['cantidad'] ?? 0;
+        });
+    }
+
+    /**
+     * Determina si el umbral `cantidad_minima` del vale debe interpretarse como
+     * cantidad de unidades (true) o como precio en S/ (false).
+     */
+    private function esUmbralPorUnidades(ValeCompra $vale): bool
+    {
+        return in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
+            || in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+    }
+
+    /**
+     * Helper estático equivalente: útil desde el controller (donde no hay instancia).
+     */
+    public static function esUmbralPorUnidadesStatic(ValeCompra $vale): bool
+    {
+        return in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
+            || in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+    }
+
+    /**
      * Extraer IDs de categorías de los productos en venta
      */
     private function extraerCategorias(array $detallesVenta): array
@@ -102,17 +136,20 @@ class ValeCompraService
     }
 
     /**
-     * Buscar vales potencialmente aplicables comparando contra el monto total
-     * de la venta en S/. `cantidad_minima` aquí representa el precio mínimo
-     * (nombre histórico de columna sin migrar).
+     * Buscar vales potencialmente aplicables. El umbral `cantidad_minima` se
+     * compara contra precio o cantidad según el tipo/modalidad del vale.
      */
-    private function buscarValesPotenciales(float $precioTotal): Collection
+    private function buscarValesPotenciales(float $precioTotal, float $cantidadTotal = 0): Collection
     {
-        return ValeCompra::with(['categorias', 'productos', 'productoGratis'])
+        $todos = ValeCompra::with(['categorias', 'productos', 'productoGratis'])
             ->activos()
             ->vigentes()
-            ->where('cantidad_minima', '<=', $precioTotal)
             ->get();
+
+        return $todos->filter(function (ValeCompra $vale) use ($precioTotal, $cantidadTotal) {
+            $umbral = $this->esUmbralPorUnidades($vale) ? $cantidadTotal : $precioTotal;
+            return (float) $vale->cantidad_minima <= (float) $umbral;
+        })->values();
     }
 
     /**
@@ -240,7 +277,7 @@ class ValeCompraService
                 null,
                 [
                     'venta_id' => $venta->id,
-                    'cantidad_productos' => $cantidadProductos,
+                    'cantidad_productos' => $precioTotal,
                     'descuento_aplicado' => $vale->descuento_valor,
                 ],
                 auth()->id()

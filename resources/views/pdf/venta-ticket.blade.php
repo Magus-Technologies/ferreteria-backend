@@ -163,12 +163,17 @@
                     @if(empty($p['paquete_id']) && $paqueteActual !== null)
                         @php $paqueteActual = null; @endphp
                     @endif
-                <tr style="border-bottom: 1px solid #000;{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
-                    <td style="padding:3px 0;{{ !empty($p['paquete_id']) ? ' padding-left:6px;' : '' }} {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ $p['nombre'] }}</td>
+                <tr style="border-bottom: 1px solid #000;{{ !empty($p['es_gratis']) ? ' background-color: #fff3cd;' : ($i % 2 !== 0 ? ' background-color: #f9f9f9;' : '') }}">
+                    <td style="padding:3px 0;{{ !empty($p['paquete_id']) ? ' padding-left:6px;' : '' }} {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">
+                        {{ $p['nombre'] }}
+                        @if(!empty($p['es_gratis']))
+                            <span style="display:inline-block; background:#000; color:#fff; padding:1px 4px; border-radius:2px; font-size:5pt; font-weight:bold; margin-left:2px;">GRATIS</span>
+                        @endif
+                    </td>
                     <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['cantidad'], 0) }}</td>
                     <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ $p['unidad'] }}</td>
-                    <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['precio'], 2) }}</td>
-                    <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['subtotal'], 2) }}</td>
+                    <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ !empty($p['es_gratis']) ? '—' : number_format($p['precio'], 2) }}</td>
+                    <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ !empty($p['es_gratis']) ? '0.00' : number_format($p['subtotal'], 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>
@@ -192,6 +197,23 @@
                 <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">IGV 18%</td>
                 <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($calculos['igv'], 2) }}</td>
             </tr>
+            @if(!empty($valesDescuento ?? []))
+                @foreach($valesDescuento as $vd)
+                <tr style="border-bottom: 1px solid #000;">
+                    <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">
+                        DSCTO ({{ $vd['beneficio'] }})<br>
+                        <span style="font-size:5pt; font-weight:normal;">{{ $vd['nombre'] }}</span>
+                    </td>
+                    <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">-{{ number_format($vd['monto'], 2) }}</td>
+                </tr>
+                @endforeach
+            @endif
+            @if(($calculos['sobrecargo'] ?? 0) > 0)
+            <tr style="border-bottom: 1px solid #000;">
+                <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">SOBRECARGO</td>
+                <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($calculos['sobrecargo'], 2) }}</td>
+            </tr>
+            @endif
             <tr>
                 <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">TOTAL</td>
                 <td style="text-align:right; font-weight:bold; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($calculos['total'], 2) }}</td>
