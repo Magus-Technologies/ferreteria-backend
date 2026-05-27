@@ -28,16 +28,17 @@
             } elseif (empty($p['paquete_id']) && $paqueteActual !== null) {
                 $paqueteActual = null;
             }
+            $esGratis = !empty($p['es_gratis']);
             $filasProductos[] = [
                 $itemNum++,
                 'A1',
                 $p['codigo'],
                 number_format($p['cantidad'], 0),
                 $p['unidad'],
-                (!empty($p['paquete_id']) ? '  ' : '') . $p['nombre'],
-                number_format($p['precio'], 2),
-                number_format($p['descuento'], 2),
-                number_format($p['subtotal'], 2),
+                (!empty($p['paquete_id']) ? '  ' : '') . $p['nombre'] . ($esGratis ? '  [GRATIS]' : ''),
+                $esGratis ? '—' : number_format($p['precio'], 2),
+                $esGratis ? '—' : number_format($p['descuento'], 2),
+                $esGratis ? '0.00' : number_format($p['subtotal'], 2),
             ];
         }
     @endphp
@@ -58,15 +59,29 @@
     ])
 
     {{-- SON + Observaciones + Totales --}}
+    @php
+        $filasTotales = [
+            ['label' => 'SUBTOTAL', 'valor' => number_format($calculos['subtotal'], 2)],
+            ['label' => 'IGV (18%)', 'valor' => number_format($calculos['igv'], 2)],
+        ];
+        if (!empty($valesDescuento ?? [])) {
+            foreach ($valesDescuento as $vd) {
+                $filasTotales[] = [
+                    'label' => 'DSCTO ' . $vd['beneficio'] . ' — ' . $vd['nombre'],
+                    'valor' => '-' . number_format($vd['monto'], 2),
+                ];
+            }
+        }
+        if (($calculos['sobrecargo'] ?? 0) > 0) {
+            $filasTotales[] = ['label' => 'SOBRECARGO', 'valor' => number_format($calculos['sobrecargo'], 2)];
+        }
+        $filasTotales[] = ['label' => 'TOTAL', 'valor' => number_format($calculos['total'], 2)];
+    @endphp
     @include('pdf.layout.totales', [
         'son' => $son,
         'moneda' => 'SOLES',
         'observaciones' => $observaciones,
-        'totales' => [
-            ['label' => 'SUBTOTAL', 'valor' => number_format($calculos['subtotal'], 2)],
-            ['label' => 'IGV (18%)', 'valor' => number_format($calculos['igv'], 2)],
-            ['label' => 'TOTAL', 'valor' => number_format($calculos['total'], 2)],
-        ],
+        'totales' => $filasTotales,
     ])
 
     {{-- Footer --}}

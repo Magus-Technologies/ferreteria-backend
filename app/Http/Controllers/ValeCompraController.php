@@ -384,17 +384,46 @@ class ValeCompraController extends Controller
     }
 
     /**
+     * Obtener el precio público máximo de una lista de productos (por id).
+     * Lo usa el formulario de creación de vale para validar que el "Precio Mínimo"
+     * sea mayor al precio público del producto seleccionado.
+     */
+    public function preciosProductos(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'producto_ids' => 'required|array',
+            'producto_ids.*' => 'integer',
+        ]);
+
+        // Trae el precio público MAX entre todas las unidades derivadas del producto
+        // en cualquiera de sus almacenes. Usamos MAX porque "precio publico" puede
+        // variar por unidad (la unidad base suele tener el precio más alto).
+        $rows = \DB::table('producto_almacen_unidad_derivada as udd')
+            ->join('producto_almacen as pa', 'pa.id', '=', 'udd.producto_almacen_id')
+            ->whereIn('pa.producto_id', $validated['producto_ids'])
+            ->select('pa.producto_id as id', \DB::raw('MAX(udd.precio_publico) as precio'))
+            ->groupBy('pa.producto_id')
+            ->get();
+
+        $precios = [];
+        foreach ($rows as $r) {
+            $precios[(int) $r->id] = (float) $r->precio;
+        }
+
+        return response()->json(['data' => $precios]);
+    }
+
+    /**
      * Obtener vales aplicables para una venta
      */
     public function valesAplicables(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            // `precio_total` = monto total de la venta en S/ (suma de
-            // precio_venta * cantidad por línea). Reemplaza al anterior
-            // `cantidad_total` (que sumaba unidades). El campo de BD
-            // `cantidad_minima` ahora representa el precio mínimo en S/
-            // — nombre histórico mantenido para evitar migración.
+            // `precio_total` = monto total de la venta en S/ (suma de precio × cantidad por línea).
+            // `cantidad_total` = suma de unidades. Se usa cuando el umbral del vale es por unidades
+            // (PRODUCTO_GRATIS, DOS_POR_UNO o modalidad POR_PRODUCTOS / MIXTO).
             'precio_total' => 'required|numeric|min:0',
+            'cantidad_total' => 'nullable|numeric|min:0',
             'categoria_ids' => 'nullable|array',
             'categoria_ids.*' => 'integer',
             'producto_ids' => 'nullable|array',
@@ -402,11 +431,32 @@ class ValeCompraController extends Controller
             'cliente_id' => 'nullable|integer|exists:cliente,id',
         ]);
 
+        // Si el frontend no envió categoria_ids, derivarlas de producto_ids.
+        // Sin esto, los vales POR_CATEGORIA y MIXTO nunca se detectarían en el carrito.
+        if (empty($validated['categoria_ids']) && !empty($validated['producto_ids'])) {
+            $validated['categoria_ids'] = \App\Models\Producto::whereIn('id', $validated['producto_ids'])
+                ->pluck('categoria_id')
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+        }
+
+        $cantidadTotal = (float) ($validated['cantidad_total'] ?? 0);
+        $precioTotal = (float) $validated['precio_total'];
+
+        // Traemos todos los activos+vigentes y filtramos el umbral en PHP según tipo/modalidad.
         $vales = ValeCompra::activos()
             ->vigentes()
-            ->where('cantidad_minima', '<=', $validated['precio_total'])
             ->with(['productoGratis', 'categorias', 'productos'])
-            ->get();
+            ->get()
+            ->filter(function (ValeCompra $vale) use ($precioTotal, $cantidadTotal) {
+                $umbral = \App\Services\ValeCompraService::esUmbralPorUnidadesStatic($vale)
+                    ? $cantidadTotal
+                    : $precioTotal;
+                return (float) $vale->cantidad_minima <= $umbral;
+            })
+            ->values();
 
         // Filtrar por modalidad y restricciones
         $valesAplicables = $vales->filter(function($vale) use ($validated) {
