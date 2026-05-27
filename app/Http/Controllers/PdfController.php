@@ -16,6 +16,7 @@ use App\Services\Pdf\RecepcionAlmacenPdfService;
 use App\Services\Pdf\RequerimientoInternoPdfService;
 use App\Services\Pdf\ValeCompraPdfService;
 use App\Services\Pdf\EntregaProductoPdfService;
+use App\Services\Pdf\EntregaNuevaPdfService;
 use App\Services\Pdf\CobroVentaPdfService;
 use App\Services\Pdf\PagoCompraPdfService;
 use App\Services\Pdf\VentaPdfService;
@@ -124,6 +125,12 @@ class PdfController extends Controller
     {
         // Formato por defecto = ticket (80mm térmico) — es el formato más usado.
         // Si el usuario pide ?formato=a4, se renderiza la versión carta.
+        $formato = $request->query('formato', 'ticket');
+        return $service->generar($id, $formato);
+    }
+
+    public function entregaNueva(int $id, Request $request, EntregaNuevaPdfService $service): Response
+    {
         $formato = $request->query('formato', 'ticket');
         return $service->generar($id, $formato);
     }

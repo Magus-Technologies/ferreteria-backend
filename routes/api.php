@@ -121,6 +121,7 @@ Route::prefix('pdf')->group(function () {
     Route::get('/recepcion-almacen/{id}', [PdfController::class, 'recepcionAlmacen']);
     Route::get('/requerimiento-interno/{id}', [PdfController::class, 'requerimientoInterno']);
     Route::get('/entrega-producto/{id}', [PdfController::class, 'entregaProducto']);
+    Route::get('/entrega/{id}', [PdfController::class, 'entregaNueva']);
     Route::get('/cobro-venta/{id}', [PdfController::class, 'cobroVenta']);
     Route::get('/cobro-venta-multiple', [PdfController::class, 'cobroVentaMultiple']);
     Route::get('/pago-compra/{id}', [PdfController::class, 'pagoCompra']);
