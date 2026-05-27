@@ -120,11 +120,23 @@ class ValeCompraController extends Controller
                 'required',
                 Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS', 'DOS_POR_UNO'])
             ],
+            // Cuándo se aplica el beneficio (independiente del tipo_promocion).
+            // Permite que PRODUCTO_GRATIS / DOS_POR_UNO / SORTEO también se entreguen
+            // como código para canjear en una compra posterior.
+            'momento_aplicacion' => [
+                'nullable',
+                Rule::in(['MISMA_COMPRA', 'PROXIMA_COMPRA']),
+            ],
             'modalidad' => [
                 'required',
                 Rule::in(['CANTIDAD_MINIMA', 'POR_CATEGORIA', 'POR_PRODUCTOS', 'MIXTO'])
             ],
-            'cantidad_minima' => 'required|numeric|min:0.001',
+            'cantidad_minima' => [
+                'nullable',
+                Rule::requiredIf($request->tipo_promocion !== 'SORTEO'),
+                'numeric',
+                'min:0.001',
+            ],
 
             // Para descuentos
             'descuento_tipo' => [
@@ -136,25 +148,52 @@ class ValeCompraController extends Controller
                 'nullable',
                 Rule::requiredIf(in_array($request->tipo_promocion, ['DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA'])),
                 'numeric',
-                'min:0'
+                'min:0',
+                function ($attribute, $value, $fail) use ($request) {
+                    if ($request->descuento_tipo === 'PORCENTAJE' && $value > 100) {
+                        $fail('El descuento porcentual no puede ser mayor a 100%.');
+                    }
+                    // Solo comparar monto contra cantidad_minima cuando el umbral es PRECIO (S/).
+                    // Para PRODUCTO_GRATIS, DOS_POR_UNO, POR_PRODUCTOS, MIXTO la cantidad_minima
+                    // representa unidades, no soles, y la comparación no aplica.
+                    $umbralEsUnidades = in_array($request->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
+                        || in_array($request->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+                    if (
+                        $request->descuento_tipo === 'MONTO_FIJO'
+                        && !$umbralEsUnidades
+                        && $request->cantidad_minima
+                        && $value > $request->cantidad_minima
+                    ) {
+                        $fail('El descuento en monto no puede exceder la compra mínima.');
+                    }
+                },
             ],
 
-            // Para producto gratis
+            // Para producto gratis y SORTEO con producto
             'producto_gratis_id' => [
                 'nullable',
                 Rule::requiredIf($request->tipo_promocion === 'PRODUCTO_GRATIS'),
+                Rule::requiredIf($request->input('sorteo_incluye_producto') === true || $request->input('sorteo_incluye_producto') === 'true'),
                 'exists:producto,id'
             ],
             'cantidad_producto_gratis' => 'nullable|numeric|min:0.001',
             
-            // Vigencia
+            // Para SORTEO (default false en la migración, no hace falta requerirlo)
+            'sorteo_incluye_producto' => 'nullable|boolean',
+            
+            // Vigencia. Para PROXIMA_COMPRA `fecha_fin` define también la caducidad
+            // del código entregado al cliente, por eso es obligatoria en ese caso.
             'fecha_inicio' => 'required|date',
-            'fecha_fin' => 'nullable|date|after_or_equal:fecha_inicio',
-            'fecha_validez_vale' => [
+            'fecha_fin' => [
                 'nullable',
-                Rule::requiredIf($request->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA'),
-                'date'
+                Rule::requiredIf($request->momento_aplicacion === 'PROXIMA_COMPRA'),
+                'date',
+                'after_or_equal:fecha_inicio',
             ],
+            // Campo legado: para vales nuevos la validez del código se toma de `fecha_fin`.
+            // Se mantiene aceptado en el request por compatibilidad con vales antiguos
+            // que aún lo tengan, pero ya no es requerido.
+            'fecha_validez_vale' => ['nullable', 'date'],
             
             // Restricciones
             'usa_limite_por_cliente' => 'boolean',
@@ -249,6 +288,11 @@ class ValeCompraController extends Controller
                 'sometimes',
                 Rule::in(['SORTEO', 'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA', 'PRODUCTO_GRATIS', 'DOS_POR_UNO'])
             ],
+            'momento_aplicacion' => [
+                'sometimes',
+                'nullable',
+                Rule::in(['MISMA_COMPRA', 'PROXIMA_COMPRA']),
+            ],
             'modalidad' => [
                 'sometimes',
                 Rule::in(['CANTIDAD_MINIMA', 'POR_CATEGORIA', 'POR_PRODUCTOS', 'MIXTO'])
@@ -258,6 +302,7 @@ class ValeCompraController extends Controller
             'descuento_valor' => 'nullable|numeric|min:0',
             'producto_gratis_id' => 'nullable|exists:producto,id',
             'cantidad_producto_gratis' => 'nullable|numeric|min:0.001',
+            'sorteo_incluye_producto' => 'nullable|boolean',
             'fecha_inicio' => 'sometimes|date',
             'fecha_fin' => 'nullable|date',
             'fecha_validez_vale' => 'nullable|date',
@@ -537,14 +582,16 @@ class ValeCompraController extends Controller
 
         $codigo = $validated['codigo'];
 
-        // 1. Buscar como código generado (VCC-...) en vales_compra_aplicados
+        // 1. Buscar como código generado en vales_compra_aplicados.
+        // Acepta tanto DESCUENTO_PROXIMA_COMPRA como SORTEO. La diferencia es semántica:
+        // - DESCUENTO_PROXIMA_COMPRA aplica un descuento al canjear.
+        // - SORTEO solo registra el canje (la participación o premio se gestiona aparte).
         $valeGenerado = ValeCompraAplicado::where('codigo_vale_generado', $codigo)
-            ->where('genera_vale_futuro', true)
             ->where('usado', false)
             ->first();
 
         if ($valeGenerado) {
-            // Verificar vigencia
+            // Verificar vigencia (solo si tiene fecha de validez)
             if ($valeGenerado->fecha_validez_generado && $valeGenerado->fecha_validez_generado->isPast()) {
                 return response()->json([
                     'valido' => false,
@@ -553,12 +600,14 @@ class ValeCompraController extends Controller
             }
 
             $valeCompra = $valeGenerado->valeCompra;
-            $valeCompra?->load(['productos:id,cod_producto,name', 'categorias:id,name']);
+            $valeCompra?->load(['productos:id,cod_producto,name', 'categorias:id,name', 'productoGratis:id,cod_producto,name']);
+
+            $esSorteo = $valeCompra?->tipo_promocion === 'SORTEO';
 
             $valeData = [
                 'id' => $valeCompra?->id,
                 'codigo' => $codigo,
-                'nombre' => $valeCompra?->nombre ?? 'Vale de descuento',
+                'nombre' => $valeCompra?->nombre ?? ($esSorteo ? 'Sorteo' : 'Vale de descuento'),
                 'tipo_promocion' => $valeCompra?->tipo_promocion,
                 'descuento_tipo' => $valeCompra?->descuento_tipo ?? $valeGenerado->descuento_tipo,
                 'descuento_valor' => $valeCompra?->descuento_valor ?? $valeGenerado->descuento_aplicado,
@@ -566,6 +615,11 @@ class ValeCompraController extends Controller
                 'cantidad_minima' => $valeCompra?->cantidad_minima ?? 0,
                 'fecha_inicio' => $valeCompra?->fecha_inicio,
                 'fecha_fin' => $valeGenerado->fecha_validez_generado?->format('Y-m-d'),
+                'producto_gratis' => $valeCompra?->productoGratis ? [
+                    'id' => $valeCompra->productoGratis->id,
+                    'nombre' => $valeCompra->productoGratis->name,
+                ] : null,
+                'cantidad_producto_gratis' => $valeCompra?->cantidad_producto_gratis,
                 'productos' => $valeCompra?->productos?->map(fn($p) => [
                     'id' => $p->id,
                     'nombre' => $p->name,
@@ -581,8 +635,11 @@ class ValeCompraController extends Controller
                 'data' => [
                     'vale_compra' => $valeData,
                     'es_vale_generado' => true,
+                    'es_sorteo' => $esSorteo,
                 ],
-                'message' => 'Vale valido. Se aplicara el descuento al crear la venta.',
+                'message' => $esSorteo
+                    ? 'Codigo de sorteo valido. Se registrara el canje al crear la venta.'
+                    : 'Vale valido. Se aplicara el descuento al crear la venta.',
             ]);
         }
 

@@ -300,6 +300,9 @@ class VentaController extends Controller
             'servicios_venta.*.referencia' => 'nullable|string|max:200',
             // Vale de compra (código de vale generado para canjear)
             'codigo_vale' => 'nullable|string|max:50',
+            // Vales excluidos por el vendedor en la UI
+            'vales_excluidos' => 'nullable|array',
+            'vales_excluidos.*' => 'integer',
         ]);
 
         return DB::transaction(function () use ($validated) {
@@ -770,7 +773,7 @@ class VentaController extends Controller
             // APLICAR VALES DE COMPRA AUTOMÁTICAMENTE
             try {
                 $detallesVenta = $this->prepararDetallesVentaParaVales($validated);
-                $this->valeCompraService->aplicarValesAutomaticos($venta, $detallesVenta);
+                $this->valeCompraService->aplicarValesAutomaticos($venta, $detallesVenta, $validated['vales_excluidos'] ?? []);
             } catch (\Exception $e) {
                 // No fallar la venta por error en vales
             }
@@ -2252,25 +2255,47 @@ class VentaController extends Controller
     {
         $detalles = [];
 
+        // Batch-load PAUDs for price type detection
+        $allPaudIds = [];
         foreach ($venta['productos_por_almacen'] ?? [] as $producto) {
-            // Cantidad total en unidad base + monto total en S/ (precio × cantidad).
-            // El monto se usa para evaluar si la venta supera `cantidad_minima`
-            // del vale, que ahora representa el PRECIO MÍNIMO en S/.
+            foreach ($producto['unidades_derivadas'] ?? [] as $unidad) {
+                if (!empty($unidad['unidad_derivada_id'])) {
+                    $allPaudIds[] = (int) $unidad['unidad_derivada_id'];
+                }
+            }
+        }
+        $pauds = \App\Models\ProductoAlmacenUnidadDerivada::whereIn('id', array_unique($allPaudIds))
+            ->get()
+            ->keyBy('id');
+
+        foreach ($venta['productos_por_almacen'] ?? [] as $producto) {
             $cantidadTotal = 0;
             $precioTotal = 0;
+
+            // Detectar el tipo de precio usado en la venta
+            $tiposPrecioUsados = [];
+
             foreach ($producto['unidades_derivadas'] ?? [] as $unidad) {
                 $cantidad = (float) ($unidad['cantidad'] ?? 0);
                 $factor = (float) ($unidad['factor'] ?? 1);
                 $precio = (float) ($unidad['precio'] ?? 0);
                 $cantidadTotal += $cantidad * $factor;
                 $precioTotal += $cantidad * $precio;
+
+                // Determinar tipo de precio comparando contra los 4 precios del PAUD
+                $paudId = isset($unidad['unidad_derivada_id']) ? (int) $unidad['unidad_derivada_id'] : null;
+                if ($paudId && isset($pauds[$paudId])) {
+                    $paud = $pauds[$paudId];
+                    $tipo = $this->detectarTipoPrecio($precio, $paud);
+                    if ($tipo) {
+                        $tiposPrecioUsados[$tipo] = true;
+                    }
+                }
             }
 
-            // Intentar obtener producto_id y categoria_id
             $productoId = null;
             $categoriaId = null;
 
-            // Opción 1: producto_almacen_id viene en el request
             $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
             if ($productoAlmacenId) {
                 $productoAlmacen = ProductoAlmacen::with('producto.categoria')
@@ -2281,7 +2306,6 @@ class VentaController extends Controller
                 }
             }
 
-            // Opción 2: producto_id viene directo en el request (frontend envía esto)
             if (!$productoId && isset($producto['producto_id'])) {
                 $productoId = $producto['producto_id'];
                 $productoModel = \App\Models\Producto::find($productoId);
@@ -2294,11 +2318,35 @@ class VentaController extends Controller
                     'categoria_id' => $categoriaId,
                     'cantidad' => $cantidadTotal,
                     'precio_total' => $precioTotal,
+                    'tipo_precio' => !empty($tiposPrecioUsados) ? array_keys($tiposPrecioUsados) : [],
                 ];
             }
         }
 
         return $detalles;
+    }
+
+    /**
+     * Determinar qué tipo de precio (publico/especial/minimo/ultimo) corresponde
+     * al precio usado en la venta, comparándolo contra los 4 precios del PAUD.
+     */
+    private function detectarTipoPrecio(float $precio, \App\Models\ProductoAlmacenUnidadDerivada $paud): ?string
+    {
+        $map = [
+            'publico'  => (float) $paud->precio_publico,
+            'especial' => (float) ($paud->precio_especial ?? 0),
+            'minimo'   => (float) ($paud->precio_minimo ?? 0),
+            'ultimo'   => (float) ($paud->precio_ultimo ?? 0),
+        ];
+
+        // Buscar coincidencia exacta (tolerancia 0.01 por redondeo)
+        foreach ($map as $tipo => $valor) {
+            if ($valor > 0 && abs($precio - $valor) < 0.01) {
+                return $tipo;
+            }
+        }
+
+        return null;
     }
 
     /**
