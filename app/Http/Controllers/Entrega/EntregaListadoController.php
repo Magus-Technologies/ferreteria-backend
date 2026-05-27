@@ -19,6 +19,18 @@ class EntregaListadoController extends Controller
     ) {}
 
     /**
+     * GET /api/entregas
+     * Lista plana de entregas con filtros — usada por mis-entregas.
+     */
+    public function listar(ListarEntregasRequest $request): AnonymousResourceCollection
+    {
+        $filtros  = $request->validated();
+        $entregas = $this->entregaRepo->listarFlat($filtros);
+
+        return EntregaListadoResource::collection($entregas);
+    }
+
+    /**
      * GET /api/entregas/resumen-ventas
      * Tabla MAESTRA: ventas con resumen de sus entregas.
      */

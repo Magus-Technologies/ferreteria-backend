@@ -34,6 +34,7 @@ Route::prefix('entregas/catalogos')->group(function () {
 Route::prefix('entregas')->group(function () {
     Route::get('resumen-ventas',      [EntregaListadoController::class, 'resumenVentas']);
     Route::get('por-venta/{ventaId}', [EntregaListadoController::class, 'porVenta']);
+    Route::get('/',                   [EntregaListadoController::class, 'listar']);
 
     // ── CRUD ──────────────────────────────────────────────────
     Route::post('/',           [EntregaCrudController::class, 'store']);

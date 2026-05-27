@@ -107,4 +107,51 @@ class EntregaRepository implements EntregaRepositoryInterface
             ->orderByDesc('created_at')
             ->paginate($perPage);
     }
+
+    public function listarFlat(array $filtros): Collection
+    {
+        $query = Entrega::with([
+            'tipoEntrega',
+            'tipoDespacho',
+            'estadoEntrega',
+            'quienEntrega',
+            'venta:id,serie,numero,cliente_id',
+            'venta.cliente:id,nombres,apellidos,razon_social,telefono,numero_documento',
+            'chofer:id,name',
+            'vehiculo:id,name,placa',
+            'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
+            'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
+        ]);
+
+        if (! empty($filtros['estado'])) {
+            $estados = is_array($filtros['estado']) ? $filtros['estado'] : [$filtros['estado']];
+            $query->whereHas('estadoEntrega', fn ($q) => $q->whereIn('codigo', $estados));
+        }
+
+        if (! empty($filtros['tipo_entrega'])) {
+            $query->whereHas('tipoEntrega', fn ($q) => $q->where('codigo', $filtros['tipo_entrega']));
+        }
+
+        if (! empty($filtros['chofer_id'])) {
+            $query->where('chofer_id', $filtros['chofer_id']);
+        }
+
+        if (! empty($filtros['fecha_desde'])) {
+            $query->where('fecha_creacion', '>=', $filtros['fecha_desde']);
+        }
+
+        if (! empty($filtros['fecha_hasta'])) {
+            $query->where('fecha_creacion', '<=', $filtros['fecha_hasta']);
+        }
+
+        if (! empty($filtros['search'])) {
+            $q = $filtros['search'];
+            $query->where(function ($sub) use ($q) {
+                $sub->whereHas('venta', fn ($v) => $v->where('serie', 'like', "%{$q}%")->orWhere('numero', 'like', "%{$q}%"))
+                    ->orWhereHas('venta.cliente', fn ($c) => $c->where('razon_social', 'like', "%{$q}%")->orWhere('nombres', 'like', "%{$q}%")->orWhere('numero_documento', 'like', "%{$q}%"));
+            });
+        }
+
+        return $query->orderByDesc('created_at')->get();
+    }
 }

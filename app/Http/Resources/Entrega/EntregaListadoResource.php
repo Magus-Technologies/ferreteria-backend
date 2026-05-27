@@ -53,6 +53,19 @@ class EntregaListadoResource extends JsonResource
             'observaciones'      => $this->observaciones,
             'motivo_anulacion'   => $this->motivo_anulacion,
 
+            'venta' => $this->whenLoaded('venta', fn () => [
+                'id'     => $this->venta->id,
+                'serie'  => $this->venta->serie,
+                'numero' => $this->venta->numero,
+                'cliente' => $this->venta->cliente ? [
+                    'id'               => $this->venta->cliente->id,
+                    'razon_social'     => $this->venta->cliente->razon_social
+                                            ?? trim("{$this->venta->cliente->nombres} {$this->venta->cliente->apellidos}"),
+                    'telefono'         => $this->venta->cliente->telefono,
+                    'numero_documento' => $this->venta->cliente->numero_documento,
+                ] : null,
+            ]),
+
             'detalles' => EntregaDetalleItemResource::collection(
                 $this->whenLoaded('detalles')
             ),

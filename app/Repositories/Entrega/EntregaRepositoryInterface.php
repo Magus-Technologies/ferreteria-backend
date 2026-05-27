@@ -17,4 +17,7 @@ interface EntregaRepositoryInterface
 
     /** Listado filtrado para la tabla detalle */
     public function listadoFiltrado(array $filtros): LengthAwarePaginator;
+
+    /** Listado plano (sin paginar) para mis-entregas */
+    public function listarFlat(array $filtros): Collection;
 }
