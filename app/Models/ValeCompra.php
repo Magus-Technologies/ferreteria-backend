@@ -19,6 +19,8 @@ class ValeCompra extends Model
         'nombre',
         'descripcion',
         'tipo_promocion',
+        'momento_aplicacion',
+        'sorteo_incluye_producto',
         'modalidad',
         'cantidad_minima',
         'descuento_tipo',
@@ -58,6 +60,7 @@ class ValeCompra extends Model
             'aplica_precio_especial' => 'boolean',
             'aplica_precio_minimo' => 'boolean',
             'aplica_precio_ultimo' => 'boolean',
+            'sorteo_incluye_producto' => 'boolean',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

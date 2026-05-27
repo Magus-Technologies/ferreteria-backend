@@ -17,30 +17,39 @@ class ValeCompraService
      * 
      * @param Venta $venta
      * @param array $detallesVenta Productos con sus cantidades, categorías, etc.
+     * @param array $valesExcluidos IDs de vales que el vendedor excluyó manualmente
      * @return Collection Vales aplicados
      */
-    public function aplicarValesAutomaticos(Venta $venta, array $detallesVenta): Collection
+    public function aplicarValesAutomaticos(Venta $venta, array $detallesVenta, array $valesExcluidos = []): Collection
     {
         try {
-            // 1. Calcular datos de la venta: precio total (S/) y cantidad total (unidades).
-            // El umbral `cantidad_minima` del vale se interpreta según su tipo y modalidad:
-            // - Tipos basados en unidades (PRODUCTO_GRATIS, DOS_POR_UNO) → se compara contra cantidad.
-            // - Modalidades con productos específicos (POR_PRODUCTOS, MIXTO) → se compara contra cantidad.
-            // - Resto (DESCUENTO/SORTEO con CANTIDAD_MINIMA o POR_CATEGORIA) → se compara contra precio.
+            // 1. Calcular datos de la venta: precio total (S/), cantidad total (unidades),
+            // IDs de categorías/productos y tipos de precio usados.
             $precioTotal = $this->calcularPrecioTotal($detallesVenta);
             $cantidadTotal = $this->calcularCantidadTotal($detallesVenta);
             $categorias = $this->extraerCategorias($detallesVenta);
             $productos = $this->extraerProductos($detallesVenta);
+            $tiposPrecio = $this->extraerTiposPrecio($detallesVenta);
 
 
             // 2. Buscar vales potencialmente aplicables (filtro por umbral según tipo/modalidad)
             $valesPotenciales = $this->buscarValesPotenciales($precioTotal, $cantidadTotal);
 
-            // 3. Filtrar vales por modalidad y restricciones
-            $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $venta) {
-                return $this->validarVale($vale, $categorias, $productos, $venta->cliente_id);
+            // 3. Filtrar vales por modalidad, restricciones y tipo de precio
+            $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $tiposPrecio, $venta) {
+                // Solo MISMA_COMPRA se aplica automáticamente. PROXIMA_COMPRA se canjea manualmente.
+                if ($vale->momento_aplicacion === 'PROXIMA_COMPRA') {
+                    return false;
+                }
+                return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
             });
 
+            // 3b. Excluir vales que el vendedor quitó manualmente en la UI
+            if (!empty($valesExcluidos)) {
+                $valesAplicables = $valesAplicables->reject(function($vale) use ($valesExcluidos) {
+                    return in_array($vale->id, $valesExcluidos);
+                });
+            }
 
             // 4. Aplicar cada vale
             $valesAplicados = collect();
@@ -136,6 +145,22 @@ class ValeCompraService
     }
 
     /**
+     * Extraer tipos de precio usados en la venta.
+     * Cada detalle puede tener un array `tipo_precio` con los tipos detectados
+     * (publico, especial, minimo, ultimo). Se unifican todos.
+     */
+    private function extraerTiposPrecio(array $detallesVenta): array
+    {
+        return collect($detallesVenta)
+            ->pluck('tipo_precio')
+            ->filter()
+            ->flatten()
+            ->unique()
+            ->values()
+            ->toArray();
+    }
+
+    /**
      * Buscar vales potencialmente aplicables. El umbral `cantidad_minima` se
      * compara contra precio o cantidad según el tipo/modalidad del vale.
      */
@@ -159,9 +184,53 @@ class ValeCompraService
         ValeCompra $vale,
         array $categoriasVenta,
         array $productosVenta,
+        array $tiposPrecio,
         ?int $clienteId
     ): bool {
-        return $this->validarVale($vale, $categoriasVenta, $productosVenta, $clienteId);
+        return $this->validarVale($vale, $categoriasVenta, $productosVenta, $tiposPrecio, $clienteId);
+    }
+
+    /**
+     * Validar condiciones de un vale contra datos de una venta (precio, cantidad, etc.)
+     * Útil para verificar códigos manualmente ingresados en la UI.
+     */
+    public function validarValeCondiciones(
+        ValeCompra $vale,
+        float $precioTotal,
+        float $cantidadTotal = 0,
+        array $categoriasVenta = [],
+        array $productosVenta = [],
+        array $tiposPrecio = [],
+        ?int $clienteId = null
+    ): array {
+        $umbral = $this->esUmbralPorUnidades($vale) ? $cantidadTotal : $precioTotal;
+        $cumpleUmbral = (float) $vale->cantidad_minima <= (float) $umbral;
+
+        $tieneStock = $vale->tieneStockDisponible();
+        $esVigente = $vale->esVigente();
+        $clientePuedeUsar = $clienteId ? $vale->clientePuedeUsar($clienteId) : true;
+
+        // SORTEO no valida modalidad ni tipos de precio si es solo registro
+        if ($vale->tipo_promocion === 'SORTEO' && !$vale->sorteo_incluye_producto) {
+            return [
+                'cumple' => $cumpleUmbral && $tieneStock && $esVigente && $clientePuedeUsar,
+                'umbral' => $cumpleUmbral,
+                'stock' => $tieneStock,
+                'vigente' => $esVigente,
+                'cliente' => $clientePuedeUsar,
+            ];
+        }
+
+        $cumpleValidacion = $this->validarVale($vale, $categoriasVenta, $productosVenta, $tiposPrecio, $clienteId);
+
+        return [
+            'cumple' => $cumpleUmbral && $tieneStock && $esVigente && $clientePuedeUsar && $cumpleValidacion,
+            'umbral' => $cumpleUmbral,
+            'stock' => $tieneStock,
+            'vigente' => $esVigente,
+            'cliente' => $clientePuedeUsar,
+            'modalidad' => $cumpleValidacion,
+        ];
     }
 
     /**
@@ -176,12 +245,13 @@ class ValeCompraService
     }
 
     /**
-     * Validar si un vale es aplicable según modalidad y restricciones
+     * Validar si un vale es aplicable según modalidad, restricciones y tipo de precio
      */
     private function validarVale(
         ValeCompra $vale,
         array $categoriasVenta,
         array $productosVenta,
+        array $tiposPrecio,
         ?int $clienteId
     ): bool {
         // Verificar stock
@@ -192,6 +262,38 @@ class ValeCompraService
         // Verificar límite por cliente
         if ($clienteId && !$vale->clientePuedeUsar($clienteId)) {
             return false;
+        }
+
+        // Verificar que al menos un tipo de precio de la venta esté permitido por el vale.
+        // Si no se pudo detectar el tipo de precio (array vacío), se permite por compatibilidad
+        // pero se loggea para detectar PAUDs mal configurados o precios fuera de los 4 estándar.
+        if (empty($tiposPrecio)) {
+            Log::warning('Vale aplicado sin tipo de precio detectado', [
+                'vale_id' => $vale->id,
+                'vale_codigo' => $vale->codigo,
+                'cliente_id' => $clienteId,
+            ]);
+        } else {
+            $permitePublico  = (bool) $vale->aplica_precio_publico;
+            $permiteEspecial = (bool) $vale->aplica_precio_especial;
+            $permiteMinimo   = (bool) $vale->aplica_precio_minimo;
+            $permiteUltimo   = (bool) $vale->aplica_precio_ultimo;
+
+            $ningunPermitido = !$permitePublico && !$permiteEspecial && !$permiteMinimo && !$permiteUltimo;
+            if ($ningunPermitido) {
+                return false;
+            }
+
+            $tiposPermitidos = [];
+            if ($permitePublico)  $tiposPermitidos[] = 'publico';
+            if ($permiteEspecial) $tiposPermitidos[] = 'especial';
+            if ($permiteMinimo)   $tiposPermitidos[] = 'minimo';
+            if ($permiteUltimo)   $tiposPermitidos[] = 'ultimo';
+
+            $tieneTipoPermitido = count(array_intersect($tiposPrecio, $tiposPermitidos)) > 0;
+            if (!$tieneTipoPermitido) {
+                return false;
+            }
         }
 
         // Validar por modalidad
@@ -248,21 +350,91 @@ class ValeCompraService
         DB::beginTransaction();
 
         try {
+            // Determinar si el vale se entrega como código futuro (PROXIMA_COMPRA).
+            // Incluye el caso histórico DESCUENTO_PROXIMA_COMPRA por compatibilidad
+            // con vales creados antes de existir la columna momento_aplicacion.
+            $esFuturo = $vale->momento_aplicacion === 'PROXIMA_COMPRA'
+                || $vale->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA';
+
+            if ($esFuturo) {
+                // PROXIMA_COMPRA: solo se entrega el código, ningún beneficio se aplica ahora.
+                // El vendedor canjeará el código manualmente en la venta donde el cliente
+                // lo presente (ver modal-canjear-vale en frontend).
+                $descuentoAplicado = null;
+                $descuentoTipo = $vale->descuento_tipo;
+                $codigoValeGenerado = $vale->generarCodigoValeCliente();
+            }
+            // MISMA_COMPRA: aplicar el beneficio en la venta actual.
+            // Para SORTEO: registrar participación sin descuento, pero igual se genera código.
+            else if ($vale->tipo_promocion === 'SORTEO') {
+                $descuentoAplicado = null;
+                $descuentoTipo = null;
+                $codigoValeGenerado = $vale->generarCodigoValeCliente();
+            }
+            // Para PRODUCTO_GRATIS: obtener el valor real del producto como descuento
+            else if ($vale->tipo_promocion === 'PRODUCTO_GRATIS' && $vale->producto_gratis_id) {
+                $paudGratis = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($vale, $venta) {
+                        $q->where('producto_id', $vale->producto_gratis_id)
+                          ->where('almacen_id', $venta->almacen_id);
+                    })
+                    ->where('precio_publico', '>', 0)
+                    ->first();
+                $descuentoAplicado = $vale->descuento_valor;
+                if ($paudGratis) {
+                    $cantidadGratis = (float) ($vale->cantidad_producto_gratis ?: 1);
+                    $descuentoAplicado = (float) $paudGratis->precio_publico * $cantidadGratis;
+                }
+                $descuentoTipo = $vale->descuento_tipo;
+                $codigoValeGenerado = null;
+            }
+            // Para DOS_POR_UNO: descuento = precio del producto más barato del vale × extras gratis
+            else if ($vale->tipo_promocion === 'DOS_POR_UNO') {
+                $descuentoAplicado = (float) ($vale->descuento_valor ?? 0);
+                $descuentoTipo = $vale->descuento_tipo;
+                $codigoValeGenerado = null;
+
+                $productoIds = $vale->productos->pluck('id')->toArray();
+                if (!empty($productoIds)) {
+                    $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
+                            $q->whereIn('producto_id', $productoIds)
+                              ->where('almacen_id', $venta->almacen_id);
+                        })
+                        ->where('precio_publico', '>', 0)
+                        ->orderBy('precio_publico', 'asc')
+                        ->first();
+                    if ($paudBarato) {
+                        $cantidadExtra = (float) ($vale->cantidad_producto_gratis ?: 1);
+                        $descuentoAplicado = (float) $paudBarato->precio_publico * $cantidadExtra;
+                    }
+                }
+            }
+            // Para DESCUENTO_MISMA_COMPRA: usar descuento del vale
+            else {
+                $descuentoAplicado = $vale->descuento_valor;
+                $descuentoTipo = $vale->descuento_tipo;
+                $codigoValeGenerado = null;
+            }
+
             // `cantidad_productos` es el nombre histórico de la columna;
             // ahora almacena el MONTO TOTAL en S/ que disparó la activación
             // del vale (paridad con `cantidad_minima` que ya es precio).
+            // Validez del código futuro = fecha_fin del vale (si tiene), o el campo
+            // legado `fecha_validez_vale` como fallback para vales antiguos.
+            // Si ambos son null, el código no expira.
+            $fechaValidezCodigo = $esFuturo
+                ? ($vale->fecha_fin ?? $vale->fecha_validez_vale)
+                : null;
+
             $aplicado = ValeCompraAplicado::create([
                 'vale_compra_id' => $vale->id,
                 'venta_id' => $venta->id,
                 'cliente_id' => $venta->cliente_id,
                 'cantidad_productos' => $precioTotal,
-                'descuento_aplicado' => $vale->descuento_valor,
-                'descuento_tipo' => $vale->descuento_tipo,
-                'genera_vale_futuro' => $vale->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA',
-                'codigo_vale_generado' => $vale->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA' 
-                    ? $vale->generarCodigoValeCliente() 
-                    : null,
-                'fecha_validez_generado' => $vale->fecha_validez_vale,
+                'descuento_aplicado' => $descuentoAplicado,
+                'descuento_tipo' => $descuentoTipo,
+                'genera_vale_futuro' => $esFuturo,
+                'codigo_vale_generado' => $codigoValeGenerado,
+                'fecha_validez_generado' => $fechaValidezCodigo,
                 'aplicado_por' => auth()->id(),
             ]);
 
@@ -278,13 +450,13 @@ class ValeCompraService
                 [
                     'venta_id' => $venta->id,
                     'cantidad_productos' => $precioTotal,
-                    'descuento_aplicado' => $vale->descuento_valor,
+                    'descuento_aplicado' => $descuentoAplicado,
+                    'tipo_promocion' => $vale->tipo_promocion,
                 ],
                 auth()->id()
             );
 
             DB::commit();
-
 
             return $aplicado;
 
@@ -301,29 +473,84 @@ class ValeCompraService
     }
 
     /**
-     * Verificar si un código de vale generado es válido
+     * Verificar si un código de vale generado es válido.
+     * Acepta tanto DESCUENTO_PROXIMA_COMPRA (genera_vale_futuro=true, con vencimiento)
+     * como SORTEO (genera_vale_futuro=false, sin vencimiento).
+     * El criterio es: existe el código, no ha sido usado, y si tiene fecha de validez
+     * aún no ha expirado.
      */
     public function verificarValeGenerado(string $codigo): ?ValeCompraAplicado
     {
         return ValeCompraAplicado::where('codigo_vale_generado', $codigo)
-            ->where('genera_vale_futuro', true)
             ->where('usado', false)
-            ->where('fecha_validez_generado', '>=', now())
+            ->where(function ($q) {
+                $q->whereNull('fecha_validez_generado')
+                  ->orWhere('fecha_validez_generado', '>=', now());
+            })
             ->first();
     }
 
     /**
-     * Aplicar un vale generado (de próxima compra)
+     * Aplicar un vale generado (de próxima compra) o un vale regular por código manual.
+     * Para vales regulares (VC-...), valida condiciones contra los datos de la venta.
      */
     public function aplicarValeGenerado(
         string $codigo,
-        Venta $venta
+        Venta $venta,
+        array $detallesVenta = []
     ): bool {
+        // 1. Buscar como código generado
         $valeGenerado = $this->verificarValeGenerado($codigo);
 
-        if (!$valeGenerado) {
+        if ($valeGenerado) {
+            return $this->aplicarValeGeneradoExistente($valeGenerado, $venta, $codigo);
+        }
+
+        // 2. Buscar como vale regular (VC-...)
+        $vale = ValeCompra::where('codigo', $codigo)
+            ->where('estado', 'ACTIVO')
+            ->first();
+
+        if (!$vale) {
             return false;
         }
+
+        if (!$vale->esVigente() || !$vale->tieneStockDisponible()) {
+            return false;
+        }
+
+        // Validar condiciones si hay detalles de venta
+        if (!empty($detallesVenta)) {
+            $precioTotal = $this->calcularPrecioTotal($detallesVenta);
+            $cantidadTotal = $this->calcularCantidadTotal($detallesVenta);
+            $categorias = $this->extraerCategorias($detallesVenta);
+            $productos = $this->extraerProductos($detallesVenta);
+            $tiposPrecio = $this->extraerTiposPrecio($detallesVenta);
+
+            $condiciones = $this->validarValeCondiciones(
+                $vale, $precioTotal, $cantidadTotal,
+                $categorias, $productos, $tiposPrecio, $venta->cliente_id
+            );
+
+            if (!$condiciones['cumple']) {
+                Log::warning("Vale {$codigo} no cumple condiciones para venta {$venta->id}", $condiciones);
+                return false;
+            }
+        }
+
+        // Aplicar el vale regular
+        $aplicado = $this->aplicarVale($vale, $venta, $this->calcularPrecioTotal($detallesVenta));
+        return $aplicado !== null;
+    }
+
+    /**
+     * Aplicar un vale generado existente (encontrado en ValeCompraAplicado)
+     */
+    private function aplicarValeGeneradoExistente(
+        ValeCompraAplicado $valeGenerado,
+        Venta $venta,
+        string $codigo
+    ): bool {
 
         DB::beginTransaction();
 
