@@ -1206,8 +1206,9 @@ class VentaController extends Controller
 
                         $clave = $pav->producto_almacen_id . ':' . $unidadInmutable->name;
                         $cantEntregada = (float) $detalle->cantidad_entregada;
+                        $cantSolicitada = (float) $detalle->cantidad_solicitada;
                         $entregadoAcumulado[$clave] = ($entregadoAcumulado[$clave] ?? 0.0) + $cantEntregada;
-                        $detallesPorEntrega[$entrega->id][$clave] = $cantEntregada;
+                        $detallesPorEntrega[$entrega->id][$clave] = $cantSolicitada;
                     }
                 }
 
@@ -1312,10 +1313,10 @@ class VentaController extends Controller
                 // dejando la entrega VACÍA si el usuario cambió todos los
                 // productos en la edición.
                 foreach ($entregasActivas as $entrega) {
-                    $clavesEntregadas = $detallesPorEntrega[$entrega->id] ?? [];
+                    $clavesSolicitadas = $detallesPorEntrega[$entrega->id] ?? [];
                     foreach ($nuevasUdvPorClave as $clave => $udvNueva) {
-                        $cantEntregada = array_key_exists($clave, $clavesEntregadas)
-                            ? (float) $clavesEntregadas[$clave]
+                        $cantSolicitada = array_key_exists($clave, $clavesSolicitadas)
+                            ? min((float) $clavesSolicitadas[$clave], (float) $udvNueva->cantidad)
                             // Producto nuevo agregado en la edición — presume que
                             // se entregará todo cuando el usuario re-confirme la
                             // entrega ('pe' → 'en').
@@ -1323,7 +1324,7 @@ class VentaController extends Controller
                         DetalleEntregaProducto::create([
                             'entrega_producto_id' => $entrega->id,
                             'unidad_derivada_venta_id' => $udvNueva->id,
-                            'cantidad_entregada' => $cantEntregada,
+                            'cantidad_solicitada' => $cantSolicitada,
                             'ubicacion' => null,
                         ]);
                     }
