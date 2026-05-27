@@ -37,6 +37,10 @@ class ValeCompraService
 
             // 3. Filtrar vales por modalidad, restricciones y tipo de precio
             $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $tiposPrecio, $venta) {
+                // Solo MISMA_COMPRA se aplica automáticamente. PROXIMA_COMPRA se canjea manualmente.
+                if ($vale->momento_aplicacion === 'PROXIMA_COMPRA') {
+                    return false;
+                }
                 return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
             });
 
@@ -184,6 +188,49 @@ class ValeCompraService
         ?int $clienteId
     ): bool {
         return $this->validarVale($vale, $categoriasVenta, $productosVenta, $tiposPrecio, $clienteId);
+    }
+
+    /**
+     * Validar condiciones de un vale contra datos de una venta (precio, cantidad, etc.)
+     * Útil para verificar códigos manualmente ingresados en la UI.
+     */
+    public function validarValeCondiciones(
+        ValeCompra $vale,
+        float $precioTotal,
+        float $cantidadTotal = 0,
+        array $categoriasVenta = [],
+        array $productosVenta = [],
+        array $tiposPrecio = [],
+        ?int $clienteId = null
+    ): array {
+        $umbral = $this->esUmbralPorUnidades($vale) ? $cantidadTotal : $precioTotal;
+        $cumpleUmbral = (float) $vale->cantidad_minima <= (float) $umbral;
+
+        $tieneStock = $vale->tieneStockDisponible();
+        $esVigente = $vale->esVigente();
+        $clientePuedeUsar = $clienteId ? $vale->clientePuedeUsar($clienteId) : true;
+
+        // SORTEO no valida modalidad ni tipos de precio si es solo registro
+        if ($vale->tipo_promocion === 'SORTEO' && !$vale->sorteo_incluye_producto) {
+            return [
+                'cumple' => $cumpleUmbral && $tieneStock && $esVigente && $clientePuedeUsar,
+                'umbral' => $cumpleUmbral,
+                'stock' => $tieneStock,
+                'vigente' => $esVigente,
+                'cliente' => $clientePuedeUsar,
+            ];
+        }
+
+        $cumpleValidacion = $this->validarVale($vale, $categoriasVenta, $productosVenta, $tiposPrecio, $clienteId);
+
+        return [
+            'cumple' => $cumpleUmbral && $tieneStock && $esVigente && $clientePuedeUsar && $cumpleValidacion,
+            'umbral' => $cumpleUmbral,
+            'stock' => $tieneStock,
+            'vigente' => $esVigente,
+            'cliente' => $clientePuedeUsar,
+            'modalidad' => $cumpleValidacion,
+        ];
     }
 
     /**
@@ -444,17 +491,66 @@ class ValeCompraService
     }
 
     /**
-     * Aplicar un vale generado (de próxima compra)
+     * Aplicar un vale generado (de próxima compra) o un vale regular por código manual.
+     * Para vales regulares (VC-...), valida condiciones contra los datos de la venta.
      */
     public function aplicarValeGenerado(
         string $codigo,
-        Venta $venta
+        Venta $venta,
+        array $detallesVenta = []
     ): bool {
+        // 1. Buscar como código generado
         $valeGenerado = $this->verificarValeGenerado($codigo);
 
-        if (!$valeGenerado) {
+        if ($valeGenerado) {
+            return $this->aplicarValeGeneradoExistente($valeGenerado, $venta, $codigo);
+        }
+
+        // 2. Buscar como vale regular (VC-...)
+        $vale = ValeCompra::where('codigo', $codigo)
+            ->where('estado', 'ACTIVO')
+            ->first();
+
+        if (!$vale) {
             return false;
         }
+
+        if (!$vale->esVigente() || !$vale->tieneStockDisponible()) {
+            return false;
+        }
+
+        // Validar condiciones si hay detalles de venta
+        if (!empty($detallesVenta)) {
+            $precioTotal = $this->calcularPrecioTotal($detallesVenta);
+            $cantidadTotal = $this->calcularCantidadTotal($detallesVenta);
+            $categorias = $this->extraerCategorias($detallesVenta);
+            $productos = $this->extraerProductos($detallesVenta);
+            $tiposPrecio = $this->extraerTiposPrecio($detallesVenta);
+
+            $condiciones = $this->validarValeCondiciones(
+                $vale, $precioTotal, $cantidadTotal,
+                $categorias, $productos, $tiposPrecio, $venta->cliente_id
+            );
+
+            if (!$condiciones['cumple']) {
+                Log::warning("Vale {$codigo} no cumple condiciones para venta {$venta->id}", $condiciones);
+                return false;
+            }
+        }
+
+        // Aplicar el vale regular
+        $aplicado = $this->aplicarVale($vale, $venta, $this->calcularPrecioTotal($detallesVenta));
+        return $aplicado !== null;
+    }
+
+    /**
+     * Aplicar un vale generado existente (encontrado en ValeCompraAplicado)
+     */
+    private function aplicarValeGeneradoExistente(
+        ValeCompraAplicado $valeGenerado,
+        Venta $venta,
+        string $codigo
+    ): bool {
 
         DB::beginTransaction();
 

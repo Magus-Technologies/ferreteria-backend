@@ -781,7 +781,7 @@ class VentaController extends Controller
             // CANJEAR VALE GENERADO (código de próxima compra)
             if (!empty($validated['codigo_vale'])) {
                 try {
-                    $this->valeCompraService->aplicarValeGenerado($validated['codigo_vale'], $venta);
+                    $this->valeCompraService->aplicarValeGenerado($validated['codigo_vale'], $venta, $detallesVenta);
                 } catch (\Exception $e) {
                     // No fallar la venta por error en canje
                 }

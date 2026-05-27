@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ValeCompra;
 use App\Models\ValeCompraAplicado;
 use App\Models\ValeCompraHistorial;
+use App\Services\ValeCompraService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -505,6 +506,11 @@ class ValeCompraController extends Controller
 
         // Filtrar por modalidad y restricciones
         $valesAplicables = $vales->filter(function($vale) use ($validated) {
+            // Solo MISMA_COMPRA aparece en auto-detección. PROXIMA_COMPRA es manual vía modal.
+            if ($vale->momento_aplicacion === 'PROXIMA_COMPRA') {
+                return false;
+            }
+
             // Verificar stock
             if (!$vale->tieneStockDisponible()) {
                 return false;
@@ -573,25 +579,30 @@ class ValeCompraController extends Controller
     /**
      * Verificar si un código de vale es válido.
      * Busca tanto en códigos de promoción (VC-...) como en códigos generados (VCC-...).
+     * Para vales regulares, también valida condiciones contra la venta si se proporcionan datos.
      */
     public function verificarCodigoVale(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'codigo' => 'required|string|max:50',
+            // Datos opcionales de la venta para validar condiciones
+            'precio_total' => 'nullable|numeric|min:0',
+            'cantidad_total' => 'nullable|numeric|min:0',
+            'producto_ids' => 'nullable|array',
+            'producto_ids.*' => 'integer',
+            'cliente_id' => 'nullable|integer',
+            'tipos_precio' => 'nullable|array',
+            'tipos_precio.*' => 'string',
         ]);
 
         $codigo = $validated['codigo'];
 
         // 1. Buscar como código generado en vales_compra_aplicados.
-        // Acepta tanto DESCUENTO_PROXIMA_COMPRA como SORTEO. La diferencia es semántica:
-        // - DESCUENTO_PROXIMA_COMPRA aplica un descuento al canjear.
-        // - SORTEO solo registra el canje (la participación o premio se gestiona aparte).
         $valeGenerado = ValeCompraAplicado::where('codigo_vale_generado', $codigo)
             ->where('usado', false)
             ->first();
 
         if ($valeGenerado) {
-            // Verificar vigencia (solo si tiene fecha de validez)
             if ($valeGenerado->fecha_validez_generado && $valeGenerado->fecha_validez_generado->isPast()) {
                 return response()->json([
                     'valido' => false,
@@ -609,6 +620,7 @@ class ValeCompraController extends Controller
                 'codigo' => $codigo,
                 'nombre' => $valeCompra?->nombre ?? ($esSorteo ? 'Sorteo' : 'Vale de descuento'),
                 'tipo_promocion' => $valeCompra?->tipo_promocion,
+                'momento_aplicacion' => $valeCompra?->momento_aplicacion,
                 'descuento_tipo' => $valeCompra?->descuento_tipo ?? $valeGenerado->descuento_tipo,
                 'descuento_valor' => $valeCompra?->descuento_valor ?? $valeGenerado->descuento_aplicado,
                 'modalidad' => $valeCompra?->modalidad,
@@ -669,19 +681,45 @@ class ValeCompraController extends Controller
             ]);
         }
 
-        $vale->load(['productos:id,cod_producto,name', 'categorias:id,name']);
+        $vale->load(['productos:id,cod_producto,name', 'categorias:id,name', 'productoGratis:id,cod_producto,name']);
+
+        // Validar condiciones contra la venta si se proporcionaron datos
+        $condiciones = null;
+        if (isset($validated['precio_total']) || isset($validated['cantidad_total'])) {
+            $categoriasVenta = collect($validated['producto_ids'] ?? [])
+                ->map(fn($pid) => \App\Models\Producto::find($pid)?->categoria_id)
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+
+            $condiciones = app(ValeCompraService::class)->validarValeCondiciones(
+                $vale,
+                (float) ($validated['precio_total'] ?? 0),
+                (float) ($validated['cantidad_total'] ?? 0),
+                $categoriasVenta,
+                $validated['producto_ids'] ?? [],
+                $validated['tipos_precio'] ?? [],
+                $validated['cliente_id'] ?? null
+            );
+        }
 
         $valeData = $vale->only([
             'id', 'codigo', 'nombre', 'tipo_promocion',
+            'momento_aplicacion',
             'descuento_tipo', 'descuento_valor', 'modalidad',
             'cantidad_minima', 'fecha_inicio', 'fecha_fin',
         ]);
 
+        $valeData['producto_gratis'] = $vale->productoGratis ? [
+            'id' => $vale->productoGratis->id,
+            'nombre' => $vale->productoGratis->name,
+        ] : null;
+        $valeData['cantidad_producto_gratis'] = $vale->cantidad_producto_gratis;
         $valeData['productos'] = $vale->productos->map(fn($p) => [
             'id' => $p->id,
             'nombre' => $p->name,
         ])->values();
-
         $valeData['categorias'] = $vale->categorias->map(fn($c) => [
             'id' => $c->id,
             'nombre' => $c->name,
@@ -692,6 +730,7 @@ class ValeCompraController extends Controller
             'data' => [
                 'vale_compra' => $valeData,
                 'es_vale_generado' => false,
+                'condiciones' => $condiciones,
             ],
             'message' => 'Vale valido.',
         ]);
