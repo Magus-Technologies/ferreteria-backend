@@ -26,7 +26,7 @@ class EntregaNuevaPdfService
             'tipoDespacho',
             'almacenSalida:id,name',
             'chofer:id,name',
-            'userCreador:id,name',
+            'userCreador:id,name,empresa_id',
             'userCreador.empresa',
             'venta.user.empresa',
             'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
