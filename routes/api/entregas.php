@@ -37,15 +37,15 @@ Route::prefix('entregas')->group(function () {
     Route::get('/',                   [EntregaListadoController::class, 'listar']);
 
     // ── CRUD ──────────────────────────────────────────────────
-    Route::post('/',           [EntregaCrudController::class, 'store']);
-    Route::get('{id}',         [EntregaCrudController::class, 'show']);
-    Route::put('{id}',         [EntregaCrudController::class, 'update']);
-    Route::delete('{id}',      [EntregaCrudController::class, 'destroy']);
+    Route::post('/',      [EntregaCrudController::class, 'store'])->middleware('broadcast:entregas-productos');
+    Route::get('{id}',    [EntregaCrudController::class, 'show']);
+    Route::put('{id}',    [EntregaCrudController::class, 'update'])->middleware('broadcast:entregas-productos');
+    Route::delete('{id}', [EntregaCrudController::class, 'destroy'])->middleware('broadcast:entregas-productos');
 
     // ── ACCIONES DE ESTADO ────────────────────────────────────
-    Route::post('{id}/confirmar',       [EntregaAccionesController::class, 'confirmar']);
-    Route::post('{id}/en-camino',       [EntregaAccionesController::class, 'enCamino']);
-    Route::post('{id}/anular',          [EntregaAccionesController::class, 'anular']);
-    Route::post('{id}/reasignar-chofer',[EntregaAccionesController::class, 'reasignarChofer']);
-    Route::post('{id}/aceptar-pedido',  [EntregaAccionesController::class, 'aceptarPedido']);
+    Route::post('{id}/confirmar',        [EntregaAccionesController::class, 'confirmar'])->middleware('broadcast:entregas-productos');
+    Route::post('{id}/en-camino',        [EntregaAccionesController::class, 'enCamino'])->middleware('broadcast:entregas-productos');
+    Route::post('{id}/anular',           [EntregaAccionesController::class, 'anular'])->middleware('broadcast:entregas-productos');
+    Route::post('{id}/reasignar-chofer', [EntregaAccionesController::class, 'reasignarChofer'])->middleware('broadcast:entregas-productos');
+    Route::post('{id}/aceptar-pedido',   [EntregaAccionesController::class, 'aceptarPedido'])->middleware('broadcast:entregas-productos');
 });

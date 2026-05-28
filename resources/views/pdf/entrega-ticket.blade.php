@@ -59,7 +59,9 @@
          es un "Vale de Recojo" (papel que el cliente lleva al almacén).
          Si ya fue entregada o cancelada es el "Ticket de Entrega" formal. --}}
     @php
-        $tituloPdf = match($entrega->estado_entrega) {
+        // $tipoDocumentoTitulo viene del service nuevo (considera tipo_entrega).
+        // Fallback al match por estado para el service antiguo.
+        $tituloPdf = $tipoDocumentoTitulo ?? match($entrega->estado_entrega) {
             'pe' => 'VALE DE RECOJO',
             'ec' => 'ENTREGA EN CAMINO',
             'en' => 'TICKET DE ENTREGA',
