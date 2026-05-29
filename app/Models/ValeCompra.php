@@ -122,10 +122,13 @@ class ValeCompra extends Model
 
     public function scopeVigentes($query)
     {
-        return $query->where('fecha_inicio', '<=', now())
+        // fecha_inicio/fecha_fin son DATE (sin hora). Comparamos por fecha para que
+        // un vale cuyo rango incluye hoy sea vigente todo el día (evita que
+        // fecha_fin = hoy quede invalidada desde la medianoche por la hora de now()).
+        return $query->whereDate('fecha_inicio', '<=', today())
                     ->where(function($q) {
                         $q->whereNull('fecha_fin')
-                          ->orWhere('fecha_fin', '>=', now());
+                          ->orWhereDate('fecha_fin', '>=', today());
                     });
     }
 
@@ -143,10 +146,12 @@ class ValeCompra extends Model
 
     public function esVigente(): bool
     {
-        $ahora = now();
-        $inicioValido = $this->fecha_inicio <= $ahora;
-        $finValido = is_null($this->fecha_fin) || $this->fecha_fin >= $ahora;
-        
+        // Comparamos por fecha (no datetime): fecha_inicio/fecha_fin son DATE, y un
+        // vale con fecha_fin = hoy debe seguir vigente hasta el final del día.
+        $hoy = today();
+        $inicioValido = $this->fecha_inicio->lte($hoy);
+        $finValido = is_null($this->fecha_fin) || $this->fecha_fin->gte($hoy);
+
         return $inicioValido && $finValido;
     }
 
