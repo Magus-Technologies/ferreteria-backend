@@ -35,12 +35,12 @@ class ValeCompraService
             // 2. Buscar vales potencialmente aplicables (filtro por umbral según tipo/modalidad)
             $valesPotenciales = $this->buscarValesPotenciales($precioTotal, $cantidadTotal);
 
-            // 3. Filtrar vales por modalidad, restricciones y tipo de precio
+            // 3. Filtrar vales por modalidad, restricciones y tipo de precio.
+            // Tanto MISMA_COMPRA como PROXIMA_COMPRA se procesan aquí: los primeros
+            // aplican el beneficio en esta venta; los segundos generan un código para
+            // la próxima compra (sin descontar nada ahora). En ambos casos la compra
+            // actual debe cumplir umbral, producto/categoría, stock y límite por cliente.
             $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $tiposPrecio, $venta) {
-                // Solo MISMA_COMPRA se aplica automáticamente. PROXIMA_COMPRA se canjea manualmente.
-                if ($vale->momento_aplicacion === 'PROXIMA_COMPRA') {
-                    return false;
-                }
                 return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
             });
 
@@ -51,10 +51,15 @@ class ValeCompraService
                 });
             }
 
+            // Precio unitario REAL al que se vendió cada producto en esta venta
+            // (precio_total / cantidad por línea). Se usa para valorar PRODUCTO_GRATIS
+            // con el precio efectivamente cobrado, en paridad con el resumen del frontend.
+            $preciosLineaPorProducto = $this->mapearPreciosLinea($detallesVenta);
+
             // 4. Aplicar cada vale
             $valesAplicados = collect();
             foreach ($valesAplicables as $vale) {
-                $aplicado = $this->aplicarVale($vale, $venta, $precioTotal);
+                $aplicado = $this->aplicarVale($vale, $venta, $precioTotal, $preciosLineaPorProducto);
                 if ($aplicado) {
                     $valesAplicados->push($aplicado);
                 }
@@ -97,6 +102,24 @@ class ValeCompraService
         return collect($detallesVenta)->sum(function($detalle) {
             return $detalle['cantidad'] ?? 0;
         });
+    }
+
+    /**
+     * Construir un mapa producto_id => precio unitario real vendido en la venta
+     * (precio_total / cantidad por línea). Se omiten líneas con cantidad 0.
+     */
+    private function mapearPreciosLinea(array $detallesVenta): array
+    {
+        $mapa = [];
+        foreach ($detallesVenta as $detalle) {
+            $productoId = $detalle['producto_id'] ?? null;
+            $cantidad = (float) ($detalle['cantidad'] ?? 0);
+            $precioTotal = (float) ($detalle['precio_total'] ?? 0);
+            if ($productoId && $cantidad > 0) {
+                $mapa[$productoId] = $precioTotal / $cantidad;
+            }
+        }
+        return $mapa;
     }
 
     /**
@@ -345,7 +368,8 @@ class ValeCompraService
     private function aplicarVale(
         ValeCompra $vale,
         Venta $venta,
-        float $precioTotal
+        float $precioTotal,
+        array $preciosLineaPorProducto = []
     ): ?ValeCompraAplicado {
         DB::beginTransaction();
 
@@ -373,16 +397,26 @@ class ValeCompraService
             }
             // Para PRODUCTO_GRATIS: obtener el valor real del producto como descuento
             else if ($vale->tipo_promocion === 'PRODUCTO_GRATIS' && $vale->producto_gratis_id) {
-                $paudGratis = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($vale, $venta) {
-                        $q->where('producto_id', $vale->producto_gratis_id)
-                          ->where('almacen_id', $venta->almacen_id);
-                    })
-                    ->where('precio_publico', '>', 0)
-                    ->first();
+                $cantidadGratis = (float) ($vale->cantidad_producto_gratis ?: 1);
                 $descuentoAplicado = $vale->descuento_valor;
-                if ($paudGratis) {
-                    $cantidadGratis = (float) ($vale->cantidad_producto_gratis ?: 1);
-                    $descuentoAplicado = (float) $paudGratis->precio_publico * $cantidadGratis;
+
+                // Preferir el precio REAL al que se vendió el producto gratis en esta
+                // venta (paridad con el resumen del frontend, que usa precio_venta de la
+                // línea). Solo si el producto gratis está entre las líneas compradas;
+                // si no (p.ej. se regala un producto distinto), caer al precio público.
+                $precioLinea = $preciosLineaPorProducto[$vale->producto_gratis_id] ?? null;
+                if ($precioLinea !== null && $precioLinea > 0) {
+                    $descuentoAplicado = $precioLinea * $cantidadGratis;
+                } else {
+                    $paudGratis = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($vale, $venta) {
+                            $q->where('producto_id', $vale->producto_gratis_id)
+                              ->where('almacen_id', $venta->almacen_id);
+                        })
+                        ->where('precio_publico', '>', 0)
+                        ->first();
+                    if ($paudGratis) {
+                        $descuentoAplicado = (float) $paudGratis->precio_publico * $cantidadGratis;
+                    }
                 }
                 $descuentoTipo = $vale->descuento_tipo;
                 $codigoValeGenerado = null;
@@ -393,8 +427,22 @@ class ValeCompraService
                 $descuentoTipo = $vale->descuento_tipo;
                 $codigoValeGenerado = null;
 
+                $cantidadExtra = (float) ($vale->cantidad_producto_gratis ?: 1);
                 $productoIds = $vale->productos->pluck('id')->toArray();
-                if (!empty($productoIds)) {
+
+                // Precio REAL del producto más barato del vale que esté EN EL CARRITO
+                // (paridad con el resumen del frontend, que usa precio_venta de la línea).
+                $preciosEnCarrito = [];
+                foreach ($productoIds as $pid) {
+                    if (isset($preciosLineaPorProducto[$pid]) && $preciosLineaPorProducto[$pid] > 0) {
+                        $preciosEnCarrito[] = $preciosLineaPorProducto[$pid];
+                    }
+                }
+
+                if (!empty($preciosEnCarrito)) {
+                    $descuentoAplicado = min($preciosEnCarrito) * $cantidadExtra;
+                } elseif (!empty($productoIds)) {
+                    // Fallback: ningún producto del vale está en el carrito → precio público del más barato.
                     $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
                             $q->whereIn('producto_id', $productoIds)
                               ->where('almacen_id', $venta->almacen_id);
@@ -403,7 +451,6 @@ class ValeCompraService
                         ->orderBy('precio_publico', 'asc')
                         ->first();
                     if ($paudBarato) {
-                        $cantidadExtra = (float) ($vale->cantidad_producto_gratis ?: 1);
                         $descuentoAplicado = (float) $paudBarato->precio_publico * $cantidadExtra;
                     }
                 }
