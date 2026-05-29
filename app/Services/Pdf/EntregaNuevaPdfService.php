@@ -94,7 +94,11 @@ class EntregaNuevaPdfService
         };
 
         $tipoDocumentoTitulo = match($estadoCodigo) {
-            'pe' => 'VALE DE RECOJO',
+            'pe' => match($adapter->tipo_entrega) {
+                'de'  => 'VALE DE DESPACHO',
+                'pa'  => 'VALE DE ENTREGA PARCIAL',
+                default => 'VALE DE RECOJO',
+            },
             'ec' => 'ENTREGA EN CAMINO',
             'en' => 'TICKET DE ENTREGA',
             'ca' => 'ENTREGA CANCELADA',
@@ -181,7 +185,9 @@ class EntregaNuevaPdfService
 
     private function prepararProductosDesdeDetalles(Entrega $entrega, string $estadoCodigo): array
     {
-        $entregaFisica = $estadoCodigo === 'en' || !is_null($entrega->user_entregado_id);
+        // Solo 'en' (Entregado) significa entrega física completada.
+        // 'ec' sigue siendo "en camino" — no se puede contar como entregado.
+        $entregaFisica = $estadoCodigo === 'en';
 
         $tabla = [];
         foreach ($entrega->detalles as $detalle) {
@@ -190,22 +196,17 @@ class EntregaNuevaPdfService
             $pa       = $pav?->productoAlmacen;
             $producto = $pa?->producto;
 
-            $cantidad = (float) ($detalle->cantidad ?? 0);
-
-            if ($udv) {
-                $total     = (float) ($udv->cantidad ?? $cantidad);
-                $pendiente = (float) ($udv->cantidad_pendiente ?? ($entregaFisica ? 0 : $cantidad));
-                $entregado = $total - $pendiente;
-            } else {
-                $total     = $cantidad;
-                $pendiente = $entregaFisica ? 0.0 : $cantidad;
-                $entregado = $entregaFisica ? $cantidad : 0.0;
-            }
+            // Base = la cantidad de ESTA entrega, no el total del UDV.
+            // El UDV agrupa toda la venta; detalle->cantidad es lo que
+            // corresponde a este despacho específico.
+            $cantidad  = (float) ($detalle->cantidad ?? 0);
+            $entregado = $entregaFisica ? $cantidad : 0.0;
+            $pendiente = $entregaFisica ? 0.0 : $cantidad;
 
             $tabla[] = [
                 'codigo'    => $producto?->cod_producto ?? '',
                 'nombre'    => $producto?->name ?? '—',
-                'cantidad'  => $total,
+                'cantidad'  => $cantidad,
                 'entregado' => $entregado,
                 'pendiente' => $pendiente,
                 'recibido'  => 0,
