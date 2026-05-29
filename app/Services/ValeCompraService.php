@@ -130,17 +130,30 @@ class ValeCompraService
      */
     private function esUmbralPorUnidades(ValeCompra $vale): bool
     {
-        return in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
-            || in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+        return self::esUmbralPorUnidadesStatic($vale);
     }
 
     /**
      * Helper estático equivalente: útil desde el controller (donde no hay instancia).
+     *
+     * Prioridad:
+     * 1) PRODUCTO_GRATIS y DOS_POR_UNO siempre son por unidades (el beneficio lo exige).
+     * 2) Si el vale tiene `tipo_umbral` definido por el usuario, se respeta
+     *    (CANTIDAD = unidades, MONTO = soles).
+     * 3) Vales antiguos sin `tipo_umbral`: se infiere por modalidad (compatibilidad).
      */
     public static function esUmbralPorUnidadesStatic(ValeCompra $vale): bool
     {
-        return in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
-            || in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+        if (in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)) {
+            return true;
+        }
+
+        if (!empty($vale->tipo_umbral)) {
+            return $vale->tipo_umbral === 'CANTIDAD';
+        }
+
+        // Compatibilidad para vales creados antes de existir tipo_umbral.
+        return in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
     }
 
     /**
