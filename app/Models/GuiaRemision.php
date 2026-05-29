@@ -18,6 +18,7 @@ class GuiaRemision extends Model
     protected $fillable = [
         'id',
         'venta_id',
+        'entrega_id',
         'tipo_guia',
         'serie',
         'numero',

@@ -66,6 +66,16 @@ class EntregaListadoResource extends JsonResource
                     'telefono'         => $this->venta->cliente->telefono,
                     'numero_documento' => $this->venta->cliente->numero_documento,
                     'direccion'        => $this->venta->cliente->direccion,
+                    // Direcciones con GPS — el modal Mapa de Entrega las usa para
+                    // centrar el mapa sin geocodificar cuando la entrega no tiene coords.
+                    'direcciones'      => $this->venta->cliente->relationLoaded('direcciones')
+                        ? $this->venta->cliente->direcciones->map(fn ($d) => [
+                            'tipo'      => $d->tipo,
+                            'direccion' => $d->direccion,
+                            'latitud'   => $d->latitud !== null ? (float) $d->latitud : null,
+                            'longitud'  => $d->longitud !== null ? (float) $d->longitud : null,
+                        ])
+                        : [],
                 ] : null,
             ]),
 

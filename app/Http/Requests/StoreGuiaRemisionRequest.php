@@ -21,6 +21,9 @@ class StoreGuiaRemisionRequest extends FormRequest
     {
         return [
             'venta_id' => 'nullable|string|exists:venta,id',
+            // entrega_id: cuando la guía se crea desde una entrega puntual de
+            // mis-entregas. Permite trackear cantidad_guiada por entrega.
+            'entrega_id' => 'nullable|integer|exists:entrega,id',
             'tipo_guia' => 'required|string|in:ELECTRONICA_REMITENTE,ELECTRONICA_TRANSPORTISTA,FISICA',
             'serie' => 'nullable|string|max:10',
             'numero' => 'nullable|integer',

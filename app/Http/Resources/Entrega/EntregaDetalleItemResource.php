@@ -20,6 +20,9 @@ class EntregaDetalleItemResource extends JsonResource
             'id'                       => $this->id,
             'unidad_derivada_venta_id' => $this->unidad_derivada_venta_id,
             'cantidad'                 => (float) $this->cantidad,
+            // Cuánto de ESTE detalle de entrega ya fue guiado — para calcular el
+            // restante por guiar de la entrega en crear-guia.
+            'cantidad_guiada'          => (float) ($this->cantidad_guiada ?? 0),
             'ubicacion'                => $this->ubicacion,
             'unidad'                   => $udiName,
             'factor'                   => $udv ? (float) $udv->factor : null,

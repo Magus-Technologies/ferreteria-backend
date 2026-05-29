@@ -47,6 +47,7 @@ class GuiaRemisionService
             $guia = GuiaRemision::create([
                 'id' => $guiaId,
                 'venta_id' => $data['venta_id'] ?? null,
+                'entrega_id' => $data['entrega_id'] ?? null,
                 'tipo_guia' => $data['tipo_guia'],
                 'serie' => $data['serie'],
                 'numero' => $data['numero'],
@@ -70,7 +71,7 @@ class GuiaRemisionService
             ]);
 
             // Crear detalles de la guía
-            $this->crearDetalles($guiaId, $data['detalles']);
+            $this->crearDetalles($guiaId, $data['detalles'], $data['entrega_id'] ?? null);
 
             // Si afecta stock, descontar del almacén de origen
             if ($data['afecta_stock'] ?? false) {
@@ -173,12 +174,20 @@ class GuiaRemisionService
                 $this->afectarStock($detalles, 'incrementar');
             }
 
-            // Revertir cantidad_guiada en las líneas de venta
+            // Revertir cantidad_guiada en las líneas de venta (y en la entrega
+            // de origen, si la guía nació de una).
             foreach ($guia->detalles as $detalle) {
                 if ($detalle->unidad_derivada_venta_id) {
                     DB::table('unidadderivadainmutableventa')
                         ->where('id', $detalle->unidad_derivada_venta_id)
                         ->decrement('cantidad_guiada', (float) $detalle->cantidad);
+
+                    if ($guia->entrega_id) {
+                        DB::table('entrega_detalle')
+                            ->where('entrega_id', $guia->entrega_id)
+                            ->where('unidad_derivada_venta_id', $detalle->unidad_derivada_venta_id)
+                            ->decrement('cantidad_guiada', (float) $detalle->cantidad);
+                    }
                 }
             }
 
@@ -574,7 +583,7 @@ class GuiaRemisionService
     /**
      * Crear detalles de la guía
      */
-    private function crearDetalles(string $guiaId, array $detalles): void
+    private function crearDetalles(string $guiaId, array $detalles, ?int $entregaId = null): void
     {
         foreach ($detalles as $detalle) {
             // Resolver unidad_derivada_inmutable_id por nombre si el ID no existe en la tabla inmutable
@@ -605,6 +614,15 @@ class GuiaRemisionService
                 DB::table('unidadderivadainmutableventa')
                     ->where('id', $detalle['unidad_derivada_venta_id'])
                     ->increment('cantidad_guiada', (float) $detalle['cantidad']);
+
+                // Y también en el detalle de ESA entrega (si la guía nació de una),
+                // para poder calcular el restante por guiar de cada entrega.
+                if ($entregaId && !empty($detalle['cantidad'])) {
+                    DB::table('entrega_detalle')
+                        ->where('entrega_id', $entregaId)
+                        ->where('unidad_derivada_venta_id', $detalle['unidad_derivada_venta_id'])
+                        ->increment('cantidad_guiada', (float) $detalle['cantidad']);
+                }
             }
         }
     }
