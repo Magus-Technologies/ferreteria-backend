@@ -50,6 +50,8 @@ class EntregaListadoResource extends JsonResource
 
             'direccion_entrega'  => $this->direccion_entrega,
             'referencia_entrega' => $this->referencia_entrega,
+            'latitud'            => $this->latitud ? (float) $this->latitud : null,
+            'longitud'           => $this->longitud ? (float) $this->longitud : null,
             'observaciones'      => $this->observaciones,
             'motivo_anulacion'   => $this->motivo_anulacion,
 
@@ -63,6 +65,7 @@ class EntregaListadoResource extends JsonResource
                                             ?? trim("{$this->venta->cliente->nombres} {$this->venta->cliente->apellidos}"),
                     'telefono'         => $this->venta->cliente->telefono,
                     'numero_documento' => $this->venta->cliente->numero_documento,
+                    'direccion'        => $this->venta->cliente->direccion,
                 ] : null,
             ]),
 
