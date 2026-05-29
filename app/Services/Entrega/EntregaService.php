@@ -120,10 +120,12 @@ class EntregaService
                 ]);
             }
 
-            // Aplicar stock si nace entregado o en camino
-            if (in_array($estadoInicial, [CodigoEstadoEntrega::Entregado, CodigoEstadoEntrega::EnCamino], true)) {
-                $this->stock->aplicar($entrega->fresh());
-            }
+            // Aplicar stock AL PROGRAMAR/CREAR la entrega — no esperar a que se
+            // confirme la entrega en mis-entregas. Regla de negocio: el descuento
+            // ocurre al programar desde Configurar Entrega (mis-ventas).
+            // Es idempotente vía `stock_aplicado`: confirmar / marcar en-camino
+            // después NO vuelve a descontar, y anular lo revierte.
+            $this->stock->aplicar($entrega->fresh());
 
             if ($entrega->chofer_id || $entrega->cargo_destino) {
                 $this->notificacion->notificarAsignacion($entrega->load('venta'));
