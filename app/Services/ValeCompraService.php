@@ -365,6 +365,78 @@ class ValeCompraService
     /**
      * Aplicar un vale específico a una venta
      */
+    /**
+     * Calcular el beneficio (descuento) de un vale para una venta, según su tipo.
+     * Devuelve ['monto' => ?float, 'tipo' => ?string].
+     *
+     * - PRODUCTO_GRATIS: valor del producto gratis (precio real de la línea si está en
+     *   el carrito; si no, precio público del producto) × cantidad gratis.
+     * - DOS_POR_UNO: precio del producto más barato del vale que esté en el carrito
+     *   (o precio público del más barato si ninguno está) × extras gratis.
+     * - DESCUENTO_* y demás: descuento_valor / descuento_tipo del vale.
+     *
+     * Se usa tanto al aplicar el vale en la misma compra como al canjear un código de
+     * próxima compra, para que ambos caminos calculen exactamente igual.
+     */
+    private function calcularDescuentoBeneficio(
+        ValeCompra $vale,
+        Venta $venta,
+        array $preciosLineaPorProducto = []
+    ): array {
+        if ($vale->tipo_promocion === 'PRODUCTO_GRATIS' && $vale->producto_gratis_id) {
+            $cantidadGratis = (float) ($vale->cantidad_producto_gratis ?: 1);
+            $monto = $vale->descuento_valor;
+
+            $precioLinea = $preciosLineaPorProducto[$vale->producto_gratis_id] ?? null;
+            if ($precioLinea !== null && $precioLinea > 0) {
+                $monto = $precioLinea * $cantidadGratis;
+            } else {
+                $paudGratis = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($vale, $venta) {
+                        $q->where('producto_id', $vale->producto_gratis_id)
+                          ->where('almacen_id', $venta->almacen_id);
+                    })
+                    ->where('precio_publico', '>', 0)
+                    ->first();
+                if ($paudGratis) {
+                    $monto = (float) $paudGratis->precio_publico * $cantidadGratis;
+                }
+            }
+            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo];
+        }
+
+        if ($vale->tipo_promocion === 'DOS_POR_UNO') {
+            $cantidadExtra = (float) ($vale->cantidad_producto_gratis ?: 1);
+            $monto = (float) ($vale->descuento_valor ?? 0);
+            $productoIds = $vale->productos->pluck('id')->toArray();
+
+            $preciosEnCarrito = [];
+            foreach ($productoIds as $pid) {
+                if (isset($preciosLineaPorProducto[$pid]) && $preciosLineaPorProducto[$pid] > 0) {
+                    $preciosEnCarrito[] = $preciosLineaPorProducto[$pid];
+                }
+            }
+
+            if (!empty($preciosEnCarrito)) {
+                $monto = min($preciosEnCarrito) * $cantidadExtra;
+            } elseif (!empty($productoIds)) {
+                $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
+                        $q->whereIn('producto_id', $productoIds)
+                          ->where('almacen_id', $venta->almacen_id);
+                    })
+                    ->where('precio_publico', '>', 0)
+                    ->orderBy('precio_publico', 'asc')
+                    ->first();
+                if ($paudBarato) {
+                    $monto = (float) $paudBarato->precio_publico * $cantidadExtra;
+                }
+            }
+            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo];
+        }
+
+        // DESCUENTO_MISMA_COMPRA / DESCUENTO_PROXIMA_COMPRA / otros
+        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo];
+    }
+
     private function aplicarVale(
         ValeCompra $vale,
         Venta $venta,
@@ -383,82 +455,23 @@ class ValeCompraService
             if ($esFuturo) {
                 // PROXIMA_COMPRA: solo se entrega el código, ningún beneficio se aplica ahora.
                 // El vendedor canjeará el código manualmente en la venta donde el cliente
-                // lo presente (ver modal-canjear-vale en frontend).
+                // lo presente (ver modal-canjear-vale en frontend). El beneficio se calcula
+                // y aplica en esa venta de canje (ver aplicarValeGeneradoExistente).
                 $descuentoAplicado = null;
                 $descuentoTipo = $vale->descuento_tipo;
                 $codigoValeGenerado = $vale->generarCodigoValeCliente();
             }
-            // MISMA_COMPRA: aplicar el beneficio en la venta actual.
-            // Para SORTEO: registrar participación sin descuento, pero igual se genera código.
+            // SORTEO: registrar participación sin descuento, pero igual se genera código.
             else if ($vale->tipo_promocion === 'SORTEO') {
                 $descuentoAplicado = null;
                 $descuentoTipo = null;
                 $codigoValeGenerado = $vale->generarCodigoValeCliente();
             }
-            // Para PRODUCTO_GRATIS: obtener el valor real del producto como descuento
-            else if ($vale->tipo_promocion === 'PRODUCTO_GRATIS' && $vale->producto_gratis_id) {
-                $cantidadGratis = (float) ($vale->cantidad_producto_gratis ?: 1);
-                $descuentoAplicado = $vale->descuento_valor;
-
-                // Preferir el precio REAL al que se vendió el producto gratis en esta
-                // venta (paridad con el resumen del frontend, que usa precio_venta de la
-                // línea). Solo si el producto gratis está entre las líneas compradas;
-                // si no (p.ej. se regala un producto distinto), caer al precio público.
-                $precioLinea = $preciosLineaPorProducto[$vale->producto_gratis_id] ?? null;
-                if ($precioLinea !== null && $precioLinea > 0) {
-                    $descuentoAplicado = $precioLinea * $cantidadGratis;
-                } else {
-                    $paudGratis = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($vale, $venta) {
-                            $q->where('producto_id', $vale->producto_gratis_id)
-                              ->where('almacen_id', $venta->almacen_id);
-                        })
-                        ->where('precio_publico', '>', 0)
-                        ->first();
-                    if ($paudGratis) {
-                        $descuentoAplicado = (float) $paudGratis->precio_publico * $cantidadGratis;
-                    }
-                }
-                $descuentoTipo = $vale->descuento_tipo;
-                $codigoValeGenerado = null;
-            }
-            // Para DOS_POR_UNO: descuento = precio del producto más barato del vale × extras gratis
-            else if ($vale->tipo_promocion === 'DOS_POR_UNO') {
-                $descuentoAplicado = (float) ($vale->descuento_valor ?? 0);
-                $descuentoTipo = $vale->descuento_tipo;
-                $codigoValeGenerado = null;
-
-                $cantidadExtra = (float) ($vale->cantidad_producto_gratis ?: 1);
-                $productoIds = $vale->productos->pluck('id')->toArray();
-
-                // Precio REAL del producto más barato del vale que esté EN EL CARRITO
-                // (paridad con el resumen del frontend, que usa precio_venta de la línea).
-                $preciosEnCarrito = [];
-                foreach ($productoIds as $pid) {
-                    if (isset($preciosLineaPorProducto[$pid]) && $preciosLineaPorProducto[$pid] > 0) {
-                        $preciosEnCarrito[] = $preciosLineaPorProducto[$pid];
-                    }
-                }
-
-                if (!empty($preciosEnCarrito)) {
-                    $descuentoAplicado = min($preciosEnCarrito) * $cantidadExtra;
-                } elseif (!empty($productoIds)) {
-                    // Fallback: ningún producto del vale está en el carrito → precio público del más barato.
-                    $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
-                            $q->whereIn('producto_id', $productoIds)
-                              ->where('almacen_id', $venta->almacen_id);
-                        })
-                        ->where('precio_publico', '>', 0)
-                        ->orderBy('precio_publico', 'asc')
-                        ->first();
-                    if ($paudBarato) {
-                        $descuentoAplicado = (float) $paudBarato->precio_publico * $cantidadExtra;
-                    }
-                }
-            }
-            // Para DESCUENTO_MISMA_COMPRA: usar descuento del vale
+            // MISMA_COMPRA (PRODUCTO_GRATIS, DOS_POR_UNO, DESCUENTO_*): aplicar el beneficio ahora.
             else {
-                $descuentoAplicado = $vale->descuento_valor;
-                $descuentoTipo = $vale->descuento_tipo;
+                $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto);
+                $descuentoAplicado = $beneficio['monto'];
+                $descuentoTipo = $beneficio['tipo'];
                 $codigoValeGenerado = null;
             }
 
@@ -550,7 +563,7 @@ class ValeCompraService
         $valeGenerado = $this->verificarValeGenerado($codigo);
 
         if ($valeGenerado) {
-            return $this->aplicarValeGeneradoExistente($valeGenerado, $venta, $codigo);
+            return $this->aplicarValeGeneradoExistente($valeGenerado, $venta, $codigo, $detallesVenta);
         }
 
         // 2. Buscar como vale regular (VC-...)
@@ -563,6 +576,15 @@ class ValeCompraService
         }
 
         if (!$vale->esVigente() || !$vale->tieneStockDisponible()) {
+            return false;
+        }
+
+        // Un código de PROMOCIÓN de próxima compra (VC-...) NO se canjea por esta vía.
+        // Su código de cliente (VCC-...) se genera automáticamente al calificar la compra
+        // (aplicarValesAutomaticos); luego ESE código se canjea en la próxima compra.
+        // Sin este guard, teclear el VC-... duplicaría la generación del código.
+        if ($vale->momento_aplicacion === 'PROXIMA_COMPRA'
+            || $vale->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA') {
             return false;
         }
 
@@ -591,19 +613,46 @@ class ValeCompraService
     }
 
     /**
-     * Aplicar un vale generado existente (encontrado en ValeCompraAplicado)
+     * Aplicar un vale generado existente (encontrado en ValeCompraAplicado).
+     * Además de consumir el código, calcula el beneficio del vale original
+     * (producto gratis / 2x1 / descuento) y lo registra como aplicación en la
+     * venta de canje, para que el descuento quede persistido y visible (PDF/auditoría).
      */
     private function aplicarValeGeneradoExistente(
         ValeCompraAplicado $valeGenerado,
         Venta $venta,
-        string $codigo
+        string $codigo,
+        array $detallesVenta = []
     ): bool {
 
         DB::beginTransaction();
 
         try {
-            // Marcar como usado
+            // Marcar el código como usado
             $valeGenerado->marcarComoUsado();
+
+            // Calcular y registrar el beneficio sobre la venta de canje.
+            $vale = ValeCompra::with(['productos', 'productoGratis'])
+                ->find($valeGenerado->vale_compra_id);
+
+            if ($vale) {
+                $preciosLineaPorProducto = $this->mapearPreciosLinea($detallesVenta);
+                $precioTotal = $this->calcularPrecioTotal($detallesVenta);
+                $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto);
+
+                ValeCompraAplicado::create([
+                    'vale_compra_id' => $vale->id,
+                    'venta_id' => $venta->id,
+                    'cliente_id' => $venta->cliente_id,
+                    'cantidad_productos' => $precioTotal,
+                    'descuento_aplicado' => $beneficio['monto'],
+                    'descuento_tipo' => $beneficio['tipo'],
+                    'genera_vale_futuro' => false,
+                    'codigo_vale_generado' => null,
+                    'fecha_validez_generado' => null,
+                    'aplicado_por' => auth()->id(),
+                ]);
+            }
 
             // Registrar en historial del vale original
             ValeCompraHistorial::registrar(

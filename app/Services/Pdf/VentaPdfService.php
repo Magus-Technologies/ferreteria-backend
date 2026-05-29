@@ -91,6 +91,47 @@ class VentaPdfService
     }
 
     /**
+     * Etiqueta del tipo de promoción para el cupón impreso.
+     */
+    private function tipoValeLabel(?\App\Models\ValeCompra $vale): string
+    {
+        return match ($vale?->tipo_promocion) {
+            'DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA' => 'VALE DESCUENTO',
+            'PRODUCTO_GRATIS' => 'PRODUCTO GRATIS',
+            'DOS_POR_UNO' => '2x1',
+            'SORTEO' => 'SORTEO',
+            default => strtoupper(str_replace('_', ' ', $vale?->tipo_promocion ?? '')),
+        };
+    }
+
+    /**
+     * Beneficio del cupón impreso, según el tipo de promoción del vale.
+     * Para PRODUCTO_GRATIS / DOS_POR_UNO el beneficio no es un monto fijo, así que
+     * no se imprime "S/ 0.00 DESCUENTO" sino el beneficio real.
+     */
+    private function beneficioValeLabel(?\App\Models\ValeCompra $vale): string
+    {
+        if (!$vale) return '';
+
+        if ($vale->tipo_promocion === 'PRODUCTO_GRATIS') {
+            $nombre = $vale->productoGratis?->name;
+            $cant = (float) ($vale->cantidad_producto_gratis ?? 1);
+            $cantTxt = rtrim(rtrim(number_format($cant, 3, '.', ''), '0'), '.');
+            return $nombre ? "GRATIS: {$cantTxt} x {$nombre}" : 'PRODUCTO GRATIS';
+        }
+
+        if ($vale->tipo_promocion === 'DOS_POR_UNO') {
+            return 'LLEVA 2x1';
+        }
+
+        $valor = (float) ($vale->descuento_valor ?? 0);
+        if ($valor <= 0) return '';
+        return $vale->descuento_tipo === 'PORCENTAJE'
+            ? (number_format($valor, 0) . '% DESCUENTO')
+            : ('S/ ' . number_format($valor, 2) . ' DESCUENTO');
+    }
+
+    /**
      * Generar un vale individual de una venta (para impresión separada).
      */
     public function generarValeIndividual(string $ventaId, int $index): Response
@@ -105,21 +146,11 @@ class VentaPdfService
                 continue;
             }
             $valeCompra = $va->valeCompra;
-            $tipoLabel = match ($valeCompra?->tipo_promocion) {
-                'descuento_porcentaje' => 'DESCUENTO %',
-                'descuento_fijo' => 'DESCUENTO FIJO',
-                'producto_gratis' => 'PRODUCTO GRATIS',
-                default => strtoupper($valeCompra?->tipo_promocion ?? ''),
-            };
-            $beneficio = match ($valeCompra?->descuento_tipo) {
-                '%' => ($valeCompra?->descuento_valor ?? 0) . '% DESCUENTO',
-                default => 'S/ ' . number_format($valeCompra?->descuento_valor ?? 0, 2) . ' DESCUENTO',
-            };
 
             $vales[] = [
-                'tipo_label' => $tipoLabel,
+                'tipo_label' => $this->tipoValeLabel($valeCompra),
                 'nombre' => $valeCompra?->nombre ?? '',
-                'beneficio' => $beneficio,
+                'beneficio' => $this->beneficioValeLabel($valeCompra),
                 'codigo' => $va->codigo_vale_generado,
                 'fecha_validez' => $va->fecha_validez_generado
                     ? \Carbon\Carbon::parse($va->fecha_validez_generado)->format('d/m/Y')
@@ -205,16 +236,8 @@ class VentaPdfService
                 continue;
             }
             $valeCompra = $va->valeCompra;
-            $tipoLabel = match ($valeCompra?->tipo_promocion) {
-                'descuento_porcentaje' => 'DESCUENTO %',
-                'descuento_fijo' => 'DESCUENTO FIJO',
-                'producto_gratis' => 'PRODUCTO GRATIS',
-                default => strtoupper($valeCompra?->tipo_promocion ?? ''),
-            };
-            $beneficio = match ($valeCompra?->descuento_tipo) {
-                '%' => ($valeCompra?->descuento_valor ?? 0) . '% DESCUENTO',
-                default => 'S/ ' . number_format($valeCompra?->descuento_valor ?? 0, 2) . ' DESCUENTO',
-            };
+            $tipoLabel = $this->tipoValeLabel($valeCompra);
+            $beneficio = $this->beneficioValeLabel($valeCompra);
 
             $codigo = $va->codigo_vale_generado;
 
