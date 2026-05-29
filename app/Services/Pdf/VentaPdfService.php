@@ -411,11 +411,13 @@ class VentaPdfService
     }
 
     /**
-     * Calcular el descuento total proveniente de vales aplicados de tipo
-     * DESCUENTO_MISMA_COMPRA. PORCENTAJE se aplica sobre el importe bruto de
-     * productos (post descuentos por línea). MONTO_FIJO se suma directamente.
-     * Los demás tipos (DESCUENTO_PROXIMA_COMPRA, PRODUCTO_GRATIS, DOS_POR_UNO,
-     * SORTEO) no generan descuento en esta misma venta.
+     * Calcular el descuento total proveniente de vales aplicados a la misma compra.
+     * - DESCUENTO_MISMA_COMPRA: PORCENTAJE se aplica sobre el importe bruto post
+     *   descuentos por línea; MONTO_FIJO se suma directamente.
+     * - DOS_POR_UNO y PRODUCTO_GRATIS (cuando momento_aplicacion = MISMA_COMPRA):
+     *   se usa el `descuento_aplicado` ya calculado y persistido por
+     *   ValeCompraService::aplicarValeAVenta al crear la venta.
+     * DESCUENTO_PROXIMA_COMPRA y SORTEO no generan descuento en esta misma venta.
      */
     private function calcularDescuentoValesAplicados(Venta $venta, array $productos): float
     {
@@ -427,15 +429,26 @@ class VentaPdfService
         foreach ($venta->valesAplicados as $va) {
             $vale = $va->valeCompra;
             if (!$vale) continue;
-            if ($vale->tipo_promocion !== 'DESCUENTO_MISMA_COMPRA') continue;
 
-            $valor = (float) ($vale->descuento_valor ?? 0);
-            if ($valor <= 0) continue;
+            if ($vale->tipo_promocion === 'DESCUENTO_MISMA_COMPRA') {
+                $valor = (float) ($vale->descuento_valor ?? 0);
+                if ($valor <= 0) continue;
+                if ($vale->descuento_tipo === 'PORCENTAJE') {
+                    $descuento += $baseDescuento * $valor / 100;
+                } elseif ($vale->descuento_tipo === 'MONTO_FIJO') {
+                    $descuento += $valor;
+                }
+                continue;
+            }
 
-            if ($vale->descuento_tipo === 'PORCENTAJE') {
-                $descuento += $baseDescuento * $valor / 100;
-            } elseif ($vale->descuento_tipo === 'MONTO_FIJO') {
-                $descuento += $valor;
+            // 2x1 y producto gratis aplicados a la misma compra: el monto ya fue
+            // calculado y persistido al aplicar el vale.
+            if (
+                ($vale->tipo_promocion === 'DOS_POR_UNO' || $vale->tipo_promocion === 'PRODUCTO_GRATIS')
+                && $vale->momento_aplicacion !== 'PROXIMA_COMPRA'
+                && !$va->genera_vale_futuro
+            ) {
+                $descuento += (float) ($va->descuento_aplicado ?? 0);
             }
         }
 
@@ -481,8 +494,9 @@ class VentaPdfService
     }
 
     /**
-     * Preparar lista de vales DESCUENTO_MISMA_COMPRA aplicados con su info de
-     * descuento para mostrar en el ticket/A4 (nombre + beneficio + monto).
+     * Preparar lista de vales aplicados con descuento sobre la misma compra
+     * (DESCUENTO_MISMA_COMPRA, DOS_POR_UNO, PRODUCTO_GRATIS) para mostrar en
+     * el ticket/A4 (nombre + beneficio + monto).
      */
     private function prepararValesDescuentoAplicados(Venta $venta, array $productos): array
     {
@@ -494,19 +508,30 @@ class VentaPdfService
         foreach ($venta->valesAplicados as $va) {
             $vale = $va->valeCompra;
             if (!$vale) continue;
-            if ($vale->tipo_promocion !== 'DESCUENTO_MISMA_COMPRA') continue;
-
-            $valor = (float) ($vale->descuento_valor ?? 0);
-            if ($valor <= 0) continue;
 
             $monto = 0;
             $beneficio = '';
-            if ($vale->descuento_tipo === 'PORCENTAJE') {
-                $monto = round($baseDescuento * $valor / 100, 2);
-                $beneficio = number_format($valor, 0) . '% DSCTO';
-            } elseif ($vale->descuento_tipo === 'MONTO_FIJO') {
-                $monto = round($valor, 2);
-                $beneficio = 'S/ ' . number_format($valor, 2) . ' DSCTO';
+
+            if ($vale->tipo_promocion === 'DESCUENTO_MISMA_COMPRA') {
+                $valor = (float) ($vale->descuento_valor ?? 0);
+                if ($valor <= 0) continue;
+                if ($vale->descuento_tipo === 'PORCENTAJE') {
+                    $monto = round($baseDescuento * $valor / 100, 2);
+                    $beneficio = number_format($valor, 0) . '% DSCTO';
+                } elseif ($vale->descuento_tipo === 'MONTO_FIJO') {
+                    $monto = round($valor, 2);
+                    $beneficio = 'S/ ' . number_format($valor, 2) . ' DSCTO';
+                }
+            } elseif (
+                ($vale->tipo_promocion === 'DOS_POR_UNO' || $vale->tipo_promocion === 'PRODUCTO_GRATIS')
+                && $vale->momento_aplicacion !== 'PROXIMA_COMPRA'
+                && !$va->genera_vale_futuro
+            ) {
+                $monto = round((float) ($va->descuento_aplicado ?? 0), 2);
+                if ($monto <= 0) continue;
+                $beneficio = $vale->tipo_promocion === 'DOS_POR_UNO' ? '2x1' : 'PRODUCTO GRATIS';
+            } else {
+                continue;
             }
 
             $lista[] = [
