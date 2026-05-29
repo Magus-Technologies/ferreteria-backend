@@ -57,11 +57,12 @@ class ValeCompraService
             // (precio_total / cantidad por línea). Se usa para valorar PRODUCTO_GRATIS
             // con el precio efectivamente cobrado, en paridad con el resumen del frontend.
             $preciosLineaPorProducto = $this->mapearPreciosLinea($detallesVenta);
+            $cantidadesLineaPorProducto = $this->mapearCantidadesLinea($detallesVenta);
 
             // 4. Aplicar cada vale
             $valesAplicados = collect();
             foreach ($valesAplicables as $vale) {
-                $aplicado = $this->aplicarVale($vale, $venta, $precioTotal, $preciosLineaPorProducto);
+                $aplicado = $this->aplicarVale($vale, $venta, $precioTotal, $preciosLineaPorProducto, $cantidadesLineaPorProducto);
                 if ($aplicado) {
                     $valesAplicados->push($aplicado);
                 }
@@ -125,22 +126,52 @@ class ValeCompraService
     }
 
     /**
+     * Mapa producto_id => cantidad total (unidades) vendida en la venta.
+     * Usado para escalar el beneficio del 2x1 (ej. compra 10, lleva 5 gratis).
+     */
+    private function mapearCantidadesLinea(array $detallesVenta): array
+    {
+        $mapa = [];
+        foreach ($detallesVenta as $detalle) {
+            $productoId = $detalle['producto_id'] ?? null;
+            $cantidad = (float) ($detalle['cantidad'] ?? 0);
+            if ($productoId && $cantidad > 0) {
+                $mapa[$productoId] = ($mapa[$productoId] ?? 0) + $cantidad;
+            }
+        }
+        return $mapa;
+    }
+
+    /**
      * Determina si el umbral `cantidad_minima` del vale debe interpretarse como
      * cantidad de unidades (true) o como precio en S/ (false).
      */
     private function esUmbralPorUnidades(ValeCompra $vale): bool
     {
-        return in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
-            || in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+        return self::esUmbralPorUnidadesStatic($vale);
     }
 
     /**
      * Helper estático equivalente: útil desde el controller (donde no hay instancia).
+     *
+     * Prioridad:
+     * 1) PRODUCTO_GRATIS y DOS_POR_UNO siempre son por unidades (el beneficio lo exige).
+     * 2) Si el vale tiene `tipo_umbral` definido por el usuario, se respeta
+     *    (CANTIDAD = unidades, MONTO = soles).
+     * 3) Vales antiguos sin `tipo_umbral`: se infiere por modalidad (compatibilidad).
      */
     public static function esUmbralPorUnidadesStatic(ValeCompra $vale): bool
     {
-        return in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
-            || in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+        if (in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)) {
+            return true;
+        }
+
+        if (!empty($vale->tipo_umbral)) {
+            return $vale->tipo_umbral === 'CANTIDAD';
+        }
+
+        // Compatibilidad para vales creados antes de existir tipo_umbral.
+        return in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
     }
 
     /**
@@ -383,7 +414,8 @@ class ValeCompraService
     private function calcularDescuentoBeneficio(
         ValeCompra $vale,
         Venta $venta,
-        array $preciosLineaPorProducto = []
+        array $preciosLineaPorProducto = [],
+        array $cantidadesLineaPorProducto = []
     ): array {
         if ($vale->tipo_promocion === 'PRODUCTO_GRATIS' && $vale->producto_gratis_id) {
             $cantidadGratis = (float) ($vale->cantidad_producto_gratis ?: 1);
@@ -407,20 +439,28 @@ class ValeCompraService
         }
 
         if ($vale->tipo_promocion === 'DOS_POR_UNO') {
-            $cantidadExtra = (float) ($vale->cantidad_producto_gratis ?: 1);
+            $gratisPorGrupo = (float) ($vale->cantidad_producto_gratis ?: 1);
+            $tamGrupo = (float) ($vale->cantidad_minima ?: 1);
             $monto = (float) ($vale->descuento_valor ?? 0);
             $productoIds = $vale->productos->pluck('id')->toArray();
 
             $preciosEnCarrito = [];
+            $cantidadEnCarrito = 0.0;
             foreach ($productoIds as $pid) {
                 if (isset($preciosLineaPorProducto[$pid]) && $preciosLineaPorProducto[$pid] > 0) {
                     $preciosEnCarrito[] = $preciosLineaPorProducto[$pid];
                 }
+                $cantidadEnCarrito += (float) ($cantidadesLineaPorProducto[$pid] ?? 0);
             }
 
             if (!empty($preciosEnCarrito)) {
-                $monto = min($preciosEnCarrito) * $cantidadExtra;
+                // Escalar: por cada `cantidad_minima` compradas, `cantidad_producto_gratis` gratis.
+                // Ej.: 2x1 (mínimo 2, 1 gratis), compra 10 → grupos = piso(10/2)=5 → 5 gratis.
+                $grupos = $tamGrupo > 0 ? floor($cantidadEnCarrito / $tamGrupo) : 0;
+                $unidadesGratis = $grupos * $gratisPorGrupo;
+                $monto = min($preciosEnCarrito) * $unidadesGratis;
             } elseif (!empty($productoIds)) {
+                // Sin líneas en el carrito (fallback): un solo grupo a precio público.
                 $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
                         $q->whereIn('producto_id', $productoIds)
                           ->where('almacen_id', $venta->almacen_id);
@@ -429,7 +469,7 @@ class ValeCompraService
                     ->orderBy('precio_publico', 'asc')
                     ->first();
                 if ($paudBarato) {
-                    $monto = (float) $paudBarato->precio_publico * $cantidadExtra;
+                    $monto = (float) $paudBarato->precio_publico * $gratisPorGrupo;
                 }
             }
             return ['monto' => $monto, 'tipo' => $vale->descuento_tipo];
@@ -443,7 +483,8 @@ class ValeCompraService
         ValeCompra $vale,
         Venta $venta,
         float $precioTotal,
-        array $preciosLineaPorProducto = []
+        array $preciosLineaPorProducto = [],
+        array $cantidadesLineaPorProducto = []
     ): ?ValeCompraAplicado {
         DB::beginTransaction();
 
@@ -459,7 +500,7 @@ class ValeCompraService
             // aplican al teclear su código (la diferencia con MISMA es solo que no se
             // auto-detectan, requieren código manual).
             else {
-                $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto);
+                $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto, $cantidadesLineaPorProducto);
                 $descuentoAplicado = $beneficio['monto'];
                 $descuentoTipo = $beneficio['tipo'];
                 $codigoValeGenerado = null;
@@ -590,7 +631,8 @@ class ValeCompraService
             $vale,
             $venta,
             $this->calcularPrecioTotal($detallesVenta),
-            $this->mapearPreciosLinea($detallesVenta)
+            $this->mapearPreciosLinea($detallesVenta),
+            $this->mapearCantidadesLinea($detallesVenta)
         );
         return $aplicado !== null;
     }

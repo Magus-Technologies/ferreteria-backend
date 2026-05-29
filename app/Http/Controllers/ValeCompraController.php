@@ -138,6 +138,13 @@ class ValeCompraController extends Controller
                 'numeric',
                 'min:0.001',
             ],
+            // Cómo se interpreta `cantidad_minima`: MONTO (soles) o CANTIDAD (unidades).
+            // Lo elige el usuario en el formulario. Para PRODUCTO_GRATIS / DOS_POR_UNO
+            // siempre es CANTIDAD (se normaliza más abajo).
+            'tipo_umbral' => [
+                'nullable',
+                Rule::in(['MONTO', 'CANTIDAD']),
+            ],
 
             // Para descuentos
             'descuento_tipo' => [
@@ -155,10 +162,12 @@ class ValeCompraController extends Controller
                         $fail('El descuento porcentual no puede ser mayor a 100%.');
                     }
                     // Solo comparar monto contra cantidad_minima cuando el umbral es PRECIO (S/).
-                    // Para PRODUCTO_GRATIS, DOS_POR_UNO, POR_PRODUCTOS, MIXTO la cantidad_minima
-                    // representa unidades, no soles, y la comparación no aplica.
+                    // El umbral es por unidades si el tipo lo exige (PRODUCTO_GRATIS / DOS_POR_UNO)
+                    // o si el usuario eligió CANTIDAD (fallback: modalidad POR_PRODUCTOS / MIXTO).
                     $umbralEsUnidades = in_array($request->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
-                        || in_array($request->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+                        || ($request->tipo_umbral
+                            ? $request->tipo_umbral === 'CANTIDAD'
+                            : in_array($request->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true));
                     if (
                         $request->descuento_tipo === 'MONTO_FIJO'
                         && !$umbralEsUnidades
@@ -228,6 +237,15 @@ class ValeCompraController extends Controller
         try {
             // Generar código único
             $codigo = ValeCompra::generarNuevoCodigo();
+
+            // Normalizar tipo_umbral: PRODUCTO_GRATIS y DOS_POR_UNO siempre van por
+            // unidades; si el form no lo envió, inferir por modalidad (compatibilidad).
+            if (in_array($validated['tipo_promocion'], ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)) {
+                $validated['tipo_umbral'] = 'CANTIDAD';
+            } elseif (empty($validated['tipo_umbral'])) {
+                $validated['tipo_umbral'] = in_array($validated['modalidad'], ['POR_PRODUCTOS', 'MIXTO'], true)
+                    ? 'CANTIDAD' : 'MONTO';
+            }
 
             $vale = ValeCompra::create([
                 ...$validated,
@@ -299,6 +317,7 @@ class ValeCompraController extends Controller
                 Rule::in(['CANTIDAD_MINIMA', 'POR_CATEGORIA', 'POR_PRODUCTOS', 'MIXTO'])
             ],
             'cantidad_minima' => 'sometimes|numeric|min:0.001',
+            'tipo_umbral' => ['sometimes', 'nullable', Rule::in(['MONTO', 'CANTIDAD'])],
             'descuento_tipo' => ['nullable', Rule::in(['PORCENTAJE', 'MONTO_FIJO'])],
             'descuento_valor' => 'nullable|numeric|min:0',
             'producto_gratis_id' => 'nullable|exists:producto,id',
@@ -325,6 +344,16 @@ class ValeCompraController extends Controller
 
         try {
             $datosAnteriores = $vale->toArray();
+
+            // Normalizar tipo_umbral: PRODUCTO_GRATIS y DOS_POR_UNO siempre por unidades.
+            $tipoPromo = $validated['tipo_promocion'] ?? $vale->tipo_promocion;
+            $modalidadFinal = $validated['modalidad'] ?? $vale->modalidad;
+            if (in_array($tipoPromo, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)) {
+                $validated['tipo_umbral'] = 'CANTIDAD';
+            } elseif (array_key_exists('tipo_umbral', $validated) && empty($validated['tipo_umbral'])) {
+                $validated['tipo_umbral'] = in_array($modalidadFinal, ['POR_PRODUCTOS', 'MIXTO'], true)
+                    ? 'CANTIDAD' : 'MONTO';
+            }
 
             $vale->update([
                 ...$validated,
@@ -638,6 +667,7 @@ class ValeCompraController extends Controller
                 'descuento_valor' => $valeCompra?->descuento_valor ?? $valeGenerado->descuento_aplicado,
                 'modalidad' => $valeCompra?->modalidad,
                 'cantidad_minima' => $valeCompra?->cantidad_minima ?? 0,
+                'tipo_umbral' => $valeCompra?->tipo_umbral,
                 'fecha_inicio' => $valeCompra?->fecha_inicio,
                 'fecha_fin' => $valeGenerado->fecha_validez_generado?->format('Y-m-d'),
                 'producto_gratis' => $valeCompra?->productoGratis ? [
@@ -721,7 +751,7 @@ class ValeCompraController extends Controller
             'id', 'codigo', 'nombre', 'tipo_promocion',
             'momento_aplicacion',
             'descuento_tipo', 'descuento_valor', 'modalidad',
-            'cantidad_minima', 'fecha_inicio', 'fecha_fin',
+            'cantidad_minima', 'tipo_umbral', 'fecha_inicio', 'fecha_fin',
         ]);
 
         $valeData['producto_gratis'] = $vale->productoGratis ? [

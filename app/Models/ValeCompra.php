@@ -23,6 +23,7 @@ class ValeCompra extends Model
         'sorteo_incluye_producto',
         'modalidad',
         'cantidad_minima',
+        'tipo_umbral',
         'descuento_tipo',
         'descuento_valor',
         'producto_gratis_id',
