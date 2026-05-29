@@ -464,11 +464,10 @@ class VentaPdfService
                 continue;
             }
 
-            // 2x1 y producto gratis aplicados a la misma compra: el monto ya fue
-            // calculado y persistido al aplicar el vale.
+            // 2x1 y producto gratis aplicados en esta venta (auto o por código manual):
+            // el monto ya fue calculado y persistido al aplicar el vale.
             if (
                 ($vale->tipo_promocion === 'DOS_POR_UNO' || $vale->tipo_promocion === 'PRODUCTO_GRATIS')
-                && $vale->momento_aplicacion !== 'PROXIMA_COMPRA'
                 && !$va->genera_vale_futuro
             ) {
                 $descuento += (float) ($va->descuento_aplicado ?? 0);
@@ -547,7 +546,6 @@ class VentaPdfService
                 }
             } elseif (
                 ($vale->tipo_promocion === 'DOS_POR_UNO' || $vale->tipo_promocion === 'PRODUCTO_GRATIS')
-                && $vale->momento_aplicacion !== 'PROXIMA_COMPRA'
                 && !$va->genera_vale_futuro
             ) {
                 $monto = round((float) ($va->descuento_aplicado ?? 0), 2);

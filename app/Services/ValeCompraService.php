@@ -36,11 +36,13 @@ class ValeCompraService
             $valesPotenciales = $this->buscarValesPotenciales($precioTotal, $cantidadTotal);
 
             // 3. Filtrar vales por modalidad, restricciones y tipo de precio.
-            // Tanto MISMA_COMPRA como PROXIMA_COMPRA se procesan aquí: los primeros
-            // aplican el beneficio en esta venta; los segundos generan un código para
-            // la próxima compra (sin descontar nada ahora). En ambos casos la compra
-            // actual debe cumplir umbral, producto/categoría, stock y límite por cliente.
+            // Solo MISMA_COMPRA se aplica AUTOMÁTICAMENTE. Los PROXIMA_COMPRA se aplican
+            // manualmente tecleando su código (VC-...) en el canje (ver aplicarValeGenerado),
+            // y también se aplican en esa misma venta — no se difieren a una compra futura.
             $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $tiposPrecio, $venta) {
+                if ($vale->momento_aplicacion === 'PROXIMA_COMPRA') {
+                    return false;
+                }
                 return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
             });
 
@@ -446,28 +448,16 @@ class ValeCompraService
         DB::beginTransaction();
 
         try {
-            // Determinar si el vale se entrega como código futuro (PROXIMA_COMPRA).
-            // Incluye el caso histórico DESCUENTO_PROXIMA_COMPRA por compatibilidad
-            // con vales creados antes de existir la columna momento_aplicacion.
-            $esFuturo = $vale->momento_aplicacion === 'PROXIMA_COMPRA'
-                || $vale->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA';
-
-            if ($esFuturo) {
-                // PROXIMA_COMPRA: solo se entrega el código, ningún beneficio se aplica ahora.
-                // El vendedor canjeará el código manualmente en la venta donde el cliente
-                // lo presente (ver modal-canjear-vale en frontend). El beneficio se calcula
-                // y aplica en esa venta de canje (ver aplicarValeGeneradoExistente).
-                $descuentoAplicado = null;
-                $descuentoTipo = $vale->descuento_tipo;
-                $codigoValeGenerado = $vale->generarCodigoValeCliente();
-            }
-            // SORTEO: registrar participación sin descuento, pero igual se genera código.
-            else if ($vale->tipo_promocion === 'SORTEO') {
+            // SORTEO: registrar participación sin descuento, pero genera un código de sorteo.
+            if ($vale->tipo_promocion === 'SORTEO') {
                 $descuentoAplicado = null;
                 $descuentoTipo = null;
                 $codigoValeGenerado = $vale->generarCodigoValeCliente();
             }
-            // MISMA_COMPRA (PRODUCTO_GRATIS, DOS_POR_UNO, DESCUENTO_*): aplicar el beneficio ahora.
+            // Resto (PRODUCTO_GRATIS, DOS_POR_UNO, DESCUENTO_*), sea MISMA o PROXIMA:
+            // aplicar el beneficio en ESTA venta. Los PROXIMA_COMPRA no se difieren: se
+            // aplican al teclear su código (la diferencia con MISMA es solo que no se
+            // auto-detectan, requieren código manual).
             else {
                 $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto);
                 $descuentoAplicado = $beneficio['monto'];
@@ -475,16 +465,8 @@ class ValeCompraService
                 $codigoValeGenerado = null;
             }
 
-            // `cantidad_productos` es el nombre histórico de la columna;
-            // ahora almacena el MONTO TOTAL en S/ que disparó la activación
-            // del vale (paridad con `cantidad_minima` que ya es precio).
-            // Validez del código futuro = fecha_fin del vale (si tiene), o el campo
-            // legado `fecha_validez_vale` como fallback para vales antiguos.
-            // Si ambos son null, el código no expira.
-            $fechaValidezCodigo = $esFuturo
-                ? ($vale->fecha_fin ?? $vale->fecha_validez_vale)
-                : null;
-
+            // `cantidad_productos` es el nombre histórico de la columna; ahora almacena
+            // el MONTO TOTAL en S/ que disparó la activación del vale.
             $aplicado = ValeCompraAplicado::create([
                 'vale_compra_id' => $vale->id,
                 'venta_id' => $venta->id,
@@ -492,9 +474,9 @@ class ValeCompraService
                 'cantidad_productos' => $precioTotal,
                 'descuento_aplicado' => $descuentoAplicado,
                 'descuento_tipo' => $descuentoTipo,
-                'genera_vale_futuro' => $esFuturo,
+                'genera_vale_futuro' => false,
                 'codigo_vale_generado' => $codigoValeGenerado,
-                'fecha_validez_generado' => $fechaValidezCodigo,
+                'fecha_validez_generado' => null,
                 'aplicado_por' => auth()->id(),
             ]);
 
@@ -544,8 +526,11 @@ class ValeCompraService
         return ValeCompraAplicado::where('codigo_vale_generado', $codigo)
             ->where('usado', false)
             ->where(function ($q) {
+                // fecha_validez_generado es DATE (sin hora): comparar por fecha para que
+                // un código válido "hasta hoy" siga canjeable todo el día (evita que la
+                // hora de now() lo invalide desde la medianoche).
                 $q->whereNull('fecha_validez_generado')
-                  ->orWhere('fecha_validez_generado', '>=', now());
+                  ->orWhereDate('fecha_validez_generado', '>=', today());
             })
             ->first();
     }
@@ -579,15 +564,6 @@ class ValeCompraService
             return false;
         }
 
-        // Un código de PROMOCIÓN de próxima compra (VC-...) NO se canjea por esta vía.
-        // Su código de cliente (VCC-...) se genera automáticamente al calificar la compra
-        // (aplicarValesAutomaticos); luego ESE código se canjea en la próxima compra.
-        // Sin este guard, teclear el VC-... duplicaría la generación del código.
-        if ($vale->momento_aplicacion === 'PROXIMA_COMPRA'
-            || $vale->tipo_promocion === 'DESCUENTO_PROXIMA_COMPRA') {
-            return false;
-        }
-
         // Validar condiciones si hay detalles de venta
         if (!empty($detallesVenta)) {
             $precioTotal = $this->calcularPrecioTotal($detallesVenta);
@@ -607,8 +583,15 @@ class ValeCompraService
             }
         }
 
-        // Aplicar el vale regular
-        $aplicado = $this->aplicarVale($vale, $venta, $this->calcularPrecioTotal($detallesVenta));
+        // Aplicar el vale (MISMA o PROXIMA): el beneficio se aplica en esta venta.
+        // Se pasan los precios reales de línea para valorar PRODUCTO_GRATIS / DOS_POR_UNO
+        // en paridad con el resumen del frontend.
+        $aplicado = $this->aplicarVale(
+            $vale,
+            $venta,
+            $this->calcularPrecioTotal($detallesVenta),
+            $this->mapearPreciosLinea($detallesVenta)
+        );
         return $aplicado !== null;
     }
 
