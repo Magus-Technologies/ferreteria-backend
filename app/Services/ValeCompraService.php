@@ -53,6 +53,16 @@ class ValeCompraService
                 });
             }
 
+            // 3c. Respetar el límite de vales distintos por venta.
+            // Si algún vale tiene max_vales_por_venta, se aplica el más restrictivo.
+            $limiteMax = $valesAplicables
+                ->pluck('max_vales_por_venta')
+                ->filter()
+                ->min();
+            if ($limiteMax !== null && $valesAplicables->count() > $limiteMax) {
+                $valesAplicables = $valesAplicables->take($limiteMax);
+            }
+
             // Precio unitario REAL al que se vendió cada producto en esta venta
             // (precio_total / cantidad por línea). Se usa para valorar PRODUCTO_GRATIS
             // con el precio efectivamente cobrado, en paridad con el resumen del frontend.

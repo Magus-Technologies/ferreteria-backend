@@ -145,6 +145,7 @@ class ValeCompraController extends Controller
                 'nullable',
                 Rule::in(['MONTO', 'CANTIDAD']),
             ],
+            'max_vales_por_venta' => ['nullable', 'integer', 'min:1'],
 
             // Para descuentos
             'descuento_tipo' => [
@@ -318,6 +319,7 @@ class ValeCompraController extends Controller
             ],
             'cantidad_minima' => 'sometimes|numeric|min:0.001',
             'tipo_umbral' => ['sometimes', 'nullable', Rule::in(['MONTO', 'CANTIDAD'])],
+            'max_vales_por_venta' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'descuento_tipo' => ['nullable', Rule::in(['PORCENTAJE', 'MONTO_FIJO'])],
             'descuento_valor' => 'nullable|numeric|min:0',
             'producto_gratis_id' => 'nullable|exists:producto,id',

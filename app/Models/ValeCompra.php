@@ -24,6 +24,7 @@ class ValeCompra extends Model
         'modalidad',
         'cantidad_minima',
         'tipo_umbral',
+        'max_vales_por_venta',
         'descuento_tipo',
         'descuento_valor',
         'producto_gratis_id',
