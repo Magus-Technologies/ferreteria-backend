@@ -13,8 +13,8 @@ class EntregaRepository implements EntregaRepositoryInterface
         'tipoDespacho',
         'estadoEntrega',
         'quienEntrega',
-        'venta:id,serie,numero,cliente_id',
-        'venta.cliente:id,nombres,apellidos,razon_social,telefono',
+        'venta:id,serie,numero,cliente_id,tipo_documento',
+        'venta.cliente:id,nombres,apellidos,razon_social,telefono,numero_documento,email',
         // Direcciones con GPS — el modal Mapa de Entrega resuelve las coords desde
         // aquí cuando la entrega no tiene latitud/longitud propias (evita geocodificar).
         'venta.cliente.direcciones:id,cliente_id,tipo,direccion,latitud,longitud',
@@ -52,7 +52,7 @@ class EntregaRepository implements EntregaRepositoryInterface
             'tipoEntrega',
             'estadoEntrega',
             'quienEntrega',
-            'venta:id,serie,numero,cliente_id',
+            'venta:id,serie,numero,cliente_id,tipo_documento',
             'venta.cliente:id,nombres,apellidos,razon_social',
             'chofer:id,name',
             'vehiculo:id,name,placa',
@@ -124,7 +124,7 @@ class EntregaRepository implements EntregaRepositoryInterface
             'tipoDespacho',
             'estadoEntrega',
             'quienEntrega',
-            'venta:id,serie,numero,cliente_id',
+            'venta:id,serie,numero,cliente_id,tipo_documento',
             'venta.cliente:id,nombres,apellidos,razon_social,telefono,numero_documento',
             // Direcciones con GPS para el modal Mapa de Entrega (fallback de coords).
             'venta.cliente.direcciones:id,cliente_id,tipo,direccion,latitud,longitud',
