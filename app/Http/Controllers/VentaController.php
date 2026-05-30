@@ -78,6 +78,7 @@ class VentaController extends Controller
                 'almacen:id,name',
                 'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
                 'entregasProductos:id,venta_id,tipo_entrega,tipo_despacho,estado_entrega',
+                'valesAplicados:id,venta_id,descuento_aplicado,descuento_tipo',
             ])
             ->withCount('entregasProductos as entregas_productos_count')
             ->withCount(['historial as total_ediciones' => function ($q) {

@@ -64,9 +64,10 @@ class EntregaListadoResource extends JsonResource
             'motivo_anulacion'   => $this->motivo_anulacion,
 
             'venta' => $this->whenLoaded('venta', fn () => [
-                'id'     => $this->venta->id,
-                'serie'  => $this->venta->serie,
-                'numero' => $this->venta->numero,
+                'id'              => $this->venta->id,
+                'serie'           => $this->venta->serie,
+                'numero'          => $this->venta->numero,
+                'tipo_documento'  => $this->venta->tipo_documento,
                 'cliente' => $this->venta->cliente ? [
                     'id'               => $this->venta->cliente->id,
                     'razon_social'     => $this->venta->cliente->razon_social

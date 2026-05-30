@@ -95,15 +95,18 @@ class EntregaResource extends JsonResource
 
             // Venta resumida
             'venta' => $this->whenLoaded('venta', fn () => [
-                'id'     => $venta->id,
-                'serie'  => $venta->serie,
-                'numero' => $venta->numero,
+                'id'              => $venta->id,
+                'serie'           => $venta->serie,
+                'numero'          => $venta->numero,
+                'tipo_documento'  => $venta->tipo_documento,
                 'cliente'=> $cliente ? [
-                    'id'              => $cliente->id,
-                    'nombres'         => $cliente->nombres,
-                    'apellidos'       => $cliente->apellidos,
-                    'razon_social'    => $cliente->razon_social,
-                    'telefono'        => $cliente->telefono,
+                    'id'               => $cliente->id,
+                    'nombres'          => $cliente->nombres,
+                    'apellidos'        => $cliente->apellidos,
+                    'razon_social'     => $cliente->razon_social,
+                    'telefono'         => $cliente->telefono,
+                    'numero_documento' => $cliente->numero_documento,
+                    'email'            => $cliente->email,
                 ] : null,
             ]),
 
