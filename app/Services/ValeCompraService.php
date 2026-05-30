@@ -445,13 +445,15 @@ class ValeCompraService
                     $monto = (float) $paudGratis->precio_publico * $cantidadGratis;
                 }
             }
-            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo];
+            // grupos = 1 (el producto gratis se entrega una vez por activación)
+            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => 1];
         }
 
         if ($vale->tipo_promocion === 'DOS_POR_UNO') {
             $gratisPorGrupo = (float) ($vale->cantidad_producto_gratis ?: 1);
             $tamGrupo = (float) ($vale->cantidad_minima ?: 1);
             $monto = (float) ($vale->descuento_valor ?? 0);
+            $grupos = 1;
             $productoIds = $vale->productos->pluck('id')->toArray();
 
             $preciosEnCarrito = [];
@@ -464,13 +466,10 @@ class ValeCompraService
             }
 
             if (!empty($preciosEnCarrito)) {
-                // Escalar: por cada `cantidad_minima` compradas, `cantidad_producto_gratis` gratis.
-                // Ej.: 2x1 (mínimo 2, 1 gratis), compra 10 → grupos = piso(10/2)=5 → 5 gratis.
-                $grupos = $tamGrupo > 0 ? floor($cantidadEnCarrito / $tamGrupo) : 0;
+                $grupos = $tamGrupo > 0 ? (int) floor($cantidadEnCarrito / $tamGrupo) : 1;
                 $unidadesGratis = $grupos * $gratisPorGrupo;
                 $monto = min($preciosEnCarrito) * $unidadesGratis;
             } elseif (!empty($productoIds)) {
-                // Sin líneas en el carrito (fallback): un solo grupo a precio público.
                 $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
                         $q->whereIn('producto_id', $productoIds)
                           ->where('almacen_id', $venta->almacen_id);
@@ -482,11 +481,11 @@ class ValeCompraService
                     $monto = (float) $paudBarato->precio_publico * $gratisPorGrupo;
                 }
             }
-            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo];
+            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => $grupos];
         }
 
         // DESCUENTO_MISMA_COMPRA / DESCUENTO_PROXIMA_COMPRA / otros
-        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo];
+        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo, 'grupos' => 1];
     }
 
     private function aplicarVale(
@@ -513,6 +512,7 @@ class ValeCompraService
                 $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto, $cantidadesLineaPorProducto);
                 $descuentoAplicado = $beneficio['monto'];
                 $descuentoTipo = $beneficio['tipo'];
+                $gruposUsados = (int) ($beneficio['grupos'] ?? 1);
                 $codigoValeGenerado = null;
             }
 
@@ -531,8 +531,10 @@ class ValeCompraService
                 'aplicado_por' => auth()->id(),
             ]);
 
-            // Decrementar stock si aplica
-            $vale->decrementarStock();
+            // Decrementar stock por la cantidad de grupos/usos reales aplicados.
+            // DOS_POR_UNO: compra 10 con 2x1 → 5 grupos → descuenta 5 del stock.
+            // PRODUCTO_GRATIS, DESCUENTO y SORTEO: siempre 1 por venta.
+            $vale->decrementarStock($gruposUsados ?? 1);
 
             // Registrar en historial
             ValeCompraHistorial::registrar(

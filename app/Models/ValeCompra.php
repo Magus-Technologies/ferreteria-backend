@@ -179,21 +179,20 @@ class ValeCompra extends Model
         return $usosCliente < $this->limite_usos_cliente;
     }
 
-    public function decrementarStock(): void
+    public function decrementarStock(int $cantidad = 1): void
     {
-        if ($this->usa_limite_stock && $this->stock_disponible > 0) {
-            $this->decrement('stock_disponible');
-            
-            if ($this->stock_disponible <= 0) {
-                $this->update(['estado' => 'FINALIZADO']);
-                
-                // Registrar en historial
-                $this->historial()->create([
-                    'accion' => 'STOCK_AGOTADO',
-                    'descripcion' => 'Stock de promociones agotado',
-                    'fecha' => now(),
-                ]);
-            }
+        if (!$this->usa_limite_stock || $this->stock_disponible <= 0) return;
+
+        $decremento = min($cantidad, $this->stock_disponible);
+        $this->decrement('stock_disponible', $decremento);
+
+        if ($this->stock_disponible <= 0) {
+            $this->update(['estado' => 'FINALIZADO']);
+            $this->historial()->create([
+                'accion' => 'STOCK_AGOTADO',
+                'descripcion' => 'Stock de promociones agotado',
+                'fecha' => now(),
+            ]);
         }
     }
 
