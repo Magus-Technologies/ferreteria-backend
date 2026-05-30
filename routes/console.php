@@ -44,3 +44,11 @@ Schedule::command('notificaciones:vencimientos')
     ->withoutOverlapping()
     ->onOneServer()
     ->runInBackground();
+
+// Marcar como FINALIZADO los vales de compra cuya fecha_fin ya pasó
+// Se ejecuta diariamente a las 00:05 (apenas inicia el nuevo día)
+Schedule::command('vales:finalizar-vencidos')
+    ->dailyAt('00:05')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->runInBackground();

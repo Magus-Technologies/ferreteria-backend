@@ -474,7 +474,9 @@ class ValeCompraService
                 }
                 $unidadesGratis = $grupos * $gratisPorGrupo;
                 $monto = min($preciosEnCarrito) * $unidadesGratis;
-                $stockDescontar = $grupos + (int) $unidadesGratis;
+                // Stock del vale = unidades que participaron en los grupos aplicados.
+                // Ej: 2x1 (grupo de 2) aplicado 2 veces → 2 × 2 = 4 unidades de stock.
+                $stockDescontar = $grupos * (int) $tamGrupo;
             } elseif (!empty($productoIds)) {
                 $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
                         $q->whereIn('producto_id', $productoIds)
@@ -486,7 +488,7 @@ class ValeCompraService
                 if ($paudBarato) {
                     $monto = (float) $paudBarato->precio_publico * $gratisPorGrupo;
                 }
-                $stockDescontar = $grupos + (int) $gratisPorGrupo;
+                $stockDescontar = $grupos * (int) $tamGrupo;
             }
             return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => $stockDescontar ?? $grupos];
         }
@@ -538,8 +540,8 @@ class ValeCompraService
                 'aplicado_por' => auth()->id(),
             ]);
 
-            // Decrementar stock por la cantidad de grupos/usos reales aplicados.
-            // DOS_POR_UNO: compra 10 con 2x1 → 5 grupos → descuenta 5 del stock.
+            // Decrementar stock por las unidades que participaron en la promo.
+            // DOS_POR_UNO: 2x1 (grupo de 2) aplicado 2 veces → descuenta 4 del stock.
             // PRODUCTO_GRATIS, DESCUENTO y SORTEO: siempre 1 por venta.
             $vale->decrementarStock($gruposUsados ?? 1);
 
