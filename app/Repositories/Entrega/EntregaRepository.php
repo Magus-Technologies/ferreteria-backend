@@ -147,14 +147,54 @@ class EntregaRepository implements EntregaRepositoryInterface
         }
 
         if (! empty($filtros['chofer_id'])) {
-            $query->where('chofer_id', $filtros['chofer_id']);
+            $choferId = $filtros['chofer_id'];
+            $query->where(function ($sub) use ($choferId) {
+                $sub->where('chofer_id', $choferId)
+                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->where('chofer_id', $choferId));
+            });
         }
 
-        if (! empty($filtros['fecha_desde'])) {
+        if (! empty($filtros['vehiculo_id'])) {
+            $vehiculoId = $filtros['vehiculo_id'];
+            $query->where(function ($sub) use ($vehiculoId) {
+                $sub->where('vehiculo_id', $vehiculoId)
+                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->where('vehiculo_id', $vehiculoId));
+            });
+        }
+
+        $filtrarPorFechaProgramada = array_key_exists('solo_programadas', $filtros);
+        $soloProgramadasActivas = ! empty($filtros['solo_programadas']);
+
+        if ($filtrarPorFechaProgramada) {
+            $query->where(function ($sub) {
+                $sub->whereNotNull('fecha_programada')
+                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->whereNotNull('fecha_programada'));
+            });
+
+            $query->whereHas('tipoDespacho', fn ($q) => $q->where('codigo', '!=', 'in'));
+
+            if ($soloProgramadasActivas) {
+                $query->whereHas('estadoEntrega', fn ($q) => $q->whereNotIn('codigo', ['en', 'ca']));
+            }
+        }
+
+        if (! empty($filtros['fecha_desde']) && $filtrarPorFechaProgramada) {
+            $fechaDesde = $filtros['fecha_desde'];
+            $query->where(function ($sub) use ($fechaDesde) {
+                $sub->whereDate('fecha_programada', '>=', $fechaDesde)
+                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->whereDate('fecha_programada', '>=', $fechaDesde));
+            });
+        } elseif (! empty($filtros['fecha_desde'])) {
             $query->where('fecha_creacion', '>=', $filtros['fecha_desde']);
         }
 
-        if (! empty($filtros['fecha_hasta'])) {
+        if (! empty($filtros['fecha_hasta']) && $filtrarPorFechaProgramada) {
+            $fechaHasta = $filtros['fecha_hasta'];
+            $query->where(function ($sub) use ($fechaHasta) {
+                $sub->whereDate('fecha_programada', '<=', $fechaHasta)
+                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->whereDate('fecha_programada', '<=', $fechaHasta));
+            });
+        } elseif (! empty($filtros['fecha_hasta'])) {
             $query->where('fecha_creacion', '<=', $filtros['fecha_hasta']);
         }
 
