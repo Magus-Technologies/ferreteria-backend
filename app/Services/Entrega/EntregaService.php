@@ -24,6 +24,7 @@ class EntregaService
         private EntregaNotificacionService      $notificacion,
         private EntregaTransicionEstadoService  $transicion,
         private EntregaResumenService           $resumen,
+        private EntregaSyncLegacyService        $syncLegacy,
     ) {}
 
     // ─────────────────────────────────────────────────────────────
@@ -144,6 +145,9 @@ class EntregaService
         return DB::transaction(function () use ($entrega, $userId) {
             $this->transicion->transicionar($entrega, CodigoEstadoEntrega::Entregado, $userId);
             $this->stock->aplicar($entrega->fresh());
+            // Espejar estado al legacy + recalcular cantidad_pendiente para que
+            // la columna "Entrega" de mis-ventas refleje el cambio.
+            $this->syncLegacy->sincronizar($entrega->fresh());
             return $entrega->fresh($this->eagerLoadDefault());
         });
     }
@@ -157,6 +161,7 @@ class EntregaService
         return DB::transaction(function () use ($entrega, $userId) {
             $this->transicion->transicionar($entrega, CodigoEstadoEntrega::EnCamino, $userId);
             $this->stock->aplicar($entrega->fresh());
+            $this->syncLegacy->sincronizar($entrega->fresh());
             return $entrega->fresh($this->eagerLoadDefault());
         });
     }
@@ -173,6 +178,10 @@ class EntregaService
             $entrega->update(['motivo_anulacion' => $motivo]);
 
             $this->stock->revertir($entrega->fresh());
+
+            // Anular saca esta entrega del cómputo (estado 'ca') → recalcular
+            // cantidad_pendiente y espejar el estado al legacy.
+            $this->syncLegacy->sincronizar($entrega->fresh());
 
             return $entrega->fresh($this->eagerLoadDefault());
         });
@@ -249,6 +258,16 @@ class EntregaService
      *   fecha_creacion: string,
      *   fecha_ejecutada: string|null,
      *   tipo_pedido: string,
+     *   chofer_id?: string|null,
+     *   vehiculo_id?: int|null,
+     *   fecha_programada?: string|null,
+     *   hora_inicio?: string|null,
+     *   hora_fin?: string|null,
+     *   direccion_entrega?: string|null,
+     *   referencia_entrega?: string|null,
+     *   latitud?: float|null,
+     *   longitud?: float|null,
+     *   observaciones?: string|null,
      *   entrega_legacy_id: int|null,
      *   productos: array<int, array{unidad_derivada_venta_id: int, cantidad: float}>,
      * } $data
@@ -269,10 +288,20 @@ class EntregaService
             'quien_entrega_id'        => $quienEntregaId,
             'almacen_salida_id'       => $data['almacen_salida_id'],
             'tipo_pedido'             => $data['tipo_pedido'] ?? 'interno',
+            'chofer_id'               => $data['chofer_id'] ?? null,
+            'vehiculo_id'             => $data['vehiculo_id'] ?? null,
             'user_creador_id'         => $data['user_creador_id'],
             'user_entregado_id'       => $data['user_entregado_id'] ?? null,
             'fecha_creacion'          => $data['fecha_creacion'],
+            'fecha_programada'        => $data['fecha_programada'] ?? null,
             'fecha_ejecutada'         => $data['fecha_ejecutada'] ?? null,
+            'hora_inicio'             => $data['hora_inicio'] ?? null,
+            'hora_fin'                => $data['hora_fin'] ?? null,
+            'direccion_entrega'       => $data['direccion_entrega'] ?? null,
+            'referencia_entrega'      => $data['referencia_entrega'] ?? null,
+            'latitud'                 => $data['latitud'] ?? null,
+            'longitud'                => $data['longitud'] ?? null,
+            'observaciones'           => $data['observaciones'] ?? null,
             // Stock ya aplicado por VentaController — evita doble decremento
             'stock_aplicado'          => true,
             'entrega_legacy_id'       => $data['entrega_legacy_id'] ?? null,
@@ -305,6 +334,9 @@ class EntregaService
             'almacenSalida:id,name',
             'chofer:id,name',
             'vehiculo:id,name,tipo,placa',
+            'entregaLegacy:id,chofer_id,vehiculo_id,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones',
+            'entregaLegacy.despachador:id,name',
+            'entregaLegacy.vehiculo:id,name,tipo,placa',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
         ];
     }

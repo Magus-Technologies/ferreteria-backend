@@ -12,12 +12,19 @@ class EntregaResource extends JsonResource
     {
         $venta    = $this->whenLoaded('venta');
         $cliente  = optional($venta)->client ?? optional($venta)->cliente;
+        $legacy = $this->relationLoaded('entregaLegacy') ? $this->entregaLegacy : null;
+        $chofer = $this->chofer ?: $legacy?->despachador;
+        $vehiculo = $this->vehiculo ?: $legacy?->vehiculo;
+        $fechaProgramada = $this->fecha_programada ?? $legacy?->fecha_programada;
+        $latitud = $this->latitud ?? $legacy?->latitud;
+        $longitud = $this->longitud ?? $legacy?->longitud;
 
         return [
             'id'                      => $this->id,
             'venta_id'                => $this->venta_id,
             'venta_entrega_secuencia' => $this->venta_entrega_secuencia,
             'stock_aplicado'          => (bool) $this->stock_aplicado,
+            'entrega_legacy_id'       => $this->entrega_legacy_id,
 
             // Catálogos
             'tipo_entrega'  => $this->whenLoaded('tipoEntrega', fn () => [
@@ -51,18 +58,18 @@ class EntregaResource extends JsonResource
                 'id'   => $this->almacenSalida->id,
                 'name' => $this->almacenSalida->name,
             ]),
-            'chofer_id' => $this->chofer_id,
-            'chofer'    => $this->whenLoaded('chofer', fn () => $this->chofer ? [
-                'id'   => $this->chofer->id,
-                'name' => $this->chofer->name,
-            ] : null),
-            'vehiculo_id' => $this->vehiculo_id,
-            'vehiculo'    => $this->whenLoaded('vehiculo', fn () => $this->vehiculo ? [
-                'id'    => $this->vehiculo->id,
-                'name'  => $this->vehiculo->name,
-                'tipo'  => $this->vehiculo->tipo,
-                'placa' => $this->vehiculo->placa,
-            ] : null),
+            'chofer_id' => $this->chofer_id ?? $legacy?->chofer_id,
+            'chofer'    => $chofer ? [
+                'id'   => $chofer->id,
+                'name' => $chofer->name,
+            ] : null,
+            'vehiculo_id' => $this->vehiculo_id ?? $legacy?->vehiculo_id,
+            'vehiculo'    => $vehiculo ? [
+                'id'    => $vehiculo->id,
+                'name'  => $vehiculo->name,
+                'tipo'  => $vehiculo->tipo,
+                'placa' => $vehiculo->placa,
+            ] : null,
 
             // Pedido
             'tipo_pedido'   => $this->tipo_pedido,
@@ -70,20 +77,20 @@ class EntregaResource extends JsonResource
 
             // Fechas
             'fecha_creacion'   => $this->fecha_creacion?->toDateString(),
-            'fecha_programada' => $this->fecha_programada?->toDateString(),
+            'fecha_programada' => $this->formatDate($fechaProgramada),
             'fecha_ejecutada'  => $this->fecha_ejecutada?->toIso8601String(),
             'fecha_anulacion'  => $this->fecha_anulacion?->toIso8601String(),
-            'hora_inicio'      => $this->hora_inicio,
-            'hora_fin'         => $this->hora_fin,
+            'hora_inicio'      => $this->hora_inicio ?? $legacy?->hora_inicio,
+            'hora_fin'         => $this->hora_fin ?? $legacy?->hora_fin,
 
             // Ubicación
-            'direccion_entrega'  => $this->direccion_entrega,
-            'referencia_entrega' => $this->referencia_entrega,
-            'latitud'            => $this->latitud ? (float) $this->latitud : null,
-            'longitud'           => $this->longitud ? (float) $this->longitud : null,
+            'direccion_entrega'  => $this->direccion_entrega ?? $legacy?->direccion_entrega,
+            'referencia_entrega' => $this->referencia_entrega ?? $legacy?->referencia_entrega,
+            'latitud'            => $latitud !== null ? (float) $latitud : null,
+            'longitud'           => $longitud !== null ? (float) $longitud : null,
 
             // Notas
-            'observaciones'   => $this->observaciones,
+            'observaciones'   => $this->observaciones ?? $legacy?->observaciones,
             'motivo_anulacion'=> $this->motivo_anulacion,
 
             // Venta resumida
@@ -108,5 +115,16 @@ class EntregaResource extends JsonResource
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];
+    }
+
+    private function formatDate($value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        return method_exists($value, 'toDateString')
+            ? $value->toDateString()
+            : substr((string) $value, 0, 10);
     }
 }

@@ -21,6 +21,9 @@ class EntregaRepository implements EntregaRepositoryInterface
         'almacenSalida:id,name',
         'chofer:id,name',
         'vehiculo:id,name,tipo,placa',
+        'entregaLegacy:id,chofer_id,vehiculo_id,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones',
+        'entregaLegacy.despachador:id,name',
+        'entregaLegacy.vehiculo:id,name,tipo,placa',
         'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
         'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
     ];
@@ -53,6 +56,9 @@ class EntregaRepository implements EntregaRepositoryInterface
             'venta.cliente:id,nombres,apellidos,razon_social',
             'chofer:id,name',
             'vehiculo:id,name,placa',
+            'entregaLegacy:id,chofer_id,vehiculo_id,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones',
+            'entregaLegacy.despachador:id,name',
+            'entregaLegacy.vehiculo:id,name,tipo,placa',
         ]);
 
         // Filtro de venta
@@ -124,6 +130,9 @@ class EntregaRepository implements EntregaRepositoryInterface
             'venta.cliente.direcciones:id,cliente_id,tipo,direccion,latitud,longitud',
             'chofer:id,name',
             'vehiculo:id,name,placa',
+            'entregaLegacy:id,chofer_id,vehiculo_id,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones',
+            'entregaLegacy.despachador:id,name',
+            'entregaLegacy.vehiculo:id,name,tipo,placa',
             'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
         ]);
