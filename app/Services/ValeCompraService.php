@@ -467,10 +467,13 @@ class ValeCompraService
 
             if (!empty($preciosEnCarrito)) {
                 $grupos = $tamGrupo > 0 ? (int) floor($cantidadEnCarrito / $tamGrupo) : 1;
+                // Respetar el límite de aplicaciones por venta.
+                // Ej: max_vales_por_venta=1 con 2x1 y 10 unidades → solo 1 grupo → 1 gratis.
+                if ($vale->max_vales_por_venta !== null) {
+                    $grupos = min($grupos, (int) $vale->max_vales_por_venta);
+                }
                 $unidadesGratis = $grupos * $gratisPorGrupo;
                 $monto = min($preciosEnCarrito) * $unidadesGratis;
-                // Stock descontado = unidades regaladas + grupos activados.
-                // Ej: 10 teflones 2x1 → 5 regaladas + 5 grupos = 10 stock.
                 $stockDescontar = $grupos + (int) $unidadesGratis;
             } elseif (!empty($productoIds)) {
                 $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
