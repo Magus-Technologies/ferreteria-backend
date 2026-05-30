@@ -469,6 +469,9 @@ class ValeCompraService
                 $grupos = $tamGrupo > 0 ? (int) floor($cantidadEnCarrito / $tamGrupo) : 1;
                 $unidadesGratis = $grupos * $gratisPorGrupo;
                 $monto = min($preciosEnCarrito) * $unidadesGratis;
+                // Stock descontado = unidades regaladas + grupos activados.
+                // Ej: 10 teflones 2x1 → 5 regaladas + 5 grupos = 10 stock.
+                $stockDescontar = $grupos + (int) $unidadesGratis;
             } elseif (!empty($productoIds)) {
                 $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
                         $q->whereIn('producto_id', $productoIds)
@@ -480,8 +483,9 @@ class ValeCompraService
                 if ($paudBarato) {
                     $monto = (float) $paudBarato->precio_publico * $gratisPorGrupo;
                 }
+                $stockDescontar = $grupos + (int) $gratisPorGrupo;
             }
-            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => $grupos];
+            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => $stockDescontar ?? $grupos];
         }
 
         // DESCUENTO_MISMA_COMPRA / DESCUENTO_PROXIMA_COMPRA / otros
