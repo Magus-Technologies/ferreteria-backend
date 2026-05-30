@@ -53,6 +53,16 @@ class ValeCompraService
                 });
             }
 
+            // 3c. Respetar el límite de vales distintos por venta.
+            // Si algún vale tiene max_vales_por_venta, se aplica el más restrictivo.
+            $limiteMax = $valesAplicables
+                ->pluck('max_vales_por_venta')
+                ->filter()
+                ->min();
+            if ($limiteMax !== null && $valesAplicables->count() > $limiteMax) {
+                $valesAplicables = $valesAplicables->take($limiteMax);
+            }
+
             // Precio unitario REAL al que se vendió cada producto en esta venta
             // (precio_total / cantidad por línea). Se usa para valorar PRODUCTO_GRATIS
             // con el precio efectivamente cobrado, en paridad con el resumen del frontend.
@@ -435,13 +445,15 @@ class ValeCompraService
                     $monto = (float) $paudGratis->precio_publico * $cantidadGratis;
                 }
             }
-            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo];
+            // grupos = 1 (el producto gratis se entrega una vez por activación)
+            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => 1];
         }
 
         if ($vale->tipo_promocion === 'DOS_POR_UNO') {
             $gratisPorGrupo = (float) ($vale->cantidad_producto_gratis ?: 1);
             $tamGrupo = (float) ($vale->cantidad_minima ?: 1);
             $monto = (float) ($vale->descuento_valor ?? 0);
+            $grupos = 1;
             $productoIds = $vale->productos->pluck('id')->toArray();
 
             $preciosEnCarrito = [];
@@ -454,13 +466,16 @@ class ValeCompraService
             }
 
             if (!empty($preciosEnCarrito)) {
-                // Escalar: por cada `cantidad_minima` compradas, `cantidad_producto_gratis` gratis.
-                // Ej.: 2x1 (mínimo 2, 1 gratis), compra 10 → grupos = piso(10/2)=5 → 5 gratis.
-                $grupos = $tamGrupo > 0 ? floor($cantidadEnCarrito / $tamGrupo) : 0;
+                $grupos = $tamGrupo > 0 ? (int) floor($cantidadEnCarrito / $tamGrupo) : 1;
+                // Respetar el límite de aplicaciones por venta.
+                // Ej: max_vales_por_venta=1 con 2x1 y 10 unidades → solo 1 grupo → 1 gratis.
+                if ($vale->max_vales_por_venta !== null) {
+                    $grupos = min($grupos, (int) $vale->max_vales_por_venta);
+                }
                 $unidadesGratis = $grupos * $gratisPorGrupo;
                 $monto = min($preciosEnCarrito) * $unidadesGratis;
+                $stockDescontar = $grupos + (int) $unidadesGratis;
             } elseif (!empty($productoIds)) {
-                // Sin líneas en el carrito (fallback): un solo grupo a precio público.
                 $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
                         $q->whereIn('producto_id', $productoIds)
                           ->where('almacen_id', $venta->almacen_id);
@@ -471,12 +486,13 @@ class ValeCompraService
                 if ($paudBarato) {
                     $monto = (float) $paudBarato->precio_publico * $gratisPorGrupo;
                 }
+                $stockDescontar = $grupos + (int) $gratisPorGrupo;
             }
-            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo];
+            return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => $stockDescontar ?? $grupos];
         }
 
         // DESCUENTO_MISMA_COMPRA / DESCUENTO_PROXIMA_COMPRA / otros
-        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo];
+        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo, 'grupos' => 1];
     }
 
     private function aplicarVale(
@@ -503,6 +519,7 @@ class ValeCompraService
                 $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto, $cantidadesLineaPorProducto);
                 $descuentoAplicado = $beneficio['monto'];
                 $descuentoTipo = $beneficio['tipo'];
+                $gruposUsados = (int) ($beneficio['grupos'] ?? 1);
                 $codigoValeGenerado = null;
             }
 
@@ -521,8 +538,10 @@ class ValeCompraService
                 'aplicado_por' => auth()->id(),
             ]);
 
-            // Decrementar stock si aplica
-            $vale->decrementarStock();
+            // Decrementar stock por la cantidad de grupos/usos reales aplicados.
+            // DOS_POR_UNO: compra 10 con 2x1 → 5 grupos → descuenta 5 del stock.
+            // PRODUCTO_GRATIS, DESCUENTO y SORTEO: siempre 1 por venta.
+            $vale->decrementarStock($gruposUsados ?? 1);
 
             // Registrar en historial
             ValeCompraHistorial::registrar(
@@ -603,6 +622,21 @@ class ValeCompraService
 
         if (!$vale->esVigente() || !$vale->tieneStockDisponible()) {
             return false;
+        }
+
+        // Verificar límite de vales distintos por venta.
+        // Contar cuántos vales ya se aplicaron a esta venta (sin contar los de tipo futuro).
+        if ($vale->max_vales_por_venta !== null) {
+            $valesYaAplicados = ValeCompraAplicado::where('venta_id', $venta->id)
+                ->where('genera_vale_futuro', false)
+                ->count();
+            if ($valesYaAplicados >= $vale->max_vales_por_venta) {
+                Log::info("Vale {$codigo} rechazado: límite de {$vale->max_vales_por_venta} vales por venta alcanzado", [
+                    'venta_id' => $venta->id,
+                    'vales_aplicados' => $valesYaAplicados,
+                ]);
+                return false;
+            }
         }
 
         // Validar condiciones si hay detalles de venta
