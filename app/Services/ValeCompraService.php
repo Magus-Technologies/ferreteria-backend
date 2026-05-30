@@ -69,12 +69,31 @@ class ValeCompraService
             $preciosLineaPorProducto = $this->mapearPreciosLinea($detallesVenta);
             $cantidadesLineaPorProducto = $this->mapearCantidadesLinea($detallesVenta);
 
-            // 4. Aplicar cada vale
+            // 4. Aplicar cada vale (MISMA_COMPRA)
             $valesAplicados = collect();
             foreach ($valesAplicables as $vale) {
                 $aplicado = $this->aplicarVale($vale, $venta, $precioTotal, $preciosLineaPorProducto, $cantidadesLineaPorProducto);
                 if ($aplicado) {
                     $valesAplicados->push($aplicado);
+                }
+            }
+
+            // 5. Generar vales de PRÓXIMA COMPRA cuyas condiciones se cumplieron en esta
+            // venta. NO aplican descuento ahora: generan un código (VCC-) a nombre del
+            // cliente (si hay) para canjear en una compra posterior.
+            $valesProxima = $valesPotenciales->filter(function ($vale) use ($categorias, $productos, $tiposPrecio, $venta, $valesExcluidos) {
+                if ($vale->momento_aplicacion !== 'PROXIMA_COMPRA') {
+                    return false;
+                }
+                if (in_array($vale->id, $valesExcluidos)) {
+                    return false;
+                }
+                return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
+            });
+            foreach ($valesProxima as $vale) {
+                $generado = $this->generarValeFuturo($vale, $venta, $precioTotal);
+                if ($generado) {
+                    $valesAplicados->push($generado);
                 }
             }
 
@@ -573,7 +592,70 @@ class ValeCompraService
                 'venta_id' => $venta->id,
                 'error' => $e->getMessage(),
             ]);
-            
+
+            return null;
+        }
+    }
+
+    /**
+     * Generar un vale de PRÓXIMA COMPRA: crea un código (VCC-) a nombre del cliente
+     * para canjearse en una venta posterior. NO aplica descuento en la venta actual;
+     * el beneficio se calcula al canjear (ver aplicarValeGeneradoExistente).
+     *
+     * La caducidad del código = fecha de hoy + dias_validez_vale. Si por algún motivo
+     * no hay días definidos, se cae a fecha_validez_vale / fecha_fin como respaldo.
+     */
+    private function generarValeFuturo(ValeCompra $vale, Venta $venta, float $precioTotal): ?ValeCompraAplicado
+    {
+        DB::beginTransaction();
+
+        try {
+            $fechaValidez = $vale->dias_validez_vale
+                ? today()->addDays((int) $vale->dias_validez_vale)
+                : ($vale->fecha_validez_vale ?: $vale->fecha_fin);
+
+            $aplicado = ValeCompraAplicado::create([
+                'vale_compra_id' => $vale->id,
+                'venta_id' => $venta->id,
+                'cliente_id' => $venta->cliente_id, // puede ser null (se teclea el código luego)
+                'cantidad_productos' => $precioTotal,
+                'descuento_aplicado' => null, // el beneficio se aplica al CANJEAR, no ahora
+                'descuento_tipo' => null,
+                'genera_vale_futuro' => true,
+                'codigo_vale_generado' => $vale->generarCodigoValeCliente(),
+                'fecha_validez_generado' => $fechaValidez,
+                'aplicado_por' => auth()->id(),
+            ]);
+
+            // Consumir 1 del stock del vale (un código generado).
+            $vale->decrementarStock(1);
+
+            ValeCompraHistorial::registrar(
+                $vale->id,
+                'GENERADO',
+                "Código de próxima compra {$aplicado->codigo_vale_generado} generado en venta {$venta->numero}",
+                null,
+                [
+                    'venta_id' => $venta->id,
+                    'codigo_vale_generado' => $aplicado->codigo_vale_generado,
+                    'cliente_id' => $venta->cliente_id,
+                    'fecha_validez_generado' => optional($fechaValidez)->toDateString(),
+                ],
+                auth()->id()
+            );
+
+            DB::commit();
+
+            return $aplicado;
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            Log::error("Error al generar vale futuro {$vale->codigo}", [
+                'venta_id' => $venta->id,
+                'error' => $e->getMessage(),
+            ]);
+
             return null;
         }
     }

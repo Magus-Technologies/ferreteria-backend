@@ -180,6 +180,13 @@ class ValeCompraController extends Controller
                 },
             ],
 
+            // DESTINO del descuento (recompensa, independiente de la condición del PASO 3).
+            'descuento_alcance' => ['nullable', Rule::in(['VENTA', 'PRODUCTOS', 'CATEGORIAS'])],
+            'descuento_producto_ids' => ['nullable', 'array'],
+            'descuento_producto_ids.*' => ['integer', 'exists:producto,id'],
+            'descuento_categoria_ids' => ['nullable', 'array'],
+            'descuento_categoria_ids.*' => ['integer', 'exists:categoria,id'],
+
             // Para producto gratis y SORTEO con producto
             'producto_gratis_id' => [
                 'nullable',
@@ -192,19 +199,24 @@ class ValeCompraController extends Controller
             // Para SORTEO (default false en la migración, no hace falta requerirlo)
             'sorteo_incluye_producto' => 'nullable|boolean',
             
-            // Vigencia. Para PROXIMA_COMPRA `fecha_fin` define también la caducidad
-            // del código entregado al cliente, por eso es obligatoria en ese caso.
+            // Vigencia del vale en sí (hasta cuándo puede generar/aplicarse).
             'fecha_inicio' => 'required|date',
             'fecha_fin' => [
                 'nullable',
-                Rule::requiredIf($request->momento_aplicacion === 'PROXIMA_COMPRA'),
                 'date',
                 'after_or_equal:fecha_inicio',
             ],
-            // Campo legado: para vales nuevos la validez del código se toma de `fecha_fin`.
-            // Se mantiene aceptado en el request por compatibilidad con vales antiguos
-            // que aún lo tengan, pero ya no es requerido.
+            // Campo legado (fecha fija). Ya no es requerido; la caducidad del código
+            // generado se calcula con `dias_validez_vale` (días desde que se gana).
             'fecha_validez_vale' => ['nullable', 'date'],
+            // Días de validez del CÓDIGO generado al cliente (PROXIMA_COMPRA).
+            // Caducidad = fecha de la compra que lo genera + dias_validez_vale.
+            'dias_validez_vale' => [
+                'nullable',
+                Rule::requiredIf($request->momento_aplicacion === 'PROXIMA_COMPRA'),
+                'integer',
+                'min:1',
+            ],
             
             // Restricciones
             'usa_limite_por_cliente' => 'boolean',
@@ -322,12 +334,18 @@ class ValeCompraController extends Controller
             'max_vales_por_venta' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'descuento_tipo' => ['nullable', Rule::in(['PORCENTAJE', 'MONTO_FIJO'])],
             'descuento_valor' => 'nullable|numeric|min:0',
+            'descuento_alcance' => ['sometimes', 'nullable', Rule::in(['VENTA', 'PRODUCTOS', 'CATEGORIAS'])],
+            'descuento_producto_ids' => ['sometimes', 'nullable', 'array'],
+            'descuento_producto_ids.*' => ['integer', 'exists:producto,id'],
+            'descuento_categoria_ids' => ['sometimes', 'nullable', 'array'],
+            'descuento_categoria_ids.*' => ['integer', 'exists:categoria,id'],
             'producto_gratis_id' => 'nullable|exists:producto,id',
             'cantidad_producto_gratis' => 'nullable|numeric|min:0.001',
             'sorteo_incluye_producto' => 'nullable|boolean',
             'fecha_inicio' => 'sometimes|date',
             'fecha_fin' => 'nullable|date',
             'fecha_validez_vale' => 'nullable|date',
+            'dias_validez_vale' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'usa_limite_por_cliente' => 'boolean',
             'limite_usos_cliente' => 'nullable|integer|min:1',
             'usa_limite_stock' => 'boolean',

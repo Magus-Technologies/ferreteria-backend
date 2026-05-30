@@ -347,7 +347,8 @@ class VentaPdfService
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
             'despliegueDePagoVentas.despliegueDePago',
-            'valesAplicados.valeCompra',
+            'valesAplicados.valeCompra.productos',
+            'valesAplicados.valeCompra.categorias',
         ])->findOrFail($ventaId);
     }
 
@@ -374,6 +375,8 @@ class VentaPdfService
                 $subtotal = $cantidad * $precio;
 
                 $productos[] = [
+                    'producto_id' => $producto->id,
+                    'categoria_id' => $producto->categoria_id,
                     'codigo' => $producto->cod_producto ?? '',
                     'nombre' => $producto->name,
                     'marca' => $producto->marca->name ?? '',
@@ -400,6 +403,39 @@ class VentaPdfService
         });
 
         return $productos;
+    }
+
+    /**
+     * Base (S/) sobre la que aplica el descuento de un vale, según su DESTINO
+     * (recompensa, PASO 4), independiente de la condición:
+     *  - VENTA (o null/legacy): toda la venta (subtotal neto).
+     *  - PRODUCTOS: subtotal de los productos en descuento_producto_ids.
+     *  - CATEGORIAS: subtotal de los productos de descuento_categoria_ids.
+     * Espeja el cálculo del frontend (cards-info-venta.tsx) para que el ticket cuadre.
+     */
+    private function baseDescuentoScope(\App\Models\ValeCompra $vale, array $productos): float
+    {
+        $alcance = $vale->descuento_alcance ?: 'VENTA';
+
+        if ($alcance === 'VENTA') {
+            $bruto = array_sum(array_column($productos, 'subtotal'));
+            $desc = array_sum(array_column($productos, 'descuento'));
+            return max(0, $bruto - $desc);
+        }
+
+        $prodIds = $vale->descuento_producto_ids ?? [];
+        $catIds = $vale->descuento_categoria_ids ?? [];
+
+        $base = 0;
+        foreach ($productos as $p) {
+            $match = $alcance === 'PRODUCTOS'
+                ? in_array($p['producto_id'] ?? null, $prodIds)
+                : (isset($p['categoria_id']) && in_array($p['categoria_id'], $catIds));
+            if ($match) {
+                $base += max(0, (float) ($p['subtotal'] ?? 0) - (float) ($p['descuento'] ?? 0));
+            }
+        }
+        return $base;
     }
 
     /**
@@ -444,22 +480,24 @@ class VentaPdfService
      */
     private function calcularDescuentoValesAplicados(Venta $venta, array $productos): float
     {
-        $subtotalBruto = array_sum(array_column($productos, 'subtotal'));
-        $totalDescuentoLinea = array_sum(array_column($productos, 'descuento'));
-        $baseDescuento = max(0, $subtotalBruto - $totalDescuentoLinea);
-
         $descuento = 0;
         foreach ($venta->valesAplicados as $va) {
             $vale = $va->valeCompra;
             if (!$vale) continue;
 
-            if ($vale->tipo_promocion === 'DESCUENTO_MISMA_COMPRA') {
+            // DESCUENTO en esta venta: misma compra, o próxima compra YA canjeada
+            // (genera_vale_futuro=false). El generado (=true) no descuenta aquí.
+            $esDescuentoEnVenta = in_array($vale->tipo_promocion, ['DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA'], true)
+                && !$va->genera_vale_futuro;
+            if ($esDescuentoEnVenta) {
                 $valor = (float) ($vale->descuento_valor ?? 0);
                 if ($valor <= 0) continue;
+                // Scopear según la modalidad del vale (producto/categoría/todos).
+                $baseScope = $this->baseDescuentoScope($vale, $productos);
                 if ($vale->descuento_tipo === 'PORCENTAJE') {
-                    $descuento += $baseDescuento * $valor / 100;
+                    $descuento += $baseScope * $valor / 100;
                 } elseif ($vale->descuento_tipo === 'MONTO_FIJO') {
-                    $descuento += $valor;
+                    $descuento += min($valor, $baseScope);
                 }
                 continue;
             }
@@ -522,10 +560,6 @@ class VentaPdfService
      */
     private function prepararValesDescuentoAplicados(Venta $venta, array $productos): array
     {
-        $subtotalBruto = array_sum(array_column($productos, 'subtotal'));
-        $totalDescuentoLinea = array_sum(array_column($productos, 'descuento'));
-        $baseDescuento = max(0, $subtotalBruto - $totalDescuentoLinea);
-
         $lista = [];
         foreach ($venta->valesAplicados as $va) {
             $vale = $va->valeCompra;
@@ -534,14 +568,17 @@ class VentaPdfService
             $monto = 0;
             $beneficio = '';
 
-            if ($vale->tipo_promocion === 'DESCUENTO_MISMA_COMPRA') {
+            $esDescuentoEnVenta = in_array($vale->tipo_promocion, ['DESCUENTO_MISMA_COMPRA', 'DESCUENTO_PROXIMA_COMPRA'], true)
+                && !$va->genera_vale_futuro;
+            if ($esDescuentoEnVenta) {
                 $valor = (float) ($vale->descuento_valor ?? 0);
                 if ($valor <= 0) continue;
+                $baseScope = $this->baseDescuentoScope($vale, $productos);
                 if ($vale->descuento_tipo === 'PORCENTAJE') {
-                    $monto = round($baseDescuento * $valor / 100, 2);
+                    $monto = round($baseScope * $valor / 100, 2);
                     $beneficio = number_format($valor, 0) . '% DSCTO';
                 } elseif ($vale->descuento_tipo === 'MONTO_FIJO') {
-                    $monto = round($valor, 2);
+                    $monto = round(min($valor, $baseScope), 2);
                     $beneficio = 'S/ ' . number_format($valor, 2) . ' DSCTO';
                 }
             } elseif (
