@@ -615,6 +615,21 @@ class ValeCompraService
             return false;
         }
 
+        // Verificar límite de vales distintos por venta.
+        // Contar cuántos vales ya se aplicaron a esta venta (sin contar los de tipo futuro).
+        if ($vale->max_vales_por_venta !== null) {
+            $valesYaAplicados = ValeCompraAplicado::where('venta_id', $venta->id)
+                ->where('genera_vale_futuro', false)
+                ->count();
+            if ($valesYaAplicados >= $vale->max_vales_por_venta) {
+                Log::info("Vale {$codigo} rechazado: límite de {$vale->max_vales_por_venta} vales por venta alcanzado", [
+                    'venta_id' => $venta->id,
+                    'vales_aplicados' => $valesYaAplicados,
+                ]);
+                return false;
+            }
+        }
+
         // Validar condiciones si hay detalles de venta
         if (!empty($detallesVenta)) {
             $precioTotal = $this->calcularPrecioTotal($detallesVenta);
