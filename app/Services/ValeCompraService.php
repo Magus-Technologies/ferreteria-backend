@@ -466,8 +466,7 @@ class ValeCompraService
             }
 
             if (!empty($preciosEnCarrito)) {
-                $gruposSinTope = $tamGrupo > 0 ? (int) floor($cantidadEnCarrito / $tamGrupo) : 1;
-                $grupos = $gruposSinTope;
+                $grupos = $tamGrupo > 0 ? (int) floor($cantidadEnCarrito / $tamGrupo) : 1;
                 // Respetar el límite de aplicaciones por venta.
                 // Ej: max_vales_por_venta=1 con 2x1 y 10 unidades → solo 1 grupo → 1 gratis.
                 if ($vale->max_vales_por_venta !== null) {
@@ -475,16 +474,10 @@ class ValeCompraService
                 }
                 $unidadesGratis = $grupos * $gratisPorGrupo;
                 $monto = min($preciosEnCarrito) * $unidadesGratis;
-                // Stock del vale:
-                //  - Si el tope NO limitó la compra (compraste dentro del alcance del vale),
-                //    se descuenta TODO lo comprado del producto. Ej: 2x1, compras 5 → -5.
-                //  - Si el tope SÍ limitó (querías más grupos de los permitidos), solo se
-                //    descuentan los grupos topados. Ej: 2x1 tope 2, compras 10 → 2×2 = -4.
-                $topeLimito = $vale->max_vales_por_venta !== null
-                    && $gruposSinTope > (int) $vale->max_vales_por_venta;
-                $stockDescontar = $topeLimito
-                    ? $grupos * (int) $tamGrupo
-                    : (int) ceil($cantidadEnCarrito);
+                // Stock del vale = TODAS las unidades compradas del producto, sin importar
+                // el tope. Ej: 2x1, compras 5 → -5; compras 10 → -10.
+                // (El tope solo limita las unidades GRATIS, no el descuento de stock.)
+                $stockDescontar = (int) ceil($cantidadEnCarrito);
             } elseif (!empty($productoIds)) {
                 $paudBarato = \App\Models\ProductoAlmacenUnidadDerivada::whereHas('productoAlmacen', function($q) use ($productoIds, $venta) {
                         $q->whereIn('producto_id', $productoIds)
@@ -496,7 +489,8 @@ class ValeCompraService
                 if ($paudBarato) {
                     $monto = (float) $paudBarato->precio_publico * $gratisPorGrupo;
                 }
-                $stockDescontar = $grupos * (int) $tamGrupo;
+                // Stock = todas las unidades compradas del producto (igual que arriba).
+                $stockDescontar = $cantidadEnCarrito > 0 ? (int) ceil($cantidadEnCarrito) : $grupos;
             }
             return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => $stockDescontar ?? $grupos];
         }
@@ -548,8 +542,8 @@ class ValeCompraService
                 'aplicado_por' => auth()->id(),
             ]);
 
-            // Decrementar stock por las unidades que participaron en la promo.
-            // DOS_POR_UNO: 2x1 (grupo de 2) aplicado 2 veces → descuenta 4 del stock.
+            // Decrementar stock del vale.
+            // DOS_POR_UNO: TODAS las unidades compradas del producto (2x1 compras 10 → -10).
             // PRODUCTO_GRATIS, DESCUENTO y SORTEO: siempre 1 por venta.
             $vale->decrementarStock($gruposUsados ?? 1);
 
