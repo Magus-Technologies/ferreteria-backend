@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\EstadoDeVenta;
 use App\Models\DetalleEntregaEvento;
 use App\Models\DetalleEntregaProducto;
+use App\Models\Entrega;
 use App\Models\EntregaEvento;
 use App\Models\EntregaProducto;
 use App\Models\RequerimientoInterno;
@@ -459,6 +460,8 @@ class EntregaProductoController extends Controller
                     'hora_fin'           => $validated['hora_fin'] ?? null,
                     'direccion_entrega'  => $validated['direccion_entrega'] ?? null,
                     'referencia_entrega' => $validated['referencia_entrega'] ?? null,
+                    'latitud'            => $validated['latitud'] ?? null,
+                    'longitud'           => $validated['longitud'] ?? null,
                     'observaciones'      => $validated['observaciones'] ?? null,
                     'user_creador_id'    => $validated['user_id'],
                     'user_entregado_id'  => null,
@@ -853,6 +856,29 @@ class EntregaProductoController extends Controller
 
             // Update entrega
             $entrega->update($validated);
+
+            $syncFields = [
+                'chofer_id',
+                'vehiculo_id',
+                'fecha_programada',
+                'hora_inicio',
+                'hora_fin',
+                'direccion_entrega',
+                'referencia_entrega',
+                'latitud',
+                'longitud',
+                'observaciones',
+            ];
+            $syncData = [];
+            foreach ($syncFields as $field) {
+                if (array_key_exists($field, $validated)) {
+                    $syncData[$field] = $validated[$field];
+                }
+            }
+
+            if ($syncData !== []) {
+                Entrega::where('entrega_legacy_id', $entrega->id)->update($syncData);
+            }
 
             // Recalcular estado lógico de la entrega.
             // Si es una hija (modelo N-hijas), recalcularEstado() delegará a la madre.

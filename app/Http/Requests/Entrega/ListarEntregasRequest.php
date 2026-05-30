@@ -20,6 +20,7 @@ class ListarEntregasRequest extends FormRequest
             'estado'             => ['nullable', 'string'],
             'tipo_entrega'       => ['nullable', 'string', 'exists:tipo_entrega,codigo'],
             'chofer_id'          => ['nullable', 'string', 'exists:user,id'],
+            'vehiculo_id'        => ['nullable', 'integer', 'exists:vehiculo,id'],
             'solo_con_pendientes'=> ['nullable', 'boolean'],
             'solo_sin_entregas'  => ['nullable', 'boolean'],
             'solo_programadas'   => ['nullable', 'boolean'],

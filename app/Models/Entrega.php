@@ -97,6 +97,11 @@ class Entrega extends Model
         return $this->belongsTo(Vehiculo::class, 'vehiculo_id');
     }
 
+    public function entregaLegacy(): BelongsTo
+    {
+        return $this->belongsTo(EntregaProducto::class, 'entrega_legacy_id');
+    }
+
     public function userCreador(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_creador_id');
