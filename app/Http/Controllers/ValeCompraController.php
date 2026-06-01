@@ -823,7 +823,7 @@ class ValeCompraController extends Controller
     {
         $valesPendientes = ValeCompraAplicado::where('cliente_id', $clienteId)
             ->valesPendientes()
-            ->with(['valeCompra:id,codigo,nombre,tipo_promocion,descuento_tipo,descuento_valor'])
+            ->with(['valeCompra:id,codigo,nombre,tipo_promocion,descuento_tipo,descuento_valor,descuento_alcance,descuento_producto_ids,descuento_categoria_ids'])
             ->get()
             ->map(function ($aplicado) {
                 return [
@@ -839,6 +839,10 @@ class ValeCompraController extends Controller
                         'tipo_promocion' => $aplicado->valeCompra->tipo_promocion,
                         'descuento_tipo' => $aplicado->valeCompra->descuento_tipo,
                         'descuento_valor' => $aplicado->valeCompra->descuento_valor,
+                        // Destino del descuento, para que el preview scopee bien al canjear.
+                        'descuento_alcance' => $aplicado->valeCompra->descuento_alcance,
+                        'descuento_producto_ids' => $aplicado->valeCompra->descuento_producto_ids,
+                        'descuento_categoria_ids' => $aplicado->valeCompra->descuento_categoria_ids,
                     ] : null,
                 ];
             });
