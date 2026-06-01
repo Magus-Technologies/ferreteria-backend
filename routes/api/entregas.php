@@ -33,6 +33,7 @@ Route::prefix('entregas/catalogos')->group(function () {
 // ============================================
 Route::prefix('entregas')->group(function () {
     Route::get('resumen-ventas',      [EntregaListadoController::class, 'resumenVentas']);
+    Route::get('reporte',             [EntregaListadoController::class, 'reporte']);
     Route::get('por-venta/{ventaId}', [EntregaListadoController::class, 'porVenta']);
     Route::get('/',                   [EntregaListadoController::class, 'listar']);
 
