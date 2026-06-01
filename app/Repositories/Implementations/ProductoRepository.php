@@ -71,12 +71,10 @@ class ProductoRepository implements ProductoRepositoryInterface
                 'marca:id,name',
                 'categoria:id,name',
                 'unidadMedida:id,name',
-                'productoEnAlmacenes' => function ($q) use ($almacenId) {
-                    if ($almacenId) {
-                        $q->where('almacen_id', $almacenId);
-                    }
+                'productoEnAlmacenes' => function ($q) {
                     $q->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo', 'costo_anterior', 'costo_actual', 'stock_costo_anterior', 'stock_costo_actual')
                         ->with([
+                            'almacen:id,name',
                             'ubicacion:id,name',
                             'unidadesDerivadas' => function ($udq) {
                                 $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'comision_publico', 'precio_especial', 'comision_especial', 'activador_especial', 'precio_minimo', 'comision_minimo', 'activador_minimo', 'precio_ultimo', 'comision_ultimo', 'activador_ultimo', 'producto_complementario_id', 'producto_complementario_cantidad')
