@@ -57,12 +57,22 @@ class BroadcastModelChanges
 
         $userId = auth()->id();
 
-        event(new ModelChanged(
-            module: $module,
-            action: $action,
-            recordId: $recordId,
-            userId: $userId ? (string) $userId : null,
-        ));
+        // El broadcast es "best effort": si el servidor de WebSockets (Reverb) está
+        // caído, NO debe romper la operación (crear venta/vale/etc.). ModelChanged es
+        // ShouldBroadcastNow, así que se emite síncrono y podría lanzar cURL/Pusher;
+        // lo capturamos y solo lo logueamos.
+        try {
+            event(new ModelChanged(
+                module: $module,
+                action: $action,
+                recordId: $recordId,
+                userId: $userId ? (string) $userId : null,
+            ));
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning(
+                "Broadcast ModelChanged falló (módulo {$module}); ¿Reverb caído? " . $e->getMessage()
+            );
+        }
 
         return $response;
     }

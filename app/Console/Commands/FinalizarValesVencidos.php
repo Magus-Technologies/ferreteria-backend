@@ -47,7 +47,12 @@ class FinalizarValesVencidos extends Command
         }
 
         // Avisar a los clientes conectados para que refresquen las listas en vivo.
-        event(new ModelChanged(module: 'vales-compra', action: 'updated'));
+        // Best effort: si Reverb está caído, no debe romper el comando.
+        try {
+            event(new ModelChanged(module: 'vales-compra', action: 'updated'));
+        } catch (\Throwable $e) {
+            Log::warning('Broadcast vales-compra falló (¿Reverb caído?): ' . $e->getMessage());
+        }
 
         $this->info("Proceso completado: {$vales->count()} vale(s) finalizado(s).");
         Log::info("[FinalizarValesVencidos] Proceso completado: {$vales->count()} vale(s) finalizado(s).");
