@@ -479,7 +479,9 @@ class ValeCompraService
             $tamGrupo = (float) ($vale->dos_por_uno_cantidad_compra ?: $vale->cantidad_minima ?: 1);
             $monto = (float) ($vale->descuento_valor ?? 0);
             $grupos = 1;
-            $productoIds = $vale->productos->pluck('id')->toArray();
+            $productoIds = $vale->producto_gratis_id 
+                ? [$vale->producto_gratis_id] 
+                : $vale->productos->pluck('id')->toArray();
 
             $preciosEnCarrito = [];
             $cantidadEnCarrito = 0.0;
@@ -520,8 +522,35 @@ class ValeCompraService
             return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => $stockDescontar ?? $grupos];
         }
 
-        // DESCUENTO_MISMA_COMPRA / DESCUENTO_PROXIMA_COMPRA / otros
-        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo, 'grupos' => 1];
+        // DESCUENTO_MISMA_COMPRA / DESCUENTO_PROXIMA_COMPRA / otros.
+        // Stock a descontar: el descuento consume tantas unidades de stock como unidades
+        // hayan disparado la promoción, no 1 fija. Ej: "descuento al comprar 5 varillas o
+        // más" con 5 varillas en el carrito → se descuentan 5 del stock del vale.
+        //
+        //   1) POR_PRODUCTOS / MIXTO → unidades en carrito de los productos-condición.
+        //   2) CANTIDAD_MINIMA por unidades → total de unidades del carrito (la condición
+        //      es "comprar N unidades", así que el stock se mide en esas unidades).
+        //   3) Resto (umbral por monto S/, POR_CATEGORIA) → 1 por aplicación, no hay una
+        //      cantidad de producto-condición clara que contar.
+        $stockDescontar = 1;
+        if (in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true) && !empty($cantidadesLineaPorProducto)) {
+            $productoIds = $vale->productos->pluck('id')->toArray();
+            $unidades = 0.0;
+            foreach ($productoIds as $pid) {
+                $unidades += (float) ($cantidadesLineaPorProducto[$pid] ?? 0);
+            }
+            if ($unidades > 0) {
+                $stockDescontar = (int) ceil($unidades);
+            }
+        } elseif ($vale->modalidad === 'CANTIDAD_MINIMA'
+            && $this->esUmbralPorUnidades($vale)
+            && !empty($cantidadesLineaPorProducto)) {
+            $unidades = array_sum($cantidadesLineaPorProducto);
+            if ($unidades > 0) {
+                $stockDescontar = (int) ceil($unidades);
+            }
+        }
+        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo, 'grupos' => $stockDescontar];
     }
 
     private function aplicarVale(
@@ -788,8 +817,9 @@ class ValeCompraService
 
             if ($vale) {
                 $preciosLineaPorProducto = $this->mapearPreciosLinea($detallesVenta);
+                $cantidadesLineaPorProducto = $this->mapearCantidadesLinea($detallesVenta);
                 $precioTotal = $this->calcularPrecioTotal($detallesVenta);
-                $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto);
+                $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto, $cantidadesLineaPorProducto);
 
                 ValeCompraAplicado::create([
                     'vale_compra_id' => $vale->id,

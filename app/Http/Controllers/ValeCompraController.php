@@ -510,6 +510,31 @@ class ValeCompraController extends Controller
     }
 
     /**
+     * Obtener el stock total (sumando todos los almacenes) de uno o varios productos.
+     * Solo informativo: lo usa el formulario de vales para mostrar cuánto stock hay
+     * del producto que se regalará. NO se valida contra el stock del vale.
+     */
+    public function stockProductos(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'producto_ids' => 'required|array',
+            'producto_ids.*' => 'integer',
+        ]);
+
+        $rows = \App\Models\ProductoAlmacen::whereIn('producto_id', $validated['producto_ids'])
+            ->selectRaw('producto_id, SUM(stock_fraccion) as stock')
+            ->groupBy('producto_id')
+            ->get();
+
+        $stocks = [];
+        foreach ($rows as $r) {
+            $stocks[(int) $r->producto_id] = (float) $r->stock;
+        }
+
+        return response()->json(['data' => $stocks]);
+    }
+
+    /**
      * Obtener vales aplicables para una venta
      */
     public function valesAplicables(Request $request): JsonResponse
