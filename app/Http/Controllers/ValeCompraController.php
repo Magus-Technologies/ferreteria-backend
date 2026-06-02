@@ -136,14 +136,14 @@ class ValeCompraController extends Controller
                 'nullable',
                 Rule::requiredIf($request->tipo_promocion !== 'SORTEO'),
                 'numeric',
-                'min:0.001',
+                'min:0',
             ],
             // Cómo se interpreta `cantidad_minima`: MONTO (soles) o CANTIDAD (unidades).
             // Lo elige el usuario en el formulario. Para PRODUCTO_GRATIS / DOS_POR_UNO
             // siempre es CANTIDAD (se normaliza más abajo).
             'tipo_umbral' => [
                 'nullable',
-                Rule::in(['MONTO', 'CANTIDAD']),
+                Rule::in(['MONTO', 'CANTIDAD', 'NINGUNO']),
             ],
             'max_vales_por_venta' => ['nullable', 'integer', 'min:1'],
 
@@ -329,8 +329,8 @@ class ValeCompraController extends Controller
                 'sometimes',
                 Rule::in(['CANTIDAD_MINIMA', 'POR_CATEGORIA', 'POR_PRODUCTOS', 'MIXTO'])
             ],
-            'cantidad_minima' => 'sometimes|numeric|min:0.001',
-            'tipo_umbral' => ['sometimes', 'nullable', Rule::in(['MONTO', 'CANTIDAD'])],
+            'cantidad_minima' => 'sometimes|numeric|min:0',
+            'tipo_umbral' => ['sometimes', 'nullable', Rule::in(['MONTO', 'CANTIDAD', 'NINGUNO'])],
             'max_vales_por_venta' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'descuento_tipo' => ['nullable', Rule::in(['PORCENTAJE', 'MONTO_FIJO'])],
             'descuento_valor' => 'nullable|numeric|min:0',
