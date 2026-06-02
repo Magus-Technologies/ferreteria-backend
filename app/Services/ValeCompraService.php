@@ -184,14 +184,18 @@ class ValeCompraService
      * Helper estático equivalente: útil desde el controller (donde no hay instancia).
      *
      * Prioridad:
-     * 1) PRODUCTO_GRATIS y DOS_POR_UNO siempre son por unidades (el beneficio lo exige).
+     * 1) PRODUCTO_GRATIS y DOS_POR_UNO de MISMA compra son por unidades (el beneficio
+     *    se mide en unidades en esa misma venta). En PRÓXIMA compra NO: ahí el umbral
+     *    es la CONDICIÓN para ganar el código y puede ser por monto (S/) — se respeta
+     *    el tipo_umbral elegido.
      * 2) Si el vale tiene `tipo_umbral` definido por el usuario, se respeta
      *    (CANTIDAD = unidades, MONTO = soles).
      * 3) Vales antiguos sin `tipo_umbral`: se infiere por modalidad (compatibilidad).
      */
     public static function esUmbralPorUnidadesStatic(ValeCompra $vale): bool
     {
-        if (in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)) {
+        if (in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
+            && $vale->momento_aplicacion !== 'PROXIMA_COMPRA') {
             return true;
         }
 
@@ -470,7 +474,9 @@ class ValeCompraService
 
         if ($vale->tipo_promocion === 'DOS_POR_UNO') {
             $gratisPorGrupo = (float) ($vale->cantidad_producto_gratis ?: 1);
-            $tamGrupo = (float) ($vale->cantidad_minima ?: 1);
+            // Tamaño del grupo del 2x1: campo propio si existe (PROXIMA_COMPRA), si no
+            // cae a cantidad_minima (vales 2x1 de misma compra / antiguos).
+            $tamGrupo = (float) ($vale->dos_por_uno_cantidad_compra ?: $vale->cantidad_minima ?: 1);
             $monto = (float) ($vale->descuento_valor ?? 0);
             $grupos = 1;
             $productoIds = $vale->productos->pluck('id')->toArray();
@@ -602,17 +608,17 @@ class ValeCompraService
      * para canjearse en una venta posterior. NO aplica descuento en la venta actual;
      * el beneficio se calcula al canjear (ver aplicarValeGeneradoExistente).
      *
-     * La caducidad del código = fecha de hoy + dias_validez_vale. Si por algún motivo
-     * no hay días definidos, se cae a fecha_validez_vale / fecha_fin como respaldo.
+     * La caducidad del código = fecha_validez_vale (fecha fija configurada). Para vales
+     * antiguos que usaban días relativos, se cae a hoy + dias_validez_vale; y si no hay
+     * nada, a fecha_fin como último respaldo.
      */
     private function generarValeFuturo(ValeCompra $vale, Venta $venta, float $precioTotal): ?ValeCompraAplicado
     {
         DB::beginTransaction();
 
         try {
-            $fechaValidez = $vale->dias_validez_vale
-                ? today()->addDays((int) $vale->dias_validez_vale)
-                : ($vale->fecha_validez_vale ?: $vale->fecha_fin);
+            $fechaValidez = $vale->fecha_validez_vale
+                ?: ($vale->dias_validez_vale ? today()->addDays((int) $vale->dias_validez_vale) : $vale->fecha_fin);
 
             $aplicado = ValeCompraAplicado::create([
                 'vale_compra_id' => $vale->id,

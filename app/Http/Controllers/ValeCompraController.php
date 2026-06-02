@@ -195,6 +195,7 @@ class ValeCompraController extends Controller
                 'exists:producto,id'
             ],
             'cantidad_producto_gratis' => 'nullable|numeric|min:0.001',
+            'dos_por_uno_cantidad_compra' => ['nullable', 'numeric', 'min:1'],
             
             // Para SORTEO (default false en la migración, no hace falta requerirlo)
             'sorteo_incluye_producto' => 'nullable|boolean',
@@ -206,17 +207,16 @@ class ValeCompraController extends Controller
                 'date',
                 'after_or_equal:fecha_inicio',
             ],
-            // Campo legado (fecha fija). Ya no es requerido; la caducidad del código
-            // generado se calcula con `dias_validez_vale` (días desde que se gana).
-            'fecha_validez_vale' => ['nullable', 'date'],
-            // Días de validez del CÓDIGO generado al cliente (PROXIMA_COMPRA).
-            // Caducidad = fecha de la compra que lo genera + dias_validez_vale.
-            'dias_validez_vale' => [
+            // Fecha límite (fija) del código generado al cliente (PROXIMA_COMPRA).
+            // El cliente puede canjear su código hasta esta fecha.
+            'fecha_validez_vale' => [
                 'nullable',
                 Rule::requiredIf($request->momento_aplicacion === 'PROXIMA_COMPRA'),
-                'integer',
-                'min:1',
+                'date',
+                'after_or_equal:fecha_inicio',
             ],
+            // Días de validez (legado / compatibilidad con vales antiguos).
+            'dias_validez_vale' => ['nullable', 'integer', 'min:1'],
             
             // Restricciones
             'usa_limite_por_cliente' => 'boolean',
@@ -341,6 +341,7 @@ class ValeCompraController extends Controller
             'descuento_categoria_ids.*' => ['integer', 'exists:categoria,id'],
             'producto_gratis_id' => 'nullable|exists:producto,id',
             'cantidad_producto_gratis' => 'nullable|numeric|min:0.001',
+            'dos_por_uno_cantidad_compra' => ['nullable', 'numeric', 'min:1'],
             'sorteo_incluye_producto' => 'nullable|boolean',
             'fecha_inicio' => 'sometimes|date',
             'fecha_fin' => 'nullable|date',
