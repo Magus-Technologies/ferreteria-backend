@@ -39,8 +39,13 @@ class ValeCompraService
             // Solo MISMA_COMPRA se aplica AUTOMÁTICAMENTE. Los PROXIMA_COMPRA se aplican
             // manualmente tecleando su código (VC-...) en el canje (ver aplicarValeGenerado),
             // y también se aplican en esa misma venta — no se difieren a una compra futura.
-            $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $tiposPrecio, $venta) {
+            $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $tiposPrecio, $venta, $detallesVenta) {
                 if ($vale->momento_aplicacion === 'PROXIMA_COMPRA') {
+                    return false;
+                }
+                // El umbral se mide SOLO sobre los productos/categoría del vale, no sobre
+                // toda la venta (ver calcularUmbralScopedStatic).
+                if (!$this->cumpleUmbralScoped($vale, $detallesVenta)) {
                     return false;
                 }
                 return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
@@ -81,11 +86,16 @@ class ValeCompraService
             // 5. Generar vales de PRÓXIMA COMPRA cuyas condiciones se cumplieron en esta
             // venta. NO aplican descuento ahora: generan un código (VCC-) a nombre del
             // cliente (si hay) para canjear en una compra posterior.
-            $valesProxima = $valesPotenciales->filter(function ($vale) use ($categorias, $productos, $tiposPrecio, $venta, $valesExcluidos) {
+            $valesProxima = $valesPotenciales->filter(function ($vale) use ($categorias, $productos, $tiposPrecio, $venta, $valesExcluidos, $detallesVenta) {
                 if ($vale->momento_aplicacion !== 'PROXIMA_COMPRA') {
                     return false;
                 }
                 if (in_array($vale->id, $valesExcluidos)) {
+                    return false;
+                }
+                // La CONDICIÓN para ganar el vale futuro también se mide solo sobre los
+                // productos/categoría del vale.
+                if (!$this->cumpleUmbralScoped($vale, $detallesVenta)) {
                     return false;
                 }
                 return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
@@ -205,6 +215,60 @@ class ValeCompraService
 
         // Compatibilidad para vales creados antes de existir tipo_umbral.
         return in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+    }
+
+    /**
+     * Suma el monto (S/) y la cantidad (unidades) de la venta que cuentan para el
+     * UMBRAL de un vale SEGÚN SU MODALIDAD — NO toda la venta:
+     *  - POR_PRODUCTOS: solo líneas cuyo producto está en la lista del vale.
+     *  - POR_CATEGORIA: solo líneas cuya categoría está en la lista del vale.
+     *  - MIXTO: líneas que coinciden por producto O por categoría.
+     *  - CANTIDAD_MINIMA (y otros): toda la venta.
+     * Cada línea de $detallesVenta tiene: producto_id, categoria_id, cantidad, precio_total.
+     *
+     * Evita que, p.ej., un vale "10 unidades de categoría CABLE" se active comprando
+     * 5 cables + 5 de otra categoría (la suma sería 10, pero solo 5 son del scope).
+     */
+    public static function calcularUmbralScopedStatic(ValeCompra $vale, array $detallesVenta): array
+    {
+        $productosVale = $vale->productos->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $categoriasVale = $vale->categorias->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $precio = 0.0;
+        $cantidad = 0.0;
+        foreach ($detallesVenta as $d) {
+            $pid = (int) ($d['producto_id'] ?? 0);
+            $cid = (int) ($d['categoria_id'] ?? 0);
+
+            $incluir = match ($vale->modalidad) {
+                'POR_PRODUCTOS' => in_array($pid, $productosVale, true),
+                'POR_CATEGORIA' => in_array($cid, $categoriasVale, true),
+                'MIXTO' => in_array($pid, $productosVale, true) || in_array($cid, $categoriasVale, true),
+                default => true,
+            };
+
+            if ($incluir) {
+                $precio += (float) ($d['precio_total'] ?? 0);
+                $cantidad += (float) ($d['cantidad'] ?? 0);
+            }
+        }
+
+        return ['precio' => $precio, 'cantidad' => $cantidad];
+    }
+
+    /**
+     * ¿La venta cumple el umbral del vale contando SOLO los productos/categoría del vale?
+     */
+    public static function cumpleUmbralScopedStatic(ValeCompra $vale, array $detallesVenta): bool
+    {
+        $scope = self::calcularUmbralScopedStatic($vale, $detallesVenta);
+        $umbral = self::esUmbralPorUnidadesStatic($vale) ? $scope['cantidad'] : $scope['precio'];
+        return (float) $vale->cantidad_minima <= (float) $umbral;
+    }
+
+    private function cumpleUmbralScoped(ValeCompra $vale, array $detallesVenta): bool
+    {
+        return self::cumpleUmbralScopedStatic($vale, $detallesVenta);
     }
 
     /**
@@ -762,14 +826,15 @@ class ValeCompraService
 
         // Validar condiciones si hay detalles de venta
         if (!empty($detallesVenta)) {
-            $precioTotal = $this->calcularPrecioTotal($detallesVenta);
-            $cantidadTotal = $this->calcularCantidadTotal($detallesVenta);
+            // El umbral se mide SOLO sobre los productos/categoría del vale (no toda la
+            // venta), igual que en la aplicación automática.
+            $scope = self::calcularUmbralScopedStatic($vale, $detallesVenta);
             $categorias = $this->extraerCategorias($detallesVenta);
             $productos = $this->extraerProductos($detallesVenta);
             $tiposPrecio = $this->extraerTiposPrecio($detallesVenta);
 
             $condiciones = $this->validarValeCondiciones(
-                $vale, $precioTotal, $cantidadTotal,
+                $vale, $scope['precio'], $scope['cantidad'],
                 $categorias, $productos, $tiposPrecio, $venta->cliente_id
             );
 

@@ -550,6 +550,15 @@ class ValeCompraController extends Controller
             'producto_ids' => 'nullable|array',
             'producto_ids.*' => 'integer',
             'cliente_id' => 'nullable|integer|exists:cliente,id',
+            // Detalle por línea (producto_id, categoria_id, cantidad, precio_total).
+            // Si se envía, el umbral se mide solo sobre los productos/categoría del vale
+            // (correcto para POR_PRODUCTOS / POR_CATEGORIA / MIXTO). Si no, se usa el
+            // total de la venta (compatibilidad con clientes antiguos).
+            'detalles' => 'nullable|array',
+            'detalles.*.producto_id' => 'nullable|integer',
+            'detalles.*.categoria_id' => 'nullable|integer',
+            'detalles.*.cantidad' => 'nullable|numeric',
+            'detalles.*.precio_total' => 'nullable|numeric',
         ]);
 
         // Si el frontend no envió categoria_ids, derivarlas de producto_ids.
@@ -573,12 +582,19 @@ class ValeCompraController extends Controller
             'cliente_id' => $validated['cliente_id'] ?? null,
         ]);
 
+        $detalles = $validated['detalles'] ?? [];
+
         // Traemos todos los activos+vigentes y filtramos el umbral en PHP según tipo/modalidad.
         $vales = ValeCompra::activos()
             ->vigentes()
             ->with(['productoGratis', 'categorias', 'productos'])
             ->get()
-            ->filter(function (ValeCompra $vale) use ($precioTotal, $cantidadTotal) {
+            ->filter(function (ValeCompra $vale) use ($precioTotal, $cantidadTotal, $detalles) {
+                // Si hay detalle por línea, medir el umbral solo sobre los productos/
+                // categoría del vale (no toda la venta).
+                if (!empty($detalles)) {
+                    return \App\Services\ValeCompraService::cumpleUmbralScopedStatic($vale, $detalles);
+                }
                 $umbral = \App\Services\ValeCompraService::esUmbralPorUnidadesStatic($vale)
                     ? $cantidadTotal
                     : $precioTotal;
@@ -681,6 +697,13 @@ class ValeCompraController extends Controller
             'cliente_id' => 'nullable|integer',
             'tipos_precio' => 'nullable|array',
             'tipos_precio.*' => 'string',
+            // Detalle por línea para medir el umbral solo sobre los productos/categoría
+            // del vale (igual que en la aplicación real). Opcional.
+            'detalles' => 'nullable|array',
+            'detalles.*.producto_id' => 'nullable|integer',
+            'detalles.*.categoria_id' => 'nullable|integer',
+            'detalles.*.cantidad' => 'nullable|numeric',
+            'detalles.*.precio_total' => 'nullable|numeric',
         ]);
 
         $codigo = $validated['codigo'];
@@ -774,7 +797,7 @@ class ValeCompraController extends Controller
 
         // Validar condiciones contra la venta si se proporcionaron datos
         $condiciones = null;
-        if (isset($validated['precio_total']) || isset($validated['cantidad_total'])) {
+        if (isset($validated['precio_total']) || isset($validated['cantidad_total']) || !empty($validated['detalles'])) {
             $categoriasVenta = collect($validated['producto_ids'] ?? [])
                 ->map(fn($pid) => \App\Models\Producto::find($pid)?->categoria_id)
                 ->filter()
@@ -782,10 +805,21 @@ class ValeCompraController extends Controller
                 ->values()
                 ->toArray();
 
+            // Si hay detalle por línea, el umbral se mide solo sobre los productos/
+            // categoría del vale; si no, sobre el total de la venta (compatibilidad).
+            $precioUmbral = (float) ($validated['precio_total'] ?? 0);
+            $cantidadUmbral = (float) ($validated['cantidad_total'] ?? 0);
+            if (!empty($validated['detalles'])) {
+                $vale->loadMissing(['productos', 'categorias']);
+                $scope = ValeCompraService::calcularUmbralScopedStatic($vale, $validated['detalles']);
+                $precioUmbral = $scope['precio'];
+                $cantidadUmbral = $scope['cantidad'];
+            }
+
             $condiciones = app(ValeCompraService::class)->validarValeCondiciones(
                 $vale,
-                (float) ($validated['precio_total'] ?? 0),
-                (float) ($validated['cantidad_total'] ?? 0),
+                $precioUmbral,
+                $cantidadUmbral,
                 $categoriasVenta,
                 $validated['producto_ids'] ?? [],
                 $validated['tipos_precio'] ?? [],
