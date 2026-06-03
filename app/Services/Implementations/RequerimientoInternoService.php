@@ -46,7 +46,7 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
         try {
             DB::beginTransaction();
 
-            $codigo = RequerimientoInterno::generarCodigo();
+            $codigo = RequerimientoInterno::generarCodigo($data['tipo_solicitud']);
 
             // Resolver assigned_cargo_id a partir del nombre del cargo si no viene explícito
             $assignedCargoId = $data['assigned_cargo_id'] ?? null;

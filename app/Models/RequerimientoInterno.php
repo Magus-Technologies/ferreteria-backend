@@ -93,12 +93,15 @@ class RequerimientoInterno extends Model
     // ============= HELPERS =============
 
     /**
-     * Generar código auto-incremental: REQ-YYYY-NNN
+     * Generar código auto-incremental por tipo de solicitud: {TIPO}-YYYY-NNN
+     *
+     * Cada tipo de solicitud (SOC, OC, OS) mantiene su propia serie correlativa,
+     * de modo que filtrar por un tipo muestra una secuencia sin huecos.
      */
-    public static function generarCodigo(): string
+    public static function generarCodigo(string $tipoSolicitud): string
     {
         $year = date('Y');
-        $prefix = "REQ-{$year}-";
+        $prefix = "{$tipoSolicitud}-{$year}-";
 
         $ultimo = static::where('codigo', 'like', "{$prefix}%")
             ->orderByDesc('codigo')
