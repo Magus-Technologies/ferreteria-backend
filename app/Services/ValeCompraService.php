@@ -39,8 +39,13 @@ class ValeCompraService
             // Solo MISMA_COMPRA se aplica AUTOMÁTICAMENTE. Los PROXIMA_COMPRA se aplican
             // manualmente tecleando su código (VC-...) en el canje (ver aplicarValeGenerado),
             // y también se aplican en esa misma venta — no se difieren a una compra futura.
-            $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $tiposPrecio, $venta) {
+            $valesAplicables = $valesPotenciales->filter(function($vale) use ($categorias, $productos, $tiposPrecio, $venta, $detallesVenta) {
                 if ($vale->momento_aplicacion === 'PROXIMA_COMPRA') {
+                    return false;
+                }
+                // El umbral se mide SOLO sobre los productos/categoría del vale, no sobre
+                // toda la venta (ver calcularUmbralScopedStatic).
+                if (!$this->cumpleUmbralScoped($vale, $detallesVenta)) {
                     return false;
                 }
                 return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
@@ -81,11 +86,16 @@ class ValeCompraService
             // 5. Generar vales de PRÓXIMA COMPRA cuyas condiciones se cumplieron en esta
             // venta. NO aplican descuento ahora: generan un código (VCC-) a nombre del
             // cliente (si hay) para canjear en una compra posterior.
-            $valesProxima = $valesPotenciales->filter(function ($vale) use ($categorias, $productos, $tiposPrecio, $venta, $valesExcluidos) {
+            $valesProxima = $valesPotenciales->filter(function ($vale) use ($categorias, $productos, $tiposPrecio, $venta, $valesExcluidos, $detallesVenta) {
                 if ($vale->momento_aplicacion !== 'PROXIMA_COMPRA') {
                     return false;
                 }
                 if (in_array($vale->id, $valesExcluidos)) {
+                    return false;
+                }
+                // La CONDICIÓN para ganar el vale futuro también se mide solo sobre los
+                // productos/categoría del vale.
+                if (!$this->cumpleUmbralScoped($vale, $detallesVenta)) {
                     return false;
                 }
                 return $this->validarVale($vale, $categorias, $productos, $tiposPrecio, $venta->cliente_id);
@@ -184,14 +194,18 @@ class ValeCompraService
      * Helper estático equivalente: útil desde el controller (donde no hay instancia).
      *
      * Prioridad:
-     * 1) PRODUCTO_GRATIS y DOS_POR_UNO siempre son por unidades (el beneficio lo exige).
+     * 1) PRODUCTO_GRATIS y DOS_POR_UNO de MISMA compra son por unidades (el beneficio
+     *    se mide en unidades en esa misma venta). En PRÓXIMA compra NO: ahí el umbral
+     *    es la CONDICIÓN para ganar el código y puede ser por monto (S/) — se respeta
+     *    el tipo_umbral elegido.
      * 2) Si el vale tiene `tipo_umbral` definido por el usuario, se respeta
      *    (CANTIDAD = unidades, MONTO = soles).
      * 3) Vales antiguos sin `tipo_umbral`: se infiere por modalidad (compatibilidad).
      */
     public static function esUmbralPorUnidadesStatic(ValeCompra $vale): bool
     {
-        if (in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)) {
+        if (in_array($vale->tipo_promocion, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
+            && $vale->momento_aplicacion !== 'PROXIMA_COMPRA') {
             return true;
         }
 
@@ -201,6 +215,60 @@ class ValeCompraService
 
         // Compatibilidad para vales creados antes de existir tipo_umbral.
         return in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true);
+    }
+
+    /**
+     * Suma el monto (S/) y la cantidad (unidades) de la venta que cuentan para el
+     * UMBRAL de un vale SEGÚN SU MODALIDAD — NO toda la venta:
+     *  - POR_PRODUCTOS: solo líneas cuyo producto está en la lista del vale.
+     *  - POR_CATEGORIA: solo líneas cuya categoría está en la lista del vale.
+     *  - MIXTO: líneas que coinciden por producto O por categoría.
+     *  - CANTIDAD_MINIMA (y otros): toda la venta.
+     * Cada línea de $detallesVenta tiene: producto_id, categoria_id, cantidad, precio_total.
+     *
+     * Evita que, p.ej., un vale "10 unidades de categoría CABLE" se active comprando
+     * 5 cables + 5 de otra categoría (la suma sería 10, pero solo 5 son del scope).
+     */
+    public static function calcularUmbralScopedStatic(ValeCompra $vale, array $detallesVenta): array
+    {
+        $productosVale = $vale->productos->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $categoriasVale = $vale->categorias->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $precio = 0.0;
+        $cantidad = 0.0;
+        foreach ($detallesVenta as $d) {
+            $pid = (int) ($d['producto_id'] ?? 0);
+            $cid = (int) ($d['categoria_id'] ?? 0);
+
+            $incluir = match ($vale->modalidad) {
+                'POR_PRODUCTOS' => in_array($pid, $productosVale, true),
+                'POR_CATEGORIA' => in_array($cid, $categoriasVale, true),
+                'MIXTO' => in_array($pid, $productosVale, true) || in_array($cid, $categoriasVale, true),
+                default => true,
+            };
+
+            if ($incluir) {
+                $precio += (float) ($d['precio_total'] ?? 0);
+                $cantidad += (float) ($d['cantidad'] ?? 0);
+            }
+        }
+
+        return ['precio' => $precio, 'cantidad' => $cantidad];
+    }
+
+    /**
+     * ¿La venta cumple el umbral del vale contando SOLO los productos/categoría del vale?
+     */
+    public static function cumpleUmbralScopedStatic(ValeCompra $vale, array $detallesVenta): bool
+    {
+        $scope = self::calcularUmbralScopedStatic($vale, $detallesVenta);
+        $umbral = self::esUmbralPorUnidadesStatic($vale) ? $scope['cantidad'] : $scope['precio'];
+        return (float) $vale->cantidad_minima <= (float) $umbral;
+    }
+
+    private function cumpleUmbralScoped(ValeCompra $vale, array $detallesVenta): bool
+    {
+        return self::cumpleUmbralScopedStatic($vale, $detallesVenta);
     }
 
     /**
@@ -470,10 +538,14 @@ class ValeCompraService
 
         if ($vale->tipo_promocion === 'DOS_POR_UNO') {
             $gratisPorGrupo = (float) ($vale->cantidad_producto_gratis ?: 1);
-            $tamGrupo = (float) ($vale->cantidad_minima ?: 1);
+            // Tamaño del grupo del 2x1: campo propio si existe (PROXIMA_COMPRA), si no
+            // cae a cantidad_minima (vales 2x1 de misma compra / antiguos).
+            $tamGrupo = (float) ($vale->dos_por_uno_cantidad_compra ?: $vale->cantidad_minima ?: 1);
             $monto = (float) ($vale->descuento_valor ?? 0);
             $grupos = 1;
-            $productoIds = $vale->productos->pluck('id')->toArray();
+            $productoIds = $vale->producto_gratis_id 
+                ? [$vale->producto_gratis_id] 
+                : $vale->productos->pluck('id')->toArray();
 
             $preciosEnCarrito = [];
             $cantidadEnCarrito = 0.0;
@@ -514,8 +586,35 @@ class ValeCompraService
             return ['monto' => $monto, 'tipo' => $vale->descuento_tipo, 'grupos' => $stockDescontar ?? $grupos];
         }
 
-        // DESCUENTO_MISMA_COMPRA / DESCUENTO_PROXIMA_COMPRA / otros
-        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo, 'grupos' => 1];
+        // DESCUENTO_MISMA_COMPRA / DESCUENTO_PROXIMA_COMPRA / otros.
+        // Stock a descontar: el descuento consume tantas unidades de stock como unidades
+        // hayan disparado la promoción, no 1 fija. Ej: "descuento al comprar 5 varillas o
+        // más" con 5 varillas en el carrito → se descuentan 5 del stock del vale.
+        //
+        //   1) POR_PRODUCTOS / MIXTO → unidades en carrito de los productos-condición.
+        //   2) CANTIDAD_MINIMA por unidades → total de unidades del carrito (la condición
+        //      es "comprar N unidades", así que el stock se mide en esas unidades).
+        //   3) Resto (umbral por monto S/, POR_CATEGORIA) → 1 por aplicación, no hay una
+        //      cantidad de producto-condición clara que contar.
+        $stockDescontar = 1;
+        if (in_array($vale->modalidad, ['POR_PRODUCTOS', 'MIXTO'], true) && !empty($cantidadesLineaPorProducto)) {
+            $productoIds = $vale->productos->pluck('id')->toArray();
+            $unidades = 0.0;
+            foreach ($productoIds as $pid) {
+                $unidades += (float) ($cantidadesLineaPorProducto[$pid] ?? 0);
+            }
+            if ($unidades > 0) {
+                $stockDescontar = (int) ceil($unidades);
+            }
+        } elseif ($vale->modalidad === 'CANTIDAD_MINIMA'
+            && $this->esUmbralPorUnidades($vale)
+            && !empty($cantidadesLineaPorProducto)) {
+            $unidades = array_sum($cantidadesLineaPorProducto);
+            if ($unidades > 0) {
+                $stockDescontar = (int) ceil($unidades);
+            }
+        }
+        return ['monto' => $vale->descuento_valor, 'tipo' => $vale->descuento_tipo, 'grupos' => $stockDescontar];
     }
 
     private function aplicarVale(
@@ -602,17 +701,17 @@ class ValeCompraService
      * para canjearse en una venta posterior. NO aplica descuento en la venta actual;
      * el beneficio se calcula al canjear (ver aplicarValeGeneradoExistente).
      *
-     * La caducidad del código = fecha de hoy + dias_validez_vale. Si por algún motivo
-     * no hay días definidos, se cae a fecha_validez_vale / fecha_fin como respaldo.
+     * La caducidad del código = fecha_validez_vale (fecha fija configurada). Para vales
+     * antiguos que usaban días relativos, se cae a hoy + dias_validez_vale; y si no hay
+     * nada, a fecha_fin como último respaldo.
      */
     private function generarValeFuturo(ValeCompra $vale, Venta $venta, float $precioTotal): ?ValeCompraAplicado
     {
         DB::beginTransaction();
 
         try {
-            $fechaValidez = $vale->dias_validez_vale
-                ? today()->addDays((int) $vale->dias_validez_vale)
-                : ($vale->fecha_validez_vale ?: $vale->fecha_fin);
+            $fechaValidez = $vale->fecha_validez_vale
+                ?: ($vale->dias_validez_vale ? today()->addDays((int) $vale->dias_validez_vale) : $vale->fecha_fin);
 
             $aplicado = ValeCompraAplicado::create([
                 'vale_compra_id' => $vale->id,
@@ -727,14 +826,15 @@ class ValeCompraService
 
         // Validar condiciones si hay detalles de venta
         if (!empty($detallesVenta)) {
-            $precioTotal = $this->calcularPrecioTotal($detallesVenta);
-            $cantidadTotal = $this->calcularCantidadTotal($detallesVenta);
+            // El umbral se mide SOLO sobre los productos/categoría del vale (no toda la
+            // venta), igual que en la aplicación automática.
+            $scope = self::calcularUmbralScopedStatic($vale, $detallesVenta);
             $categorias = $this->extraerCategorias($detallesVenta);
             $productos = $this->extraerProductos($detallesVenta);
             $tiposPrecio = $this->extraerTiposPrecio($detallesVenta);
 
             $condiciones = $this->validarValeCondiciones(
-                $vale, $precioTotal, $cantidadTotal,
+                $vale, $scope['precio'], $scope['cantidad'],
                 $categorias, $productos, $tiposPrecio, $venta->cliente_id
             );
 
@@ -782,8 +882,9 @@ class ValeCompraService
 
             if ($vale) {
                 $preciosLineaPorProducto = $this->mapearPreciosLinea($detallesVenta);
+                $cantidadesLineaPorProducto = $this->mapearCantidadesLinea($detallesVenta);
                 $precioTotal = $this->calcularPrecioTotal($detallesVenta);
-                $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto);
+                $beneficio = $this->calcularDescuentoBeneficio($vale, $venta, $preciosLineaPorProducto, $cantidadesLineaPorProducto);
 
                 ValeCompraAplicado::create([
                     'vale_compra_id' => $vale->id,

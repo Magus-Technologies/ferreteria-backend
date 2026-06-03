@@ -136,14 +136,14 @@ class ValeCompraController extends Controller
                 'nullable',
                 Rule::requiredIf($request->tipo_promocion !== 'SORTEO'),
                 'numeric',
-                'min:0.001',
+                'min:0',
             ],
             // Cómo se interpreta `cantidad_minima`: MONTO (soles) o CANTIDAD (unidades).
             // Lo elige el usuario en el formulario. Para PRODUCTO_GRATIS / DOS_POR_UNO
             // siempre es CANTIDAD (se normaliza más abajo).
             'tipo_umbral' => [
                 'nullable',
-                Rule::in(['MONTO', 'CANTIDAD']),
+                Rule::in(['MONTO', 'CANTIDAD', 'NINGUNO']),
             ],
             'max_vales_por_venta' => ['nullable', 'integer', 'min:1'],
 
@@ -195,6 +195,7 @@ class ValeCompraController extends Controller
                 'exists:producto,id'
             ],
             'cantidad_producto_gratis' => 'nullable|numeric|min:0.001',
+            'dos_por_uno_cantidad_compra' => ['nullable', 'numeric', 'min:1'],
             
             // Para SORTEO (default false en la migración, no hace falta requerirlo)
             'sorteo_incluye_producto' => 'nullable|boolean',
@@ -206,17 +207,16 @@ class ValeCompraController extends Controller
                 'date',
                 'after_or_equal:fecha_inicio',
             ],
-            // Campo legado (fecha fija). Ya no es requerido; la caducidad del código
-            // generado se calcula con `dias_validez_vale` (días desde que se gana).
-            'fecha_validez_vale' => ['nullable', 'date'],
-            // Días de validez del CÓDIGO generado al cliente (PROXIMA_COMPRA).
-            // Caducidad = fecha de la compra que lo genera + dias_validez_vale.
-            'dias_validez_vale' => [
+            // Fecha límite (fija) del código generado al cliente (PROXIMA_COMPRA).
+            // El cliente puede canjear su código hasta esta fecha.
+            'fecha_validez_vale' => [
                 'nullable',
                 Rule::requiredIf($request->momento_aplicacion === 'PROXIMA_COMPRA'),
-                'integer',
-                'min:1',
+                'date',
+                'after_or_equal:fecha_inicio',
             ],
+            // Días de validez (legado / compatibilidad con vales antiguos).
+            'dias_validez_vale' => ['nullable', 'integer', 'min:1'],
             
             // Restricciones
             'usa_limite_por_cliente' => 'boolean',
@@ -329,8 +329,8 @@ class ValeCompraController extends Controller
                 'sometimes',
                 Rule::in(['CANTIDAD_MINIMA', 'POR_CATEGORIA', 'POR_PRODUCTOS', 'MIXTO'])
             ],
-            'cantidad_minima' => 'sometimes|numeric|min:0.001',
-            'tipo_umbral' => ['sometimes', 'nullable', Rule::in(['MONTO', 'CANTIDAD'])],
+            'cantidad_minima' => 'sometimes|numeric|min:0',
+            'tipo_umbral' => ['sometimes', 'nullable', Rule::in(['MONTO', 'CANTIDAD', 'NINGUNO'])],
             'max_vales_por_venta' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'descuento_tipo' => ['nullable', Rule::in(['PORCENTAJE', 'MONTO_FIJO'])],
             'descuento_valor' => 'nullable|numeric|min:0',
@@ -341,6 +341,7 @@ class ValeCompraController extends Controller
             'descuento_categoria_ids.*' => ['integer', 'exists:categoria,id'],
             'producto_gratis_id' => 'nullable|exists:producto,id',
             'cantidad_producto_gratis' => 'nullable|numeric|min:0.001',
+            'dos_por_uno_cantidad_compra' => ['nullable', 'numeric', 'min:1'],
             'sorteo_incluye_producto' => 'nullable|boolean',
             'fecha_inicio' => 'sometimes|date',
             'fecha_fin' => 'nullable|date',
@@ -509,6 +510,31 @@ class ValeCompraController extends Controller
     }
 
     /**
+     * Obtener el stock total (sumando todos los almacenes) de uno o varios productos.
+     * Solo informativo: lo usa el formulario de vales para mostrar cuánto stock hay
+     * del producto que se regalará. NO se valida contra el stock del vale.
+     */
+    public function stockProductos(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'producto_ids' => 'required|array',
+            'producto_ids.*' => 'integer',
+        ]);
+
+        $rows = \App\Models\ProductoAlmacen::whereIn('producto_id', $validated['producto_ids'])
+            ->selectRaw('producto_id, SUM(stock_fraccion) as stock')
+            ->groupBy('producto_id')
+            ->get();
+
+        $stocks = [];
+        foreach ($rows as $r) {
+            $stocks[(int) $r->producto_id] = (float) $r->stock;
+        }
+
+        return response()->json(['data' => $stocks]);
+    }
+
+    /**
      * Obtener vales aplicables para una venta
      */
     public function valesAplicables(Request $request): JsonResponse
@@ -524,6 +550,15 @@ class ValeCompraController extends Controller
             'producto_ids' => 'nullable|array',
             'producto_ids.*' => 'integer',
             'cliente_id' => 'nullable|integer|exists:cliente,id',
+            // Detalle por línea (producto_id, categoria_id, cantidad, precio_total).
+            // Si se envía, el umbral se mide solo sobre los productos/categoría del vale
+            // (correcto para POR_PRODUCTOS / POR_CATEGORIA / MIXTO). Si no, se usa el
+            // total de la venta (compatibilidad con clientes antiguos).
+            'detalles' => 'nullable|array',
+            'detalles.*.producto_id' => 'nullable|integer',
+            'detalles.*.categoria_id' => 'nullable|integer',
+            'detalles.*.cantidad' => 'nullable|numeric',
+            'detalles.*.precio_total' => 'nullable|numeric',
         ]);
 
         // Si el frontend no envió categoria_ids, derivarlas de producto_ids.
@@ -547,12 +582,19 @@ class ValeCompraController extends Controller
             'cliente_id' => $validated['cliente_id'] ?? null,
         ]);
 
+        $detalles = $validated['detalles'] ?? [];
+
         // Traemos todos los activos+vigentes y filtramos el umbral en PHP según tipo/modalidad.
         $vales = ValeCompra::activos()
             ->vigentes()
             ->with(['productoGratis', 'categorias', 'productos'])
             ->get()
-            ->filter(function (ValeCompra $vale) use ($precioTotal, $cantidadTotal) {
+            ->filter(function (ValeCompra $vale) use ($precioTotal, $cantidadTotal, $detalles) {
+                // Si hay detalle por línea, medir el umbral solo sobre los productos/
+                // categoría del vale (no toda la venta).
+                if (!empty($detalles)) {
+                    return \App\Services\ValeCompraService::cumpleUmbralScopedStatic($vale, $detalles);
+                }
                 $umbral = \App\Services\ValeCompraService::esUmbralPorUnidadesStatic($vale)
                     ? $cantidadTotal
                     : $precioTotal;
@@ -655,6 +697,13 @@ class ValeCompraController extends Controller
             'cliente_id' => 'nullable|integer',
             'tipos_precio' => 'nullable|array',
             'tipos_precio.*' => 'string',
+            // Detalle por línea para medir el umbral solo sobre los productos/categoría
+            // del vale (igual que en la aplicación real). Opcional.
+            'detalles' => 'nullable|array',
+            'detalles.*.producto_id' => 'nullable|integer',
+            'detalles.*.categoria_id' => 'nullable|integer',
+            'detalles.*.cantidad' => 'nullable|numeric',
+            'detalles.*.precio_total' => 'nullable|numeric',
         ]);
 
         $codigo = $validated['codigo'];
@@ -748,7 +797,7 @@ class ValeCompraController extends Controller
 
         // Validar condiciones contra la venta si se proporcionaron datos
         $condiciones = null;
-        if (isset($validated['precio_total']) || isset($validated['cantidad_total'])) {
+        if (isset($validated['precio_total']) || isset($validated['cantidad_total']) || !empty($validated['detalles'])) {
             $categoriasVenta = collect($validated['producto_ids'] ?? [])
                 ->map(fn($pid) => \App\Models\Producto::find($pid)?->categoria_id)
                 ->filter()
@@ -756,10 +805,21 @@ class ValeCompraController extends Controller
                 ->values()
                 ->toArray();
 
+            // Si hay detalle por línea, el umbral se mide solo sobre los productos/
+            // categoría del vale; si no, sobre el total de la venta (compatibilidad).
+            $precioUmbral = (float) ($validated['precio_total'] ?? 0);
+            $cantidadUmbral = (float) ($validated['cantidad_total'] ?? 0);
+            if (!empty($validated['detalles'])) {
+                $vale->loadMissing(['productos', 'categorias']);
+                $scope = ValeCompraService::calcularUmbralScopedStatic($vale, $validated['detalles']);
+                $precioUmbral = $scope['precio'];
+                $cantidadUmbral = $scope['cantidad'];
+            }
+
             $condiciones = app(ValeCompraService::class)->validarValeCondiciones(
                 $vale,
-                (float) ($validated['precio_total'] ?? 0),
-                (float) ($validated['cantidad_total'] ?? 0),
+                $precioUmbral,
+                $cantidadUmbral,
                 $categoriasVenta,
                 $validated['producto_ids'] ?? [],
                 $validated['tipos_precio'] ?? [],
