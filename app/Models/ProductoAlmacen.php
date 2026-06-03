@@ -28,17 +28,31 @@ class ProductoAlmacen extends Model
         static::updated(function (ProductoAlmacen $productoAlmacen) {
             if ($productoAlmacen->wasChanged('stock_fraccion')) {
                 app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+                // ⚡ Invalidar también el listado ligero del modal — el campo
+                // `stock_fraccion` se incluye en el payload del listado
+                // (vía productoEnAlmacenes.stock_fraccion), así que cualquier
+                // cambio de stock debe invalidarlo. Sin esto, el modal muestra
+                // stock viejo hasta 10 min después de una venta/compra.
+                \Illuminate\Support\Facades\Cache::forget(
+                    "productos_listado_ligero_{$productoAlmacen->almacen_id}"
+                );
             }
         });
 
         // Nuevo producto asignado a un almacén: invalidar búsquedas cacheadas que no lo incluían
         static::created(function (ProductoAlmacen $productoAlmacen) {
             app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+            \Illuminate\Support\Facades\Cache::forget(
+                "productos_listado_ligero_{$productoAlmacen->almacen_id}"
+            );
         });
 
         // Producto removido del almacén: invalidar búsquedas que aún lo listaban
         static::deleted(function (ProductoAlmacen $productoAlmacen) {
             app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+            \Illuminate\Support\Facades\Cache::forget(
+                "productos_listado_ligero_{$productoAlmacen->almacen_id}"
+            );
         });
     }
 

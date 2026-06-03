@@ -29,6 +29,15 @@ interface ProductoRepositoryInterface
     public function findByAlmacen(?int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator;
 
     /**
+     * Listado LIGERO de productos por almacén (sin compras, sin
+     * productoComplementario, sin tiene_ingresos). Para el modal de búsqueda
+     * que carga todo de una.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
+    public function findListadoLigeroByAlmacen(int $almacenId): \Illuminate\Database\Eloquent\Collection;
+
+    /**
      * Get all products (no pagination)
      */
     public function getAll(array $relations = []): Collection;

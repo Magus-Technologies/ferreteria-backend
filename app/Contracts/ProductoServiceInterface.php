@@ -16,6 +16,20 @@ interface ProductoServiceInterface
     public function getAllByAlmacen(array $filters): JsonResponse;
 
     /**
+     * Listado LIGERO de productos por almacén para el modal de búsqueda.
+     *
+     * Diseñado para que el cliente NO pagine y vea todos los productos de una.
+     * Carga solo las relaciones necesarias para la grilla (sin `compras`,
+     * sin `productoComplementario`, sin `tiene_ingresos`).
+     *
+     * Devuelve un array plano de productos ordenados por nombre.
+     * Cache: 10 minutos por almacén.
+     *
+     * @return JsonResponse { data: Producto[] }
+     */
+    public function getListadoLigeroPorAlmacen(int $almacenId): JsonResponse;
+
+    /**
      * Get a single product by ID with all its relations
      *
      * @param int $id Product ID

@@ -44,6 +44,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::prefix('productos')->group(function () {
         Route::get('/vencimientos', [ProductoController::class, 'vencimientos']);
+        // Listado LIGERO optimizado para el modal de búsqueda.
+        // Devuelve TODOS los productos del almacén con un shape mínimo
+        // (sin compras, sin productoComplementario, sin tiene_ingresos).
+        // Cache 10 min en el service.
+        Route::get('/listado-modal', [ProductoController::class, 'listadoModal']);
     });
 
     // ============================================

@@ -72,6 +72,34 @@ class ProductoService implements ProductoServiceInterface
      * @param int $id Product ID
      * @return JsonResponse
      */
+    public function getListadoLigeroPorAlmacen(int $almacenId): JsonResponse
+    {
+        $cacheKey = "productos_listado_ligero_{$almacenId}";
+
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if ($cached !== null) {
+            return response()->json($cached);
+        }
+
+        $startTime = microtime(true);
+        $productos = $this->productoRepository->findListadoLigeroByAlmacen($almacenId);
+        $duration = round((microtime(true) - $startTime) * 1000, 2);
+
+        $payload = ['data' => $productos];
+
+        // TTL 10 minutos. Se invalida explícitamente en create/update/delete
+        // (ver booted() en Producto model — si existe — o en los controllers).
+        try {
+            \Illuminate\Support\Facades\Cache::put($cacheKey, $payload, 600);
+        } catch (\Exception $e) {
+            Log::warning("Cache listado ligero no guardado: " . $e->getMessage());
+        }
+
+        \Log::info("Listado ligero calculado: {$productos->count()} productos en {$duration}ms (cache miss)");
+
+        return response()->json($payload);
+    }
+
     public function getById(int $id): JsonResponse
     {
         $producto = $this->productoRepository->findById($id, [
@@ -185,6 +213,10 @@ class ProductoService implements ProductoServiceInterface
                 // Invalidar cache
                 $this->cacheService->invalidateProductosAlmacen(
                     $data["almacen_id"],
+                );
+                // Invalidar también el listado ligero del modal
+                \Illuminate\Support\Facades\Cache::forget(
+                    "productos_listado_ligero_{$data['almacen_id']}"
                 );
 
                 return response()->json(
@@ -333,6 +365,10 @@ class ProductoService implements ProductoServiceInterface
                 $this->cacheService->invalidateProductosAlmacen(
                     $data["almacen_id"],
                 );
+                // Invalidar también el listado ligero del modal
+                \Illuminate\Support\Facades\Cache::forget(
+                    "productos_listado_ligero_{$data['almacen_id']}"
+                );
 
                 return response()->json([
                     "data" => $producto,
@@ -450,6 +486,8 @@ class ProductoService implements ProductoServiceInterface
 
                 // Invalidar cache de todos los almacenes (no sabemos en cuáles estaba)
                 $this->cacheService->invalidateAll();
+                // Invalidar también todos los listados ligeros del modal
+                \Illuminate\Support\Facades\Cache::flush();
 
                 return response()->json([
                     "message" => "Producto eliminado exitosamente",

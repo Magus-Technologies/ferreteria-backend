@@ -45,6 +45,73 @@ class ProductoRepository implements ProductoRepositoryInterface
     }
 
     /**
+     * Listado LIGERO de productos por almacén para el modal de búsqueda.
+     *
+     * Optimizado para devolver miles de productos rápido:
+     *  - Sin `compras` (solo se usa en el modal de detalle del producto SELECCIONADO)
+     *  - Sin `productoComplementario` en unidadesDerivadas (solo en el modal de detalle)
+     *  - Sin `tiene_ingresos` (3 subqueries EXISTS que no aportan a la grilla)
+     *  - Sin ubicación (no se renderiza en la grilla del modal)
+     *
+     * Devuelve solo los productos ACTIVOS que existen en el almacén.
+     */
+    public function findListadoLigeroByAlmacen(int $almacenId): \Illuminate\Database\Eloquent\Collection
+    {
+        return Producto::select([
+            'producto.id',
+            'producto.cod_producto',
+            'producto.cod_barra',
+            'producto.name',
+            'producto.name_ticket',
+            'producto.categoria_id',
+            'producto.marca_id',
+            'producto.unidad_medida_id',
+            'producto.accion_tecnica',
+            'producto.stock_min',
+            'producto.stock_max',
+            'producto.unidades_contenidas',
+            'producto.estado',
+        ])
+            ->where('producto.estado', 1)
+            ->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
+                $q->where('almacen_id', $almacenId);
+            })
+            ->with([
+                'marca:id,name',
+                'categoria:id,name',
+                'unidadMedida:id,name',
+                'productoEnAlmacenes' => function ($q) use ($almacenId) {
+                    $q->select([
+                        'id', 'producto_id', 'almacen_id',
+                        'stock_fraccion', 'costo',
+                        'costo_anterior', 'costo_actual',
+                    ])
+                    ->where('almacen_id', $almacenId)
+                    ->with([
+                        'unidadesDerivadas' => function ($udq) {
+                            // Solo lo que la grilla necesita para los 4 precios.
+                            // ⚠️ NO incluir `activador_publico` — la columna no
+                            // existe en la tabla (es bug preexistente del
+                            // findByAlmacen original).
+                            $udq->select([
+                                'id', 'producto_almacen_id', 'unidad_derivada_id', 'factor',
+                                'precio_publico', 'comision_publico',
+                                'precio_especial', 'comision_especial', 'activador_especial',
+                                'precio_minimo', 'comision_minimo', 'activador_minimo',
+                                'precio_ultimo', 'comision_ultimo', 'activador_ultimo',
+                            ])
+                            ->with(['unidadDerivada:id,name'])
+                            ->orderBy('orden', 'asc')
+                            ->orderBy('factor', 'desc');
+                        },
+                    ]);
+                },
+            ])
+            ->orderBy('producto.name', 'asc')
+            ->get();
+    }
+
+    /**
      * Get paginated products by warehouse with filters
      */
     public function findByAlmacen(?int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator
@@ -85,6 +152,8 @@ class ProductoRepository implements ProductoRepositoryInterface
                                     ->orderBy('orden', 'asc')
                                     ->orderBy('factor', 'desc');
                             },
+                            // ⚠️ Quitado `activador_publico` que no existe en la tabla.
+                            // (Bug preexistente en el findByAlmacen original)
                             'compras' => function ($cq) {
                                 $cq->select('id', 'producto_almacen_id', 'costo', 'compra_id')
                                     ->with([
