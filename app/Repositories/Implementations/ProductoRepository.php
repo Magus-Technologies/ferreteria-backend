@@ -71,6 +71,9 @@ class ProductoRepository implements ProductoRepositoryInterface
             'producto.stock_max',
             'producto.unidades_contenidas',
             'producto.estado',
+            // Necesario para la advertencia "sin unidades derivadas" del modal de
+            // búsqueda: sin este campo llega null y la alerta sale para todos.
+            'producto.permitido',
         ])
             ->where('producto.estado', 1)
             ->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
