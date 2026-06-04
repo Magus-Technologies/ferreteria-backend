@@ -26,6 +26,7 @@ class EntregaRepository implements EntregaRepositoryInterface
         'entregaLegacy.vehiculo:id,name,tipo,placa',
         'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
         'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
+        'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.ubicacion',
     ];
 
     public function findById(int $id): ?Entrega
@@ -135,6 +136,7 @@ class EntregaRepository implements EntregaRepositoryInterface
             'entregaLegacy.vehiculo:id,name,tipo,placa',
             'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
+            'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.ubicacion',
         ]);
 
         if (! empty($filtros['estado'])) {
