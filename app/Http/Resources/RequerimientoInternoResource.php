@@ -103,6 +103,13 @@ class RequerimientoInternoResource extends JsonResource
         ];
     }
 
+    /**
+     * Estado de atención de la solicitud según lo ordenado de sus productos:
+     *  - 'pendiente'   : no se ha ordenado ninguna unidad de ningún producto.
+     *  - 'en_proceso'  : se ordenó algo (aunque sean unas unidades de un producto)
+     *                    pero todavía no se cubren todos los productos por completo.
+     *  - 'aprobado'    : todos los productos están completamente ordenados.
+     */
     private function calcularEstadoSolicitud(): string
     {
         if (!$this->relationLoaded('productos') || $this->productos->isEmpty()) {
@@ -110,19 +117,30 @@ class RequerimientoInternoResource extends JsonResource
         }
 
         $totalProductos = $this->productos->count();
-        $productosCompletos = $this->productos->filter(function ($p) {
-            $cantidadRestante = (float) ($p->cantidad_pendiente ?? $p->cantidad) - (float) ($p->cantidad_ordenada ?? 0);
-            return $cantidadRestante <= 0;
-        })->count();
+        $totalOrdenado = 0.0;
+        $productosCompletos = 0;
 
-        if ($productosCompletos === 0) {
+        foreach ($this->productos as $p) {
+            $ordenada = (float) ($p->cantidad_ordenada ?? 0);
+            $totalOrdenado += $ordenada;
+
+            $cantidadObjetivo = (float) ($p->cantidad_pendiente ?? $p->cantidad);
+            if (($cantidadObjetivo - $ordenada) <= 0) {
+                $productosCompletos++;
+            }
+        }
+
+        // Nada ordenado todavía
+        if ($totalOrdenado <= 0) {
             return 'pendiente';
         }
 
+        // Todos los productos cubiertos por completo
         if ($productosCompletos === $totalProductos) {
             return 'aprobado';
         }
 
+        // Se ordenó algo pero no todo → parcial
         return 'en_proceso';
     }
 }
