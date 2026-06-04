@@ -137,6 +137,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('proveedores', [ProveedorController::class, 'store']);
     Route::get('proveedores/{id}', [ProveedorController::class, 'show']);
     Route::put('proveedores/{id}', [ProveedorController::class, 'update']);
+    Route::post('proveedores/{id}/carros', [ProveedorController::class, 'addCarro']);
+    Route::post('proveedores/{id}/choferes', [ProveedorController::class, 'addChofer']);
     Route::delete('proveedores/{id}', [ProveedorController::class, 'destroy'])->middleware('broadcast:proveedores');
 
     // ============================================

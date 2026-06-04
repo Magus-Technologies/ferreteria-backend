@@ -393,6 +393,70 @@ class ProveedorController extends Controller
     }
 
     /**
+     * Agregar un carro (vehículo) a un proveedor
+     * POST /api/proveedores/{id}/carros
+     */
+    public function addCarro(Request $request, $id)
+    {
+        $proveedor = Proveedor::find($id);
+
+        if (!$proveedor) {
+            return response()->json([
+                'error' => ['message' => 'Proveedor no encontrado']
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'placa' => 'required|string|max:191',
+        ]);
+
+        $carro = Carro::create([
+            'placa' => $validated['placa'],
+            'proveedor_id' => $proveedor->id,
+        ]);
+
+        return response()->json([
+            'data' => $carro,
+            'message' => 'Vehículo agregado exitosamente',
+        ], 201);
+    }
+
+    /**
+     * Agregar un chofer a un proveedor
+     * POST /api/proveedores/{id}/choferes
+     */
+    public function addChofer(Request $request, $id)
+    {
+        $proveedor = Proveedor::find($id);
+
+        if (!$proveedor) {
+            return response()->json([
+                'error' => ['message' => 'Proveedor no encontrado']
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'dni' => 'required|string|size:8',
+            'name' => 'required|string|max:191',
+            'licencia' => 'required|string|max:191',
+        ], [
+            'dni.size' => 'El DNI debe tener 8 dígitos',
+        ]);
+
+        $chofer = Chofer::create([
+            'dni' => $validated['dni'],
+            'name' => $validated['name'],
+            'licencia' => $validated['licencia'],
+            'proveedor_id' => $proveedor->id,
+        ]);
+
+        return response()->json([
+            'data' => $chofer,
+            'message' => 'Chofer agregado exitosamente',
+        ], 201);
+    }
+
+    /**
      * Eliminar proveedor
      * DELETE /api/proveedores/{id}
      */
