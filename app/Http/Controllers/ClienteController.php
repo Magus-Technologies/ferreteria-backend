@@ -28,17 +28,36 @@ class ClienteController extends Controller
         $query->where('numero_documento', '!=', '99999999');
 
         // Filtros opcionales
-        if ($request->has('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('numero_documento', 'like', "%{$search}%")
-                  ->orWhere('nombres', 'like', "%{$search}%")
-                  ->orWhere('apellidos', 'like', "%{$search}%")
-                  ->orWhere('razon_social', 'like', "%{$search}%")
-                  ->orWhereHas('profesion', function ($subQ) use ($search) {
-                      $subQ->where('nombre', 'like', "%{$search}%");
-                  });
-            });
+        if ($request->has('search') && trim((string) $request->search) !== '') {
+            $tokens = self::tokenizeSearch((string) $request->search);
+            if (! empty($tokens)) {
+                // Búsqueda multi-tokken: cada token debe matchear AL MENOS
+                // en uno de los campos (AND entre tokens, OR entre campos).
+                // Acentos: comparamos `LOWER(REPLACE(..., acentos, sinAcento))`
+                // en SQL para que "Perez" matchee "Pérez".
+                $camposTexto = [
+                    'numero_documento',
+                    'nombres',
+                    'apellidos',
+                    'razon_social',
+                    'telefono',
+                    'celular',
+                    'email',
+                    'contacto_referencia',
+                ];
+                $query->where(function ($q) use ($tokens, $camposTexto) {
+                    foreach ($tokens as $token) {
+                        $q->where(function ($sub) use ($token, $camposTexto) {
+                            foreach ($camposTexto as $campo) {
+                                $sub->orWhereRaw(
+                                    "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER($campo), 'á','a'), 'é','e'), 'í','i'), 'ó','o'), 'ú','u'), 'ñ','n') LIKE ?",
+                                    ["%{$token}%"]
+                                );
+                            }
+                        });
+                    }
+                });
+            }
         }
 
         if ($request->filled('profesion_id')) {
@@ -338,6 +357,30 @@ class ClienteController extends Controller
     // ============================================
     // MÉTODOS DE DIRECCIONES
     // ============================================
+
+    /**
+     * Normaliza acentos, pasa a minúsculas y tokeniza por espacios.
+     *
+     * Ej: "  Juan   PÉREZ  " => ["juan", "perez"]
+     *
+     * Usado por el endpoint index para hacer una búsqueda multi-token
+     * accent-insensitive. Sin esta normalización, buscar "Perez" no
+     * encuentra clientes con "Pérez" en la DB, y buscar "Juan Perez"
+     * falla porque busca la cadena completa en un solo campo.
+     */
+    private static function tokenizeSearch(string $raw): array
+    {
+        $accentMap = [
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u',
+            'Á' => 'a', 'É' => 'e', 'Í' => 'i', 'Ó' => 'o', 'Ú' => 'u', 'Ü' => 'u',
+            'ñ' => 'n', 'Ñ' => 'n',
+        ];
+        $normalized = strtolower(strtr($raw, $accentMap));
+        $parts = preg_split('/\s+/u', trim($normalized), -1, PREG_SPLIT_NO_EMPTY);
+        // Descartamos tokens de 1 solo caracter para evitar ruido (p.ej. "y", "a", "1").
+        $parts = array_values(array_filter($parts, fn ($t) => mb_strlen($t) >= 2));
+        return $parts;
+    }
 
     /**
      * Ventas donde este cliente fue el recomendador (recomendado_por_id = clienteId)

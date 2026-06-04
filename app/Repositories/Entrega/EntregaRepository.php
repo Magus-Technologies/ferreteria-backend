@@ -157,11 +157,23 @@ class EntregaRepository implements EntregaRepositoryInterface
         }
 
         if (! empty($filtros['vehiculo_id'])) {
-            $vehiculoId = $filtros['vehiculo_id'];
-            $query->where(function ($sub) use ($vehiculoId) {
-                $sub->where('vehiculo_id', $vehiculoId)
-                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->where('vehiculo_id', $vehiculoId));
-            });
+            // Acepta ID único o array (mismo patrón que el controller).
+            $vehiculoIds = (array) $filtros['vehiculo_id'];
+            $vehiculoIds = array_values(array_filter($vehiculoIds, fn ($v) => $v !== null && $v !== ''));
+            if (count($vehiculoIds) === 0) {
+                // empty() pero no había valores reales: no filtrar.
+            } elseif (count($vehiculoIds) === 1) {
+                $vehiculoId = $vehiculoIds[0];
+                $query->where(function ($sub) use ($vehiculoId) {
+                    $sub->where('vehiculo_id', $vehiculoId)
+                        ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->where('vehiculo_id', $vehiculoId));
+                });
+            } else {
+                $query->where(function ($sub) use ($vehiculoIds) {
+                    $sub->whereIn('vehiculo_id', $vehiculoIds)
+                        ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->whereIn('vehiculo_id', $vehiculoIds));
+                });
+            }
         }
 
         $filtrarPorFechaProgramada = array_key_exists('solo_programadas', $filtros);

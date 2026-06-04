@@ -1483,6 +1483,14 @@ class VentaController extends Controller
                         'recibe_efectivo' => $desplieguePago['recibe_efectivo'] ?? null,
                     ]);
                 }
+            } elseif ($venta->forma_de_pago === FormaDePago::Credito) {
+                // La venta quedó a CRÉDITO: el dinero no ingresa al crear (queda como
+                // cuenta por cobrar), así que no debe sobrevivir ningún método de pago
+                // de una edición previa al contado. El payload no trae el array porque
+                // el front no envía métodos en crédito, por eso el bloque anterior no
+                // los limpiaría. devolverDineroDeVenta() ya revirtió los montos en caja;
+                // aquí eliminamos las filas huérfanas para no dejar la venta inconsistente.
+                DespliegueDePagoVenta::where('venta_id', $id)->delete();
             }
 
             // If servicios_venta is provided, update them
@@ -1857,7 +1865,7 @@ class VentaController extends Controller
             ! isset($venta['ingreso_dinero_id']) &&
             (! isset($venta['despliegue_de_pago_ventas']) || empty($venta['despliegue_de_pago_ventas']))
         ) {
-            throw new \Exception('En ventas al contado debes seleccionar Ingreso asociado o Métodos de Pago');
+            throw new \Exception('Esta venta es al CONTADO: registra cómo ingresó el dinero seleccionando un Ingreso asociado o detallando los Métodos de Pago.');
         }
 
         // Validar pagos a crédito
@@ -1866,7 +1874,7 @@ class VentaController extends Controller
             $formaDePagoEnum === FormaDePago::Credito &&
             (isset($venta['ingreso_dinero_id']) || (isset($venta['despliegue_de_pago_ventas']) && ! empty($venta['despliegue_de_pago_ventas'])))
         ) {
-            throw new \Exception('En ventas a crédito no debes seleccionar Ingreso asociado ni Métodos de Pago');
+            throw new \Exception('Esta venta es a CRÉDITO: el pago se cobra después, por eso no corresponde registrar Ingreso asociado ni Métodos de Pago al crearla. Quítalos o cambia la forma de pago a Contado.');
         }
     }
 

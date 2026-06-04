@@ -43,6 +43,7 @@ class EntregaProductoController extends Controller
             'almacen_salida_id' => 'sometimes|integer',
             'chofer_id' => 'sometimes|string',
             'vehiculo_id' => 'sometimes|integer',
+            'vehiculo_id.*' => 'sometimes|integer',
             'estado_entrega' => 'sometimes|string',
             'fecha_desde' => 'sometimes|date',
             'fecha_hasta' => 'sometimes|date',
@@ -121,7 +122,15 @@ class EntregaProductoController extends Controller
         }
 
         if ($request->has('vehiculo_id')) {
-            $query->where('vehiculo_id', $request->vehiculo_id);
+            // Soporta tanto un único ID como múltiples (envío como `vehiculo_id[]=X&vehiculo_id[]=Y`
+            // desde el front, lo que Laravel expone como array `vehiculo_id`).
+            $vehiculoIds = (array) $request->input('vehiculo_id');
+            $vehiculoIds = array_values(array_filter($vehiculoIds, fn ($v) => $v !== null && $v !== ''));
+            if (count($vehiculoIds) === 1) {
+                $query->where('vehiculo_id', $vehiculoIds[0]);
+            } elseif (count($vehiculoIds) > 1) {
+                $query->whereIn('vehiculo_id', $vehiculoIds);
+            }
         }
 
         // Excluir entregas de ventas anuladas o en espera
