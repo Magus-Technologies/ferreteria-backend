@@ -15,6 +15,7 @@ class EntregaDetalleItemResource extends JsonResource
         $pav      = optional($udv)->productoAlmacenVenta;
         $pa       = optional($pav)->productoAlmacen;
         $producto = optional($pa)->producto;
+        $ubicacion = optional($pa)->ubicacion;
 
         return [
             'id'                       => $this->id,
@@ -31,6 +32,8 @@ class EntregaDetalleItemResource extends JsonResource
                 'id'           => $producto->id,
                 'name'         => $producto->name,
                 'cod_producto' => $producto->cod_producto,
+                'img'          => $producto->img,
+                'ubicacion_almacen' => $ubicacion?->name,
             ] : null,
         ];
     }
