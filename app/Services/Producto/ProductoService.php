@@ -76,28 +76,34 @@ class ProductoService implements ProductoServiceInterface
     {
         $cacheKey = "productos_listado_ligero_{$almacenId}";
 
-        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
-        if ($cached !== null) {
-            return response()->json($cached);
+        // IMPORTANTE: cacheamos el STRING JSON ya serializado, NO la Collection
+        // de Eloquent. Cachear la Collection obliga a re-encodear ~5.8MB de JSON
+        // en CADA cache hit (≈1.6s) + deserializar los modelos (≈0.5s), lo que
+        // dejaba cada request "cacheado" en ~2s. Guardando el JSON listo, el hit
+        // baja a ~20ms (solo lee el string y lo devuelve sin re-encodear).
+        $cachedJson = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if ($cachedJson !== null) {
+            // fromJsonString devuelve el JSON ya serializado tal cual,
+            // sin volver a encodear (evita ~2s por hit).
+            return JsonResponse::fromJsonString($cachedJson);
         }
 
         $startTime = microtime(true);
         $productos = $this->productoRepository->findListadoLigeroByAlmacen($almacenId);
+        $json = json_encode(['data' => $productos]);
         $duration = round((microtime(true) - $startTime) * 1000, 2);
 
-        $payload = ['data' => $productos];
-
         // TTL 10 minutos. Se invalida explícitamente en create/update/delete
-        // (ver booted() en Producto model — si existe — o en los controllers).
+        // (ver booted() en Producto model y observer de ProductoAlmacen).
         try {
-            \Illuminate\Support\Facades\Cache::put($cacheKey, $payload, 600);
+            \Illuminate\Support\Facades\Cache::put($cacheKey, $json, 600);
         } catch (\Exception $e) {
             Log::warning("Cache listado ligero no guardado: " . $e->getMessage());
         }
 
         \Log::info("Listado ligero calculado: {$productos->count()} productos en {$duration}ms (cache miss)");
 
-        return response()->json($payload);
+        return JsonResponse::fromJsonString($json);
     }
 
     public function getById(int $id): JsonResponse
