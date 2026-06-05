@@ -614,27 +614,27 @@ class KardexFacturacionService
             $productoId, $almacenId, $desde, $hasta,
             $tipoDocExpr, $clienteNombreExpr
         ) {
-            $fechaCol       = $esAnulada ? 'ep.fecha_anulacion' : 'ep.fecha_entrega';
+            $fechaCol       = $esAnulada ? 'e.fecha_anulacion' : 'e.fecha_creacion';
             $movimientoExpr = $esAnulada ? "'ENTREGA ANULADA'" : "'ENTREGA'";
 
-            $q = DB::table('entregaproducto as ep')
-                ->join('venta as v', 'ep.venta_id', '=', 'v.id')
+            $q = DB::table('entrega as e')
+                ->join('venta as v', 'e.venta_id', '=', 'v.id')
                 ->leftJoin('cliente as c', 'v.cliente_id', '=', 'c.id')
-                ->join('detalleentregaproducto as dep', 'dep.entrega_producto_id', '=', 'ep.id')
-                ->join('unidadderivadainmutableventa as udv', 'udv.id', '=', 'dep.unidad_derivada_venta_id')
+                ->join('entrega_detalle as ed', 'ed.entrega_id', '=', 'e.id')
+                ->join('unidadderivadainmutableventa as udv', 'udv.id', '=', 'ed.unidad_derivada_venta_id')
                 ->join('productoalmacenventa as pav', 'pav.id', '=', 'udv.producto_almacen_venta_id')
                 ->join('productoalmacen as pa', 'pa.id', '=', 'pav.producto_almacen_id')
                 ->join('producto as p', 'p.id', '=', 'pa.producto_id')
                 ->leftJoin('unidadderivadainmutable as udi', 'udi.id', '=', 'udv.unidad_derivada_inmutable_id')
                 ->select(
-                    'ep.id',
+                    'e.id',
                     DB::raw("'entrega' as tipo"),
                     DB::raw("{$movimientoExpr} as movimiento"),
                     DB::raw("{$fechaCol} as fecha"),
                     DB::raw("{$tipoDocExpr} as documento"),
                     DB::raw('udi.name as unidad'),
-                    DB::raw('dep.cantidad_solicitada as cantidad'),
-                    DB::raw('dep.cantidad_solicitada * udv.factor as cantidad_fraccion'),
+                    DB::raw('ed.cantidad as cantidad'),
+                    DB::raw('ed.cantidad * udv.factor as cantidad_fraccion'),
                     DB::raw('udv.precio as precio'),
                     DB::raw('pav.costo as costo'),
                     DB::raw('0 as entrada'),
@@ -652,26 +652,26 @@ class KardexFacturacionService
                     DB::raw('p.cod_producto as producto_codigo'),
                     'v.cliente_id',
                     DB::raw("{$clienteNombreExpr} as cliente_nombre"),
-                    DB::raw('COALESCE(pa.almacen_id, ep.almacen_salida_id, v.almacen_id) as almacen_id'),
+                    DB::raw('COALESCE(pa.almacen_id, e.almacen_salida_id, v.almacen_id) as almacen_id'),
                     DB::raw('0 as orden'),
                     DB::raw('p.unidades_contenidas as unidades_contenidas'),
-                    DB::raw($esAnulada ? 'ep.motivo_anulacion as nota' : 'NULL as nota')
+                    DB::raw($esAnulada ? 'e.motivo_anulacion as nota' : 'NULL as nota')
                 );
 
             if ($esAnulada) {
-                $q->whereNotNull('ep.fecha_anulacion');
-                if ($desde) $q->whereDate('ep.fecha_anulacion', '>=', $desde);
-                if ($hasta) $q->whereDate('ep.fecha_anulacion', '<=', $hasta);
+                $q->whereNotNull('e.fecha_anulacion');
+                if ($desde) $q->whereDate('e.fecha_anulacion', '>=', $desde);
+                if ($hasta) $q->whereDate('e.fecha_anulacion', '<=', $hasta);
             } else {
-                $q->whereNotNull('ep.fecha_entrega');
-                if ($desde) $q->whereDate('ep.fecha_entrega', '>=', $desde);
-                if ($hasta) $q->whereDate('ep.fecha_entrega', '<=', $hasta);
+                $q->whereNotNull('e.fecha_creacion');
+                if ($desde) $q->whereDate('e.fecha_creacion', '>=', $desde);
+                if ($hasta) $q->whereDate('e.fecha_creacion', '<=', $hasta);
             }
 
             if ($almacenId) {
                 $q->where(function ($sub) use ($almacenId) {
                     $sub->where('pa.almacen_id', $almacenId)
-                        ->orWhere('ep.almacen_salida_id', $almacenId)
+                        ->orWhere('e.almacen_salida_id', $almacenId)
                         ->orWhere('v.almacen_id', $almacenId);
                 });
             }

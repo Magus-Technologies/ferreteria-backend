@@ -105,6 +105,15 @@ class Venta extends Model
         return $this->hasMany(EntregaProducto::class);
     }
 
+    /**
+     * Entregas en la tabla NUEVA (entrega). Reemplaza a entregasProductos()
+     * como fuente de lectura durante la migración legacy → nueva.
+     */
+    public function entregas(): HasMany
+    {
+        return $this->hasMany(Entrega::class, 'venta_id');
+    }
+
     public function cotizacion(): HasOne
     {
         return $this->hasOne(Cotizacion::class);

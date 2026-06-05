@@ -313,36 +313,38 @@ class EntregaProductoController extends Controller
                 ? $validated['user_id']
                 : null;
 
-            // Crear entrega
-            $entrega = EntregaProducto::create([
-                'venta_id' => $validated['venta_id'],
-                'grupo_entrega_id' => $validated['grupo_entrega_id'] ?? null,
-                'tipo_entrega' => $validated['tipo_entrega'],
-                'tipo_despacho' => $validated['tipo_despacho'] ?? null,
-                'estado_entrega' => $validated['estado_entrega'],
-                'fecha_entrega' => $validated['fecha_entrega'],
-                'fecha_programada' => $validated['fecha_programada'] ?? null,
-                'hora_inicio' => $validated['hora_inicio'] ?? null,
-                'hora_fin' => $validated['hora_fin'] ?? null,
-                'direccion_entrega' => $validated['direccion_entrega'] ?? null,
+            // Crear la entrega en la tabla NUEVA (entrega + entrega_detalle).
+            // El stock se aplica más abajo (igual que antes); crearSync NO toca stock.
+            $entrega = $this->entregaService->crearSync([
+                'venta_id'           => $validated['venta_id'],
+                'tipo_entrega'       => $validated['tipo_entrega'],
+                'tipo_despacho'      => $validated['tipo_despacho'] ?? 'in',
+                'estado_entrega'     => $validated['estado_entrega'],
+                'quien_entrega'      => $validated['quien_entrega'] ?? 'almacen',
+                'almacen_salida_id'  => $validated['almacen_salida_id'],
+                'chofer_id'          => $validated['chofer_id'] ?? null,
+                'vehiculo_id'        => $validated['vehiculo_id'] ?? null,
+                'tipo_pedido'        => $validated['tipo_pedido'] ?? 'interno',
+                'cargo_destino'      => $validated['cargo_destino'] ?? null,
+                'fecha_creacion'     => now()->toDateString(),
+                'fecha_ejecutada'    => $validated['estado_entrega'] === 'en' ? now()->toDateTimeString() : null,
+                'fecha_programada'   => $validated['fecha_programada'] ?? null,
+                'hora_inicio'        => $validated['hora_inicio'] ?? null,
+                'hora_fin'           => $validated['hora_fin'] ?? null,
+                'direccion_entrega'  => $validated['direccion_entrega'] ?? null,
                 'referencia_entrega' => $validated['referencia_entrega'] ?? null,
-                'latitud' => $validated['latitud'] ?? null,
-                'longitud' => $validated['longitud'] ?? null,
-                'observaciones' => $validated['observaciones'] ?? null,
-                'almacen_salida_id' => $validated['almacen_salida_id'],
-                'chofer_id' => $validated['chofer_id'] ?? null,
-                'quien_entrega' => $validated['quien_entrega'] ?? null,
-                'user_id' => $validated['user_id'],
-                'user_entregado_id' => $userEntregadoId,
-                'tipo_pedido' => $validated['tipo_pedido'] ?? 'interno',
-                'cargo_destino' => $validated['cargo_destino'] ?? null,
-                'vehiculo_id' => $validated['vehiculo_id'] ?? null,
+                'latitud'            => $validated['latitud'] ?? null,
+                'longitud'           => $validated['longitud'] ?? null,
+                'observaciones'      => $validated['observaciones'] ?? null,
+                'user_creador_id'    => $validated['user_id'],
+                'user_entregado_id'  => $userEntregadoId,
+                'entrega_legacy_id'  => null,
+                'productos'          => collect($validated['productos_entregados'])
+                    ->map(fn ($d) => [
+                        'unidad_derivada_venta_id' => $d['unidad_derivada_venta_id'],
+                        'cantidad' => $d['cantidad_entregada'],
+                    ])->all(),
             ]);
-
-            if ($entrega->tipo_entrega === 'pa' && ! $entrega->grupo_entrega_id) {
-                $entrega->grupo_entrega_id = $entrega->id;
-                $entrega->save();
-            }
 
             // Crear detalles y actualizar cantidades pendientes
             foreach ($validated['productos_entregados'] as $detalle) {
@@ -363,13 +365,7 @@ class EntregaProductoController extends Controller
                     ]);
                 }
 
-                // Crear detalle de entrega
-                DetalleEntregaProducto::create([
-                    'entrega_producto_id' => $entrega->id,
-                    'unidad_derivada_venta_id' => $detalle['unidad_derivada_venta_id'],
-                    'cantidad_solicitada' => $cantidadEntregada,
-                    'ubicacion' => $detalle['ubicacion'] ?? null,
-                ]);
+                // El detalle ya se creó en la tabla nueva (entrega_detalle) vía crearSync.
 
                 // Parcial + Inmediato + Almacén: registrar el tramo pendiente
                 // sin consumir aún stock ni cantidad_pendiente. Se consume
@@ -436,64 +432,14 @@ class EntregaProductoController extends Controller
                 }
             }
 
-            // Si la nueva entrega es una HIJA (modelo N-hijas), recalcular
-            // el estado agregado de la MADRE para que refleje la nueva actividad.
-            if (
-                ! empty($validated['grupo_entrega_id']) &&
-                (int) $validated['grupo_entrega_id'] !== (int) $entrega->id
-            ) {
-                $madre = EntregaProducto::find($validated['grupo_entrega_id']);
-                if ($madre) {
-                    $madre->recalcularEstado();
-                }
-            }
-
-            // Sincronizar a la nueva tabla `entrega` (migración paralela).
-            // stock_aplicado=true porque EntregaProductoController ya manejó
-            // el stock — EntregaService no debe decrementarlo de nuevo.
-            try {
-                $this->entregaService->crearSync([
-                    'venta_id'           => $validated['venta_id'],
-                    'tipo_entrega'       => $validated['tipo_entrega'],
-                    'tipo_despacho'      => $validated['tipo_despacho'] ?? 'in',
-                    'estado_entrega'     => $entrega->estado_entrega,  // 'pe' | 'en' | etc.
-                    'quien_entrega'      => $validated['quien_entrega'] ?? 'almacen',
-                    'almacen_salida_id'  => $validated['almacen_salida_id'],
-                    'chofer_id'          => $validated['chofer_id'] ?? null,
-                    'vehiculo_id'        => $validated['vehiculo_id'] ?? null,
-                    'tipo_pedido'        => $validated['tipo_pedido'] ?? 'interno',
-                    'fecha_creacion'     => $entrega->created_at,
-                    'fecha_ejecutada'    => null,
-                    'fecha_programada'   => $validated['fecha_programada'] ?? null,
-                    'hora_inicio'        => $validated['hora_inicio'] ?? null,
-                    'hora_fin'           => $validated['hora_fin'] ?? null,
-                    'direccion_entrega'  => $validated['direccion_entrega'] ?? null,
-                    'referencia_entrega' => $validated['referencia_entrega'] ?? null,
-                    'latitud'            => $validated['latitud'] ?? null,
-                    'longitud'           => $validated['longitud'] ?? null,
-                    'observaciones'      => $validated['observaciones'] ?? null,
-                    'user_creador_id'    => $validated['user_id'],
-                    'user_entregado_id'  => null,
-                    'entrega_legacy_id'  => $entrega->id,
-                    'productos'          => collect($validated['productos_entregados'])
-                        ->map(fn ($d) => [
-                            'unidad_derivada_venta_id' => $d['unidad_derivada_venta_id'],
-                            'cantidad' => $d['cantidad_entregada'],
-                        ])->all(),
-                ]);
-            } catch (\Throwable) {
-                // Sync no crítica — no rompe el flujo principal
-            }
-
             return response()->json([
-                'data' => $entrega->load([
+                'data' => $entrega->fresh([
                     'venta:id,serie,numero,cliente_id',
                     'venta.cliente:id,nombres,apellidos,razon_social',
                     'almacenSalida:id,name',
-                    'despachador:id,name',
-                    'user:id,name',
+                    'chofer:id,name',
                     'vehiculo:id,name,tipo,placa',
-                    'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
+                    'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
                 ]),
                 'message' => 'Entrega de producto creada exitosamente',
             ], 201);

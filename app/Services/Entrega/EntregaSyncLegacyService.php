@@ -3,7 +3,6 @@
 namespace App\Services\Entrega;
 
 use App\Models\Entrega;
-use App\Models\EntregaProducto;
 use App\Models\UnidadDerivadaInmutableVenta;
 use Illuminate\Support\Facades\DB;
 
@@ -27,16 +26,9 @@ class EntregaSyncLegacyService
     public function sincronizar(Entrega $entrega): void
     {
         DB::transaction(function () use ($entrega) {
-            $entrega->loadMissing('estadoEntrega', 'detalles');
-            $estadoCodigo = $entrega->estadoEntrega?->codigo?->value;
+            $entrega->loadMissing('detalles');
 
-            // 1) Espejar el estado al registro legacy vinculado.
-            if ($entrega->entrega_legacy_id && $estadoCodigo) {
-                EntregaProducto::where('id', $entrega->entrega_legacy_id)
-                    ->update(['estado_entrega' => $estadoCodigo]);
-            }
-
-            // 2) Recalcular cantidad_pendiente de cada UDV tocada por esta
+            // Recalcular cantidad_pendiente de cada UDV tocada por esta
             //    entrega, de forma ABSOLUTA desde la tabla nueva (idempotente):
             //    pendiente = cantidad_total − cubierto, donde cubierto es la
             //    suma de los detalles de todas las entregas NO canceladas de la
