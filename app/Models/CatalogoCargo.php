@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CatalogoCargo extends Model
 {
@@ -15,6 +16,7 @@ class CatalogoCargo extends Model
         'highlight',
         'staff',
         'estado',
+        'role_id',
     ];
 
     protected $casts = [
@@ -22,6 +24,11 @@ class CatalogoCargo extends Model
         'staff' => 'boolean',
         'estado' => 'boolean',
     ];
+
+    public function role(): BelongsTo
+    {
+        return $this->belongsTo(Role::class, 'role_id');
+    }
 
     public function scopeActivos($query)
     {
