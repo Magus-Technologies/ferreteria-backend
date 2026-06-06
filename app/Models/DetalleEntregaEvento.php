@@ -21,7 +21,7 @@ class DetalleEntregaEvento extends Model
 
     protected $fillable = [
         'entrega_evento_id',
-        'detalle_entrega_producto_id',
+        'entrega_detalle_id',
         'cantidad',
         'ubicacion',
     ];
@@ -38,8 +38,8 @@ class DetalleEntregaEvento extends Model
         return $this->belongsTo(EntregaEvento::class);
     }
 
-    public function detalleEntregaProducto(): BelongsTo
+    public function entregaDetalle(): BelongsTo
     {
-        return $this->belongsTo(DetalleEntregaProducto::class, 'detalle_entrega_producto_id');
+        return $this->belongsTo(EntregaDetalle::class, 'entrega_detalle_id');
     }
 }

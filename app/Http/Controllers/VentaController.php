@@ -8,8 +8,6 @@ use App\Enums\FormaDePago;
 use App\Enums\TipoDocumento;
 use App\Enums\TipoMoneda;
 use App\Models\AperturaCierreCaja;
-use App\Models\DetalleEntregaProducto;
-use App\Models\EntregaProducto;
 use App\Models\DespliegueDePago;
 use App\Models\DespliegueDePagoVenta;
 use App\Models\IngresoDinero;
@@ -84,7 +82,7 @@ class VentaController extends Controller
                 'entregas.estadoEntrega:id,codigo',
                 'valesAplicados:id,venta_id,descuento_aplicado,descuento_tipo',
             ])
-            ->withCount('entregasProductos as entregas_productos_count')
+            ->withCount('entregas as entregas_productos_count')
             ->withCount(['historial as total_ediciones' => function ($q) {
                 // Solo cuenta acciones de tipo 'edicion' — ignora otras
                 // entradas del historial (cambios de estado, anulación, etc.).
@@ -598,7 +596,15 @@ class VentaController extends Controller
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega;
             if ($autoCrearEntrega) {
-                $quienEntregaAuto = $validated['quien_entrega'] ?? 'almacen';
+                // descontar_stock=no → el cliente YA TIENE la mercadería.
+                // Asumimos que el vendedor la entregó (no queda stock físico
+                // que mover, no hay almacén que "despachar"). Por eso forzamos
+                // quien_entrega='vendedor' y estado='en' independientemente del
+                // valor que mande el front. Para los otros casos respetamos lo
+                // que diga el payload o caemos a 'almacen' como default histórico.
+                $quienEntregaAuto = $noDescontarStock
+                    ? 'vendedor'
+                    : ($validated['quien_entrega'] ?? 'almacen');
                 $estadoEntregaAuto = $noDescontarStock
                     ? 'en'  // descontar_stock=no → ya entregado siempre
                     : ($quienEntregaAuto === 'vendedor' ? 'en' : 'pe');
@@ -618,9 +624,6 @@ class VentaController extends Controller
                     ]);
                 }
 
-                // Crear la entrega en la tabla NUEVA (entrega + entrega_detalle).
-                // Stock NO se re-aplica — VentaController ya lo manejó arriba.
-                // entrega_legacy_id = null: ya no se crea fila legacy.
                 $this->entregaService->crearSync([
                     'venta_id'          => $venta->id,
                     'tipo_entrega'      => 'rt',
@@ -633,7 +636,6 @@ class VentaController extends Controller
                     'fecha_creacion'    => now()->toDateString(),
                     'fecha_ejecutada'   => $estadoEntregaAuto === 'en' ? now()->toDateTimeString() : null,
                     'tipo_pedido'       => 'interno',
-                    'entrega_legacy_id' => null,
                     'productos'         => $unidadesVenta->map(fn ($u) => [
                         'unidad_derivada_venta_id' => $u->id,
                         'cantidad'                 => (float) $u->cantidad,
@@ -867,7 +869,6 @@ class VentaController extends Controller
             // para que el frontend pueda calcular peso_total al crear guía/cotización.
             'productosPorAlmacen.productoAlmacen.unidadesDerivadas.unidadDerivada:id,name',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
-            'productosPorAlmacen.unidadesDerivadas.detallesEntrega',
             'despliegueDePagoVentas.despliegueDePago.metodoDePago',
             'serviciosVenta.servicio',
             'user:id,name',
@@ -971,7 +972,6 @@ class VentaController extends Controller
                 'productosPorAlmacen.unidadesDerivadas',
                 'despliegueDePagoVentas',
                 'comprobanteElectronico:id,venta_id,estado_sunat',
-                'entregasProductos:id,venta_id,estado_entrega',
             ])->findOrFail($id);
 
             // Add id to validated data for validation
@@ -1197,16 +1197,16 @@ class VentaController extends Controller
                 // ──────────────────────────────────────────────────────────
                 $entregadoAcumulado = [];
                 $detallesPorEntrega = [];
-                $entregasActivas = EntregaProducto::where('venta_id', $id)
-                    ->whereIn('estado_entrega', ['pe', 'ec', 'en'])
+                $entregasActivas = \App\Models\Entrega::where('venta_id', $id)
+                    ->whereHas('estadoEntrega', fn ($q) => $q->whereIn('codigo', ['pe', 'ec', 'en']))
                     ->with([
-                        'productosEntregados.unidadDerivadaVenta.productoAlmacenVenta',
-                        'productosEntregados.unidadDerivadaVenta.unidadDerivadaInmutable',
+                        'detalles.unidadDerivadaVenta.productoAlmacenVenta',
+                        'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
                     ])
                     ->get();
 
                 foreach ($entregasActivas as $entrega) {
-                    foreach ($entrega->productosEntregados as $detalle) {
+                    foreach ($entrega->detalles as $detalle) {
                         $udv = $detalle->unidadDerivadaVenta;
                         if (! $udv) continue;
                         $pav = $udv->productoAlmacenVenta;
@@ -1214,17 +1214,18 @@ class VentaController extends Controller
                         if (! $pav || ! $unidadInmutable) continue;
 
                         $clave = $pav->producto_almacen_id . ':' . $unidadInmutable->name;
-                        $cantEntregada = (float) $detalle->cantidad_entregada;
-                        $cantSolicitada = (float) $detalle->cantidad_solicitada;
-                        $entregadoAcumulado[$clave] = ($entregadoAcumulado[$clave] ?? 0.0) + $cantEntregada;
-                        $detallesPorEntrega[$entrega->id][$clave] = $cantSolicitada;
+                        // Modelo nuevo: detalle.cantidad = lo COMPROMETIDO en esa
+                        // entrega; se usa como cobertura para cantidad_pendiente.
+                        $cant = (float) $detalle->cantidad;
+                        $entregadoAcumulado[$clave] = ($entregadoAcumulado[$clave] ?? 0.0) + $cant;
+                        $detallesPorEntrega[$entrega->id][$clave] = $cant;
                     }
                 }
 
                 // Eliminar registros hijos en orden correcto para evitar FK constraint
                 $productoAlmacenVentaIds = ProductoAlmacenVenta::where('venta_id', $id)->pluck('id');
                 $unidadDerivadaVentaIds = UnidadDerivadaInmutableVenta::whereIn('producto_almacen_venta_id', $productoAlmacenVentaIds)->pluck('id');
-                DetalleEntregaProducto::whereIn('unidad_derivada_venta_id', $unidadDerivadaVentaIds)->delete();
+                \App\Models\EntregaDetalle::whereIn('unidad_derivada_venta_id', $unidadDerivadaVentaIds)->delete();
 
                 // Delete existing productos_por_almacen (cascades to unidadderivadainmutableventa)
                 ProductoAlmacenVenta::where('venta_id', $id)->delete();
@@ -1304,7 +1305,7 @@ class VentaController extends Controller
                     }
                 }
 
-                // Regenerar DetalleEntregaProducto cubriendo todos los productos
+                // Regenerar entrega_detalle cubriendo todos los productos
                 // actuales de la venta para cada entrega activa.
                 //
                 // Lógica por producto:
@@ -1330,10 +1331,10 @@ class VentaController extends Controller
                             // se entregará todo cuando el usuario re-confirme la
                             // entrega ('pe' → 'en').
                             : (float) $udvNueva->cantidad;
-                        DetalleEntregaProducto::create([
-                            'entrega_producto_id' => $entrega->id,
+                        \App\Models\EntregaDetalle::create([
+                            'entrega_id' => $entrega->id,
                             'unidad_derivada_venta_id' => $udvNueva->id,
-                            'cantidad_solicitada' => $cantSolicitada,
+                            'cantidad' => $cantSolicitada,
                             'ubicacion' => null,
                         ]);
                     }
@@ -1346,9 +1347,9 @@ class VentaController extends Controller
                 // La `cantidad_entregada` de los detalles se preserva (arriba),
                 // así que al re-entregar el sistema sabe cuánto quedó por
                 // entregar realmente. Las canceladas ('ca') no se tocan.
-                EntregaProducto::where('venta_id', $id)
-                    ->whereIn('estado_entrega', ['en', 'ec'])
-                    ->update(['estado_entrega' => 'pe']);
+                \App\Models\Entrega::where('venta_id', $id)
+                    ->whereHas('estadoEntrega', fn ($q) => $q->whereIn('codigo', ['en', 'ec']))
+                    ->update(['estado_entrega_id' => \App\Models\EstadoEntrega::where('codigo', 'pe')->value('id')]);
             }
 
             // Ajustar stock según transición de estado + tipo_despacho
@@ -1423,35 +1424,19 @@ class VentaController extends Controller
             //     La línea 1088 reactivaría entregas canceladas, pero si no
             //     existía ninguna no hace nada — este bloque la crea.
             //
-            // El guard !EntregaProducto::exists() evita doble-creación:
-            // si la venta 'an' SÍ tenía entrega, la línea 1088 ya la reactivó
+            // Si la venta 'an' SÍ tenía entrega, la línea 1088 ya la reactivó
             // a 'pe' y este bloque no ejecuta.
             if (
                 in_array($estadoAnterior, ['ee', 'an']) &&
                 ! in_array($estadoNuevo, ['ee', 'an']) &&
                 $tipoDespachoNuevo === 'et' &&
                 ! $omitirEntregaUpdate &&
-                ! EntregaProducto::where('venta_id', $id)->exists()
+                ! \App\Models\Entrega::where('venta_id', $id)->exists()
             ) {
                 $quienEntregaAuto = $validated['quien_entrega'] ?? 'almacen';
                 $estadoEntregaAuto = $noDescontarStockUpdate
                     ? 'en'
                     : ($quienEntregaAuto === 'vendedor' ? 'en' : 'pe');
-
-                $entregaAuto = EntregaProducto::create([
-                    'venta_id'          => $venta->id,
-                    'tipo_entrega'      => 'rt',
-                    'tipo_despacho'     => 'in',
-                    'estado_entrega'    => $estadoEntregaAuto,
-                    'fecha_entrega'     => now(),
-                    'almacen_salida_id' => $validated['almacen_id'] ?? $venta->almacen_id,
-                    'user_id'           => $validated['user_id'] ?? $venta->user_id,
-                    'user_entregado_id' => $estadoEntregaAuto === 'en'
-                        ? ($validated['user_id'] ?? $venta->user_id)
-                        : null,
-                    'quien_entrega' => $quienEntregaAuto,
-                    'tipo_pedido'   => 'interno',
-                ]);
 
                 $unidadesVenta = UnidadDerivadaInmutableVenta::whereHas(
                     'productoAlmacenVenta',
@@ -1459,21 +1444,31 @@ class VentaController extends Controller
                 )->get();
 
                 foreach ($unidadesVenta as $unidad) {
-                    $cantidadEntregadaInicial = $estadoEntregaAuto === 'en'
-                        ? (float) $unidad->cantidad
-                        : 0.0;
-                    DetalleEntregaProducto::create([
-                        'entrega_producto_id'    => $entregaAuto->id,
-                        'unidad_derivada_venta_id' => $unidad->id,
-                        'cantidad_solicitada'    => (float) $unidad->cantidad,
-                        'cantidad_entregada'     => $cantidadEntregadaInicial,
-                    ]);
                     $unidad->update([
                         'cantidad_pendiente' => $estadoEntregaAuto === 'en'
                             ? 0
                             : (float) $unidad->cantidad,
                     ]);
                 }
+
+                // Crear la entrega en la tabla NUEVA (sin fila legacy).
+                $this->entregaService->crearSync([
+                    'venta_id'          => $venta->id,
+                    'tipo_entrega'      => 'rt',
+                    'tipo_despacho'     => 'in',
+                    'estado_entrega'    => $estadoEntregaAuto,
+                    'quien_entrega'     => $quienEntregaAuto,
+                    'almacen_salida_id' => $validated['almacen_id'] ?? $venta->almacen_id,
+                    'user_creador_id'   => $validated['user_id'] ?? $venta->user_id,
+                    'user_entregado_id' => $estadoEntregaAuto === 'en' ? ($validated['user_id'] ?? $venta->user_id) : null,
+                    'fecha_creacion'    => now()->toDateString(),
+                    'fecha_ejecutada'   => $estadoEntregaAuto === 'en' ? now()->toDateTimeString() : null,
+                    'tipo_pedido'       => 'interno',
+                    'productos'         => $unidadesVenta->map(fn ($u) => [
+                        'unidad_derivada_venta_id' => $u->id,
+                        'cantidad'                 => (float) $u->cantidad,
+                    ])->toArray(),
+                ]);
             }
 
             // If despliegue_de_pago_ventas is provided, update them
@@ -1632,7 +1627,7 @@ class VentaController extends Controller
                 'cobrosVenta' => fn ($q) => $q->where('estado', true),
                 'cliente',
             ])
-                ->withCount('entregasProductos as entregas_productos_count')
+                ->withCount('entregas as entregas_productos_count')
                 ->findOrFail($id);
 
             // Solo bloqueamos si ya está anulada (no se puede re-anular).

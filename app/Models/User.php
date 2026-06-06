@@ -136,15 +136,6 @@ class User extends Authenticatable
         return $this->belongsTo(Vehiculo::class);
     }
 
-    public function entregasProducto(): HasMany
-    {
-        return $this->hasMany(EntregaProducto::class, "user_id");
-    }
-
-    public function entregasChofer(): HasMany
-    {
-        return $this->hasMany(EntregaProducto::class, "chofer_id");
-    }
 
     public function cajaPrincipal()
     {

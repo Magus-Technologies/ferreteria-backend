@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\Entrega;
 
 class Vehiculo extends Model
 {
@@ -26,11 +27,8 @@ class Vehiculo extends Model
         ];
     }
 
-    /**
-     * Entregas asignadas a este vehículo
-     */
     public function entregas(): HasMany
     {
-        return $this->hasMany(EntregaProducto::class);
+        return $this->hasMany(Entrega::class, 'vehiculo_id');
     }
 }

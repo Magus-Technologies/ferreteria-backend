@@ -106,6 +106,37 @@ class ProductoService implements ProductoServiceInterface
         return JsonResponse::fromJsonString($json);
     }
 
+    /**
+     * Listado COMPLETO de productos por almacén para la vista "Mi Almacén".
+     *
+     * Cachea el STRING JSON ya serializado (igual que getListadoLigeroPorAlmacen)
+     * para evitar re-encodear ~12MB en cada cache hit.
+     */
+    public function getListadoCompletoPorAlmacen(int $almacenId): JsonResponse
+    {
+        $cacheKey = "productos_listado_completo_{$almacenId}";
+
+        $cachedJson = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if ($cachedJson !== null) {
+            return JsonResponse::fromJsonString($cachedJson);
+        }
+
+        $startTime = microtime(true);
+        $productos = $this->productoRepository->findListadoCompletoByAlmacen($almacenId);
+        $json = json_encode(['data' => $productos]);
+        $duration = round((microtime(true) - $startTime) * 1000, 2);
+
+        try {
+            \Illuminate\Support\Facades\Cache::put($cacheKey, $json, 600);
+        } catch (\Exception $e) {
+            Log::warning("Cache listado completo no guardado: " . $e->getMessage());
+        }
+
+        \Log::info("Listado completo calculado: {$productos->count()} productos en {$duration}ms (cache miss)");
+
+        return JsonResponse::fromJsonString($json);
+    }
+
     public function getById(int $id): JsonResponse
     {
         $producto = $this->productoRepository->findById($id, [
@@ -220,9 +251,12 @@ class ProductoService implements ProductoServiceInterface
                 $this->cacheService->invalidateProductosAlmacen(
                     $data["almacen_id"],
                 );
-                // Invalidar también el listado ligero del modal
+                // Invalidar también el listado ligero y completo
                 \Illuminate\Support\Facades\Cache::forget(
                     "productos_listado_ligero_{$data['almacen_id']}"
+                );
+                \Illuminate\Support\Facades\Cache::forget(
+                    "productos_listado_completo_{$data['almacen_id']}"
                 );
 
                 return response()->json(
@@ -371,9 +405,12 @@ class ProductoService implements ProductoServiceInterface
                 $this->cacheService->invalidateProductosAlmacen(
                     $data["almacen_id"],
                 );
-                // Invalidar también el listado ligero del modal
+                // Invalidar también el listado ligero y completo
                 \Illuminate\Support\Facades\Cache::forget(
                     "productos_listado_ligero_{$data['almacen_id']}"
+                );
+                \Illuminate\Support\Facades\Cache::forget(
+                    "productos_listado_completo_{$data['almacen_id']}"
                 );
 
                 return response()->json([
@@ -492,7 +529,7 @@ class ProductoService implements ProductoServiceInterface
 
                 // Invalidar cache de todos los almacenes (no sabemos en cuáles estaba)
                 $this->cacheService->invalidateAll();
-                // Invalidar también todos los listados ligeros del modal
+                // Invalidar también todos los listados (ligero y completo)
                 \Illuminate\Support\Facades\Cache::flush();
 
                 return response()->json([

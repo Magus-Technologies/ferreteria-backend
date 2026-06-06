@@ -42,7 +42,6 @@ class Entrega extends Model
         'observaciones',
         'motivo_anulacion',
         'stock_aplicado',
-        'entrega_legacy_id',
     ];
 
     protected $casts = [
@@ -97,10 +96,6 @@ class Entrega extends Model
         return $this->belongsTo(Vehiculo::class, 'vehiculo_id');
     }
 
-    public function entregaLegacy(): BelongsTo
-    {
-        return $this->belongsTo(EntregaProducto::class, 'entrega_legacy_id');
-    }
 
     public function userCreador(): BelongsTo
     {

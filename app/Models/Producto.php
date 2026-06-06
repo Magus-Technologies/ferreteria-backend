@@ -34,6 +34,7 @@ class Producto extends Model
             $almacenIds = $producto->productoEnAlmacenes()->pluck('almacen_id')->all();
             foreach ($almacenIds as $almacenId) {
                 Cache::forget("productos_listado_ligero_{$almacenId}");
+                Cache::forget("productos_listado_completo_{$almacenId}");
             }
         };
 

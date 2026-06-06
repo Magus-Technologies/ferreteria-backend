@@ -68,11 +68,4 @@ class UnidadDerivadaInmutableVenta extends Model
         return $this->belongsTo(UnidadDerivadaInmutable::class);
     }
 
-    /**
-     * Relación: Tiene muchos detalles de entrega
-     */
-    public function detallesEntrega(): HasMany
-    {
-        return $this->hasMany(DetalleEntregaProducto::class, 'unidad_derivada_venta_id');
-    }
 }

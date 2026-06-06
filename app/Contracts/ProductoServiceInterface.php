@@ -30,6 +30,23 @@ interface ProductoServiceInterface
     public function getListadoLigeroPorAlmacen(int $almacenId): JsonResponse;
 
     /**
+     * Listado COMPLETO de productos por almacén para la vista "Mi Almacén".
+     *
+     * Igual que el ligero pero con campos adicionales:
+     *  - AMBOS estados (activo/inactivo)
+     *  - `tiene_ingresos` (para validar eliminación)
+     *  - `img`, `ficha_tecnica`
+     *  - TODOS los `productoEnAlmacenes` (incluidos otros almacenes para popover)
+     *  - `ubicacion`, `costo_anterior/actual`, `stock_costo_anterior/actual`
+     *
+     * SIN `compras` (no se renderizan en la grilla).
+     * Cache: 10 minutos por almacén.
+     *
+     * @return JsonResponse { data: Producto[] }
+     */
+    public function getListadoCompletoPorAlmacen(int $almacenId): JsonResponse;
+
+    /**
      * Get a single product by ID with all its relations
      *
      * @param int $id Product ID

@@ -115,6 +115,84 @@ class ProductoRepository implements ProductoRepositoryInterface
     }
 
     /**
+     * Listado COMPLETO de la vista "Mi Almacén": TODOS los productos del almacén
+     * (ambos estados), en un solo request, para que el front cargue todo de una
+     * y filtre en memoria (igual que el modal de búsqueda).
+     *
+     * Diferencias con findListadoLigeroByAlmacen (modal):
+     *  - Incluye AMBOS estados (la vista tiene filtro Activo/Inactivo).
+     *  - Incluye `tiene_ingresos` (columna "Tiene Movimientos" + bloqueo de borrado).
+     *  - Incluye `img`, `ficha_tecnica`, `permitido`.
+     *  - Incluye TODOS los `productoEnAlmacenes` (no solo el actual) porque la
+     *    columna Stock tiene un popover con el stock/precio en otros almacenes.
+     *  - Incluye `ubicacion`, `costo_anterior/actual`, `stock_costo_anterior/actual`.
+     *
+     * Igual que el modal: SIN `compras` (no se renderizan en la grilla).
+     */
+    public function findListadoCompletoByAlmacen(int $almacenId): \Illuminate\Database\Eloquent\Collection
+    {
+        return Producto::select([
+            'producto.id',
+            'producto.cod_producto',
+            'producto.cod_barra',
+            'producto.name',
+            'producto.name_ticket',
+            'producto.categoria_id',
+            'producto.marca_id',
+            'producto.unidad_medida_id',
+            'producto.accion_tecnica',
+            'producto.img',
+            'producto.ficha_tecnica',
+            'producto.stock_min',
+            'producto.stock_max',
+            'producto.unidades_contenidas',
+            'producto.estado',
+            'producto.permitido',
+        ])
+            ->addSelect(DB::raw('(
+                EXISTS (SELECT 1 FROM productoalmaceningresosalida pai JOIN productoalmacen pa ON pa.id = pai.producto_almacen_id WHERE pa.producto_id = producto.id)
+                OR EXISTS (SELECT 1 FROM productoalmacenventa pav JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id WHERE pa.producto_id = producto.id)
+                OR EXISTS (SELECT 1 FROM productoalmacencompra pac JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id WHERE pa.producto_id = producto.id)
+            ) as tiene_ingresos'))
+            // Solo productos que existen en el almacén seleccionado (ambos estados).
+            ->whereHas('productoEnAlmacenes', function ($q) use ($almacenId) {
+                $q->where('almacen_id', $almacenId);
+            })
+            ->with([
+                'marca:id,name',
+                'categoria:id,name',
+                'unidadMedida:id,name',
+                // TODOS los almacenes (para el popover "otros almacenes" de la columna Stock).
+                'productoEnAlmacenes' => function ($q) {
+                    $q->select([
+                        'id', 'producto_id', 'almacen_id', 'ubicacion_id',
+                        'stock_fraccion', 'costo',
+                        'costo_anterior', 'costo_actual',
+                        'stock_costo_anterior', 'stock_costo_actual',
+                    ])
+                    ->with([
+                        'almacen:id,name',
+                        'ubicacion:id,name',
+                        'unidadesDerivadas' => function ($udq) {
+                            $udq->select([
+                                'id', 'producto_almacen_id', 'unidad_derivada_id', 'factor',
+                                'precio_publico', 'comision_publico',
+                                'precio_especial', 'comision_especial', 'activador_especial',
+                                'precio_minimo', 'comision_minimo', 'activador_minimo',
+                                'precio_ultimo', 'comision_ultimo', 'activador_ultimo',
+                            ])
+                            ->with(['unidadDerivada:id,name'])
+                            ->orderBy('orden', 'asc')
+                            ->orderBy('factor', 'desc');
+                        },
+                    ]);
+                },
+            ])
+            ->orderBy('producto.name', 'asc')
+            ->get();
+    }
+
+    /**
      * Get paginated products by warehouse with filters
      */
     public function findByAlmacen(?int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator

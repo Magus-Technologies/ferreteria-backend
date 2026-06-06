@@ -268,7 +268,6 @@ class EntregaService
      *   latitud?: float|null,
      *   longitud?: float|null,
      *   observaciones?: string|null,
-     *   entrega_legacy_id: int|null,
      *   productos: array<int, array{unidad_derivada_venta_id: int, cantidad: float}>,
      * } $data
      */
@@ -302,9 +301,7 @@ class EntregaService
             'latitud'                 => $data['latitud'] ?? null,
             'longitud'                => $data['longitud'] ?? null,
             'observaciones'           => $data['observaciones'] ?? null,
-            // Stock ya aplicado por VentaController — evita doble decremento
             'stock_aplicado'          => true,
-            'entrega_legacy_id'       => $data['entrega_legacy_id'] ?? null,
         ]);
 
         foreach ($data['productos'] as $item) {
