@@ -62,6 +62,8 @@ class CotizacionPdfService
             ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
             ?: 'CLIENTE GENERAL';
 
+        $direccion = $cotizacion->direccion ?? $cliente?->direccion ?? '';
+
         $plantilla = PlantillaImpresion::obtenerParaConFormato((int) $empresa->id, 'cotizacion', 'Ticket');
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
         $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
@@ -83,7 +85,7 @@ class CotizacionPdfService
             'calculos' => $calculos,
             'clienteNombre' => $clienteNombre,
             'clienteDocumento' => $cliente?->numero_documento ?? '99999999',
-            'clienteDireccion' => $cliente?->direccion ?? '',
+            'clienteDireccion' => $direccion,
             'vendedor' => $cotizacion->user->name,
             'son' => PdfService::numeroALetras($calculos['total']),
             'observaciones' => $observaciones,
@@ -137,7 +139,7 @@ class CotizacionPdfService
                     'marca' => $producto->marca->name ?? '',
                     'unidad' => $ud->unidadDerivadaInmutable->name ?? '',
                     'cantidad' => $cantidad,
-                    'precio' => $precio,
+                    'precio' => $precio + $recargo,
                     'descuento' => $descuento,
                     'subtotal' => $subtotal,
                 ];
@@ -167,34 +169,43 @@ class CotizacionPdfService
             ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
             ?: 'CLIENTE GENERAL';
 
-        $moneda = $cotizacion->tipo_moneda?->value === 'Soles' ? 'SOL' : 'USD';
+        $moneda = $cotizacion->tipo_moneda?->value === 's' ? 'SOL' : 'USD';
 
-        return [
+        $filas = [
             [
                 'Cliente' => $clienteNombre,
                 'F. Emision' => PdfService::formatFecha($cotizacion->fecha),
             ],
             [
-                'Direccion' => $cliente?->direccion ?? '',
+                'Direccion' => $cotizacion->direccion ?? $cliente?->direccion ?? '',
                 'Hora' => PdfService::formatFecha($cotizacion->fecha, 'H:i:s'),
-            ],
-            [
-                'RUC / DNI' => $cliente?->numero_documento ?? '',
-                'F. Vencimiento' => PdfService::formatFecha($cotizacion->fecha_vencimiento),
             ],
             [
                 'Vendedor' => $cotizacion->user->name,
                 'N Guia' => '',
             ],
             [
-                'Forma Pago' => 'CREDITO 7 DIAS',
+                'Forma Pago' => $cotizacion->forma_de_pago ?? 'Contado',
                 'Moneda' => $moneda,
             ],
-            [
-                'Cajero' => $cotizacion->user->name,
-                'Orden de Compra' => '',
-            ],
         ];
+
+        // Insertar RUC/DNI + F. Vencimiento antes de Vendedor (índice 2)
+        $filaDocumento = ['RUC / DNI' => $cliente?->numero_documento ?? ''];
+        if (!$this->esContado($cotizacion->forma_de_pago)) {
+            $filaDocumento['F. Vencimiento'] = PdfService::formatFecha($cotizacion->fecha_vencimiento);
+        }
+        array_splice($filas, 2, 0, [$filaDocumento]);
+
+        return $filas;
+    }
+
+    private function esContado(?string $formaDePago): bool
+    {
+        if (empty($formaDePago)) {
+            return true;
+        }
+        return stripos($formaDePago, 'contado') !== false;
     }
 
     private function observacionesDefault(): string
