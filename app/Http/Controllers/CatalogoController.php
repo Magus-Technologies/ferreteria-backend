@@ -147,6 +147,7 @@ class CatalogoController extends Controller
             'highlight' => ['sometimes', 'boolean'],
             'staff' => ['sometimes', 'boolean'],
             'estado' => ['sometimes', 'boolean'],
+            'role_id' => ['nullable', 'integer', 'exists:role,id'],
         ]);
 
         if (!empty($validated['parent'])) {
@@ -189,6 +190,7 @@ class CatalogoController extends Controller
             'highlight' => ['sometimes', 'boolean'],
             'staff' => ['sometimes', 'boolean'],
             'estado' => ['sometimes', 'boolean'],
+            'role_id' => ['nullable', 'integer', 'exists:role,id'],
         ]);
 
         if (!empty($validated['parent']) && $validated['parent'] === $cargo->codigo) {
@@ -246,8 +248,9 @@ class CatalogoController extends Controller
             ->groupBy('cargo')
             ->pluck('total', 'cargo');
 
-        $cargos = CatalogoCargo::orderBy('descripcion')
-            ->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff', 'estado'])
+        $cargos = CatalogoCargo::with('role:id,name,descripcion')
+            ->orderBy('descripcion')
+            ->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff', 'estado', 'role_id'])
             ->map(function ($c) use ($conteos) {
                 return [
                     'id' => $c->id,
@@ -257,6 +260,8 @@ class CatalogoController extends Controller
                     'highlight' => (bool) $c->highlight,
                     'staff' => (bool) $c->staff,
                     'estado' => (bool) $c->estado,
+                    'role_id' => $c->role_id,
+                    'role' => $c->role ? ['id' => $c->role->id, 'name' => $c->role->name, 'descripcion' => $c->role->descripcion] : null,
                     'users_count' => (int) ($conteos[$c->codigo] ?? 0),
                 ];
             });
