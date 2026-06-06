@@ -51,6 +51,9 @@ class AuthController extends Controller
         // Calcular efectivo disponible del vendedor desde las distribuciones
         $efectivoDisponible = $this->calcularEfectivoVendedor($user->id);
 
+        // Vistas que requieren autorización (acceso) para el rol y las ya otorgadas
+        $accesos = $this->accesosDeUsuario($user);
+
         // Crear token
         $token = $user->createToken('auth-token')->plainTextToken;
 
@@ -73,6 +76,8 @@ class AuthController extends Controller
                 'efectivo' => $efectivoDisponible,
                 'empresa' => $user->empresa,
                 'all_restrictions' => $allRestrictions,
+                'auth_required' => $accesos['required'],
+                'auth_granted' => $accesos['granted'],
                 'rol_sistema' => $user->rol_sistema,
                 'cargo' => $user->cargo,
                 'cargo_id' => $cargoId,
@@ -111,6 +116,9 @@ class AuthController extends Controller
         // Calcular efectivo disponible del vendedor desde las distribuciones
         $efectivoDisponible = $this->calcularEfectivoVendedor($user->id);
 
+        // Vistas que requieren autorización (acceso) para el rol y las ya otorgadas
+        $accesos = $this->accesosDeUsuario($user);
+
         // Obtener el ID del cargo del usuario y si es raíz (parent=null)
         $cargoId = null;
         $esRootCargo = false;
@@ -129,6 +137,8 @@ class AuthController extends Controller
             'efectivo' => $efectivoDisponible,
             'empresa' => $user->empresa,
             'all_restrictions' => $allRestrictions,
+            'auth_required' => $accesos['required'],
+            'auth_granted' => $accesos['granted'],
             'rol_sistema' => $user->rol_sistema,
             'cargo' => $user->cargo,
             'cargo_id' => $cargoId,
@@ -136,6 +146,34 @@ class AuthController extends Controller
             'vehiculo_id' => $user->vehiculo_id,
             'vehiculo' => $user->vehiculo,
         ]);
+    }
+
+    /**
+     * Vistas/elementos que requieren autorización de acceso para el usuario.
+     *  - required: módulos (componentId) con config accion='acceso' activa para sus roles
+     *  - granted:  módulos con una autorización otorgada vigente para el usuario
+     */
+    private function accesosDeUsuario(User $user): array
+    {
+        $roleIds = $user->roles->pluck('id')->toArray();
+
+        $required = empty($roleIds) ? [] : \App\Models\AutorizacionConfig::whereIn('role_id', $roleIds)
+            ->where('accion', 'acceso')
+            ->where('requiere_autorizacion', true)
+            ->pluck('modulo')
+            ->unique()
+            ->values()
+            ->toArray();
+
+        $granted = \App\Models\AutorizacionOtorgada::where('user_id', $user->id)
+            ->where('accion', 'acceso')
+            ->activas()
+            ->pluck('modulo')
+            ->unique()
+            ->values()
+            ->toArray();
+
+        return ['required' => $required, 'granted' => $granted];
     }
 
     /**

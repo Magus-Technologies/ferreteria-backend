@@ -89,9 +89,14 @@ class AutorizacionService
             throw new \Exception('Ya tienes una solicitud pendiente para esta acción');
         }
 
+        // Resolver el destino de la solicitud según el modo configurado.
+        // Si no se resuelve ni usuario ni cargo, ambos quedan null => fallback a admins.
+        [$autorizadorId, $cargoAutorizador] = $this->resolverDestino($config, $user, $userId);
+
         $solicitud = SolicitudAutorizacion::create([
             'solicitante_id' => $userId,
-            'autorizador_id' => $config->autorizador_id,
+            'autorizador_id' => $autorizadorId,
+            'cargo_autorizador' => $cargoAutorizador,
             'role_id' => $config->role_id,
             'modulo' => $modulo,
             'accion' => $accion,
@@ -104,6 +109,46 @@ class AutorizacionService
         $this->notificarAutorizador($solicitud, $user);
 
         return $solicitud->load(['solicitante', 'autorizador', 'role']);
+    }
+
+    /**
+     * Resolver a quién se dirige la solicitud según el modo de la config.
+     *
+     * @return array{0: ?string, 1: ?string} [autorizador_id, cargo_autorizador]
+     */
+    private function resolverDestino(AutorizacionConfig $config, User $solicitante, string $userId): array
+    {
+        $tipo = $config->tipo_autorizador ?? 'usuario';
+
+        // Modo cargo: cualquier usuario del cargo elegido.
+        if ($tipo === 'cargo') {
+            return [null, $config->cargo_autorizador ?: null];
+        }
+
+        // Modo jerarquía: el cargo padre directo del solicitante en el organigrama.
+        if ($tipo === 'jerarquia') {
+            if (!empty($solicitante->cargo)) {
+                $cargoActual = \App\Models\CatalogoCargo::where('codigo', $solicitante->cargo)->first();
+                $parent = $cargoActual?->parent;
+
+                if ($parent) {
+                    // Solo el padre directo: si tiene al menos un usuario (distinto del solicitante).
+                    $hayUsuarios = User::where('cargo', $parent)
+                        ->where('id', '!=', $userId)
+                        ->where('estado', true)
+                        ->exists();
+
+                    if ($hayUsuarios) {
+                        return [null, $parent];
+                    }
+                }
+            }
+            // Sin padre o sin usuarios en el padre => fallback a admins.
+            return [null, null];
+        }
+
+        // Modo usuario (por defecto): usuario fijo configurado.
+        return [$config->autorizador_id ?: null, null];
     }
 
     /**
@@ -197,6 +242,27 @@ class AutorizacionService
     }
 
     /**
+     * Consumir una autorización de uso único tras usarla.
+     * Solo afecta a las de tipo 'una_vez'; devuelve true si consumió una.
+     */
+    public function consumirUnaVez(string $userId, string $modulo, string $accion): bool
+    {
+        $otorgada = AutorizacionOtorgada::where('user_id', $userId)
+            ->where('modulo', $modulo)
+            ->where('accion', $accion)
+            ->where('tipo', 'una_vez')
+            ->activas()
+            ->first();
+
+        if (!$otorgada) {
+            return false;
+        }
+
+        $otorgada->update(['activa' => false]);
+        return true;
+    }
+
+    /**
      * Limpiar autorizaciones temporales expiradas.
      */
     public function limpiarExpiradas(): int
@@ -229,8 +295,19 @@ class AutorizacionService
                 if ($autorizador?->fcm_token) {
                     $this->fcm->sendNotification($autorizador->fcm_token, $titulo, $body, $data);
                 }
+            } elseif ($solicitud->cargo_autorizador) {
+                // Enviar a todos los usuarios que ocupan el cargo destino (cualquiera puede autorizar)
+                $usuarios = User::where('cargo', $solicitud->cargo_autorizador)
+                    ->where('id', '!=', $solicitud->solicitante_id)
+                    ->where('estado', true)
+                    ->whereNotNull('fcm_token')
+                    ->get();
+
+                foreach ($usuarios as $u) {
+                    $this->fcm->sendNotification($u->fcm_token, $titulo, $body, $data);
+                }
             } else {
-                // Enviar a todos los admins
+                // Sin destino específico => enviar a todos los admins
                 $this->fcm->sendToRole('ADMINISTRADOR', $titulo, $body, $data);
             }
         } catch (\Exception $e) {

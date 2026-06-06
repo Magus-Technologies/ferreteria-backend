@@ -50,7 +50,9 @@ Route::prefix('catalogos')->group(function () {
     Route::get('/generos', [CatalogoController::class, 'generos']);
     Route::get('/roles-sistema', [CatalogoController::class, 'rolesSistema']);
     Route::get('/cargos', [CatalogoController::class, 'cargos']);
+    Route::get('/cargos-gestion', [CatalogoController::class, 'cargosGestion']);
     Route::post('/cargos', [CatalogoController::class, 'store']);
+    Route::patch('/cargos/{codigo}/estado', [CatalogoController::class, 'toggleEstadoCargo'])->where('codigo', '.*');
     Route::get('/cargos/{codigo}', [CatalogoController::class, 'show'])->where('codigo', '.*');
     Route::put('/cargos/{codigo}', [CatalogoController::class, 'update'])->where('codigo', '.*');
     Route::delete('/cargos/{codigo}', [CatalogoController::class, 'destroy'])->where('codigo', '.*');
@@ -296,6 +298,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Verificación
         Route::post('/verificar', [AutorizacionController::class, 'verificar']);
+        // Consumir autorización de uso único tras usarla
+        Route::post('/consumir', [AutorizacionController::class, 'consumir']);
 
         // Solicitudes
         Route::post('/solicitar', [AutorizacionController::class, 'solicitar']);
@@ -328,6 +332,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/', [PermissionController::class, 'createRole']);
             Route::get('/{roleId}', [PermissionController::class, 'getRole']);
             Route::put('/{roleId}', [PermissionController::class, 'updateRole']);
+            Route::patch('/{roleId}/estado', [PermissionController::class, 'toggleEstadoRole']);
             Route::delete('/{roleId}', [PermissionController::class, 'deleteRole']);
             Route::post('/{roleId}/permissions', [PermissionController::class, 'assignToRole']);
         });

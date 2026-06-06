@@ -10,7 +10,11 @@ class Role extends Model
     protected $table = "role";
     public $timestamps = false;
 
-    protected $fillable = ["name", "descripcion"];
+    protected $fillable = ["name", "descripcion", "estado"];
+
+    protected $casts = [
+        "estado" => "boolean",
+    ];
 
     public function users(): BelongsToMany
     {

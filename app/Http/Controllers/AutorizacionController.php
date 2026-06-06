@@ -52,10 +52,18 @@ class AutorizacionController extends Controller
         $validated = $request->validate([
             'role_id' => 'required|integer|exists:role,id',
             'modulo' => 'required|string|max:100',
-            'accion' => 'required|in:crear,editar,eliminar',
+            'accion' => 'required|in:crear,editar,eliminar,acceso',
             'requiere_autorizacion' => 'required|boolean',
+            'tipo_autorizador' => 'nullable|in:usuario,cargo,jerarquia',
             'autorizador_id' => 'nullable|string|exists:user,id',
+            'cargo_autorizador' => 'nullable|string|max:100',
         ]);
+
+        $tipo = $validated['tipo_autorizador'] ?? 'usuario';
+
+        // Normalizar: solo se guarda el dato relevante al modo elegido.
+        $autorizadorId = $tipo === 'usuario' ? ($validated['autorizador_id'] ?? null) : null;
+        $cargoAutorizador = $tipo === 'cargo' ? ($validated['cargo_autorizador'] ?? null) : null;
 
         $config = AutorizacionConfig::updateOrCreate(
             [
@@ -65,7 +73,9 @@ class AutorizacionController extends Controller
             ],
             [
                 'requiere_autorizacion' => $validated['requiere_autorizacion'],
-                'autorizador_id' => $validated['autorizador_id'] ?? null,
+                'tipo_autorizador' => $tipo,
+                'autorizador_id' => $autorizadorId,
+                'cargo_autorizador' => $cargoAutorizador,
                 'created_by' => $request->user()->id,
             ]
         );
@@ -91,7 +101,7 @@ class AutorizacionController extends Controller
     {
         $validated = $request->validate([
             'modulo' => 'required|string|max:100',
-            'accion' => 'required|in:crear,editar,eliminar',
+            'accion' => 'required|in:crear,editar,eliminar,acceso',
         ]);
 
         $resultado = $this->service->verificar(
@@ -112,7 +122,7 @@ class AutorizacionController extends Controller
     {
         $validated = $request->validate([
             'modulo' => 'required|string|max:100',
-            'accion' => 'required|in:crear,editar,eliminar',
+            'accion' => 'required|in:crear,editar,eliminar,acceso',
             'descripcion' => 'required|string|max:500',
             'metadata' => 'nullable|array',
         ]);
@@ -182,7 +192,7 @@ class AutorizacionController extends Controller
     public function aprobar(string $id, Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'tipo_aprobacion' => 'required|in:temporal,permanente',
+            'tipo_aprobacion' => 'required|in:temporal,permanente,una_vez',
             'duracion_horas' => 'nullable|integer|min:1',
             'comentario' => 'nullable|string|max:500',
         ]);
@@ -254,6 +264,26 @@ class AutorizacionController extends Controller
         } catch (\Exception $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+    }
+
+    /**
+     * Consumir una autorización de USO ÚNICO tras usarla.
+     * Solo afecta a las de tipo 'una_vez'; para temporal/permanente es no-op.
+     */
+    public function consumir(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'modulo' => 'required|string|max:100',
+            'accion' => 'required|in:crear,editar,eliminar,acceso',
+        ]);
+
+        $consumido = $this->service->consumirUnaVez(
+            $request->user()->id,
+            $validated['modulo'],
+            $validated['accion'],
+        );
+
+        return response()->json(['consumido' => $consumido]);
     }
 
     /**

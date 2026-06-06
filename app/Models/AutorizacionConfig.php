@@ -15,6 +15,8 @@ class AutorizacionConfig extends Model
         'accion',
         'requiere_autorizacion',
         'autorizador_id',
+        'tipo_autorizador',
+        'cargo_autorizador',
         'created_by',
     ];
 

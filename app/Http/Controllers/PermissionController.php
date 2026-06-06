@@ -30,8 +30,11 @@ class PermissionController extends Controller
     {
         $roles = Role::with(['restrictions' => function ($query) {
             $query->orderBy('name');
-        }])->orderBy('name')->get();
-        
+        }])
+            ->withCount('users')
+            ->orderBy('name')
+            ->get();
+
         return response()->json([
             'data' => $roles,
         ]);
@@ -59,11 +62,13 @@ class PermissionController extends Controller
         $request->validate([
             'name' => 'required|string|unique:role,name|max:255',
             'descripcion' => 'required|string|max:255',
+            'estado' => 'nullable|boolean',
         ]);
 
         $role = Role::create([
             'name' => $request->name,
             'descripcion' => $request->descripcion,
+            'estado' => $request->boolean('estado', true),
         ]);
 
         return response()->json([
@@ -80,13 +85,18 @@ class PermissionController extends Controller
         $request->validate([
             'name' => 'required|string|max:255|unique:role,name,' . $roleId,
             'descripcion' => 'required|string|max:255',
+            'estado' => 'nullable|boolean',
         ]);
 
         $role = Role::findOrFail($roleId);
-        $role->update([
+        $data = [
             'name' => $request->name,
             'descripcion' => $request->descripcion,
-        ]);
+        ];
+        if ($request->has('estado')) {
+            $data['estado'] = $request->boolean('estado');
+        }
+        $role->update($data);
 
         return response()->json([
             'data' => $role,
@@ -95,17 +105,52 @@ class PermissionController extends Controller
     }
 
     /**
-     * Eliminar un rol
+     * Activar / desactivar un rol (sin eliminarlo).
+     */
+    public function toggleEstadoRole(Request $request, $roleId): JsonResponse
+    {
+        $request->validate([
+            'estado' => 'required|boolean',
+        ]);
+
+        $role = Role::findOrFail($roleId);
+
+        // El administrador global no puede desactivarse.
+        if ($role->name === 'admin_global' && !$request->boolean('estado')) {
+            return response()->json([
+                'message' => 'No se puede desactivar el rol de administrador global',
+            ], 403);
+        }
+
+        $role->update(['estado' => $request->boolean('estado')]);
+
+        return response()->json([
+            'data' => $role,
+            'message' => $request->boolean('estado') ? 'Rol activado' : 'Rol desactivado',
+        ]);
+    }
+
+    /**
+     * Eliminar un rol.
+     * Solo se puede eliminar si NINGÚN usuario lo usa. Si está en uso,
+     * se sugiere desactivarlo en su lugar.
      */
     public function deleteRole($roleId): JsonResponse
     {
-        $role = Role::findOrFail($roleId);
-        
+        $role = Role::withCount('users')->findOrFail($roleId);
+
         // No permitir eliminar admin_global
         if ($role->name === 'admin_global') {
             return response()->json([
                 'message' => 'No se puede eliminar el rol de administrador global',
             ], 403);
+        }
+
+        // Solo se elimina si no lo usa ningún usuario
+        if ($role->users_count > 0) {
+            return response()->json([
+                'message' => "No se puede eliminar: el rol está asignado a {$role->users_count} usuario(s). Desactívalo en su lugar.",
+            ], 409);
         }
 
         $role->delete();

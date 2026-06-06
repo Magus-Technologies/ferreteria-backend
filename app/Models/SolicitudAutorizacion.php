@@ -17,6 +17,7 @@ class SolicitudAutorizacion extends Model
     protected $fillable = [
         'solicitante_id',
         'autorizador_id',
+        'cargo_autorizador',
         'role_id',
         'modulo',
         'accion',
@@ -84,11 +85,37 @@ class SolicitudAutorizacion extends Model
         return $query->where('estado', 'pendiente');
     }
 
+    /**
+     * Solicitudes que el usuario indicado puede autorizar.
+     *
+     * Una solicitud es visible para U si:
+     *  - U es el autorizador específico (autorizador_id == U.id), o
+     *  - la solicitud se dirigió a un cargo y U ocupa ese cargo
+     *    (cargo_autorizador == U.cargo), o
+     *  - no tiene ni usuario ni cargo destino (fallback) y U es ADMINISTRADOR.
+     * En todos los casos se excluye al propio solicitante.
+     */
     public function scopeDelAutorizador($query, string $userId)
     {
-        return $query->where(function ($q) use ($userId) {
-            $q->where('autorizador_id', $userId)
-              ->orWhereNull('autorizador_id');
-        });
+        $user = User::find($userId);
+        $cargo = $user?->cargo;
+        $esAdmin = $user && strtoupper((string) $user->rol_sistema) === 'ADMINISTRADOR';
+
+        return $query
+            ->where('solicitante_id', '!=', $userId)
+            ->where(function ($q) use ($userId, $cargo, $esAdmin) {
+                $q->where('autorizador_id', $userId);
+
+                if (!empty($cargo)) {
+                    $q->orWhere('cargo_autorizador', $cargo);
+                }
+
+                if ($esAdmin) {
+                    $q->orWhere(function ($qq) {
+                        $qq->whereNull('autorizador_id')
+                           ->whereNull('cargo_autorizador');
+                    });
+                }
+            });
     }
 }

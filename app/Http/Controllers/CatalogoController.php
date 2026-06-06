@@ -140,12 +140,13 @@ class CatalogoController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate([        
+        $validated = $request->validate([
             'codigo' => ['required', 'string', 'max:120', 'unique:catalogo_cargos,codigo'],
             'descripcion' => ['required', 'string', 'max:255'],
             'parent' => ['nullable', 'string', 'max:120'],
             'highlight' => ['sometimes', 'boolean'],
             'staff' => ['sometimes', 'boolean'],
+            'estado' => ['sometimes', 'boolean'],
         ]);
 
         if (!empty($validated['parent'])) {
@@ -187,6 +188,7 @@ class CatalogoController extends Controller
             'parent' => ['nullable', 'string', 'max:120'],
             'highlight' => ['sometimes', 'boolean'],
             'staff' => ['sometimes', 'boolean'],
+            'estado' => ['sometimes', 'boolean'],
         ]);
 
         if (!empty($validated['parent']) && $validated['parent'] === $cargo->codigo) {
@@ -216,9 +218,63 @@ class CatalogoController extends Controller
     public function destroy(string $codigo): JsonResponse
     {
         $cargo = CatalogoCargo::where('codigo', $codigo)->firstOrFail();
+
+        // Solo se elimina si ningún usuario lo tiene asignado.
+        $enUso = \App\Models\User::where('cargo', $cargo->codigo)->count();
+        if ($enUso > 0) {
+            return response()->json([
+                'message' => "No se puede eliminar: el cargo está asignado a {$enUso} usuario(s). Desactívalo en su lugar.",
+            ], 409);
+        }
+
         CatalogoCargo::where('parent', $cargo->codigo)->update(['parent' => null]);
         $cargo->delete();
 
         return response()->json([], 204);
+    }
+
+    /**
+     * Listado de cargos para gestión: incluye TODOS (activos e inactivos),
+     * su estado y cuántos usuarios lo usan.
+     * GET /api/catalogos/cargos-gestion
+     */
+    public function cargosGestion(): JsonResponse
+    {
+        $conteos = \App\Models\User::query()
+            ->selectRaw('cargo, COUNT(*) as total')
+            ->whereNotNull('cargo')
+            ->groupBy('cargo')
+            ->pluck('total', 'cargo');
+
+        $cargos = CatalogoCargo::orderBy('descripcion')
+            ->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff', 'estado'])
+            ->map(function ($c) use ($conteos) {
+                return [
+                    'id' => $c->id,
+                    'codigo' => $c->codigo,
+                    'descripcion' => $c->descripcion,
+                    'parent' => $c->parent,
+                    'highlight' => (bool) $c->highlight,
+                    'staff' => (bool) $c->staff,
+                    'estado' => (bool) $c->estado,
+                    'users_count' => (int) ($conteos[$c->codigo] ?? 0),
+                ];
+            });
+
+        return response()->json(['data' => $cargos]);
+    }
+
+    /**
+     * Activar / desactivar un cargo.
+     * PATCH /api/catalogos/cargos/{codigo}/estado
+     */
+    public function toggleEstadoCargo(Request $request, string $codigo): JsonResponse
+    {
+        $request->validate(['estado' => ['required', 'boolean']]);
+
+        $cargo = CatalogoCargo::where('codigo', $codigo)->firstOrFail();
+        $cargo->update(['estado' => $request->boolean('estado')]);
+
+        return response()->json(['data' => $cargo]);
     }
 }

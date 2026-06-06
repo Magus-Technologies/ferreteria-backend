@@ -17,7 +17,7 @@ class UsuarioController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = User::with(['empresa', 'vehiculo:id,name,tipo,placa']);
+        $query = User::with(['empresa', 'vehiculo:id,name,tipo,placa', 'roles:id,name,descripcion']);
 
         // Filtro por búsqueda (nombre, email, documento, codigo)
         if ($request->has('search')) {
@@ -90,7 +90,8 @@ class UsuarioController extends Controller
             'vacaciones_dias' => 'nullable|integer|min:0',
             'sueldo_boleta' => 'nullable|numeric|min:0',
             'rol_sistema' => 'nullable|in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,DESPACHADOR,CONDUCTOR',
-            
+            'role_id' => 'nullable|integer|exists:role,id',
+
             // Otros
             'efectivo' => 'nullable|numeric|min:0',
             'estado' => 'nullable|boolean',
@@ -170,12 +171,14 @@ class UsuarioController extends Controller
             'licencia_conducir' => $request->licencia_conducir,
         ]);
 
-        // Asignar rol automáticamente basándose en rol_sistema
-        if ($request->rol_sistema) {
+        // Asignar rol: preferir role_id (tabla role); si no, usar rol_sistema (compat)
+        if ($request->role_id) {
+            $this->vincularRolPorId($usuario, (int) $request->role_id);
+        } elseif ($request->rol_sistema) {
             $this->asignarRolPorSistema($usuario, $request->rol_sistema);
         }
 
-        $usuario->load(['empresa', 'vehiculo:id,name,tipo,placa']);
+        $usuario->load(['empresa', 'vehiculo:id,name,tipo,placa', 'roles:id,name,descripcion']);
 
         return response()->json([
             'data' => $usuario,
@@ -247,7 +250,8 @@ class UsuarioController extends Controller
             'vacaciones_dias' => 'nullable|integer|min:0',
             'sueldo_boleta' => 'nullable|numeric|min:0',
             'rol_sistema' => 'nullable|in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,DESPACHADOR,CONDUCTOR',
-            
+            'role_id' => 'nullable|integer|exists:role,id',
+
             // Otros
             'efectivo' => 'nullable|numeric|min:0',
             'estado' => 'nullable|boolean',
@@ -355,7 +359,10 @@ class UsuarioController extends Controller
         if ($request->has('sueldo_boleta')) {
             $usuario->sueldo_boleta = $request->sueldo_boleta;
         }
-        if ($request->has('rol_sistema')) {
+        // Rol: preferir role_id (tabla role); si no, usar rol_sistema (compat)
+        if ($request->filled('role_id')) {
+            $this->vincularRolPorId($usuario, (int) $request->role_id);
+        } elseif ($request->has('rol_sistema')) {
             $usuario->rol_sistema = $request->rol_sistema;
             // Actualizar el rol en la tabla _roletouser
             $this->asignarRolPorSistema($usuario, $request->rol_sistema);
@@ -376,7 +383,7 @@ class UsuarioController extends Controller
         }
 
         $usuario->save();
-        $usuario->load(['empresa', 'vehiculo:id,name,tipo,placa']);
+        $usuario->load(['empresa', 'vehiculo:id,name,tipo,placa', 'roles:id,name,descripcion']);
 
         return response()->json([
             'data' => $usuario,
@@ -478,6 +485,34 @@ class UsuarioController extends Controller
     /**
      * Asignar rol automáticamente basándose en el rol_sistema
      */
+    /**
+     * Vincular un usuario a un rol de la tabla `role` por id, y derivar el
+     * `rol_sistema` (compat) a partir del nombre del rol. Los roles que no
+     * mapean a un rol_sistema conocido dejan rol_sistema en null.
+     */
+    private function vincularRolPorId(User $usuario, int $roleId): void
+    {
+        $role = \App\Models\Role::find($roleId);
+        if (!$role) {
+            return;
+        }
+
+        // Reemplaza los roles del usuario por el seleccionado
+        $usuario->roles()->sync([$role->id]);
+
+        // Mapeo inverso role.name -> rol_sistema (para notificaciones/cajas/admin)
+        $mapeoInverso = [
+            'admin_global' => 'ADMINISTRADOR',
+            'vendedor' => 'VENDEDOR',
+            'almacenero' => 'ALMACENERO',
+            'contador' => 'CONTADOR',
+            'despachador' => 'DESPACHADOR',
+        ];
+
+        $usuario->rol_sistema = $mapeoInverso[$role->name] ?? null;
+        $usuario->save();
+    }
+
     private function asignarRolPorSistema(User $usuario, string $rolSistema): void
     {
         // Mapeo de rol_sistema a role.name
