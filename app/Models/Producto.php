@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 
 class Producto extends Model
 {
@@ -13,6 +14,34 @@ class Producto extends Model
     // Prisma usa camelCase para timestamps
     const CREATED_AT = 'created_at';
     const UPDATED_AT = 'updated_at';
+
+    /**
+     * Invalida la cache del listado ligero cuando se crea/edita/elimina un Producto.
+     *
+     * El observer de `ProductoAlmacen` ya invalida cuando cambia `stock_fraccion`
+     * (el dato de stock está en `producto_en_almacenes`, no en `producto`).
+     * PERO si editan el `Producto` directamente (nombre, precio, marca, cod_producto,
+     * cod_barra, etc.), el observer de `ProductoAlmacen` NO dispara y el modal
+     * muestra datos viejos hasta que se toque el stock.
+     *
+     * Este observer cubre ese gap: cualquier cambio en `Producto` invalida
+     * TODAS las caches de listado ligero de TODOS los almacenes (el producto
+     * puede aparecer en varios almacenes).
+     */
+    protected static function booted(): void
+    {
+        $invalidate = function (Producto $producto) {
+            $almacenIds = $producto->productoEnAlmacenes()->pluck('almacen_id')->all();
+            foreach ($almacenIds as $almacenId) {
+                Cache::forget("productos_listado_ligero_{$almacenId}");
+                Cache::forget("productos_listado_completo_{$almacenId}");
+            }
+        };
+
+        static::created($invalidate);
+        static::updated($invalidate);
+        static::deleted($invalidate);
+    }
 
     protected $fillable = [
         'cod_producto',

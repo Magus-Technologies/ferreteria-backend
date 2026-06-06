@@ -59,11 +59,6 @@ class Almacen extends Model
         return $this->hasMany(Empresa::class);
     }
 
-    public function entregasProductos(): HasMany
-    {
-        return $this->hasMany(EntregaProducto::class);
-    }
-
     public function seriesDocumentos(): HasMany
     {
         return $this->hasMany(SerieDocumento::class);

@@ -12,7 +12,6 @@ use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\ProveedorCalificacionController;
 use App\Http\Controllers\IngresoSalidaController;
 use App\Http\Controllers\EntregaProductoController;
-use App\Http\Controllers\EntregaEventoController;
 use App\Http\Controllers\PaqueteController;
 use App\Http\Controllers\SerieDocumentoController;
 use App\Http\Controllers\ChoferController;
@@ -168,19 +167,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('recepciones-almacen/finalizar-compra/{compra_id}', [RecepcionAlmacenController::class, 'finalizarCompra'])->middleware('broadcast:recepciones-almacen');
 
     // ============================================
-    // ENTREGAS DE PRODUCTOS
+    // ENTREGAS DE PRODUCTOS (legacy) — SOLO crear/editar, migrados por dentro a
+    // la tabla nueva. El resto del CRUD legacy (index/show/destroy/aceptar/anular)
+    // y los eventos se eliminaron: el front usa la API nueva (entregas/*) para
+    // listar / ver / anular / confirmar / eventos.
     // ============================================
-    Route::post('entregas-productos/{id}/aceptar', [EntregaProductoController::class, 'aceptar'])->middleware('broadcast:entregas-productos');
-    Route::post('entregas-productos/{id}/anular', [EntregaProductoController::class, 'anular'])->middleware('broadcast:entregas-productos');
-    Route::apiResource('entregas-productos', EntregaProductoController::class)->middleware('broadcast:entregas-productos');
-
-    // Eventos de despacho físico anidados bajo una orden de entrega
-    Route::get('entregas-productos/{entregaId}/eventos', [EntregaEventoController::class, 'index']);
-    Route::post('entregas-productos/{entregaId}/eventos', [EntregaEventoController::class, 'store'])->middleware('broadcast:entregas-productos');
-    Route::post('entregas-productos/{entregaId}/eventos/confirmar-en-camino', [EntregaEventoController::class, 'confirmarEnCamino'])->middleware('broadcast:entregas-productos');
-    Route::put('entregas-productos/{entregaId}/eventos/{eventoId}', [EntregaEventoController::class, 'update'])->middleware('broadcast:entregas-productos');
-    Route::post('entregas-productos/{entregaId}/eventos/{eventoId}/anular', [EntregaEventoController::class, 'anular'])->middleware('broadcast:entregas-productos');
-    Route::delete('entregas-productos/{entregaId}/eventos/{eventoId}', [EntregaEventoController::class, 'destroy'])->middleware('broadcast:entregas-productos');
+    Route::apiResource('entregas-productos', EntregaProductoController::class)
+        ->only(['store', 'update'])
+        ->middleware('broadcast:entregas-productos');
 
     // ============================================
     // PAQUETES

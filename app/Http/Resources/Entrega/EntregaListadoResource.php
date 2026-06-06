@@ -10,19 +10,17 @@ class EntregaListadoResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $legacy = $this->relationLoaded('entregaLegacy') ? $this->entregaLegacy : null;
-        $chofer = $this->chofer ?: $legacy?->despachador;
-        $vehiculo = $this->vehiculo ?: $legacy?->vehiculo;
-        $fechaProgramada = $this->fecha_programada ?? $legacy?->fecha_programada;
-        $latitud = $this->latitud ?? $legacy?->latitud;
-        $longitud = $this->longitud ?? $legacy?->longitud;
+        $chofer = $this->chofer;
+        $vehiculo = $this->vehiculo;
+        $fechaProgramada = $this->fecha_programada;
+        $latitud = $this->latitud;
+        $longitud = $this->longitud;
 
         return [
             'id'                      => $this->id,
             'venta_id'                => $this->venta_id,
             'venta_entrega_secuencia' => $this->venta_entrega_secuencia,
             'stock_aplicado'          => (bool) $this->stock_aplicado,
-            'entrega_legacy_id'       => $this->entrega_legacy_id,
 
             'tipo_entrega_codigo'   => $this->tipoEntrega?->codigo?->value,
             'tipo_entrega_nombre'   => $this->tipoEntrega?->nombre,
@@ -40,10 +38,10 @@ class EntregaListadoResource extends JsonResource
             'quien_entrega_codigo'  => $this->quienEntrega?->codigo?->value,
             'quien_entrega_nombre'  => $this->quienEntrega?->nombre,
 
-            'chofer_id'   => $this->chofer_id ?? $legacy?->chofer_id,
+            'chofer_id'   => $this->chofer_id,
             'chofer_name' => $chofer?->name,
 
-            'vehiculo_id'    => $this->vehiculo_id ?? $legacy?->vehiculo_id,
+            'vehiculo_id'    => $this->vehiculo_id,
             'vehiculo_placa' => $vehiculo?->placa,
             'vehiculo_name'  => $vehiculo?->name,
 
@@ -53,14 +51,14 @@ class EntregaListadoResource extends JsonResource
             'fecha_creacion'   => $this->fecha_creacion?->toDateString(),
             'fecha_programada' => $this->formatDate($fechaProgramada),
             'fecha_ejecutada'  => $this->fecha_ejecutada?->toIso8601String(),
-            'hora_inicio'      => $this->hora_inicio ?? $legacy?->hora_inicio,
-            'hora_fin'         => $this->hora_fin ?? $legacy?->hora_fin,
+            'hora_inicio'      => $this->hora_inicio,
+            'hora_fin'         => $this->hora_fin,
 
-            'direccion_entrega'  => $this->direccion_entrega ?? $legacy?->direccion_entrega,
-            'referencia_entrega' => $this->referencia_entrega ?? $legacy?->referencia_entrega,
+            'direccion_entrega'  => $this->direccion_entrega,
+            'referencia_entrega' => $this->referencia_entrega,
             'latitud'            => $latitud !== null ? (float) $latitud : null,
             'longitud'           => $longitud !== null ? (float) $longitud : null,
-            'observaciones'      => $this->observaciones ?? $legacy?->observaciones,
+            'observaciones'      => $this->observaciones,
             'motivo_anulacion'   => $this->motivo_anulacion,
 
             'venta' => $this->whenLoaded('venta', fn () => [

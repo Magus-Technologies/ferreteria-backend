@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\VehiculoMantenimiento;
-use App\Models\EntregaProducto;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -57,8 +56,8 @@ class VehiculoDisponibilidadController extends Controller
             ]);
         }
 
-        // Entregas programadas para el vehiculo
-        $entregas = EntregaProducto::where('vehiculo_id', $id)
+        // Entregas programadas para el vehiculo (tabla nueva)
+        $entregas = \App\Models\Entrega::where('vehiculo_id', $id)
             ->whereNotNull('fecha_programada')
             ->when($desde, fn($q) => $q->whereDate('fecha_programada', '>=', $desde))
             ->when($hasta, fn($q) => $q->whereDate('fecha_programada', '<=', $hasta))

@@ -36,6 +36,9 @@ class ProductoAlmacen extends Model
                 \Illuminate\Support\Facades\Cache::forget(
                     "productos_listado_ligero_{$productoAlmacen->almacen_id}"
                 );
+                \Illuminate\Support\Facades\Cache::forget(
+                    "productos_listado_completo_{$productoAlmacen->almacen_id}"
+                );
             }
         });
 
@@ -45,6 +48,9 @@ class ProductoAlmacen extends Model
             \Illuminate\Support\Facades\Cache::forget(
                 "productos_listado_ligero_{$productoAlmacen->almacen_id}"
             );
+            \Illuminate\Support\Facades\Cache::forget(
+                "productos_listado_completo_{$productoAlmacen->almacen_id}"
+            );
         });
 
         // Producto removido del almacén: invalidar búsquedas que aún lo listaban
@@ -52,6 +58,9 @@ class ProductoAlmacen extends Model
             app(ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
             \Illuminate\Support\Facades\Cache::forget(
                 "productos_listado_ligero_{$productoAlmacen->almacen_id}"
+            );
+            \Illuminate\Support\Facades\Cache::forget(
+                "productos_listado_completo_{$productoAlmacen->almacen_id}"
             );
         });
     }

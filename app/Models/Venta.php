@@ -100,9 +100,9 @@ class Venta extends Model
         return $this->hasMany(DespliegueDePagoVenta::class);
     }
 
-    public function entregasProductos(): HasMany
+    public function entregas(): HasMany
     {
-        return $this->hasMany(EntregaProducto::class);
+        return $this->hasMany(Entrega::class, 'venta_id');
     }
 
     public function cotizacion(): HasOne

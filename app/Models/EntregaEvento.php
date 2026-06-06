@@ -22,7 +22,7 @@ class EntregaEvento extends Model
     const UPDATED_AT = 'updated_at';
 
     protected $fillable = [
-        'entrega_producto_id',
+        'entrega_id',
         'estado',                // pr | ec | en | an
         'fecha_programada',
         'fecha_ejecutada',
@@ -60,9 +60,9 @@ class EntregaEvento extends Model
         ];
     }
 
-    public function entregaProducto(): BelongsTo
+    public function entrega(): BelongsTo
     {
-        return $this->belongsTo(EntregaProducto::class);
+        return $this->belongsTo(Entrega::class, 'entrega_id');
     }
 
     public function detalles(): HasMany

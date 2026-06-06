@@ -49,6 +49,12 @@ Route::middleware('auth:sanctum')->group(function () {
         // (sin compras, sin productoComplementario, sin tiene_ingresos).
         // Cache 10 min en el service.
         Route::get('/listado-modal', [ProductoController::class, 'listadoModal']);
+
+        // Listado COMPLETO para la vista "Mi Almacén".
+        // Devuelve TODOS los productos con shape completo (ambos estados,
+        // tiene_ingresos, img, ficha_tecnica, todos los almacenes).
+        // SIN compras. Cache 10 min en el service.
+        Route::get('/listado-completo', [ProductoController::class, 'listadoCompleto']);
     });
 
     // ============================================

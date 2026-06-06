@@ -12,19 +12,17 @@ class EntregaResource extends JsonResource
     {
         $venta    = $this->whenLoaded('venta');
         $cliente  = optional($venta)->client ?? optional($venta)->cliente;
-        $legacy = $this->relationLoaded('entregaLegacy') ? $this->entregaLegacy : null;
-        $chofer = $this->chofer ?: $legacy?->despachador;
-        $vehiculo = $this->vehiculo ?: $legacy?->vehiculo;
-        $fechaProgramada = $this->fecha_programada ?? $legacy?->fecha_programada;
-        $latitud = $this->latitud ?? $legacy?->latitud;
-        $longitud = $this->longitud ?? $legacy?->longitud;
+        $chofer = $this->chofer;
+        $vehiculo = $this->vehiculo;
+        $fechaProgramada = $this->fecha_programada;
+        $latitud = $this->latitud;
+        $longitud = $this->longitud;
 
         return [
             'id'                      => $this->id,
             'venta_id'                => $this->venta_id,
             'venta_entrega_secuencia' => $this->venta_entrega_secuencia,
             'stock_aplicado'          => (bool) $this->stock_aplicado,
-            'entrega_legacy_id'       => $this->entrega_legacy_id,
 
             // Catálogos
             'tipo_entrega'  => $this->whenLoaded('tipoEntrega', fn () => [
@@ -54,16 +52,17 @@ class EntregaResource extends JsonResource
 
             // Logística
             'almacen_salida_id' => $this->almacen_salida_id,
+            'user_creador_id'   => $this->user_creador_id,
             'almacen_salida'    => $this->whenLoaded('almacenSalida', fn () => [
                 'id'   => $this->almacenSalida->id,
                 'name' => $this->almacenSalida->name,
             ]),
-            'chofer_id' => $this->chofer_id ?? $legacy?->chofer_id,
+            'chofer_id' => $this->chofer_id,
             'chofer'    => $chofer ? [
                 'id'   => $chofer->id,
                 'name' => $chofer->name,
             ] : null,
-            'vehiculo_id' => $this->vehiculo_id ?? $legacy?->vehiculo_id,
+            'vehiculo_id' => $this->vehiculo_id,
             'vehiculo'    => $vehiculo ? [
                 'id'    => $vehiculo->id,
                 'name'  => $vehiculo->name,
@@ -80,17 +79,17 @@ class EntregaResource extends JsonResource
             'fecha_programada' => $this->formatDate($fechaProgramada),
             'fecha_ejecutada'  => $this->fecha_ejecutada?->toIso8601String(),
             'fecha_anulacion'  => $this->fecha_anulacion?->toIso8601String(),
-            'hora_inicio'      => $this->hora_inicio ?? $legacy?->hora_inicio,
-            'hora_fin'         => $this->hora_fin ?? $legacy?->hora_fin,
+            'hora_inicio'      => $this->hora_inicio,
+            'hora_fin'         => $this->hora_fin,
 
             // Ubicación
-            'direccion_entrega'  => $this->direccion_entrega ?? $legacy?->direccion_entrega,
-            'referencia_entrega' => $this->referencia_entrega ?? $legacy?->referencia_entrega,
+            'direccion_entrega'  => $this->direccion_entrega,
+            'referencia_entrega' => $this->referencia_entrega,
             'latitud'            => $latitud !== null ? (float) $latitud : null,
             'longitud'           => $longitud !== null ? (float) $longitud : null,
 
             // Notas
-            'observaciones'   => $this->observaciones ?? $legacy?->observaciones,
+            'observaciones'   => $this->observaciones,
             'motivo_anulacion'=> $this->motivo_anulacion,
 
             // Venta resumida

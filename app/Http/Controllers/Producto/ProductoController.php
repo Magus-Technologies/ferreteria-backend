@@ -66,6 +66,32 @@ class ProductoController extends Controller
     }
 
     /**
+     * Listado COMPLETO para la vista "Mi Almacén".
+     *
+     * GET /api/productos/listado-completo?almacen_id={id}
+     *
+     * Devuelve TODOS los productos del almacén con shape completo:
+     *  - Ambos estados (activo/inactivo)
+     *  - `tiene_ingresos` (para validar eliminación)
+     *  - `img`, `ficha_tecnica`
+     *  - TODOS los `productoEnAlmacenes` (incluidos otros almacenes)
+     *  - `ubicacion`, `costo_anterior/actual`, `stock_costo_anterior/actual`
+     *
+     * SIN `compras` (no se renderizan en la grilla).
+     * Cache 10 min por almacén.
+     */
+    public function listadoCompleto(\Illuminate\Http\Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'required|integer|exists:almacen,id',
+        ]);
+
+        return $this->productoService->getListadoCompletoPorAlmacen(
+            (int) $request->query('almacen_id')
+        );
+    }
+
+    /**
      * Store a newly created product.
      *
      * POST /api/productos

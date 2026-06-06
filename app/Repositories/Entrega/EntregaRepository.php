@@ -21,9 +21,6 @@ class EntregaRepository implements EntregaRepositoryInterface
         'almacenSalida:id,name',
         'chofer:id,name',
         'vehiculo:id,name,tipo,placa',
-        'entregaLegacy:id,chofer_id,vehiculo_id,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones',
-        'entregaLegacy.despachador:id,name',
-        'entregaLegacy.vehiculo:id,name,tipo,placa',
         'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
         'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
         'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.ubicacion',
@@ -57,9 +54,6 @@ class EntregaRepository implements EntregaRepositoryInterface
             'venta.cliente:id,nombres,apellidos,razon_social',
             'chofer:id,name',
             'vehiculo:id,name,placa',
-            'entregaLegacy:id,chofer_id,vehiculo_id,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones',
-            'entregaLegacy.despachador:id,name',
-            'entregaLegacy.vehiculo:id,name,tipo,placa',
         ]);
 
         // Filtro de venta
@@ -131,9 +125,6 @@ class EntregaRepository implements EntregaRepositoryInterface
             'venta.cliente.direcciones:id,cliente_id,tipo,direccion,latitud,longitud',
             'chofer:id,name',
             'vehiculo:id,name,placa',
-            'entregaLegacy:id,chofer_id,vehiculo_id,fecha_programada,hora_inicio,hora_fin,direccion_entrega,referencia_entrega,latitud,longitud,observaciones',
-            'entregaLegacy.despachador:id,name',
-            'entregaLegacy.vehiculo:id,name,tipo,placa',
             'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.ubicacion',
@@ -150,10 +141,7 @@ class EntregaRepository implements EntregaRepositoryInterface
 
         if (! empty($filtros['chofer_id'])) {
             $choferId = $filtros['chofer_id'];
-            $query->where(function ($sub) use ($choferId) {
-                $sub->where('chofer_id', $choferId)
-                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->where('chofer_id', $choferId));
-            });
+            $query->where('chofer_id', $choferId);
         }
 
         if (! empty($filtros['vehiculo_id'])) {
@@ -164,15 +152,9 @@ class EntregaRepository implements EntregaRepositoryInterface
                 // empty() pero no había valores reales: no filtrar.
             } elseif (count($vehiculoIds) === 1) {
                 $vehiculoId = $vehiculoIds[0];
-                $query->where(function ($sub) use ($vehiculoId) {
-                    $sub->where('vehiculo_id', $vehiculoId)
-                        ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->where('vehiculo_id', $vehiculoId));
-                });
+                $query->where('vehiculo_id', $vehiculoId);
             } else {
-                $query->where(function ($sub) use ($vehiculoIds) {
-                    $sub->whereIn('vehiculo_id', $vehiculoIds)
-                        ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->whereIn('vehiculo_id', $vehiculoIds));
-                });
+                $query->whereIn('vehiculo_id', $vehiculoIds);
             }
         }
 
@@ -180,10 +162,7 @@ class EntregaRepository implements EntregaRepositoryInterface
         $soloProgramadasActivas = ! empty($filtros['solo_programadas']);
 
         if ($filtrarPorFechaProgramada) {
-            $query->where(function ($sub) {
-                $sub->whereNotNull('fecha_programada')
-                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->whereNotNull('fecha_programada'));
-            });
+            $query->whereNotNull('fecha_programada');
 
             $query->whereHas('tipoDespacho', fn ($q) => $q->where('codigo', '!=', 'in'));
 
@@ -194,20 +173,14 @@ class EntregaRepository implements EntregaRepositoryInterface
 
         if (! empty($filtros['fecha_desde']) && $filtrarPorFechaProgramada) {
             $fechaDesde = $filtros['fecha_desde'];
-            $query->where(function ($sub) use ($fechaDesde) {
-                $sub->whereDate('fecha_programada', '>=', $fechaDesde)
-                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->whereDate('fecha_programada', '>=', $fechaDesde));
-            });
+            $query->whereDate('fecha_programada', '>=', $fechaDesde);
         } elseif (! empty($filtros['fecha_desde'])) {
             $query->where('fecha_creacion', '>=', $filtros['fecha_desde']);
         }
 
         if (! empty($filtros['fecha_hasta']) && $filtrarPorFechaProgramada) {
             $fechaHasta = $filtros['fecha_hasta'];
-            $query->where(function ($sub) use ($fechaHasta) {
-                $sub->whereDate('fecha_programada', '<=', $fechaHasta)
-                    ->orWhereHas('entregaLegacy', fn ($legacy) => $legacy->whereDate('fecha_programada', '<=', $fechaHasta));
-            });
+            $query->whereDate('fecha_programada', '<=', $fechaHasta);
         } elseif (! empty($filtros['fecha_hasta'])) {
             $query->where('fecha_creacion', '<=', $filtros['fecha_hasta']);
         }
