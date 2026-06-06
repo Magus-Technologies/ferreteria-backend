@@ -299,6 +299,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/verificar', [AutorizacionController::class, 'verificar']);
         // Consumir autorización de uso único tras usarla
         Route::post('/consumir', [AutorizacionController::class, 'consumir']);
+        // Override en sitio con clave de supervisor
+        Route::get('/supervisores', [AutorizacionController::class, 'supervisores']);
+        Route::post('/override', [AutorizacionController::class, 'override']);
 
         // Solicitudes
         Route::post('/solicitar', [AutorizacionController::class, 'solicitar']);

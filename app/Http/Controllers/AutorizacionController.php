@@ -287,6 +287,52 @@ class AutorizacionController extends Controller
     }
 
     /**
+     * Supervisores válidos para autorizar (override en sitio) esta acción.
+     */
+    public function supervisores(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'modulo' => 'required|string|max:100',
+            'accion' => 'required|in:crear,editar,eliminar,acceso',
+        ]);
+
+        $supervisores = $this->service->supervisoresValidos(
+            $request->user()->id,
+            $validated['modulo'],
+            $validated['accion'],
+        );
+
+        return response()->json(['data' => $supervisores]);
+    }
+
+    /**
+     * Override en sitio: un supervisor autoriza con su clave (concede uso único).
+     */
+    public function override(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'modulo' => 'required|string|max:100',
+            'accion' => 'required|in:crear,editar,eliminar,acceso',
+            'supervisor_id' => 'required|string|exists:user,id',
+            'supervisor_password' => 'required|string',
+        ]);
+
+        try {
+            $otorgada = $this->service->autorizarConClaveSupervisor(
+                $request->user()->id,
+                $validated['modulo'],
+                $validated['accion'],
+                $validated['supervisor_id'],
+                $validated['supervisor_password'],
+            );
+
+            return response()->json(['data' => $otorgada, 'message' => 'Autorización concedida']);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
      * Listar usuarios disponibles como autorizadores (id + name).
      */
     public function usuarios(): JsonResponse

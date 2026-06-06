@@ -6,6 +6,7 @@ use App\Models\AutorizacionConfig;
 use App\Models\AutorizacionOtorgada;
 use App\Models\SolicitudAutorizacion;
 use App\Models\User;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 
 class AutorizacionService
@@ -149,6 +150,134 @@ class AutorizacionService
 
         // Modo usuario (por defecto): usuario fijo configurado.
         return [$config->autorizador_id ?: null, null];
+    }
+
+    /**
+     * IDs de usuarios que pueden autorizar una solicitud (según el modo del config).
+     * Reutiliza resolverDestino: usuario fijo, cargo, o admins (fallback).
+     */
+    private function autorizadoresValidos(AutorizacionConfig $config, User $solicitante): \Illuminate\Support\Collection
+    {
+        [$autorizadorId, $cargoAutorizador] = $this->resolverDestino($config, $solicitante, $solicitante->id);
+
+        if ($autorizadorId) {
+            return User::where('id', $autorizadorId)->where('estado', true)->pluck('id');
+        }
+
+        if ($cargoAutorizador) {
+            return User::where('cargo', $cargoAutorizador)
+                ->where('id', '!=', $solicitante->id)
+                ->where('estado', true)
+                ->pluck('id');
+        }
+
+        // Fallback: administradores
+        return User::whereRaw('UPPER(rol_sistema) = ?', ['ADMINISTRADOR'])
+            ->where('id', '!=', $solicitante->id)
+            ->where('estado', true)
+            ->pluck('id');
+    }
+
+    /**
+     * Buscar el config de autorización vigente para el solicitante.
+     */
+    private function configPara(User $solicitante, string $modulo, string $accion): ?AutorizacionConfig
+    {
+        $roleIds = $solicitante->roles->pluck('id')->toArray();
+        if (empty($roleIds)) {
+            return null;
+        }
+
+        return AutorizacionConfig::where('modulo', $modulo)
+            ->where('accion', $accion)
+            ->where('requiere_autorizacion', true)
+            ->whereIn('role_id', $roleIds)
+            ->first();
+    }
+
+    /**
+     * Supervisores válidos (con clave de supervisor) que pueden autorizar esta
+     * acción para el solicitante. Usado por el override en sitio.
+     */
+    public function supervisoresValidos(string $requesterId, string $modulo, string $accion): \Illuminate\Support\Collection
+    {
+        $solicitante = User::with('roles')->findOrFail($requesterId);
+        $config = $this->configPara($solicitante, $modulo, $accion);
+        if (!$config) {
+            return collect();
+        }
+
+        $ids = $this->autorizadoresValidos($config, $solicitante);
+
+        return User::whereIn('id', $ids)
+            ->where('es_supervisor', true)
+            ->whereNotNull('supervisor_password')
+            ->where('estado', true)
+            ->get(['id', 'name']);
+    }
+
+    /**
+     * Override en sitio: un supervisor presente autoriza con su clave.
+     * Concede una autorización de USO ÚNICO al solicitante.
+     */
+    public function autorizarConClaveSupervisor(
+        string $requesterId,
+        string $modulo,
+        string $accion,
+        string $supervisorId,
+        string $password,
+    ): AutorizacionOtorgada {
+        $solicitante = User::with('roles')->findOrFail($requesterId);
+        $config = $this->configPara($solicitante, $modulo, $accion);
+        if (!$config) {
+            throw new \Exception('No se requiere autorización para esta acción');
+        }
+
+        $supervisor = User::find($supervisorId);
+        if (!$supervisor || !$supervisor->es_supervisor || !$supervisor->supervisor_password) {
+            throw new \Exception('El supervisor seleccionado no tiene clave de supervisor');
+        }
+        if (!Hash::check($password, $supervisor->supervisor_password)) {
+            throw new \Exception('Clave de supervisor incorrecta');
+        }
+
+        // El supervisor debe ser un autorizador válido para esta acción.
+        if (!$this->autorizadoresValidos($config, $solicitante)->contains($supervisorId)) {
+            throw new \Exception('Ese supervisor no puede autorizar esta acción');
+        }
+
+        // Si había una solicitud pendiente, marcarla como aprobada (auditoría).
+        $solicitud = SolicitudAutorizacion::where('solicitante_id', $requesterId)
+            ->where('modulo', $modulo)
+            ->where('accion', $accion)
+            ->where('estado', 'pendiente')
+            ->first();
+        if ($solicitud) {
+            $solicitud->update([
+                'estado' => 'aprobada',
+                'tipo_aprobacion' => 'una_vez',
+                'respondido_por' => $supervisorId,
+                'respondido_at' => now(),
+                'comentario_respuesta' => 'Autorizado con clave de supervisor',
+            ]);
+        }
+
+        // Conceder de uso único.
+        return AutorizacionOtorgada::updateOrCreate(
+            [
+                'user_id' => $requesterId,
+                'modulo' => $modulo,
+                'accion' => $accion,
+            ],
+            [
+                'role_id' => $config->role_id,
+                'tipo' => 'una_vez',
+                'fecha_expiracion' => null,
+                'otorgada_por' => $supervisorId,
+                'solicitud_id' => $solicitud?->id,
+                'activa' => true,
+            ]
+        );
     }
 
     /**

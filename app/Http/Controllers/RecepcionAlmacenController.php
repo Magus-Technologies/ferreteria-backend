@@ -1016,15 +1016,10 @@ class RecepcionAlmacenController extends Controller
                             }
                         }
 
-                        // Crear historial de reversión (solo si hubo movimiento de stock)
-                        if (!$recepcion->es_finalizacion) {
-                            $stockInicial = $stockBase - $acumulado;
-                            HistorialUnidadDerivadaInmutableRecepcion::create([
-                                'unidad_derivada_inmutable_recepcion_id' => $unidadDerivada->id,
-                                'stock_anterior' => $stockInicial,
-                                'stock_nuevo' => $stockInicial - $cantidadTotal,
-                            ]);
-                        }
+                        // NOTA: NO se crea historial de reversión en la recepción.
+                        // La recepción debe permanecer intacta como registro histórico:
+                        // al anular solo cambia el stock del almacén (decrement más abajo)
+                        // y el movimiento de reversión queda registrado en el kardex.
 
                         $acumulado += $cantidadTotal;
                     }
