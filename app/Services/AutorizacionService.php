@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\ModelChanged;
 use App\Models\AutorizacionConfig;
 use App\Models\AutorizacionOtorgada;
 use App\Models\SolicitudAutorizacion;
@@ -293,7 +294,7 @@ class AutorizacionService
         }
 
         // Conceder de uso único.
-        return AutorizacionOtorgada::updateOrCreate(
+        $otorgada = AutorizacionOtorgada::updateOrCreate(
             [
                 'user_id' => $requesterId,
                 'modulo' => $modulo,
@@ -308,6 +309,11 @@ class AutorizacionService
                 'activa' => true,
             ]
         );
+
+        // Tiempo real: refrescar la pantalla del solicitante (auth_granted).
+        ModelChanged::dispatch('autorizaciones', 'aprobada', $solicitud?->id, $requesterId);
+
+        return $otorgada;
     }
 
     /**
@@ -360,6 +366,10 @@ class AutorizacionService
 
         // Notificar al solicitante
         $this->notificarSolicitante($solicitud, 'aprobada');
+
+        // Tiempo real: avisar al solicitante para que su pantalla refresque el
+        // usuario (auth_granted) y el candado del elemento/vista desaparezca solo.
+        ModelChanged::dispatch('autorizaciones', 'aprobada', $solicitud->id, $solicitud->solicitante_id);
 
         return $solicitud->load(['solicitante', 'respondidoPor']);
     }
