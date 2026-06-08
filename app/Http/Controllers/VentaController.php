@@ -186,15 +186,25 @@ class VentaController extends Controller
             });
         }
 
-        // Filter by entrega status (pendiente = tiene cantidad_pendiente > 0, completa = todo entregado)
+        // Filter by entrega status.
+        // "pendiente" = tiene cantidad_pendiente > 0 O tiene entregas activas (pe/ec).
+        // "completa"  = cantidad_pendiente = 0 Y sin entregas activas (pe/ec).
+        // Ambas condiciones deben mantenerse en sync con la lógica de la columna
+        // "Entrega" en el frontend (columns-mis-ventas).
         if ($request->has('entrega')) {
             if ($request->entrega === 'pendiente') {
-                $query->whereHas('productosPorAlmacen.unidadesDerivadas', function ($q) {
-                    $q->where('cantidad_pendiente', '>', 0);
+                $query->where(function ($q) {
+                    $q->whereHas('productosPorAlmacen.unidadesDerivadas', function ($q2) {
+                        $q2->where('cantidad_pendiente', '>', 0);
+                    })->orWhereHas('entregas.estadoEntrega', function ($q2) {
+                        $q2->whereIn('codigo', ['pe', 'ec']);
+                    });
                 });
             } elseif ($request->entrega === 'completa') {
                 $query->whereDoesntHave('productosPorAlmacen.unidadesDerivadas', function ($q) {
                     $q->where('cantidad_pendiente', '>', 0);
+                })->whereDoesntHave('entregas.estadoEntrega', function ($q) {
+                    $q->whereIn('codigo', ['pe', 'ec']);
                 });
             }
         }
