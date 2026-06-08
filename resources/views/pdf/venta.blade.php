@@ -79,7 +79,7 @@
     @endphp
     @include('pdf.layout.totales', [
         'son' => $son,
-        'moneda' => 'SOLES',
+        'moneda' => $moneda ?? 'SOLES',
         'observaciones' => $observaciones,
         'totales' => $filasTotales,
     ])

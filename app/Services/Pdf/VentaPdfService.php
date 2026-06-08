@@ -43,8 +43,10 @@ class VentaPdfService
             $productos = array_merge($productos, $productosGratis);
         }
 
+        $moneda = $venta->tipo_moneda?->value === 's' ? 'SOLES' : 'DOLARES';
+
         if ($formato === 'ticket') {
-            return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales, $valesDescuento);
+            return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales, $valesDescuento, $moneda);
         }
 
         $codigoQr = $this->obtenerCodigoQr($venta);
@@ -74,8 +76,9 @@ class VentaPdfService
             'valesDescuento' => $valesDescuento,
             'codigoQr' => $codigoQr,
             'consultaUrl' => $consultaUrl,
-            'filas' => $this->prepararInfoCliente($venta),
+            'filas' => $this->prepararInfoCliente($venta, $moneda),
             'son' => PdfService::numeroALetras($calculos['total']),
+            'moneda' => $moneda,
             'observaciones' => $observaciones,
             'plantilla' => $plantilla,
             'logosExtras' => $logosExtras,
@@ -209,7 +212,7 @@ class VentaPdfService
         );
     }
 
-    private function generarTicket($venta, $empresa, array $productos, array $calculos, bool $sinVales = false, array $valesDescuento = []): Response
+    private function generarTicket($venta, $empresa, array $productos, array $calculos, bool $sinVales = false, array $valesDescuento = [], string $moneda = 'SOLES'): Response
     {
         $cliente = $venta->cliente;
         $clienteNombre = $cliente?->razon_social
@@ -311,6 +314,7 @@ class VentaPdfService
             'productos' => $productos,
             'calculos' => $calculos,
             'son' => PdfService::numeroALetras($calculos['total']),
+            'moneda' => $moneda,
             'observaciones' => $venta->descripcion ?: ($msg['observaciones_default'] ?? '- NINGUNA'),
             'vales' => $sinVales ? [] : $vales,
             'valesDescuento' => $valesDescuento,
@@ -371,8 +375,9 @@ class VentaPdfService
             foreach ($pa->unidadesDerivadas as $ud) {
                 $cantidad = (float) $ud->cantidad;
                 $precio = (float) $ud->precio;
+                $recargo = (float) ($ud->recargo ?? 0);
                 $descuento = (float) ($ud->descuento ?? 0);
-                $subtotal = $cantidad * $precio;
+                $subtotal = ($precio + $recargo) * $cantidad;
 
                 $productos[] = [
                     'producto_id' => $producto->id,
@@ -382,7 +387,7 @@ class VentaPdfService
                     'marca' => $producto->marca->name ?? '',
                     'unidad' => $ud->unidadDerivadaInmutable->name ?? '',
                     'cantidad' => $cantidad,
-                    'precio' => $precio,
+                    'precio' => $precio + $recargo,
                     'descuento' => $descuento,
                     'subtotal' => $subtotal,
                     'sobrecargo_porcentaje' => 0,
@@ -622,7 +627,7 @@ class VentaPdfService
     /**
      * Preparar las filas de informacion del cliente.
      */
-    private function prepararInfoCliente(Venta $venta): array
+    private function prepararInfoCliente(Venta $venta, string $moneda = 'SOLES'): array
     {
         $cliente = $venta->cliente;
         $clienteNombre = $cliente?->razon_social
@@ -650,7 +655,7 @@ class VentaPdfService
             ],
             [
                 'Forma Pago' => $venta->forma_de_pago->value ?? '',
-                'Moneda' => 'SOLES',
+                'Moneda' => $moneda,
             ],
             [
                 'Cajero' => $venta->user->name,

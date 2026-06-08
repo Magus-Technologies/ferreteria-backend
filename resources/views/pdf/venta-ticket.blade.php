@@ -223,7 +223,7 @@
 
     {{-- Total en letras --}}
     <div style="margin-top: 4px; {{ $bloques['son']['css'] ?? 'font-size:7pt;' }}">
-        {{ $son }} SOLES
+        {{ $son }} {{ $moneda ?? 'SOLES' }}
     </div>
 
     {{-- Observaciones --}}
