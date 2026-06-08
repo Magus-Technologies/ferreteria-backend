@@ -614,14 +614,13 @@ class VentaController extends Controller
                     fn ($q) => $q->where('venta_id', $venta->id)
                 )->get();
 
-                // cantidad_pendiente vive en la línea de venta (UDV), no en la
-                // tabla de entregas — se mantiene igual que antes.
+                // La auto-entrega compromete TODOS los items en entrega_detalle.
+                // cantidad_pendiente = 0 en todos los casos: tanto 'en' (ya entregado)
+                // como 'pe' (programado, pendiente de confirmar). El stock comprometido
+                // no debe contarse como "por programar" — es tarea del almacén
+                // confirmarlo desde Mis Entregas, no re-programarlo desde Mis Ventas.
                 foreach ($unidadesVenta as $unidad) {
-                    $unidad->update([
-                        'cantidad_pendiente' => $estadoEntregaAuto === 'en'
-                            ? 0
-                            : (float) $unidad->cantidad,
-                    ]);
+                    $unidad->update(['cantidad_pendiente' => 0]);
                 }
 
                 $this->entregaService->crearSync([
