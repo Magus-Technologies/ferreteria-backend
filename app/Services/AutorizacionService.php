@@ -91,13 +91,20 @@ class AutorizacionService
         }
 
         // Resolver el destino de la solicitud según el modo configurado.
-        // Si no se resuelve ni usuario ni cargo, ambos quedan null => fallback a admins.
-        [$autorizadorId, $cargoAutorizador] = $this->resolverDestino($config, $user, $userId);
+        [$autorizadorId, $cargoAutorizador, $roleAutorizadorId] = $this->resolverDestino($config, $user, $userId);
+
+        // En jerarquía, si no hay aprobador (sin cargo padre, sin rol vinculado o sin
+        // usuarios con ese rol) NO se cae a admins: se bloquea y se avisa.
+        if (($config->tipo_autorizador ?? 'usuario') === 'jerarquia'
+            && !$autorizadorId && !$cargoAutorizador && !$roleAutorizadorId) {
+            throw new \Exception('No hay un aprobador en el organigrama para esta solicitud. Revisa que tu cargo tenga un cargo superior, que ese cargo tenga un rol vinculado y que exista al menos un usuario con ese rol.');
+        }
 
         $solicitud = SolicitudAutorizacion::create([
             'solicitante_id' => $userId,
             'autorizador_id' => $autorizadorId,
             'cargo_autorizador' => $cargoAutorizador,
+            'role_autorizador_id' => $roleAutorizadorId,
             'role_id' => $config->role_id,
             'modulo' => $modulo,
             'accion' => $accion,
@@ -115,7 +122,7 @@ class AutorizacionService
     /**
      * Resolver a quién se dirige la solicitud según el modo de la config.
      *
-     * @return array{0: ?string, 1: ?string} [autorizador_id, cargo_autorizador]
+     * @return array{0: ?string, 1: ?string, 2: ?int} [autorizador_id, cargo_autorizador, role_autorizador_id]
      */
     private function resolverDestino(AutorizacionConfig $config, User $solicitante, string $userId): array
     {
@@ -123,33 +130,49 @@ class AutorizacionService
 
         // Modo cargo: cualquier usuario del cargo elegido.
         if ($tipo === 'cargo') {
-            return [null, $config->cargo_autorizador ?: null];
+            return [null, $config->cargo_autorizador ?: null, null];
         }
 
-        // Modo jerarquía: el cargo padre directo del solicitante en el organigrama.
+        // Modo jerarquía: sube por el organigrama desde el cargo del solicitante y
+        // resuelve el aprobador por el ROL vinculado al primer cargo ANCESTRO que
+        // tenga rol y usuarios (relación cargo↔rol). Si un cargo intermedio no tiene
+        // rol, no se rompe la cadena: escala al siguiente nivel hacia arriba.
         if ($tipo === 'jerarquia') {
             if (!empty($solicitante->cargo)) {
                 $cargoActual = \App\Models\CatalogoCargo::where('codigo', $solicitante->cargo)->first();
-                $parent = $cargoActual?->parent;
+                $codigoPadre = $cargoActual?->parent;
+                $visitados = [];
 
-                if ($parent) {
-                    // Solo el padre directo: si tiene al menos un usuario (distinto del solicitante).
-                    $hayUsuarios = User::where('cargo', $parent)
-                        ->where('id', '!=', $userId)
-                        ->where('estado', true)
-                        ->exists();
-
-                    if ($hayUsuarios) {
-                        return [null, $parent];
+                while ($codigoPadre && !in_array($codigoPadre, $visitados, true)) {
+                    $visitados[] = $codigoPadre; // evita ciclos en el organigrama
+                    $cargoPadre = \App\Models\CatalogoCargo::where('codigo', $codigoPadre)->first();
+                    if (!$cargoPadre) {
+                        break;
                     }
+
+                    $roleId = $cargoPadre->role_id;
+                    if ($roleId) {
+                        // ¿Existe al menos un usuario con ese rol (distinto del solicitante)?
+                        $hayUsuarios = User::whereHas('roles', fn ($q) => $q->where('role.id', $roleId))
+                            ->where('id', '!=', $userId)
+                            ->where('estado', true)
+                            ->exists();
+
+                        if ($hayUsuarios) {
+                            return [null, null, (int) $roleId];
+                        }
+                    }
+
+                    $codigoPadre = $cargoPadre->parent; // sigue subiendo
                 }
             }
-            // Sin padre o sin usuarios en el padre => fallback a admins.
-            return [null, null];
+            // Recorrió toda la cadena hacia arriba sin encontrar un cargo con rol y
+            // usuarios: no hay aprobador. crearSolicitud lo bloqueará (no cae a admins).
+            return [null, null, null];
         }
 
         // Modo usuario (por defecto): usuario fijo configurado.
-        return [$config->autorizador_id ?: null, null];
+        return [$config->autorizador_id ?: null, null, null];
     }
 
     /**
@@ -158,7 +181,7 @@ class AutorizacionService
      */
     private function autorizadoresValidos(AutorizacionConfig $config, User $solicitante): \Illuminate\Support\Collection
     {
-        [$autorizadorId, $cargoAutorizador] = $this->resolverDestino($config, $solicitante, $solicitante->id);
+        [$autorizadorId, $cargoAutorizador, $roleAutorizadorId] = $this->resolverDestino($config, $solicitante, $solicitante->id);
 
         if ($autorizadorId) {
             return User::where('id', $autorizadorId)->where('estado', true)->pluck('id');
@@ -166,6 +189,13 @@ class AutorizacionService
 
         if ($cargoAutorizador) {
             return User::where('cargo', $cargoAutorizador)
+                ->where('id', '!=', $solicitante->id)
+                ->where('estado', true)
+                ->pluck('id');
+        }
+
+        if ($roleAutorizadorId) {
+            return User::whereHas('roles', fn ($q) => $q->where('role.id', $roleAutorizadorId))
                 ->where('id', '!=', $solicitante->id)
                 ->where('estado', true)
                 ->pluck('id');
@@ -427,6 +457,17 @@ class AutorizacionService
             } elseif ($solicitud->cargo_autorizador) {
                 // Enviar a todos los usuarios que ocupan el cargo destino (cualquiera puede autorizar)
                 $usuarios = User::where('cargo', $solicitud->cargo_autorizador)
+                    ->where('id', '!=', $solicitud->solicitante_id)
+                    ->where('estado', true)
+                    ->whereNotNull('fcm_token')
+                    ->get();
+
+                foreach ($usuarios as $u) {
+                    $this->fcm->sendNotification($u->fcm_token, $titulo, $body, $data);
+                }
+            } elseif ($solicitud->role_autorizador_id) {
+                // Enviar a todos los usuarios con el rol destino (jerarquía por rol del cargo padre)
+                $usuarios = User::whereHas('roles', fn ($q) => $q->where('role.id', $solicitud->role_autorizador_id))
                     ->where('id', '!=', $solicitud->solicitante_id)
                     ->where('estado', true)
                     ->whereNotNull('fcm_token')
