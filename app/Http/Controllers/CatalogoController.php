@@ -127,7 +127,7 @@ class CatalogoController extends Controller
             $query->where('parent', $request->input('parent'));
         }
 
-        $cargos = $query->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff']);
+        $cargos = $query->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff', 'role_id']);
 
         return response()->json([
             'data' => $cargos
