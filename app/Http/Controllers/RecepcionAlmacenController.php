@@ -224,6 +224,12 @@ class RecepcionAlmacenController extends Controller
                     return;
                 }
 
+                // No heredar datos de finalización a recepciones anuladas/inactivas:
+                // deben conservar su estado real (deshechas), no mostrarse como finalizadas.
+                if (!$item->estado || $item->anulada) {
+                    return;
+                }
+
                 $fin = $finalizaciones->first(function ($f) use ($item) {
                     return ($item->compra_id && $f->compra_id === $item->compra_id) ||
                            ($item->orden_compra_id && $f->orden_compra_id === $item->orden_compra_id);
@@ -508,6 +514,7 @@ class RecepcionAlmacenController extends Controller
                     // Stock actual antes de procesar
                     $stockBase = (float) $productoAlmacen->stock_fraccion;
                     $acumulado = 0;
+                    $sumaFletes = 0; // Acumula el flete de las líneas para prorratearlo en el costo
 
                     // 4. Procesar cada unidad derivada
                     foreach ($productoData['unidades_derivadas'] as $udData) {
@@ -562,6 +569,11 @@ class RecepcionAlmacenController extends Controller
                         $stockInicial = $stockBase + $acumulado;
                         $cantidadTotal = $cantidad * $factor;
 
+                        // Acumular flete solo de líneas NO bonificación (las bonificaciones no inflan el costo)
+                        if (!$bonificacion) {
+                            $sumaFletes += $flete;
+                        }
+
                         \App\Models\HistorialUnidadDerivadaInmutableRecepcion::create([
                             'unidad_derivada_inmutable_recepcion_id' => $udRecepcion->id,
                             'stock_anterior' => $stockInicial,
@@ -590,9 +602,15 @@ class RecepcionAlmacenController extends Controller
                         
                         // Usar el servicio de costo para actualizar con PEPS
                         $costService = app(\App\Services\Producto\ProductoCostoService::class);
-                        
+
+                        // Prorratear el flete dentro del costo unitario (fracción): costo + flete/(Σ cantidad×factor)
+                        $costoConFlete = $costo;
+                        if ($cantidadTotalProducto > 0 && $sumaFletes > 0) {
+                            $costoConFlete = $costo + ($sumaFletes / $cantidadTotalProducto);
+                        }
+
                         if (!$todasBonificacion && $costo > 0) {
-                            $costService->actualizarCostoConPEPS($productoAlmacenModel, $costo, $cantidadTotalProducto);
+                            $costService->actualizarCostoConPEPS($productoAlmacenModel, $costoConFlete, $cantidadTotalProducto);
                         } else {
                             // Bonificación: solo incrementar stock sin cambiar costo
                             $productoAlmacenModel->stock_fraccion += $cantidadTotalProducto;
@@ -653,17 +671,26 @@ class RecepcionAlmacenController extends Controller
                                 ? $stockAnteriorRecepcion + $acumuladoKardex
                                 : null;
 
+                            // Prorratear el flete de la línea dentro del costo unitario: costo + flete/(cantidad×factor)
+                            $cantidadLinea = (float) $udData['cantidad'] * (float) $udData['factor'];
+                            $fleteLinea = (float) ($udData['flete'] ?? 0);
+                            $bonificacionLinea = $udData['bonificacion'] ?? false;
+                            $costoLinea = $costo;
+                            if (!$bonificacionLinea && $cantidadLinea > 0 && $fleteLinea > 0) {
+                                $costoLinea = $costo + ($fleteLinea / $cantidadLinea);
+                            }
+
                             $kardexInventarioService->registrarRecepcion(
                                 $recepcion,
                                 $productoAlmacen,
                                 $unidadTemporal,
-                                $costo,
+                                $costoLinea,
                                 2,
                                 $stockOverride,
                                 $costosAnteriores["{$productoId}_{$almacenId}"] ?? null
                             );
 
-                            $acumuladoKardex += (float) $udData['cantidad'] * (float) $udData['factor'];
+                            $acumuladoKardex += $cantidadLinea;
                         }
                     }
                 }
@@ -1024,11 +1051,15 @@ class RecepcionAlmacenController extends Controller
                         $acumulado += $cantidadTotal;
                     }
 
-                    // Decrementar stock SOLO si no es una recepción de finalización
+                    // Revertir stock y buckets de costo PEPS SOLO si no es finalización.
+                    // Bajamos stock_costo_actual junto con stock_fraccion para que no se
+                    // desincronicen (la recepción en sí queda intacta como histórico).
                     if (!$recepcion->es_finalizacion && $acumulado > 0) {
                         $paModel = ProductoAlmacen::find($productoAlmacenId);
                         if ($paModel) {
-                            $paModel->decrement('stock_fraccion', $acumulado);
+                            app(\App\Services\Producto\ProductoCostoService::class)
+                                ->revertirRecepcionConPEPS($paModel, $acumulado);
+                            $paModel->save();
                             app(ProductoCacheService::class)->invalidateProductosAlmacen($paModel->almacen_id);
                         }
                     }
@@ -1055,16 +1086,25 @@ class RecepcionAlmacenController extends Controller
                             ? $stockAnteriorAnulacion - $acumuladoKardexAnulacion
                             : null;
 
+                        // Mismo costo con flete prorrateado que se usó en la entrada, para que el reverso cuadre
+                        $cantidadLineaAnulacion = (float) $unidadDerivada->cantidad * (float) $unidadDerivada->factor;
+                        $fleteLineaAnulacion = (float) ($unidadDerivada->flete ?? 0);
+                        $bonificacionLineaAnulacion = $unidadDerivada->bonificacion ?? false;
+                        $costoLineaAnulacion = (float) $productoRecepcion->costo;
+                        if (!$bonificacionLineaAnulacion && $cantidadLineaAnulacion > 0 && $fleteLineaAnulacion > 0) {
+                            $costoLineaAnulacion = (float) $productoRecepcion->costo + ($fleteLineaAnulacion / $cantidadLineaAnulacion);
+                        }
+
                         $kardexInventarioService->registrarAnulacionRecepcion(
                             $recepcion,
                             $productoAlmacen,
                             $unidadTemporal,
-                            $productoRecepcion->costo,
+                            $costoLineaAnulacion,
                             5,
                             $stockOverride
                         );
 
-                        $acumuladoKardexAnulacion += (float) $unidadDerivada->cantidad * (float) $unidadDerivada->factor;
+                        $acumuladoKardexAnulacion += $cantidadLineaAnulacion;
                     }
                 }
 

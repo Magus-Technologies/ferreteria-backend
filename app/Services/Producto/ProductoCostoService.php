@@ -142,6 +142,40 @@ class ProductoCostoService
     }
 
     /**
+     * Revierte el ingreso de stock de una recepción anulada.
+     *
+     * El ingreso (actualizarCostoConPEPS) sumó la cantidad al bucket "actual";
+     * al anular la quitamos de ese bucket y recalculamos el stock total y el
+     * costo promedio con los buckets restantes. Así stock_costo_actual y
+     * stock_fraccion no se desincronizan (evita que la siguiente recepción
+     * infle el stock vía actualizarCostoConPEPS).
+     *
+     * NOTA: solo afecta el inventario del almacén; el registro de la recepción
+     * permanece intacto como histórico.
+     */
+    public function revertirRecepcionConPEPS(ProductoAlmacen $productoAlmacen, float $cantidad): void
+    {
+        $anterior = (float) ($productoAlmacen->stock_costo_anterior ?? 0);
+        $actual = (float) ($productoAlmacen->stock_costo_actual ?? 0);
+
+        // Quitar la cantidad recibida del bucket actual (lo último que entró).
+        // Se permite que quede negativo, igual que la anulación permitía stock negativo.
+        $actual -= $cantidad;
+
+        $productoAlmacen->stock_costo_actual = $actual;
+        $productoAlmacen->stock_costo_anterior = $anterior;
+        $productoAlmacen->stock_fraccion = $anterior + $actual;
+
+        // Recalcular costo promedio con los buckets restantes (si hay stock positivo)
+        $totalStock = $anterior + $actual;
+        if ($totalStock > 0) {
+            $costoActual = (float) ($productoAlmacen->costo_actual ?? $productoAlmacen->costo ?? 0);
+            $costoAnterior = (float) ($productoAlmacen->costo_anterior ?? 0);
+            $productoAlmacen->costo = (($anterior * $costoAnterior) + ($actual * $costoActual)) / $totalStock;
+        }
+    }
+
+    /**
      * Calcula el costo promedio ponderado considerando todos los lotes
      */
     private function calcularCostoPromedioPonderado(
