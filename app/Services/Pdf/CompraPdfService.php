@@ -122,7 +122,11 @@ class CompraPdfService
         return [
             [
                 'TIPO DOC' => $compra->tipo_documento->value ?? '',
-                'FORMA PAGO' => $compra->forma_de_pago->value ?? '',
+                'FORMA PAGO' => match($compra->forma_de_pago) {
+                    \App\Enums\FormaDePago::Contado => 'Contado',
+                    \App\Enums\FormaDePago::Credito => 'Crédito',
+                    default => $compra->forma_de_pago->value ?? '',
+                },
             ],
             [
                 'PROVEEDOR' => ($proveedor?->ruc ?? '') . ' ' . ($proveedor?->razon_social ?? ''),

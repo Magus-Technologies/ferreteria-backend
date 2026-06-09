@@ -219,8 +219,12 @@ class VentaPdfService
             ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
             ?: 'CLIENTES VARIOS';
 
-        $formaPago = $venta->forma_de_pago->value ?? '';
-        $esCredito = stripos($formaPago, 'Credito') !== false || stripos($formaPago, 'Crédito') !== false;
+        $formaPago = match($venta->forma_de_pago) {
+            \App\Enums\FormaDePago::Contado => 'Contado',
+            \App\Enums\FormaDePago::Credito => 'Crédito',
+            default => $venta->forma_de_pago->value ?? '',
+        };
+        $esCredito = $venta->forma_de_pago === \App\Enums\FormaDePago::Credito;
 
         // Metodos de pago
         $metodosPago = [];
@@ -654,7 +658,11 @@ class VentaPdfService
                 'Almacen' => $venta->almacen->name,
             ],
             [
-                'Forma Pago' => $venta->forma_de_pago->value ?? '',
+                'Forma Pago' => match($venta->forma_de_pago) {
+                    \App\Enums\FormaDePago::Contado => 'Contado',
+                    \App\Enums\FormaDePago::Credito => 'Crédito',
+                    default => $venta->forma_de_pago->value ?? '',
+                },
                 'Moneda' => $moneda,
             ],
             [

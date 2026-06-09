@@ -1137,6 +1137,12 @@ class VentaController extends Controller
                     ->update(['estado_entrega_id' => \App\Models\EstadoEntrega::where('codigo', 'pe')->value('id')]);
             }
 
+            // Si la venta sale de "En Espera", actualizar la fecha a HOY (la venta
+            // se concreta en la fecha actual, no en la fecha original del borrador).
+            if ($estadoAnterior === 'ee' && $estadoNuevo !== 'ee') {
+                $venta->update(['fecha' => now()->toDateString()]);
+            }
+
             // Si transición En Espera → Creado y la venta aún no tiene serie/numero,
             // reservar correlativo ahora (se difirió en store para no consumir números
             // en borradores).
