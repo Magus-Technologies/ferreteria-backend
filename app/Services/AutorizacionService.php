@@ -248,8 +248,9 @@ class AutorizacionService
     }
 
     /**
-     * Override en sitio: un supervisor presente autoriza con su clave.
-     * Concede una autorización de USO ÚNICO al solicitante.
+     * Override en sitio: un supervisor presente autoriza con su clave. El propio
+     * supervisor elige el tipo de autorización (una_vez por defecto, o temporal/
+     * permanente como cuando aprueba una solicitud).
      */
     public function autorizarConClaveSupervisor(
         string $requesterId,
@@ -257,6 +258,8 @@ class AutorizacionService
         string $accion,
         string $supervisorId,
         string $password,
+        string $tipoAprobacion = 'una_vez',
+        ?int $duracionHoras = null,
     ): AutorizacionOtorgada {
         $solicitante = User::with('roles')->findOrFail($requesterId);
         $config = $this->configPara($solicitante, $modulo, $accion);
@@ -283,17 +286,22 @@ class AutorizacionService
             ->where('accion', $accion)
             ->where('estado', 'pendiente')
             ->first();
+        $fechaExpiracion = ($tipoAprobacion === 'temporal' && $duracionHoras)
+            ? now()->addHours($duracionHoras)
+            : null;
+
         if ($solicitud) {
             $solicitud->update([
                 'estado' => 'aprobada',
-                'tipo_aprobacion' => 'una_vez',
+                'tipo_aprobacion' => $tipoAprobacion,
+                'duracion_horas' => $duracionHoras,
                 'respondido_por' => $supervisorId,
                 'respondido_at' => now(),
                 'comentario_respuesta' => 'Autorizado con clave de supervisor',
             ]);
         }
 
-        // Conceder de uso único.
+        // Conceder según el tipo elegido por el supervisor.
         $otorgada = AutorizacionOtorgada::updateOrCreate(
             [
                 'user_id' => $requesterId,
@@ -302,8 +310,8 @@ class AutorizacionService
             ],
             [
                 'role_id' => $config->role_id,
-                'tipo' => 'una_vez',
-                'fecha_expiracion' => null,
+                'tipo' => $tipoAprobacion,
+                'fecha_expiracion' => $fechaExpiracion,
                 'otorgada_por' => $supervisorId,
                 'solicitud_id' => $solicitud?->id,
                 'activa' => true,

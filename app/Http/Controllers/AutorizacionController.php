@@ -315,7 +315,13 @@ class AutorizacionController extends Controller
             'accion' => 'required|in:crear,editar,eliminar,acceso',
             'supervisor_id' => 'required|string|exists:user,id',
             'supervisor_password' => 'required|string',
+            'tipo_aprobacion' => 'nullable|in:temporal,permanente,una_vez',
+            'duracion_horas' => 'nullable|integer|min:1',
         ]);
+
+        if (($validated['tipo_aprobacion'] ?? null) === 'temporal' && empty($validated['duracion_horas'])) {
+            return response()->json(['message' => 'Debe especificar duración para autorización temporal'], 422);
+        }
 
         try {
             $otorgada = $this->service->autorizarConClaveSupervisor(
@@ -324,6 +330,8 @@ class AutorizacionController extends Controller
                 $validated['accion'],
                 $validated['supervisor_id'],
                 $validated['supervisor_password'],
+                $validated['tipo_aprobacion'] ?? 'una_vez',
+                $validated['duracion_horas'] ?? null,
             );
 
             return response()->json(['data' => $otorgada, 'message' => 'Autorización concedida']);
