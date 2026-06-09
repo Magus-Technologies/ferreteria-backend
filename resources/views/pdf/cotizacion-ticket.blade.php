@@ -59,8 +59,7 @@
                     F. EMISI&Oacute;N:
                     <span style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ \App\Services\Pdf\PdfService::formatFecha($cotizacion->fecha) }}</span>
                 </td>
-            @php($formaPago = $cotizacion->forma_de_pago ?? '')
-            @if(!(empty($formaPago) || stripos($formaPago, 'contado') !== false || $formaPago === 'co'))
+            @if(!$esContado)
             <td style="{{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">
                 F. VENCIMIENTO:
                 <span style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ \App\Services\Pdf\PdfService::formatFecha($cotizacion->fecha_vencimiento) }}</span>
@@ -86,6 +85,16 @@
             <span style="{{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">VENDEDOR:</span>
             <span style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ $vendedor }}</span>
         </div>
+        <div style="margin-top: 1px;">
+            <span style="{{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">F. PAGO:</span>
+            <span style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ $formaPago }}</span>
+        </div>
+        @if(!$esContado && $vigenciaDias)
+        <div style="margin-top: 1px;">
+            <span style="{{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">VIGENCIA:</span>
+            <span style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ $vigenciaDias }} D&Iacute;AS</span>
+        </div>
+        @endif
     </div>
 
     <div class="separator"></div>

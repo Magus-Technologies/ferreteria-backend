@@ -74,6 +74,9 @@ class CotizacionPdfService
         );
         $observaciones = $cotizacion->observaciones ?: $this->observacionesDefault();
 
+        $formaPago = $cotizacion->forma_de_pago ?? '';
+        $esContado = $this->esContado($formaPago);
+
         $data = [
             'titulo' => "Ticket {$cotizacion->numero}",
             'cotizacion' => $cotizacion,
@@ -87,6 +90,9 @@ class CotizacionPdfService
             'clienteDocumento' => $cliente?->numero_documento ?? '99999999',
             'clienteDireccion' => $direccion,
             'vendedor' => $cotizacion->user->name,
+            'formaPago' => $this->formaPagoLabel($formaPago),
+            'vigenciaDias' => $cotizacion->vigencia_dias,
+            'esContado' => $esContado,
             'son' => PdfService::numeroALetras($calculos['total']),
             'observaciones' => $observaciones,
             'plantilla' => $plantilla,
@@ -131,7 +137,7 @@ class CotizacionPdfService
                 $precio = (float) ($ud->precio ?? 0);
                 $recargo = (float) ($ud->recargo ?? 0);
                 $descuento = (float) ($ud->descuento ?? 0);
-                $subtotal = ($precio + $recargo) * $cantidad - $descuento;
+                $subtotal = ($precio + $recargo) * $cantidad;
 
                 $productos[] = [
                     'codigo' => $producto->cod_producto ?? '',
@@ -171,6 +177,10 @@ class CotizacionPdfService
 
         $moneda = $cotizacion->tipo_moneda?->value === 's' ? 'SOL' : 'USD';
 
+        $formaPagoLabel = $this->formaPagoLabel($cotizacion->forma_de_pago);
+        $esContado = $this->esContado($cotizacion->forma_de_pago);
+        $vigenciaDias = $cotizacion->vigencia_dias;
+
         $filas = [
             [
                 'Cliente' => $clienteNombre,
@@ -185,14 +195,14 @@ class CotizacionPdfService
                 'N Guia' => '',
             ],
             [
-                'Forma Pago' => $this->formaPagoLabel($cotizacion->forma_de_pago),
+                'Forma Pago' => $esContado || empty($vigenciaDias) ? $formaPagoLabel : "{$formaPagoLabel} — {$vigenciaDias} Días",
                 'Moneda' => $moneda,
             ],
         ];
 
         // Insertar RUC/DNI + F. Vencimiento antes de Vendedor (índice 2)
         $filaDocumento = ['RUC / DNI' => $cliente?->numero_documento ?? ''];
-        if (!$this->esContado($cotizacion->forma_de_pago)) {
+        if (!$esContado) {
             $filaDocumento['F. Vencimiento'] = PdfService::formatFecha($cotizacion->fecha_vencimiento);
         }
         array_splice($filas, 2, 0, [$filaDocumento]);
