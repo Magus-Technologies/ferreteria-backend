@@ -601,23 +601,25 @@ class RecepcionAlmacenController extends Controller
                             ->every(fn($ud) => $ud['bonificacion'] ?? false);
                         
                         // Usar el servicio de costo para actualizar con PEPS
+                        // NOTA: el costo del inventario es CRUDO (sin flete). El flete vive en
+                        // la columna costo_con_flete (se calcula abajo).
                         $costService = app(\App\Services\Producto\ProductoCostoService::class);
 
-                        // Prorratear el flete dentro del costo unitario (fracción): costo + flete/(Σ cantidad×factor)
-                        $costoConFlete = $costo;
-                        if ($cantidadTotalProducto > 0 && $sumaFletes > 0) {
-                            $costoConFlete = $costo + ($sumaFletes / $cantidadTotalProducto);
-                        }
-
                         if (!$todasBonificacion && $costo > 0) {
-                            $costService->actualizarCostoConPEPS($productoAlmacenModel, $costoConFlete, $cantidadTotalProducto);
+                            $costService->actualizarCostoConPEPS($productoAlmacenModel, $costo, $cantidadTotalProducto);
                         } else {
                             // Bonificación: solo incrementar stock sin cambiar costo
                             $productoAlmacenModel->stock_fraccion += $cantidadTotalProducto;
                             $productoAlmacenModel->stock_costo_actual += $cantidadTotalProducto;
                             $productoAlmacenModel->costo = 0;
                         }
-                        
+
+                        // costo_con_flete = costo crudo + flete prorrateado de esta compra (última)
+                        $fleteUnitario = ($cantidadTotalProducto > 0 && $sumaFletes > 0)
+                            ? ($sumaFletes / $cantidadTotalProducto)
+                            : 0;
+                        $productoAlmacenModel->costo_con_flete = (float) $productoAlmacenModel->costo + $fleteUnitario;
+
                         $productoAlmacenModel->save();
                         
                         \Illuminate\Support\Facades\Log::info(
@@ -671,26 +673,17 @@ class RecepcionAlmacenController extends Controller
                                 ? $stockAnteriorRecepcion + $acumuladoKardex
                                 : null;
 
-                            // Prorratear el flete de la línea dentro del costo unitario: costo + flete/(cantidad×factor)
-                            $cantidadLinea = (float) $udData['cantidad'] * (float) $udData['factor'];
-                            $fleteLinea = (float) ($udData['flete'] ?? 0);
-                            $bonificacionLinea = $udData['bonificacion'] ?? false;
-                            $costoLinea = $costo;
-                            if (!$bonificacionLinea && $cantidadLinea > 0 && $fleteLinea > 0) {
-                                $costoLinea = $costo + ($fleteLinea / $cantidadLinea);
-                            }
-
                             $kardexInventarioService->registrarRecepcion(
                                 $recepcion,
                                 $productoAlmacen,
                                 $unidadTemporal,
-                                $costoLinea,
+                                $costo,
                                 2,
                                 $stockOverride,
                                 $costosAnteriores["{$productoId}_{$almacenId}"] ?? null
                             );
 
-                            $acumuladoKardex += $cantidadLinea;
+                            $acumuladoKardex += (float) $udData['cantidad'] * (float) $udData['factor'];
                         }
                     }
                 }
@@ -1086,25 +1079,16 @@ class RecepcionAlmacenController extends Controller
                             ? $stockAnteriorAnulacion - $acumuladoKardexAnulacion
                             : null;
 
-                        // Mismo costo con flete prorrateado que se usó en la entrada, para que el reverso cuadre
-                        $cantidadLineaAnulacion = (float) $unidadDerivada->cantidad * (float) $unidadDerivada->factor;
-                        $fleteLineaAnulacion = (float) ($unidadDerivada->flete ?? 0);
-                        $bonificacionLineaAnulacion = $unidadDerivada->bonificacion ?? false;
-                        $costoLineaAnulacion = (float) $productoRecepcion->costo;
-                        if (!$bonificacionLineaAnulacion && $cantidadLineaAnulacion > 0 && $fleteLineaAnulacion > 0) {
-                            $costoLineaAnulacion = (float) $productoRecepcion->costo + ($fleteLineaAnulacion / $cantidadLineaAnulacion);
-                        }
-
                         $kardexInventarioService->registrarAnulacionRecepcion(
                             $recepcion,
                             $productoAlmacen,
                             $unidadTemporal,
-                            $costoLineaAnulacion,
+                            $productoRecepcion->costo,
                             5,
                             $stockOverride
                         );
 
-                        $acumuladoKardexAnulacion += $cantidadLineaAnulacion;
+                        $acumuladoKardexAnulacion += (float) $unidadDerivada->cantidad * (float) $unidadDerivada->factor;
                     }
                 }
 

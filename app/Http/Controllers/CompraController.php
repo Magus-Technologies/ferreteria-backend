@@ -544,19 +544,11 @@ class CompraController extends Controller
                 
                 foreach ($compra->productosPorAlmacen as $pac) {
                     foreach ($pac->unidadesDerivadas as $unidad) {
-                        // Prorratear el flete de la línea en el costo unitario: costo + flete/(cantidad×factor)
-                        $cantidadLinea = (float) $unidad->cantidad * (float) $unidad->factor;
-                        $fleteLinea = (float) ($unidad->flete ?? 0);
-                        $costoConFlete = (float) $pac->costo;
-                        if (!$unidad->bonificacion && $cantidadLinea > 0 && $fleteLinea > 0) {
-                            $costoConFlete = (float) $pac->costo + ($fleteLinea / $cantidadLinea);
-                        }
-
                         $kardexInventarioService->registrarCompraReferencia(
                             $compra,
                             $pac->productoAlmacen,
                             $unidad,
-                            $costoConFlete,
+                            $pac->costo,
                             0 // orden = 0 para referencia
                         );
                     }
@@ -801,19 +793,11 @@ class CompraController extends Controller
                 $compra->refresh(); // Recargar para obtener relaciones actualizadas
                 foreach ($compra->productosPorAlmacen as $pac) {
                     foreach ($pac->unidadesDerivadas as $unidad) {
-                        // Prorratear el flete de la línea en el costo unitario: costo + flete/(cantidad×factor)
-                        $cantidadLinea = (float) $unidad->cantidad * (float) $unidad->factor;
-                        $fleteLinea = (float) ($unidad->flete ?? 0);
-                        $costoConFlete = (float) $pac->costo;
-                        if (!$unidad->bonificacion && $cantidadLinea > 0 && $fleteLinea > 0) {
-                            $costoConFlete = (float) $pac->costo + ($fleteLinea / $cantidadLinea);
-                        }
-
                         $kardexInventarioService->registrarCompraReferencia(
                             $compra,
                             $pac->productoAlmacen,
                             $unidad,
-                            $costoConFlete,
+                            $pac->costo,
                             0 // orden = 0 para referencia
                         );
                     }

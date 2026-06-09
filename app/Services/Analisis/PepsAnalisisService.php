@@ -243,11 +243,7 @@ class PepsAnalisisService
                 $riesgoAlto = abs($variacionPorcentaje) > 2; // Alerta si varía más de 2%
 
                 // Proyección: impacto si pagas hoy vs si ya pagaste
-                // Costo real con flete prorrateado: costo + flete/(cantidad×factor)
-                $cantidadFraccion = (float) $l->cantidad * (float) $l->factor;
-                $costoSolesUnit = (float) $l->costo_soles_unit
-                    + ($cantidadFraccion > 0 ? ((float) $l->flete / $cantidadFraccion) : 0);
-                $costoUsd = $costoSolesUnit / $tcCompra;
+                $costoUsd = (float) $l->costo_soles_unit / $tcCompra;
                 $costoEstimado = $costoUsd * $tcCompra;
                 $costoSiPagasHoy = $costoUsd * $tcActual;
                 $impactoSiPagasHoy = $costoSiPagasHoy - $costoEstimado;
@@ -405,11 +401,7 @@ class PepsAnalisisService
             // Impacto: acumular una sola vez por compra
             if (!in_array($lote->compra_id, $comprasImpactoIds)) {
                 $comprasImpactoIds[] = $lote->compra_id;
-                // Costo real con flete prorrateado: costo + flete/(cantidad×factor)
-                $cantidadFraccionImpacto = (float) $lote->cantidad * (float) $lote->factor;
-                $costoSolesUnitImpacto = (float) $lote->costo_soles_unit
-                    + ($cantidadFraccionImpacto > 0 ? ((float) $lote->flete / $cantidadFraccionImpacto) : 0);
-                $costoUsd = $costoSolesUnitImpacto / (float) $lote->tc_compra;
+                $costoUsd = (float) $lote->costo_soles_unit / (float) $lote->tc_compra;
                 $impactoTotalSiPagasHoy += $costoUsd * $variacionTc;
             }
         }

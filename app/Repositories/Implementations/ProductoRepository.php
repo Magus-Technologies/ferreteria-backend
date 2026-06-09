@@ -87,7 +87,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                     $q->select([
                         'id', 'producto_id', 'almacen_id',
                         'stock_fraccion', 'costo',
-                        'costo_anterior', 'costo_actual',
+                        'costo_anterior', 'costo_actual', 'costo_con_flete',
                     ])
                     ->where('almacen_id', $almacenId)
                     ->with([
@@ -167,7 +167,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                     $q->select([
                         'id', 'producto_id', 'almacen_id', 'ubicacion_id',
                         'stock_fraccion', 'costo',
-                        'costo_anterior', 'costo_actual',
+                        'costo_anterior', 'costo_actual', 'costo_con_flete',
                         'stock_costo_anterior', 'stock_costo_actual',
                     ])
                     ->with([
@@ -220,7 +220,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                 'categoria:id,name',
                 'unidadMedida:id,name',
                 'productoEnAlmacenes' => function ($q) {
-                    $q->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo', 'costo_anterior', 'costo_actual', 'stock_costo_anterior', 'stock_costo_actual')
+                    $q->select('id', 'producto_id', 'almacen_id', 'ubicacion_id', 'stock_fraccion', 'costo', 'costo_anterior', 'costo_actual', 'costo_con_flete', 'stock_costo_anterior', 'stock_costo_actual')
                         ->with([
                             'almacen:id,name',
                             'ubicacion:id,name',
