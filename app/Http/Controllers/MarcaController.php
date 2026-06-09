@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Marca;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class MarcaController extends Controller
 {
@@ -23,6 +24,20 @@ class MarcaController extends Controller
         // Buscar por nombre
         if ($request->has('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');
+        }
+
+        // Filtrar marcas que tengan al menos un producto en las categorías dadas
+        // (para que el selector de marcas se acote a la categoría elegida en los vales).
+        if ($request->filled('categoria_ids')) {
+            $categoriaIds = array_filter(array_map('intval', (array) $request->input('categoria_ids')));
+            if (!empty($categoriaIds)) {
+                $query->whereExists(function ($q) use ($categoriaIds) {
+                    $q->select(DB::raw(1))
+                        ->from('producto')
+                        ->whereColumn('producto.marca_id', 'marca.id')
+                        ->whereIn('producto.categoria_id', $categoriaIds);
+                });
+            }
         }
 
         // Ordenar por nombre

@@ -233,17 +233,23 @@ class ValeCompraService
     {
         $productosVale = $vale->productos->pluck('id')->map(fn ($id) => (int) $id)->all();
         $categoriasVale = $vale->categorias->pluck('id')->map(fn ($id) => (int) $id)->all();
+        // Filtro opcional por marca (PASO 3): si el vale tiene marcas, el match por
+        // CATEGORÍA además exige que la marca de la línea esté en la lista. Vacío = todas.
+        $marcasVale = array_map('intval', $vale->marca_ids ?? []);
 
         $precio = 0.0;
         $cantidad = 0.0;
         foreach ($detallesVenta as $d) {
             $pid = (int) ($d['producto_id'] ?? 0);
             $cid = (int) ($d['categoria_id'] ?? 0);
+            $mid = (int) ($d['marca_id'] ?? 0);
+
+            $marcaOk = empty($marcasVale) || in_array($mid, $marcasVale, true);
 
             $incluir = match ($vale->modalidad) {
                 'POR_PRODUCTOS' => in_array($pid, $productosVale, true),
-                'POR_CATEGORIA' => in_array($cid, $categoriasVale, true),
-                'MIXTO' => in_array($pid, $productosVale, true) || in_array($cid, $categoriasVale, true),
+                'POR_CATEGORIA' => in_array($cid, $categoriasVale, true) && $marcaOk,
+                'MIXTO' => in_array($pid, $productosVale, true) || (in_array($cid, $categoriasVale, true) && $marcaOk),
                 default => true,
             };
 
@@ -455,41 +461,49 @@ class ValeCompraService
                 return true; // Ya validado en la query principal
 
             case 'POR_CATEGORIA':
-                $categoriasVale = $vale->categorias->pluck('id')->toArray();
-                $interseccion = array_intersect($categoriasVenta, $categoriasVale);
-                $valido = count($interseccion) > 0;
-                
-                if (!$valido) {
+                $categoriasVale = $vale->categorias->pluck('id')->map(fn ($id) => (int) $id)->toArray();
+                $marcasVale = array_map('intval', $vale->marca_ids ?? []);
+                // Con filtro de marca: exige una línea cuya categoría Y marca estén permitidas.
+                if (!empty($marcasVale)) {
+                    return $this->ventaTieneCategoriaConMarca($categoriasVale, $marcasVale, $productosVenta);
                 }
-                
-                return $valido;
+                return count(array_intersect($categoriasVenta, $categoriasVale)) > 0;
 
             case 'POR_PRODUCTOS':
                 $productosVale = $vale->productos->pluck('id')->toArray();
-                $interseccion = array_intersect($productosVenta, $productosVale);
-                $valido = count($interseccion) > 0;
-                
-                if (!$valido) {
-                }
-                
-                return $valido;
+                return count(array_intersect($productosVenta, $productosVale)) > 0;
 
             case 'MIXTO':
-                $categoriasVale = $vale->categorias->pluck('id')->toArray();
+                $categoriasVale = $vale->categorias->pluck('id')->map(fn ($id) => (int) $id)->toArray();
                 $productosVale = $vale->productos->pluck('id')->toArray();
-                
-                $tieneCategoria = count(array_intersect($categoriasVenta, $categoriasVale)) > 0;
+                $marcasVale = array_map('intval', $vale->marca_ids ?? []);
+
+                $tieneCategoria = !empty($marcasVale)
+                    ? $this->ventaTieneCategoriaConMarca($categoriasVale, $marcasVale, $productosVenta)
+                    : count(array_intersect($categoriasVenta, $categoriasVale)) > 0;
                 $tieneProducto = count(array_intersect($productosVenta, $productosVale)) > 0;
-                $valido = $tieneCategoria && $tieneProducto;
-                
-                if (!$valido) {
-                }
-                
-                return $valido;
+
+                return $tieneCategoria && $tieneProducto;
 
             default:
                 return false;
         }
+    }
+
+    /**
+     * ¿La venta incluye al menos un producto cuya categoría está en $categoriasVale
+     * Y cuya marca está en $marcasVale? (cada producto tiene una sola categoría y marca).
+     * Se usa para los vales POR_CATEGORIA/MIXTO acotados a marcas específicas.
+     */
+    private function ventaTieneCategoriaConMarca(array $categoriasVale, array $marcasVale, array $productosVenta): bool
+    {
+        if (empty($productosVenta) || empty($categoriasVale) || empty($marcasVale)) {
+            return false;
+        }
+        return \App\Models\Producto::whereIn('id', $productosVenta)
+            ->whereIn('categoria_id', $categoriasVale)
+            ->whereIn('marca_id', $marcasVale)
+            ->exists();
     }
 
     /**

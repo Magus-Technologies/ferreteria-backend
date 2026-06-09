@@ -2327,6 +2327,7 @@ class VentaController extends Controller
 
             $productoId = null;
             $categoriaId = null;
+            $marcaId = null;
 
             $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
             if ($productoAlmacenId) {
@@ -2335,6 +2336,7 @@ class VentaController extends Controller
                 if ($productoAlmacen && $productoAlmacen->producto) {
                     $productoId = $productoAlmacen->producto->id;
                     $categoriaId = $productoAlmacen->producto->categoria_id ?? null;
+                    $marcaId = $productoAlmacen->producto->marca_id ?? null;
                 }
             }
 
@@ -2342,12 +2344,14 @@ class VentaController extends Controller
                 $productoId = $producto['producto_id'];
                 $productoModel = \App\Models\Producto::find($productoId);
                 $categoriaId = $productoModel?->categoria_id ?? null;
+                $marcaId = $productoModel?->marca_id ?? null;
             }
 
             if ($productoId) {
                 $detalles[] = [
                     'producto_id' => $productoId,
                     'categoria_id' => $categoriaId,
+                    'marca_id' => $marcaId,
                     'cantidad' => $cantidadTotal,
                     'precio_total' => $precioTotal,
                     'tipo_precio' => !empty($tiposPrecioUsados) ? array_keys($tiposPrecioUsados) : [],

@@ -186,6 +186,9 @@ class ValeCompraController extends Controller
             'descuento_producto_ids.*' => ['integer', 'exists:producto,id'],
             'descuento_categoria_ids' => ['nullable', 'array'],
             'descuento_categoria_ids.*' => ['integer', 'exists:categoria,id'],
+            // Filtro opcional por marca del DESTINO del descuento (PASO 4).
+            'descuento_marca_ids' => ['nullable', 'array'],
+            'descuento_marca_ids.*' => ['integer', 'exists:marca,id'],
 
             // Para producto gratis y SORTEO con producto
             'producto_gratis_id' => [
@@ -237,6 +240,9 @@ class ValeCompraController extends Controller
                 'array'
             ],
             'categoria_ids.*' => 'exists:categoria,id',
+            // Filtro opcional por marca de la CONDICIÓN para ganar (PASO 3).
+            'marca_ids' => ['nullable', 'array'],
+            'marca_ids.*' => 'exists:marca,id',
             'producto_ids' => [
                 'nullable',
                 Rule::requiredIf(in_array($request->modalidad, ['POR_PRODUCTOS', 'MIXTO'])),
@@ -339,6 +345,8 @@ class ValeCompraController extends Controller
             'descuento_producto_ids.*' => ['integer', 'exists:producto,id'],
             'descuento_categoria_ids' => ['sometimes', 'nullable', 'array'],
             'descuento_categoria_ids.*' => ['integer', 'exists:categoria,id'],
+            'descuento_marca_ids' => ['sometimes', 'nullable', 'array'],
+            'descuento_marca_ids.*' => ['integer', 'exists:marca,id'],
             'producto_gratis_id' => 'nullable|exists:producto,id',
             'cantidad_producto_gratis' => 'nullable|numeric|min:0.001',
             'dos_por_uno_cantidad_compra' => ['nullable', 'numeric', 'min:1'],
@@ -357,6 +365,8 @@ class ValeCompraController extends Controller
             'aplica_precio_ultimo' => 'boolean',
             'categoria_ids' => 'nullable|array',
             'categoria_ids.*' => 'exists:categoria,id',
+            'marca_ids' => ['sometimes', 'nullable', 'array'],
+            'marca_ids.*' => 'exists:marca,id',
             'producto_ids' => 'nullable|array',
             'producto_ids.*' => 'exists:producto,id',
         ]);
