@@ -224,6 +224,12 @@ class RecepcionAlmacenController extends Controller
                     return;
                 }
 
+                // No heredar datos de finalización a recepciones anuladas/inactivas:
+                // deben conservar su estado real (deshechas), no mostrarse como finalizadas.
+                if (!$item->estado || $item->anulada) {
+                    return;
+                }
+
                 $fin = $finalizaciones->first(function ($f) use ($item) {
                     return ($item->compra_id && $f->compra_id === $item->compra_id) ||
                            ($item->orden_compra_id && $f->orden_compra_id === $item->orden_compra_id);
@@ -1045,11 +1051,15 @@ class RecepcionAlmacenController extends Controller
                         $acumulado += $cantidadTotal;
                     }
 
-                    // Decrementar stock SOLO si no es una recepción de finalización
+                    // Revertir stock y buckets de costo PEPS SOLO si no es finalización.
+                    // Bajamos stock_costo_actual junto con stock_fraccion para que no se
+                    // desincronicen (la recepción en sí queda intacta como histórico).
                     if (!$recepcion->es_finalizacion && $acumulado > 0) {
                         $paModel = ProductoAlmacen::find($productoAlmacenId);
                         if ($paModel) {
-                            $paModel->decrement('stock_fraccion', $acumulado);
+                            app(\App\Services\Producto\ProductoCostoService::class)
+                                ->revertirRecepcionConPEPS($paModel, $acumulado);
+                            $paModel->save();
                             app(ProductoCacheService::class)->invalidateProductosAlmacen($paModel->almacen_id);
                         }
                     }
