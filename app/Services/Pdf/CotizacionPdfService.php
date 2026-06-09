@@ -185,7 +185,7 @@ class CotizacionPdfService
                 'N Guia' => '',
             ],
             [
-                'Forma Pago' => $cotizacion->forma_de_pago ?? 'Contado',
+                'Forma Pago' => $this->formaPagoLabel($cotizacion->forma_de_pago),
                 'Moneda' => $moneda,
             ],
         ];
@@ -205,7 +205,22 @@ class CotizacionPdfService
         if (empty($formaDePago)) {
             return true;
         }
-        return stripos($formaDePago, 'contado') !== false;
+        // Soporta tanto el valor del enum ('co') como el string legible ('contado')
+        $normalizada = strtolower(trim($formaDePago));
+        return $normalizada === 'co' || stripos($normalizada, 'contado') !== false;
+    }
+
+    private function formaPagoLabel(?string $formaDePago): string
+    {
+        if (empty($formaDePago)) {
+            return 'Contado';
+        }
+        $normalizada = strtolower(trim($formaDePago));
+        return match ($normalizada) {
+            'co' => 'Contado',
+            'cr' => 'Crédito',
+            default => ucfirst($normalizada),
+        };
     }
 
     private function observacionesDefault(): string
