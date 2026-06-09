@@ -59,13 +59,13 @@
                     F. EMISI&Oacute;N:
                     <span style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ \App\Services\Pdf\PdfService::formatFecha($cotizacion->fecha) }}</span>
                 </td>
-                @php($formaPago = $cotizacion->forma_de_pago ?? '')
-                @if(!(empty($formaPago) || stripos($formaPago, 'contado') !== false))
-                <td style="{{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">
-                    F. VENCIMIENTO:
-                    <span style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ \App\Services\Pdf\PdfService::formatFecha($cotizacion->fecha_vencimiento) }}</span>
-                </td>
-                @endif
+            @php($formaPago = $cotizacion->forma_de_pago ?? '')
+            @if(!(empty($formaPago) || stripos($formaPago, 'contado') !== false || $formaPago === 'co'))
+            <td style="{{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">
+                F. VENCIMIENTO:
+                <span style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ \App\Services\Pdf\PdfService::formatFecha($cotizacion->fecha_vencimiento) }}</span>
+            </td>
+            @endif
             </tr>
         </table>
         <div style="margin-top: 1px;">
