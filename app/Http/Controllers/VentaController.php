@@ -463,14 +463,13 @@ class VentaController extends Controller
 
                 $productoAlmacenId = $productoAlmacen->id;
                 
-                // El costo de la venta usa costo_con_flete (costo real con flete prorrateado).
-                // El stock se consume por PEPS más arriba; aquí solo se registra el valor monetario.
-                $costoVenta = $productoAlmacen->costo_con_flete
-                    ?? ($costosCalculados[$productoAlmacenId] ?? ($productoAlmacen->costo ?? 0));
+                // Costo PEPS consumido: los buckets ya incluyen el flete (costo real por lote),
+                // así que este valor es el costo real con flete del/los lote(s) vendidos.
+                $costoPEPS = $costosCalculados[$productoAlmacenId] ?? ($productoAlmacen->costo ?? 0);
 
                 $productoAlmacenVenta = ProductoAlmacenVenta::create([
                     'venta_id' => $venta->id,
-                    'costo' => $costoVenta,
+                    'costo' => $costoPEPS,
                     'producto_almacen_id' => $productoAlmacenId,
                     'paquete_id' => $producto['paquete_id'] ?? null,
                     'paquete_nombre' => $producto['paquete_nombre'] ?? null,
@@ -1272,7 +1271,7 @@ class VentaController extends Controller
 
                     $productoAlmacenVenta = ProductoAlmacenVenta::create([
                         'venta_id' => $venta->id,
-                        'costo' => (isset($producto['costo']) && $producto['costo'] > 0) ? $producto['costo'] : ($productoAlmacen->costo_con_flete ?? $productoAlmacen->costo ?? 0),
+                        'costo' => (isset($producto['costo']) && $producto['costo'] > 0) ? $producto['costo'] : ($productoAlmacen->costo ?? 0),
                         'producto_almacen_id' => $productoAlmacenId,
                         'paquete_id' => $producto['paquete_id'] ?? null,
                         'paquete_nombre' => $producto['paquete_nombre'] ?? null,

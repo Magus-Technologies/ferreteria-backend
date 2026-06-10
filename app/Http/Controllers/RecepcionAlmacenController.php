@@ -600,13 +600,18 @@ class RecepcionAlmacenController extends Controller
                         $todasBonificacion = collect($productoData['unidades_derivadas'])
                             ->every(fn($ud) => $ud['bonificacion'] ?? false);
                         
-                        // Usar el servicio de costo para actualizar con PEPS
-                        // NOTA: el costo del inventario es CRUDO (sin flete). El flete vive en
-                        // la columna costo_con_flete (se calcula abajo).
+                        // Costo REAL = costo crudo + flete prorrateado de esta compra.
+                        // Se alimenta a los buckets PEPS para que lotes con DISTINTO flete se
+                        // separen en costo_anterior / costo_actual (PEPS por costo real).
+                        $fleteUnitario = ($cantidadTotalProducto > 0 && $sumaFletes > 0)
+                            ? ($sumaFletes / $cantidadTotalProducto)
+                            : 0;
+                        $costoReal = (float) $costo + $fleteUnitario;
+
                         $costService = app(\App\Services\Producto\ProductoCostoService::class);
 
                         if (!$todasBonificacion && $costo > 0) {
-                            $costService->actualizarCostoConPEPS($productoAlmacenModel, $costo, $cantidadTotalProducto);
+                            $costService->actualizarCostoConPEPS($productoAlmacenModel, $costoReal, $cantidadTotalProducto);
                         } else {
                             // Bonificación: solo incrementar stock sin cambiar costo
                             $productoAlmacenModel->stock_fraccion += $cantidadTotalProducto;
@@ -614,11 +619,8 @@ class RecepcionAlmacenController extends Controller
                             $productoAlmacenModel->costo = 0;
                         }
 
-                        // costo_con_flete = costo crudo + flete prorrateado de esta compra (última)
-                        $fleteUnitario = ($cantidadTotalProducto > 0 && $sumaFletes > 0)
-                            ? ($sumaFletes / $cantidadTotalProducto)
-                            : 0;
-                        $productoAlmacenModel->costo_con_flete = (float) $productoAlmacenModel->costo + $fleteUnitario;
+                        // costo (y los buckets) ya incluyen el flete; costo_con_flete = costo (compat).
+                        $productoAlmacenModel->costo_con_flete = (float) $productoAlmacenModel->costo;
 
                         $productoAlmacenModel->save();
                         
