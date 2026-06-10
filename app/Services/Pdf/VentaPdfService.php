@@ -23,10 +23,10 @@ class VentaPdfService
         $venta = $this->obtenerVenta($ventaId);
         $empresa = $venta->user->empresa;
 
-        // Calcular sobrecargo total excluyendo métodos de pago Izypay.
-        // El sobrecargo de Izypay es un costo interno que no se refleja en el ticket.
+        // Sobrecargo total excluyendo Izipay: la comisión de Izipay la absorbe el negocio
+        // y no se traslada al cliente en el ticket (ni en la línea de display ni en el TOTAL).
         $sobrecargoTotal = $venta->despliegueDePagoVentas
-            ->reject(fn($dp) => str_contains(strtolower($dp->despliegueDePago->name ?? ''), 'izypay'))
+            ->reject(fn($dp) => preg_match('/iz[iy]pay/i', $dp->despliegueDePago->name ?? ''))
             ->sum('sobrecargo_aplicado') ?? 0;
 
         $productos = $this->prepararProductos($venta, $sobrecargoTotal);
@@ -232,14 +232,67 @@ class VentaPdfService
         // Metodos de pago
         $metodosPago = [];
         foreach ($venta->despliegueDePagoVentas as $dp) {
-            $esIzypay = str_contains(strtolower($dp->despliegueDePago->name ?? ''), 'izypay');
+            $esIzypay = (bool) preg_match('/iz[iy]pay/i', $dp->despliegueDePago->name ?? '');
+            $monto = (float) $dp->monto;
+            $sobrecargo = (float) ($dp->sobrecargo_aplicado ?? 0);
             $metodosPago[] = [
                 'nombre' => $dp->despliegueDePago->name ?? '',
-                'monto' => (float) $dp->monto,
-                'sobrecargo_aplicado' => (float) ($dp->sobrecargo_aplicado ?? 0),
+                'monto' => $monto,
+                'sobrecargo_aplicado' => $sobrecargo,
                 'mostrar_sobrecargo' => !$esIzypay,
             ];
         }
+
+        // Distribuir el sobrecargo de Izipay en los precios unitarios.
+        // El ticket muestra el precio ajustado por unidad (ej. 2.00 → 2.06 con 3%),
+        // así el total coincide con lo cobrado por el POS sin línea de comisión separada.
+        $sobrecargoIzipay = collect($metodosPago)
+            ->filter(fn($mp) => !$mp['mostrar_sobrecargo'])
+            ->sum('sobrecargo_aplicado');
+
+        if ($sobrecargoIzipay > 0) {
+            // importeNeto = subtotal (base s/IGV) + IGV — es el neto ya con descuentos aplicados
+            $importeNeto = ($calculos['subtotal'] ?? 0) + ($calculos['igv'] ?? 0);
+            if ($importeNeto > 0) {
+                $newImporteNeto = $importeNeto + $sobrecargoIzipay;
+                $factor = $newImporteNeto / $importeNeto;
+
+                // Escalar precios unitarios y subtotales de productos
+                $productos = array_map(fn($p) => array_merge($p, [
+                    'precio'    => round($p['precio'] * $factor, 2),
+                    'subtotal'  => round($p['subtotal'] * $factor, 2),
+                    'descuento' => round(($p['descuento'] ?? 0) * $factor, 2),
+                ]), $productos);
+
+                // Escalar montos de vales descuento (para que el display también cuadre)
+                $valesDescuento = array_map(fn($vd) => array_merge($vd, [
+                    'monto' => round($vd['monto'] * $factor, 2),
+                ]), $valesDescuento);
+
+                // Reconstruir calculos directamente desde newImporteNeto
+                // (no llamamos calcularTotales para no perder el descuento de vale)
+                $newBase = $newImporteNeto / 1.18;
+                $calculos = [
+                    'subtotal'        => round($newBase, 2),
+                    'igv'             => round($newImporteNeto - $newBase, 2),
+                    'sobrecargo'      => 0,
+                    'descuento_vale'  => round(($calculos['descuento_vale'] ?? 0) * $factor, 2),
+                    'total'           => round($newImporteNeto, 2),
+                    'total_descuento' => round(($calculos['total_descuento'] ?? 0) * $factor, 2),
+                ];
+
+                // Actualizar monto de Izipay para mostrar el total real cobrado por el POS
+                $metodosPago = array_map(fn($mp) => !$mp['mostrar_sobrecargo']
+                    ? array_merge($mp, ['monto' => $mp['monto'] + $mp['sobrecargo_aplicado']])
+                    : $mp,
+                $metodosPago);
+            }
+        }
+
+        // Sobrecargo visible en el desglose: solo métodos no-Izipay (Izipay ya fue distribuido en precios)
+        $sobrecargoVisible = collect($metodosPago)
+            ->filter(fn($mp) => $mp['mostrar_sobrecargo'])
+            ->sum('sobrecargo_aplicado');
 
         // Vales aplicados
         $vales = [];
@@ -320,6 +373,7 @@ class VentaPdfService
             'clienteDocumento' => $cliente?->numero_documento ?? '99999999',
             'clienteDireccion' => $cliente?->direccion ?? '',
             'metodosPago' => $metodosPago,
+            'sobrecargoVisible' => $sobrecargoVisible,
             'productos' => $productos,
             'calculos' => $calculos,
             'son' => PdfService::numeroALetras($calculos['total']),

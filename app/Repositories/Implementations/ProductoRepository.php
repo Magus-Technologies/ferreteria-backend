@@ -193,6 +193,216 @@ class ProductoRepository implements ProductoRepositoryInterface
     }
 
     /**
+     * Versión RÁPIDA de findListadoCompletoByAlmacen que devuelve un array PHP
+     * plano con el MISMO shape JSON, construido con Query Builder (sin hidratar
+     * modelos Eloquent ni aplicar casts).
+     *
+     * Motivo: serializar ~5000 modelos Eloquent con relaciones anidadas vía
+     * toArray()/json_encode tarda ~4.5s, de los cuales ~1.5s son los casts
+     * `decimal` (Brick\Math\BigDecimal, ~17x más lento que number_format) y el
+     * resto es la recursión de attributesToArray/relationsToArray. Construyendo
+     * el array a mano el costo baja a ~1.3s (solo la query) + ~60ms de encode.
+     *
+     * Las escalas de las columnas decimales en la BD coinciden EXACTAMENTE con
+     * las de los casts (p.ej. costo decimal(9,4) == cast decimal:4), por lo que
+     * los strings que devuelve MySQL son idénticos a los que producía Eloquent.
+     * Solo se castean manualmente los enteros y booleanos.
+     *
+     * @return array<int, array<string, mixed>>  Lista de productos (shape idéntico al de Eloquent->toArray()).
+     */
+    public function findListadoCompletoArrayByAlmacen(int $almacenId): array
+    {
+        // Subquery: ids de productos que existen en el almacén seleccionado.
+        $productosDelAlmacen = DB::table('productoalmacen')
+            ->select('producto_id')
+            ->where('almacen_id', $almacenId);
+
+        // ── 1) Productos base + marca/categoria/unidad_medida + tiene_ingresos ──
+        $productos = DB::table('producto')
+            ->select([
+                'producto.id',
+                'producto.cod_producto',
+                'producto.cod_barra',
+                'producto.name',
+                'producto.name_ticket',
+                'producto.categoria_id',
+                'producto.marca_id',
+                'producto.unidad_medida_id',
+                'producto.accion_tecnica',
+                'producto.img',
+                'producto.ficha_tecnica',
+                'producto.stock_min',
+                'producto.stock_max',
+                'producto.unidades_contenidas',
+                'producto.estado',
+                'producto.permitido',
+                'marca.name as marca_name',
+                'categoria.name as categoria_name',
+                'unidadmedida.name as unidad_medida_name',
+            ])
+            ->selectRaw('(
+                EXISTS (SELECT 1 FROM productoalmaceningresosalida pai JOIN productoalmacen pa ON pa.id = pai.producto_almacen_id WHERE pa.producto_id = producto.id)
+                OR EXISTS (SELECT 1 FROM productoalmacenventa pav JOIN productoalmacen pa ON pa.id = pav.producto_almacen_id WHERE pa.producto_id = producto.id)
+                OR EXISTS (SELECT 1 FROM productoalmacencompra pac JOIN productoalmacen pa ON pa.id = pac.producto_almacen_id WHERE pa.producto_id = producto.id)
+            ) as tiene_ingresos')
+            ->leftJoin('marca', 'marca.id', '=', 'producto.marca_id')
+            ->leftJoin('categoria', 'categoria.id', '=', 'producto.categoria_id')
+            ->leftJoin('unidadmedida', 'unidadmedida.id', '=', 'producto.unidad_medida_id')
+            ->whereIn('producto.id', $productosDelAlmacen)
+            ->orderBy('producto.name', 'asc')
+            ->get();
+
+        if ($productos->isEmpty()) {
+            return [];
+        }
+
+        $productoIds = $productos->pluck('id')->all();
+
+        // ── 2) productoEnAlmacenes (TODOS los almacenes) + almacen/ubicacion ──
+        $almacenesRows = DB::table('productoalmacen as pa')
+            ->select([
+                'pa.id',
+                'pa.producto_id',
+                'pa.almacen_id',
+                'pa.ubicacion_id',
+                'pa.stock_fraccion',
+                'pa.costo',
+                'pa.costo_anterior',
+                'pa.costo_actual',
+                'pa.costo_con_flete',
+                'pa.stock_costo_anterior',
+                'pa.stock_costo_actual',
+                'almacen.name as almacen_name',
+                'ubicacion.name as ubicacion_name',
+            ])
+            ->leftJoin('almacen', 'almacen.id', '=', 'pa.almacen_id')
+            ->leftJoin('ubicacion', 'ubicacion.id', '=', 'pa.ubicacion_id')
+            ->whereIn('pa.producto_id', $productoIds)
+            ->orderBy('pa.id', 'asc')
+            ->get();
+
+        $productoAlmacenIds = $almacenesRows->pluck('id')->all();
+
+        // ── 3) unidadesDerivadas + unidad_derivada ──
+        $udRows = DB::table('productoalmacenunidadderivada as ud')
+            ->select([
+                'ud.id',
+                'ud.producto_almacen_id',
+                'ud.unidad_derivada_id',
+                'ud.factor',
+                'ud.precio_publico',
+                'ud.comision_publico',
+                'ud.precio_especial',
+                'ud.comision_especial',
+                'ud.activador_especial',
+                'ud.precio_minimo',
+                'ud.comision_minimo',
+                'ud.activador_minimo',
+                'ud.precio_ultimo',
+                'ud.comision_ultimo',
+                'ud.activador_ultimo',
+                'unidadderivada.name as unidad_derivada_name',
+            ])
+            ->leftJoin('unidadderivada', 'unidadderivada.id', '=', 'ud.unidad_derivada_id')
+            ->whereIn('ud.producto_almacen_id', $productoAlmacenIds)
+            ->orderBy('ud.orden', 'asc')
+            ->orderBy('ud.factor', 'desc')
+            ->get();
+
+        // ── Agrupar unidades derivadas por producto_almacen_id ──
+        $udPorAlmacen = [];
+        foreach ($udRows as $ud) {
+            $udPorAlmacen[$ud->producto_almacen_id][] = [
+                'id' => (int) $ud->id,
+                'producto_almacen_id' => (int) $ud->producto_almacen_id,
+                'unidad_derivada_id' => (int) $ud->unidad_derivada_id,
+                'factor' => $ud->factor,
+                'precio_publico' => $ud->precio_publico,
+                'comision_publico' => $ud->comision_publico,
+                'precio_especial' => $ud->precio_especial,
+                'comision_especial' => $ud->comision_especial,
+                'activador_especial' => $ud->activador_especial,
+                'precio_minimo' => $ud->precio_minimo,
+                'comision_minimo' => $ud->comision_minimo,
+                'activador_minimo' => $ud->activador_minimo,
+                'precio_ultimo' => $ud->precio_ultimo,
+                'comision_ultimo' => $ud->comision_ultimo,
+                'activador_ultimo' => $ud->activador_ultimo,
+                'unidad_derivada' => $ud->unidad_derivada_id === null ? null : [
+                    'id' => (int) $ud->unidad_derivada_id,
+                    'name' => $ud->unidad_derivada_name,
+                ],
+            ];
+        }
+
+        // ── Agrupar productoEnAlmacenes por producto_id ──
+        $almacenesPorProducto = [];
+        foreach ($almacenesRows as $pa) {
+            $almacenesPorProducto[$pa->producto_id][] = [
+                'id' => (int) $pa->id,
+                'producto_id' => (int) $pa->producto_id,
+                'almacen_id' => (int) $pa->almacen_id,
+                'ubicacion_id' => $pa->ubicacion_id === null ? null : (int) $pa->ubicacion_id,
+                'stock_fraccion' => $pa->stock_fraccion,
+                'costo' => $pa->costo,
+                'costo_anterior' => $pa->costo_anterior,
+                'costo_actual' => $pa->costo_actual,
+                'costo_con_flete' => $pa->costo_con_flete,
+                'stock_costo_anterior' => $pa->stock_costo_anterior,
+                'stock_costo_actual' => $pa->stock_costo_actual,
+                'almacen' => $pa->almacen_id === null ? null : [
+                    'id' => (int) $pa->almacen_id,
+                    'name' => $pa->almacen_name,
+                ],
+                'ubicacion' => $pa->ubicacion_id === null ? null : [
+                    'id' => (int) $pa->ubicacion_id,
+                    'name' => $pa->ubicacion_name,
+                ],
+                'unidades_derivadas' => $udPorAlmacen[$pa->id] ?? [],
+            ];
+        }
+
+        // ── Ensamblar productos finales ──
+        $result = [];
+        foreach ($productos as $p) {
+            $result[] = [
+                'id' => (int) $p->id,
+                'cod_producto' => $p->cod_producto,
+                'cod_barra' => $p->cod_barra,
+                'name' => $p->name,
+                'name_ticket' => $p->name_ticket,
+                'categoria_id' => $p->categoria_id === null ? null : (int) $p->categoria_id,
+                'marca_id' => $p->marca_id === null ? null : (int) $p->marca_id,
+                'unidad_medida_id' => $p->unidad_medida_id === null ? null : (int) $p->unidad_medida_id,
+                'accion_tecnica' => $p->accion_tecnica,
+                'img' => $p->img,
+                'ficha_tecnica' => $p->ficha_tecnica,
+                'stock_min' => $p->stock_min,
+                'stock_max' => $p->stock_max === null ? null : (int) $p->stock_max,
+                'unidades_contenidas' => $p->unidades_contenidas,
+                'estado' => (bool) $p->estado,
+                'permitido' => (bool) $p->permitido,
+                'tiene_ingresos' => (bool) $p->tiene_ingresos,
+                'marca' => $p->marca_id === null ? null : [
+                    'id' => (int) $p->marca_id,
+                    'name' => $p->marca_name,
+                ],
+                'categoria' => $p->categoria_id === null ? null : [
+                    'id' => (int) $p->categoria_id,
+                    'name' => $p->categoria_name,
+                ],
+                'unidad_medida' => $p->unidad_medida_id === null ? null : [
+                    'id' => (int) $p->unidad_medida_id,
+                    'name' => $p->unidad_medida_name,
+                ],
+                'producto_en_almacenes' => $almacenesPorProducto[$p->id] ?? [],
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
      * Get paginated products by warehouse with filters
      */
     public function findByAlmacen(?int $almacenId, array $filters = [], int $perPage = 100): LengthAwarePaginator

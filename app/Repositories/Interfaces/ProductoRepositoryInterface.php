@@ -38,6 +38,16 @@ interface ProductoRepositoryInterface
     public function findListadoLigeroByAlmacen(int $almacenId): \Illuminate\Database\Eloquent\Collection;
 
     /**
+     * Listado COMPLETO de productos por almacén para la vista "Mi Almacén",
+     * devuelto como array PHP plano (mismo shape que Eloquent->toArray()) y
+     * construido con Query Builder para evitar la sobrecarga de serializar
+     * miles de modelos Eloquent. Ver implementación para detalles.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function findListadoCompletoArrayByAlmacen(int $almacenId): array;
+
+    /**
      * Get all products (no pagination)
      */
     public function getAll(array $relations = []): Collection;

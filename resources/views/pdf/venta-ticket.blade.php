@@ -204,10 +204,10 @@
                 </tr>
                 @endforeach
             @endif
-            @if(($calculos['sobrecargo'] ?? 0) > 0)
+            @if(($sobrecargoVisible ?? $calculos['sobrecargo'] ?? 0) > 0)
             <tr style="border-bottom: 1px solid #000;">
                 <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">SOBRECARGO</td>
-                <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($calculos['sobrecargo'], 2) }}</td>
+                <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($sobrecargoVisible ?? $calculos['sobrecargo'], 2) }}</td>
             </tr>
             @endif
             <tr>
