@@ -36,6 +36,7 @@ class Venta extends Model
         'estado_de_venta',
         'tipo_despacho',
         'stock_aplicado',
+        'descuenta_stock',
         'cliente_id',
         'direccion_seleccionada', // ✅ Agregar campo
         'recomendado_por_id',
@@ -52,6 +53,7 @@ class Venta extends Model
             'estado_de_venta' => EstadoDeVenta::class,
             'tipo_de_cambio' => 'decimal:4',
             'stock_aplicado' => 'boolean',
+            'descuenta_stock' => 'boolean',
             'numero_dias' => 'integer',
             'fecha_vencimiento' => 'datetime',
             'fecha' => 'datetime',

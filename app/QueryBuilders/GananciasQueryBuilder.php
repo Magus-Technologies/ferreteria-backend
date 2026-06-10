@@ -26,7 +26,10 @@ class GananciasQueryBuilder
             ->leftJoin('user as u', 'v.user_id', '=', 'u.id')
             ->leftJoin('almacen as a', 'v.almacen_id', '=', 'a.id')
             ->leftJoin('comprobantes_electronicos as ce', 'v.id', '=', 'ce.venta_id')
-            ->where('v.estado_de_venta', '!=', 'an');
+            ->where('v.estado_de_venta', '!=', 'an')
+            // Excluir ventas administrativas ("no descontar stock"): no movieron inventario,
+            // no cuentan como ganancia. NULL (ventas previas a esta columna) sí cuentan.
+            ->whereRaw('(v.descuenta_stock IS NULL OR v.descuenta_stock = 1)');
     }
 
     /**
@@ -127,6 +130,8 @@ class GananciasQueryBuilder
                 'udiv.cantidad'
             ])
             ->where('v.estado_de_venta', '!=', 'an')
+            // Excluir ventas administrativas ("no descontar stock") también de las pérdidas.
+            ->whereRaw('(v.descuenta_stock IS NULL OR v.descuenta_stock = 1)')
             ->whereRaw('udiv.precio < (' . self::COSTO_EXPR . ')');
     }
 

@@ -581,6 +581,9 @@ class VentaController extends Controller
             // Marcar si el stock fue aplicado al crear la venta.
             // stock_ya_aplicado=true: cotización origen reservó el stock.
             $venta->stock_aplicado = $debeDescontar || $stockYaAplicado;
+            // descuenta_stock=false (venta administrativa, "no descontar stock"):
+            // el producto ya salió físicamente → NO cuenta en el reporte de Ganancias.
+            $venta->descuenta_stock = ! $noDescontarStock;
             $venta->save();
 
             // Auto-crear entrega para ventas de Recojo en Tienda (tipo_despacho='et').
