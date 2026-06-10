@@ -121,16 +121,12 @@
                 <td style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ $mp['nombre'] }}</td>
                 <td style="text-align: right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($mp['monto'], 2) }}</td>
             </tr>
-            @if(isset($mp['sobrecargo_aplicado']) && $mp['sobrecargo_aplicado'] > 0)
+            @if(isset($mp['sobrecargo_aplicado']) && $mp['sobrecargo_aplicado'] > 0 && !empty($mp['mostrar_sobrecargo']))
             <tr>
                 <td style="padding-left: 6px; color:#666; {{ $bloques['tabla_fila']['css'] ?? 'font-size:5pt;' }}">+ Sobrecargo ({{ number_format($mp['sobrecargo_aplicado'] / $mp['monto'] * 100, 1) }}%)</td>
                 <td style="text-align: right; color:#666; {{ $bloques['tabla_fila']['css'] ?? 'font-size:5pt;' }}">{{ number_format($mp['sobrecargo_aplicado'], 2) }}</td>
             </tr>
             @endif
-            <tr style="border-bottom: 1px dashed #999;">
-                <td style="font-weight:bold; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">TOTAL</td>
-                <td style="text-align:right; font-weight:bold; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($mp['monto'] + ($mp['sobrecargo_aplicado'] ?? 0), 2) }}</td>
-            </tr>
             @endforeach
         </table>
     </div>

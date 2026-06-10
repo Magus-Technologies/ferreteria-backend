@@ -23,8 +23,11 @@ class VentaPdfService
         $venta = $this->obtenerVenta($ventaId);
         $empresa = $venta->user->empresa;
 
-        // Calcular sobrecargo total de todos los métodos de pago
-        $sobrecargoTotal = $venta->despliegueDePagoVentas->sum('sobrecargo_aplicado') ?? 0;
+        // Calcular sobrecargo total excluyendo métodos de pago Izypay.
+        // El sobrecargo de Izypay es un costo interno que no se refleja en el ticket.
+        $sobrecargoTotal = $venta->despliegueDePagoVentas
+            ->reject(fn($dp) => str_contains(strtolower($dp->despliegueDePago->name ?? ''), 'izypay'))
+            ->sum('sobrecargo_aplicado') ?? 0;
 
         $productos = $this->prepararProductos($venta, $sobrecargoTotal);
 
@@ -229,10 +232,12 @@ class VentaPdfService
         // Metodos de pago
         $metodosPago = [];
         foreach ($venta->despliegueDePagoVentas as $dp) {
+            $esIzypay = str_contains(strtolower($dp->despliegueDePago->name ?? ''), 'izypay');
             $metodosPago[] = [
                 'nombre' => $dp->despliegueDePago->name ?? '',
                 'monto' => (float) $dp->monto,
                 'sobrecargo_aplicado' => (float) ($dp->sobrecargo_aplicado ?? 0),
+                'mostrar_sobrecargo' => !$esIzypay,
             ];
         }
 
