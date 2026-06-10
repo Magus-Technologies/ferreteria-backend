@@ -345,7 +345,13 @@ class IngresoSalidaController extends Controller
             $stockBucketActual = (float) ($productoAlmacen->stock_costo_actual ?? 0);
 
             if ($esIngreso) {
-                $stockBucketActual += $cantidadFraccion; // cantidadFraccion > 0
+                // Si hay stock en el lote ANTERIOR, el ingreso entra ahí (a su costo);
+                // si no hay lote anterior, entra al ACTUAL.
+                if ($stockBucketAnterior > 0) {
+                    $stockBucketAnterior += $cantidadFraccion; // cantidadFraccion > 0
+                } else {
+                    $stockBucketActual += $cantidadFraccion;
+                }
             } else {
                 $porConsumir = abs($cantidadFraccion);
                 $deAnterior = min($porConsumir, max($stockBucketAnterior, 0));
@@ -459,14 +465,36 @@ class IngresoSalidaController extends Controller
                     $stockAnterior = (float) $productoAlmacen->stock_fraccion;
                     $stockNuevo = $stockAnterior + $reversionFraccion;
 
-                    // Revertir también el bucket PEPS actual para no descuadrar
-                    // (anular ingreso = quitar del actual; anular salida = devolver al actual).
-                    $stockBucketActual = (float) ($productoAlmacen->stock_costo_actual ?? 0) + $reversionFraccion;
+                    // Revertir los buckets PEPS con la misma regla "anterior primero":
+                    // devolver stock → al lote anterior si tiene (si no, al actual);
+                    // quitar stock → consume primero el anterior, luego el actual.
+                    $stockBucketAnterior = (float) ($productoAlmacen->stock_costo_anterior ?? 0);
+                    $stockBucketActual = (float) ($productoAlmacen->stock_costo_actual ?? 0);
+
+                    if ($reversionFraccion >= 0) {
+                        if ($stockBucketAnterior > 0) {
+                            $stockBucketAnterior += $reversionFraccion;
+                        } else {
+                            $stockBucketActual += $reversionFraccion;
+                        }
+                    } else {
+                        $porQuitar = abs($reversionFraccion);
+                        $deAnterior = min($porQuitar, max($stockBucketAnterior, 0));
+                        $stockBucketAnterior -= $deAnterior;
+                        $porQuitar -= $deAnterior;
+                        if ($porQuitar > 0) {
+                            $stockBucketActual -= $porQuitar;
+                        }
+                    }
+
+                    $costoAnteriorNuevoAnul = $stockBucketAnterior <= 0 ? null : $productoAlmacen->costo_anterior;
 
                     // Actualizar stock del producto
                     $productoAlmacen->update([
                         "stock_fraccion" => $stockNuevo,
+                        "stock_costo_anterior" => $stockBucketAnterior,
                         "stock_costo_actual" => $stockBucketActual,
+                        "costo_anterior" => $costoAnteriorNuevoAnul,
                     ]);
 
                     // Registrar en historial de la unidad inmutable
