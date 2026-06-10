@@ -91,9 +91,31 @@ class ProductoCostoService
     }
 
     /**
+     * Calcula (SIN MUTAR) cómo se repartiría un consumo PEPS entre el lote anterior
+     * y el actual, según los buckets actuales. Solo para registrar el desglose de costo
+     * en la venta (reporte de pérdidas). NO modifica stock ni costo.
+     *
+     * @return array{cant_anterior: float, costo_anterior: float, cant_actual: float, costo_actual: float}
+     */
+    public function calcularDesglosePEPS(ProductoAlmacen $productoAlmacen, float $cantidad): array
+    {
+        $stockAnterior = max((float) ($productoAlmacen->stock_costo_anterior ?? 0), 0);
+        $cantidad = max($cantidad, 0);
+        $deAnterior = min($cantidad, $stockAnterior); // primero el lote anterior (PEPS)
+        $deActual = $cantidad - $deAnterior;          // el resto, del lote actual
+
+        return [
+            'cant_anterior' => $deAnterior,
+            'costo_anterior' => (float) ($productoAlmacen->costo_anterior ?? 0),
+            'cant_actual' => $deActual,
+            'costo_actual' => (float) ($productoAlmacen->costo_actual ?? $productoAlmacen->costo ?? 0),
+        ];
+    }
+
+    /**
      * Consume stock usando PEPS (Primero en Entrar, Primero en Salir)
      * Retorna el costo promedio ponderado del stock consumido
-     * 
+     *
      * @param ProductoAlmacen $productoAlmacen
      * @param float $cantidadAConsumir
      * @return float Costo promedio del stock consumido

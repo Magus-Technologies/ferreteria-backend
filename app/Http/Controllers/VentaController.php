@@ -404,6 +404,7 @@ class VentaController extends Controller
             // Calcular costos PEPS ANTES de crear ProductoAlmacenVenta
             // Esto permite guardar el costo correcto en la venta
             $costosCalculados = []; // Guardar costos PEPS por producto
+            $desglosePEPS = [];     // Desglose (lote anterior/actual) por producto, solo para el reporte de pérdidas
             $costService = app(\App\Services\Producto\ProductoCostoService::class);
             
             foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
@@ -442,6 +443,10 @@ class VentaController extends Controller
                 } else {
                     $costosCalculados[$productoAlmacen->id] = $productoAlmacen->costo ?? 0;
                 }
+
+                // Desglose PEPS (solo lectura, sobre el producto REAL aún sin consumir):
+                // cuántas unidades salen del lote anterior y del actual. Solo para el reporte.
+                $desglosePEPS[$productoAlmacen->id] = $costService->calcularDesglosePEPS($productoAlmacen, $cantidadTotalProducto);
             }
 
             // Create productos_por_almacen and unidades_derivadas
@@ -466,10 +471,16 @@ class VentaController extends Controller
                 // Costo PEPS consumido: los buckets ya incluyen el flete (costo real por lote),
                 // así que este valor es el costo real con flete del/los lote(s) vendidos.
                 $costoPEPS = $costosCalculados[$productoAlmacenId] ?? ($productoAlmacen->costo ?? 0);
+                $desg = $desglosePEPS[$productoAlmacenId] ?? null;
 
                 $productoAlmacenVenta = ProductoAlmacenVenta::create([
                     'venta_id' => $venta->id,
                     'costo' => $costoPEPS,
+                    // Desglose PEPS (lote anterior/actual) para el análisis de pérdidas. Solo reporte.
+                    'cant_costo_anterior' => $desg['cant_anterior'] ?? 0,
+                    'costo_anterior' => $desg['costo_anterior'] ?? null,
+                    'cant_costo_actual' => $desg['cant_actual'] ?? 0,
+                    'costo_actual' => $desg['costo_actual'] ?? null,
                     'producto_almacen_id' => $productoAlmacenId,
                     'paquete_id' => $producto['paquete_id'] ?? null,
                     'paquete_nombre' => $producto['paquete_nombre'] ?? null,

@@ -104,6 +104,8 @@ class AnalisisPerdidasService
      */
     private function calcularPerdidasBajoCosto(GananciasQueryFilter $filter): array
     {
+        $costoFallback = "COALESCE(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END, 0)";
+
         $query = DB::table('unidadderivadainmutableventa as udiv')
             ->join('productoalmacenventa as pav', 'udiv.producto_almacen_venta_id', '=', 'pav.id')
             ->join('venta as v', 'pav.venta_id', '=', 'v.id')
@@ -114,49 +116,53 @@ class AnalisisPerdidasService
             ->leftJoin('comprobantes_electronicos as ce', 'v.id', '=', 'ce.venta_id')
             ->select([
                 'v.id as venta_id',
+                'pav.id as pav_id',
                 'v.fecha',
-                DB::raw("CASE v.tipo_documento 
-                    WHEN 'fa' THEN 'FACTURA' 
-                    WHEN '01' THEN 'FACTURA' 
-                    WHEN 'bv' THEN 'B.VENTA' 
-                    WHEN '03' THEN 'B.VENTA' 
-                    WHEN 'nv' THEN 'N.VENTA' 
+                DB::raw("CASE v.tipo_documento
+                    WHEN 'fa' THEN 'FACTURA'
+                    WHEN '01' THEN 'FACTURA'
+                    WHEN 'bv' THEN 'B.VENTA'
+                    WHEN '03' THEN 'B.VENTA'
+                    WHEN 'nv' THEN 'N.VENTA'
                     WHEN '00' THEN 'N.VENTA'
-                    ELSE v.tipo_documento 
+                    ELSE v.tipo_documento
                 END as tipo_doc_name"),
                 'v.numero',
                 'p.name as producto',
-                DB::raw("CASE 
+                DB::raw("CASE
                     WHEN c.id IS NOT NULL THEN CONCAT(c.numero_documento, ' - ', COALESCE(c.razon_social, CONCAT(c.nombres, ' ', c.apellidos)))
                     ELSE 'CLIENTES VARIOS'
                 END as cliente"),
                 DB::raw("COALESCE(u.name, 'SISTEMA') as vendedor"),
-                DB::raw("'VENTA BAJO COSTO' as categoria"),
                 'udiv.cantidad',
                 'udiv.precio as precio_venta',
-                DB::raw("CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END as costo_producto"),
-                DB::raw("((CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) - udiv.precio) * udiv.cantidad as monto"),
-                DB::raw("CASE 
-                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
+                DB::raw("$costoFallback as costo_fallback"),
+                // Desglose PEPS guardado en la venta (lote anterior / actual).
+                'pav.cant_costo_anterior',
+                'pav.costo_anterior',
+                'pav.cant_costo_actual',
+                'pav.costo_actual',
+                DB::raw("CASE
+                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL
                     THEN CONCAT(
-                        CASE v.tipo_documento 
-                            WHEN 'fa' THEN '[FACTURA] ' 
-                            WHEN '01' THEN '[FACTURA] ' 
-                            WHEN 'bv' THEN '[BOLETA] ' 
-                            WHEN '03' THEN '[BOLETA] ' 
-                            ELSE '[DOC] ' 
+                        CASE v.tipo_documento
+                            WHEN 'fa' THEN '[FACTURA] '
+                            WHEN '01' THEN '[FACTURA] '
+                            WHEN 'bv' THEN '[BOLETA] '
+                            WHEN '03' THEN '[BOLETA] '
+                            ELSE '[DOC] '
                         END,
                         ce.serie, '-', LPAD(ce.correlativo, 8, '0')
                     )
                     ELSE CONCAT(
-                        CASE v.tipo_documento 
-                            WHEN 'fa' THEN '[FACTURA] ' 
-                            WHEN '01' THEN '[FACTURA] ' 
-                            WHEN 'bv' THEN '[BOLETA] ' 
-                            WHEN '03' THEN '[BOLETA] ' 
-                            WHEN 'nv' THEN '[N.VENTA] ' 
+                        CASE v.tipo_documento
+                            WHEN 'fa' THEN '[FACTURA] '
+                            WHEN '01' THEN '[FACTURA] '
+                            WHEN 'bv' THEN '[BOLETA] '
+                            WHEN '03' THEN '[BOLETA] '
+                            WHEN 'nv' THEN '[N.VENTA] '
                             WHEN '00' THEN '[N.VENTA] '
-                            ELSE '[DOC] ' 
+                            ELSE '[DOC] '
                         END,
                         LPAD(v.numero, 8, '0')
                     )
@@ -164,14 +170,84 @@ class AnalisisPerdidasService
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
             ])
             ->where('v.estado_de_venta', '!=', 'an')
-            ->whereRaw('udiv.precio < (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)');
+            // No contar ventas administrativas ("no descontar stock").
+            ->whereRaw('(v.descuenta_stock IS NULL OR v.descuenta_stock = 1)')
+            // Traer filas donde AL MENOS un costo (lote anterior/actual o fallback) supera el precio.
+            ->whereRaw("udiv.precio < GREATEST(COALESCE(pav.costo_anterior,0), COALESCE(pav.costo_actual,0), $costoFallback)");
 
         $filter->applyPerdidas($query, 'venta');
-        $detalles = $query->get();
+        $rows = $query->get();
+
+        // Construir filas: si la venta consumió dos lotes (anterior + actual), se generan
+        // DOS filas (una por costo). Si no hay desglose (ventas previas), una sola fila.
+        $detalles = [];
+        $total = 0.0;
+        // El desglose se guarda por línea de venta (pav). Si la línea tiene varias
+        // unidades derivadas, el query repite la fila → procesamos el desglose una sola
+        // vez por pav para no duplicar la pérdida.
+        $pavDesgloseProcesado = [];
+
+        $armarFila = function ($r, string $categoria, float $cantidad, float $costo, float $monto): array {
+            return [
+                'venta_id' => $r->venta_id,
+                'fecha' => $r->fecha,
+                'tipo_doc_name' => $r->tipo_doc_name,
+                'numero' => $r->numero,
+                'producto' => $r->producto,
+                'cliente' => $r->cliente,
+                'vendedor' => $r->vendedor,
+                'categoria' => $categoria,
+                'cantidad' => $cantidad,
+                'precio_venta' => (float) $r->precio_venta,
+                'costo_producto' => $costo,
+                'monto' => $monto,
+                'comprobante' => $r->comprobante,
+                'referencia' => $r->referencia,
+            ];
+        };
+
+        foreach ($rows as $r) {
+            $precio = (float) $r->precio_venta;
+            $cantAnt = (float) ($r->cant_costo_anterior ?? 0);
+            $cantAct = (float) ($r->cant_costo_actual ?? 0);
+            $costoAnt = (float) ($r->costo_anterior ?? 0);
+            $costoAct = (float) ($r->costo_actual ?? 0);
+
+            $tieneDesglose = ($cantAnt + $cantAct) > 0;
+
+            // Evitar duplicar el desglose si el pav aparece en varias filas (varias U.D.).
+            if ($tieneDesglose && isset($pavDesgloseProcesado[$r->pav_id])) {
+                continue;
+            }
+
+            if ($tieneDesglose) {
+                $pavDesgloseProcesado[$r->pav_id] = true;
+                // Fila del lote ANTERIOR (si hubo consumo y está bajo costo).
+                if ($cantAnt > 0 && $costoAnt > $precio) {
+                    $monto = ($costoAnt - $precio) * $cantAnt;
+                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO (lote anterior)', $cantAnt, $costoAnt, $monto);
+                    $total += $monto;
+                }
+                // Fila del lote ACTUAL.
+                if ($cantAct > 0 && $costoAct > $precio) {
+                    $monto = ($costoAct - $precio) * $cantAct;
+                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO (lote actual)', $cantAct, $costoAct, $monto);
+                    $total += $monto;
+                }
+            } else {
+                // Sin desglose (venta previa a esta función): una sola fila con el costo guardado.
+                $costo = (float) $r->costo_fallback;
+                if ($costo > $precio) {
+                    $monto = ($costo - $precio) * (float) $r->cantidad;
+                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO', (float) $r->cantidad, $costo, $monto);
+                    $total += $monto;
+                }
+            }
+        }
 
         return [
-            'detalles' => $detalles->toArray(),
-            'total' => $detalles->sum('monto'),
+            'detalles' => $detalles,
+            'total' => $total,
         ];
     }
 

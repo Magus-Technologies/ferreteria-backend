@@ -24,6 +24,10 @@ class ProductoAlmacenVenta extends Model
     protected $fillable = [
         'venta_id',
         'costo',
+        'cant_costo_anterior',
+        'costo_anterior',
+        'cant_costo_actual',
+        'costo_actual',
         'producto_almacen_id',
         'paquete_id',
         'paquete_nombre',
