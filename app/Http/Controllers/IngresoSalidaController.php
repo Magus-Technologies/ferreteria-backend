@@ -365,11 +365,24 @@ class IngresoSalidaController extends Controller
             // Si el lote anterior se agotó, limpiar su costo.
             $costoAnteriorNuevo = $stockBucketAnterior <= 0 ? null : $productoAlmacen->costo_anterior;
 
+            // Recalcular el costo del inventario = promedio ponderado de los buckets con
+            // stock. Así "Costo en Almacén" y "P. Compra" reflejan el costo real tras el
+            // movimiento (sin esto se quedaban con un valor viejo).
+            $costoNuevo = $this->recalcularCostoPonderado(
+                $stockBucketAnterior,
+                $costoAnteriorNuevo,
+                $stockBucketActual,
+                (float) ($productoAlmacen->costo_actual ?? 0),
+                (float) $productoAlmacen->costo
+            );
+
             $productoAlmacen->update([
                 "stock_fraccion" => $stockNuevo,
                 "stock_costo_anterior" => $stockBucketAnterior,
                 "stock_costo_actual" => $stockBucketActual,
                 "costo_anterior" => $costoAnteriorNuevo,
+                "costo" => $costoNuevo,
+                "costo_con_flete" => $costoNuevo,
             ]);
 
             // Descontar/incrementar producto complementario si existe
@@ -489,12 +502,22 @@ class IngresoSalidaController extends Controller
 
                     $costoAnteriorNuevoAnul = $stockBucketAnterior <= 0 ? null : $productoAlmacen->costo_anterior;
 
+                    $costoNuevoAnul = $this->recalcularCostoPonderado(
+                        $stockBucketAnterior,
+                        $costoAnteriorNuevoAnul,
+                        $stockBucketActual,
+                        (float) ($productoAlmacen->costo_actual ?? 0),
+                        (float) $productoAlmacen->costo
+                    );
+
                     // Actualizar stock del producto
                     $productoAlmacen->update([
                         "stock_fraccion" => $stockNuevo,
                         "stock_costo_anterior" => $stockBucketAnterior,
                         "stock_costo_actual" => $stockBucketActual,
                         "costo_anterior" => $costoAnteriorNuevoAnul,
+                        "costo" => $costoNuevoAnul,
+                        "costo_con_flete" => $costoNuevoAnul,
                     ]);
 
                     // Registrar en historial de la unidad inmutable
@@ -536,5 +559,32 @@ class IngresoSalidaController extends Controller
                 "data" => $ingresoSalida
             ]);
         });
+    }
+
+    /**
+     * Recalcula el costo del inventario como el promedio ponderado de los buckets PEPS
+     * que tienen stock. Si solo un bucket tiene stock, devuelve su costo; si ninguno
+     * tiene stock, mantiene el costo previo.
+     */
+    private function recalcularCostoPonderado(
+        float $stockAnterior,
+        ?float $costoAnterior,
+        float $stockActual,
+        float $costoActual,
+        float $costoPrevio
+    ): float {
+        $ca = (float) ($costoAnterior ?? 0);
+        $total = $stockAnterior + $stockActual;
+
+        if ($total <= 0) {
+            return $costoPrevio; // sin stock: se mantiene el último costo conocido
+        }
+        if ($stockAnterior > 0 && $stockActual > 0) {
+            return (($stockAnterior * $ca) + ($stockActual * $costoActual)) / $total;
+        }
+        if ($stockActual > 0) {
+            return $costoActual;
+        }
+        return $ca; // solo queda stock en el lote anterior
     }
 }
