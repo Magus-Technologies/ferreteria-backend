@@ -337,9 +337,33 @@ class IngresoSalidaController extends Controller
                 }
             }
 
-            // PASO 13: Actualizar stock del ProductoAlmacen
+            // PASO 13: Actualizar stock del ProductoAlmacen + buckets PEPS.
+            // INGRESO: suma al lote ACTUAL. SALIDA: consume primero el lote ANTERIOR
+            // (lo más viejo) y, si no alcanza, el ACTUAL. stock_fraccion se fija al
+            // valor real (stockNuevo) para no descuadrarse con los buckets.
+            $stockBucketAnterior = (float) ($productoAlmacen->stock_costo_anterior ?? 0);
+            $stockBucketActual = (float) ($productoAlmacen->stock_costo_actual ?? 0);
+
+            if ($esIngreso) {
+                $stockBucketActual += $cantidadFraccion; // cantidadFraccion > 0
+            } else {
+                $porConsumir = abs($cantidadFraccion);
+                $deAnterior = min($porConsumir, max($stockBucketAnterior, 0));
+                $stockBucketAnterior -= $deAnterior;
+                $porConsumir -= $deAnterior;
+                if ($porConsumir > 0) {
+                    $stockBucketActual -= $porConsumir; // puede quedar negativo (igual que ventas)
+                }
+            }
+
+            // Si el lote anterior se agotó, limpiar su costo.
+            $costoAnteriorNuevo = $stockBucketAnterior <= 0 ? null : $productoAlmacen->costo_anterior;
+
             $productoAlmacen->update([
                 "stock_fraccion" => $stockNuevo,
+                "stock_costo_anterior" => $stockBucketAnterior,
+                "stock_costo_actual" => $stockBucketActual,
+                "costo_anterior" => $costoAnteriorNuevo,
             ]);
 
             // Descontar/incrementar producto complementario si existe
@@ -435,9 +459,14 @@ class IngresoSalidaController extends Controller
                     $stockAnterior = (float) $productoAlmacen->stock_fraccion;
                     $stockNuevo = $stockAnterior + $reversionFraccion;
 
+                    // Revertir también el bucket PEPS actual para no descuadrar
+                    // (anular ingreso = quitar del actual; anular salida = devolver al actual).
+                    $stockBucketActual = (float) ($productoAlmacen->stock_costo_actual ?? 0) + $reversionFraccion;
+
                     // Actualizar stock del producto
                     $productoAlmacen->update([
                         "stock_fraccion" => $stockNuevo,
+                        "stock_costo_actual" => $stockBucketActual,
                     ]);
 
                     // Registrar en historial de la unidad inmutable
