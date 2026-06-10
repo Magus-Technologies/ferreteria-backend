@@ -238,7 +238,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                             'compras' => function ($cq) {
                                 $cq->select('id', 'producto_almacen_id', 'costo', 'compra_id')
                                     ->with([
-                                        'compra:id,fecha,proveedor_id,user_id,tipo_documento,serie,numero',
+                                        'compra:id,fecha,proveedor_id,user_id,tipo_documento,serie,numero,estado_de_compra',
                                         'compra.proveedor:id,razon_social',
                                         'compra.user:id,name',
                                         'unidadesDerivadas' => function ($udq) {
