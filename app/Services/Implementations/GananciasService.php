@@ -27,6 +27,10 @@ class GananciasService implements GananciasServiceInterface
                       ->limit($perPage)
                       ->get();
 
+        // Desglosar por lote: una venta que consumió varios costos (lotes PEPS)
+        // se separa en una fila por costo, con su costo y ganancia reales.
+        $datos = $this->expandirPorLotes($datos);
+
         // Calcular resumen de la página actual
         $resumen = $this->calcularResumenDatos($datos);
 
@@ -119,6 +123,82 @@ class GananciasService implements GananciasServiceInterface
         }
 
         return $query->orderBy('v.fecha', 'desc')->orderBy('v.created_at', 'desc');
+    }
+
+    /**
+     * Desglosa cada fila de venta en N filas (una por lote de costo PEPS) cuando
+     * esa venta consumió stock de costos distintos. Así el reporte muestra el
+     * costo y la ganancia REALES de cada lote, no un promedio.
+     *
+     * Solo desglosa cuando es seguro (no altera totales):
+     *  - hay consumos registrados para (venta, producto),
+     *  - hay 2+ lotes con costo distinto,
+     *  - la suma de cantidades del consumo coincide con la cantidad de la fila
+     *    (la fila representa toda la línea; evita doble conteo en multi-formato).
+     */
+    private function expandirPorLotes($datos)
+    {
+        if ($datos->isEmpty()) {
+            return $datos;
+        }
+
+        // Pares (venta_id, producto_almacen_id) presentes en esta página
+        $ventaIds = $datos->pluck('venta_id')->filter()->unique()->values()->all();
+        $paIds = $datos->pluck('producto_almacen_id')->filter()->unique()->values()->all();
+
+        if (empty($ventaIds) || empty($paIds)) {
+            return $datos;
+        }
+
+        $consumosPorClave = DB::table('productoalmacen_lote_consumo')
+            ->where('origen_tipo', 'venta')
+            ->whereIn('origen_id', $ventaIds)
+            ->whereIn('producto_almacen_id', $paIds)
+            ->orderBy('id')
+            ->get()
+            ->groupBy(fn($c) => $c->origen_id . '|' . $c->producto_almacen_id);
+
+        $resultado = collect();
+
+        foreach ($datos as $row) {
+            $clave = ($row->venta_id ?? '') . '|' . ($row->producto_almacen_id ?? '');
+            $consumos = $consumosPorClave->get($clave);
+            $cant = (float) $row->cant;
+
+            $distintos = $consumos
+                ? $consumos->pluck('costo')->map(fn($c) => round((float) $c, 4))->unique()->count()
+                : 0;
+            $sumCant = $consumos ? (float) $consumos->sum(fn($c) => (float) $c->cantidad) : 0;
+
+            $puedeDesglosar = $consumos
+                && $consumos->count() > 1
+                && $distintos > 1
+                && abs($sumCant - $cant) < 0.01; // fila = toda la línea (factor 1)
+
+            if (! $puedeDesglosar) {
+                $resultado->push($row);
+                continue;
+            }
+
+            $n = $consumos->count();
+            $i = 0;
+            foreach ($consumos as $c) {
+                $i++;
+                $cl = (float) $c->cantidad;
+                $costoUnit = (float) $c->costo;
+
+                $fila = clone $row;
+                $fila->cant = $cl;
+                $fila->costo = $costoUnit;
+                $fila->costo_total = $costoUnit * $cl;
+                $fila->subtot = (float) $row->p_unit * $cl;
+                $fila->ganancia = $fila->subtot - $fila->costo_total;
+                $fila->desglose_lote = "Lote {$i}/{$n}";
+                $resultado->push($fila);
+            }
+        }
+
+        return $resultado->values();
     }
 
     /**
