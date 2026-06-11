@@ -337,53 +337,27 @@ class IngresoSalidaController extends Controller
                 }
             }
 
-            // PASO 13: Actualizar stock del ProductoAlmacen + buckets PEPS.
-            // INGRESO: suma al lote ACTUAL. SALIDA: consume primero el lote ANTERIOR
-            // (lo más viejo) y, si no alcanza, el ACTUAL. stock_fraccion se fija al
-            // valor real (stockNuevo) para no descuadrarse con los buckets.
-            $stockBucketAnterior = (float) ($productoAlmacen->stock_costo_anterior ?? 0);
-            $stockBucketActual = (float) ($productoAlmacen->stock_costo_actual ?? 0);
-
+            // PASO 13: Actualizar inventario vía ledger de lotes PEPS.
+            // INGRESO → crea un lote nuevo con su costo. SALIDA → consume lotes FIFO
+            // (más viejo primero). resyncDerivados recalcula costo, stock_fraccion y
+            // los buckets legacy desde los lotes.
+            $loteService = app(\App\Services\Producto\ProductoLoteService::class);
             if ($esIngreso) {
-                // Si hay stock en el lote ANTERIOR, el ingreso entra ahí (a su costo);
-                // si no hay lote anterior, entra al ACTUAL.
-                if ($stockBucketAnterior > 0) {
-                    $stockBucketAnterior += $cantidadFraccion; // cantidadFraccion > 0
-                } else {
-                    $stockBucketActual += $cantidadFraccion;
-                }
+                $costoIngreso = (float) $productoAlmacenIngresoSalida->costo;
+                $loteService->registrarLote(
+                    $productoAlmacen,
+                    $costoIngreso,
+                    $cantidadFraccion, // > 0
+                    ['ingreso_salida_id' => $ingresoSalida->id]
+                );
             } else {
-                $porConsumir = abs($cantidadFraccion);
-                $deAnterior = min($porConsumir, max($stockBucketAnterior, 0));
-                $stockBucketAnterior -= $deAnterior;
-                $porConsumir -= $deAnterior;
-                if ($porConsumir > 0) {
-                    $stockBucketActual -= $porConsumir; // puede quedar negativo (igual que ventas)
-                }
+                $loteService->consumirLotes(
+                    $productoAlmacen,
+                    abs($cantidadFraccion),
+                    ['tipo' => 'salida', 'id' => $ingresoSalida->id]
+                );
             }
-
-            // Si el lote anterior se agotó, limpiar su costo.
-            $costoAnteriorNuevo = $stockBucketAnterior <= 0 ? null : $productoAlmacen->costo_anterior;
-
-            // Recalcular el costo del inventario = promedio ponderado de los buckets con
-            // stock. Así "Costo en Almacén" y "P. Compra" reflejan el costo real tras el
-            // movimiento (sin esto se quedaban con un valor viejo).
-            $costoNuevo = $this->recalcularCostoPonderado(
-                $stockBucketAnterior,
-                $costoAnteriorNuevo,
-                $stockBucketActual,
-                (float) ($productoAlmacen->costo_actual ?? 0),
-                (float) $productoAlmacen->costo
-            );
-
-            $productoAlmacen->update([
-                "stock_fraccion" => $stockNuevo,
-                "stock_costo_anterior" => $stockBucketAnterior,
-                "stock_costo_actual" => $stockBucketActual,
-                "costo_anterior" => $costoAnteriorNuevo,
-                "costo" => $costoNuevo,
-                "costo_con_flete" => $costoNuevo,
-            ]);
+            $productoAlmacen->refresh();
 
             // Descontar/incrementar producto complementario si existe
             ComplementarioStockService::procesarComplementario(
@@ -460,65 +434,42 @@ class IngresoSalidaController extends Controller
             $esIngreso = $ingresoSalida->tipo_documento === TipoDocumento::Ingreso;
             $kardexService = app(\App\Services\Kardex\KardexInventarioService::class);
 
+            $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+
             foreach ($ingresoSalida->productosPorAlmacen as $detalle) {
                 $productoAlmacen = $detalle->productoAlmacen;
                 if (!$productoAlmacen) continue;
 
+                // Revertir el efecto en los lotes UNA vez por documento:
+                //  - ingreso anulado → quitar el lote que creó
+                //  - salida anulada  → devolver el stock a los lotes que consumió
+                if ($esIngreso) {
+                    $loteService->revertirLotesPorIngresoSalida($productoAlmacen, $ingresoSalida->id);
+                } else {
+                    $loteService->revertirConsumoPorOrigen($productoAlmacen, 'salida', $ingresoSalida->id);
+                }
+                $productoAlmacen->refresh();
+
+                // Cursor de stock para el historial/kardex por unidad (el stock real
+                // ya lo fijó el ledger arriba; aquí solo reconstruimos las transiciones).
+                $stockCursor = (float) $productoAlmacen->stock_fraccion;
+                // Sumar de vuelta el efecto total para partir del stock PREVIO a la anulación.
+                $totalReversion = 0.0;
+                foreach ($detalle->unidadesDerivadas as $udTmp) {
+                    $rev = $esIngreso ? -((float) $udTmp->factor * (float) $udTmp->cantidad) : ((float) $udTmp->factor * (float) $udTmp->cantidad);
+                    $totalReversion += $rev;
+                }
+                $stockCursor -= $totalReversion;
+
                 foreach ($detalle->unidadesDerivadas as $ud) {
                     $factor = (float) $ud->factor;
                     $cantidad = (float) $ud->cantidad;
-
-                    // Calcular cantidad en fracciones original
                     $cantidadFraccionOriginal = $factor * $cantidad;
-
-                    // Si era un ingreso (sumó), al anular restamos.
-                    // Si era una salida (restó), al anular sumamos.
                     $reversionFraccion = $esIngreso ? -$cantidadFraccionOriginal : $cantidadFraccionOriginal;
 
-                    $stockAnterior = (float) $productoAlmacen->stock_fraccion;
-                    $stockNuevo = $stockAnterior + $reversionFraccion;
-
-                    // Revertir los buckets PEPS con la misma regla "anterior primero":
-                    // devolver stock → al lote anterior si tiene (si no, al actual);
-                    // quitar stock → consume primero el anterior, luego el actual.
-                    $stockBucketAnterior = (float) ($productoAlmacen->stock_costo_anterior ?? 0);
-                    $stockBucketActual = (float) ($productoAlmacen->stock_costo_actual ?? 0);
-
-                    if ($reversionFraccion >= 0) {
-                        if ($stockBucketAnterior > 0) {
-                            $stockBucketAnterior += $reversionFraccion;
-                        } else {
-                            $stockBucketActual += $reversionFraccion;
-                        }
-                    } else {
-                        $porQuitar = abs($reversionFraccion);
-                        $deAnterior = min($porQuitar, max($stockBucketAnterior, 0));
-                        $stockBucketAnterior -= $deAnterior;
-                        $porQuitar -= $deAnterior;
-                        if ($porQuitar > 0) {
-                            $stockBucketActual -= $porQuitar;
-                        }
-                    }
-
-                    $costoAnteriorNuevoAnul = $stockBucketAnterior <= 0 ? null : $productoAlmacen->costo_anterior;
-
-                    $costoNuevoAnul = $this->recalcularCostoPonderado(
-                        $stockBucketAnterior,
-                        $costoAnteriorNuevoAnul,
-                        $stockBucketActual,
-                        (float) ($productoAlmacen->costo_actual ?? 0),
-                        (float) $productoAlmacen->costo
-                    );
-
-                    // Actualizar stock del producto
-                    $productoAlmacen->update([
-                        "stock_fraccion" => $stockNuevo,
-                        "stock_costo_anterior" => $stockBucketAnterior,
-                        "stock_costo_actual" => $stockBucketActual,
-                        "costo_anterior" => $costoAnteriorNuevoAnul,
-                        "costo" => $costoNuevoAnul,
-                        "costo_con_flete" => $costoNuevoAnul,
-                    ]);
+                    $stockAnterior = $stockCursor;
+                    $stockNuevo = $stockCursor + $reversionFraccion;
+                    $stockCursor = $stockNuevo;
 
                     // Registrar en historial de la unidad inmutable
                     HistorialUnidadDerivadaInmutableIngresoSalida::create([
@@ -527,8 +478,7 @@ class IngresoSalidaController extends Controller
                         "stock_nuevo" => $stockNuevo,
                     ]);
 
-                    // Registrar anulación en kardex inventario (stock fue actualizado arriba,
-                    // pasamos el stock anterior capturado para que kardex muestre el valor correcto)
+                    // Registrar anulación en kardex inventario
                     $costo = (float) $detalle->costo;
                     if ($esIngreso) {
                         $kardexService->registrarAnulacionIngreso($ingresoSalida, $productoAlmacen, $ud, $costo, 6, $stockAnterior);

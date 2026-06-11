@@ -406,6 +406,7 @@ class VentaController extends Controller
             $costosCalculados = []; // Guardar costos PEPS por producto
             $desglosePEPS = [];     // Desglose (lote anterior/actual) por producto, solo para el reporte de pérdidas
             $costService = app(\App\Services\Producto\ProductoCostoService::class);
+            $loteService = app(\App\Services\Producto\ProductoLoteService::class);
             
             foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                 $productoAlmacenId = $producto['producto_almacen_id'] ?? null;
@@ -422,24 +423,15 @@ class VentaController extends Controller
                     throw new \Exception("Producto {$producto['producto_id']} no encontrado en almacén {$validated['almacen_id']}");
                 }
 
-                // Calcular costo PEPS para este producto
-                // Hacer una copia del modelo para simular el consumo sin guardar
-                $productoAlmacenCopia = clone $productoAlmacen;
-                $costoPromedioPEPS = 0;
+                // Calcular costo PEPS para este producto SIN mutar (simulación sobre
+                // los lotes reales): cuánto costaría consumir la cantidad total ahora.
                 $cantidadTotalProducto = 0;
-                
                 foreach ($producto['unidades_derivadas'] as $unidad) {
-                    $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
-                    $cantidadTotalProducto += $cantidadEnFraccion;
-                    
-                    // Simular consumo PEPS para obtener el costo
-                    $costoPEPS = $costService->consumirStockConPEPS($productoAlmacenCopia, $cantidadEnFraccion);
-                    $costoPromedioPEPS += $costoPEPS * $cantidadEnFraccion;
+                    $cantidadTotalProducto += (float) $unidad['cantidad'] * (float) $unidad['factor'];
                 }
-                
-                // Guardar el costo promedio PEPS
+
                 if ($cantidadTotalProducto > 0) {
-                    $costosCalculados[$productoAlmacen->id] = $costoPromedioPEPS / $cantidadTotalProducto;
+                    $costosCalculados[$productoAlmacen->id] = $loteService->simularCostoConsumo($productoAlmacen, $cantidadTotalProducto);
                 } else {
                     $costosCalculados[$productoAlmacen->id] = $productoAlmacen->costo ?? 0;
                 }
@@ -567,15 +559,13 @@ class VentaController extends Controller
 
                     if (! $pAlmacen) continue;
 
-                    // Usar servicio de costo para consumir stock con PEPS
-                    $costService = app(\App\Services\Producto\ProductoCostoService::class);
+                    $loteService = app(\App\Services\Producto\ProductoLoteService::class);
 
                     foreach ($producto['unidades_derivadas'] as $unidad) {
                         $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
-                        
-                        // Consumir stock usando PEPS
-                        $costService->consumirStockConPEPS($pAlmacen, $cantidadEnFraccion);
-                        $pAlmacen->save();
+
+                        // Consumir lotes PEPS y registrar el consumo (para anular/reportes)
+                        $loteService->consumirLotes($pAlmacen, $cantidadEnFraccion, ['tipo' => 'venta', 'id' => $venta->id]);
 
                         // Descontar producto complementario si existe
                         ComplementarioStockService::procesarComplementarioPorFactor(
@@ -683,13 +673,12 @@ class VentaController extends Controller
 
                         if (! $pAlmacen) continue;
 
-                        $costService = app(\App\Services\Producto\ProductoCostoService::class);
+                        $loteService = app(\App\Services\Producto\ProductoLoteService::class);
 
                         foreach ($producto['unidades_derivadas'] as $unidad) {
                             $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
 
-                            $costService->consumirStockConPEPS($pAlmacen, $cantidadEnFraccion);
-                            $pAlmacen->save();
+                            $loteService->consumirLotes($pAlmacen, $cantidadEnFraccion, ['tipo' => 'venta', 'id' => $venta->id]);
 
                             ComplementarioStockService::procesarComplementarioPorFactor(
                                 $pAlmacen->id,
@@ -1385,13 +1374,26 @@ class VentaController extends Controller
             // Ajustar stock según transición de estado + tipo_despacho
             // Revertir stock anterior si ya se había descontado
             if ($stockDescontadoAntes) {
+                $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+
+                // Devolver el stock a los lotes exactos que consumió esta venta
+                // (o reingresar si es una venta anterior al ledger). Una vez por
+                // producto, usando el total del snapshot.
+                $totalPorPa = [];
                 foreach ($snapshotUnidadesAnteriores as $snap) {
-                    $pAlmacen = ProductoAlmacen::find($snap['producto_almacen_id']);
+                    $paid = $snap['producto_almacen_id'];
+                    $totalPorPa[$paid] = ($totalPorPa[$paid] ?? 0) + ($snap['cantidad'] * $snap['factor']);
+                }
+                foreach ($totalPorPa as $paid => $totalFr) {
+                    $pAlmacen = ProductoAlmacen::find($paid);
                     if (! $pAlmacen) continue;
-                    $cantidadFraccion = $snap['cantidad'] * $snap['factor'];
-                    $pAlmacen->increment('stock_fraccion', $cantidadFraccion);
+                    $loteService->revertirConsumoOReingresar($pAlmacen, 'venta', $venta->id, (float) $totalFr);
+                }
+
+                // Revertir complementarios (igual que antes), por unidad
+                foreach ($snapshotUnidadesAnteriores as $snap) {
                     ComplementarioStockService::procesarComplementarioPorFactor(
-                        $pAlmacen->id,
+                        $snap['producto_almacen_id'],
                         $snap['factor'],
                         $snap['cantidad'],
                         $venta->almacen_id,
@@ -1421,16 +1423,14 @@ class VentaController extends Controller
                     }
                     if (! $pAlmacen) continue;
 
-                    // Usar servicio de costo para consumir stock con PEPS
-                    $costService = app(\App\Services\Producto\ProductoCostoService::class);
+                    $loteService = app(\App\Services\Producto\ProductoLoteService::class);
 
                     foreach ($producto['unidades_derivadas'] as $unidad) {
                         $cantidadFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
-                        
-                        // Consumir stock usando PEPS
-                        $costService->consumirStockConPEPS($pAlmacen, $cantidadFraccion);
-                        $pAlmacen->save();
-                        
+
+                        // Consumir lotes PEPS y registrar el consumo (para anular/reportes)
+                        $loteService->consumirLotes($pAlmacen, $cantidadFraccion, ['tipo' => 'venta', 'id' => $venta->id]);
+
                         ComplementarioStockService::procesarComplementarioPorFactor(
                             $pAlmacen->id,
                             (float) $unidad['factor'],
@@ -1731,15 +1731,22 @@ class VentaController extends Controller
 
             // Revertir stock si se descontó al crear la venta (flag persistido)
             if ($venta->stock_aplicado) {
+                $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+
                 foreach ($venta->productosPorAlmacen as $productoAlmacenVenta) {
                     $productoAlmacen = $productoAlmacenVenta->productoAlmacen;
                     if (! $productoAlmacen) continue;
 
+                    // Devolver el stock a los lotes exactos que consumió esta venta
+                    // (o reingresar si es venta anterior al ledger), una vez por producto.
+                    $totalFr = 0;
                     foreach ($productoAlmacenVenta->unidadesDerivadas as $unidad) {
-                        $cantidadEnFraccion = (float) $unidad->cantidad * (float) $unidad->factor;
-                        $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+                        $totalFr += (float) $unidad->cantidad * (float) $unidad->factor;
+                    }
+                    $loteService->revertirConsumoOReingresar($productoAlmacen, 'venta', $venta->id, $totalFr);
 
-                        // Revertir producto complementario
+                    // Revertir producto complementario (por unidad, como antes)
+                    foreach ($productoAlmacenVenta->unidadesDerivadas as $unidad) {
                         ComplementarioStockService::procesarComplementarioPorFactor(
                             $productoAlmacen->id,
                             (float) $unidad->factor,

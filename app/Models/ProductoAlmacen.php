@@ -121,6 +121,16 @@ class ProductoAlmacen extends Model
         return $this->hasMany(ProductoAlmacenRecepcion::class);
     }
 
+    /**
+     * Lotes PEPS (capas de costo). Orden FIFO: secuencia asc (más viejo primero).
+     */
+    public function lotes(): HasMany
+    {
+        return $this->hasMany(ProductoAlmacenLote::class, 'producto_almacen_id')
+            ->orderBy('secuencia')
+            ->orderBy('id');
+    }
+
     public function unidadesDerivadas(): HasMany
     {
         return $this->hasMany(ProductoAlmacenUnidadDerivada::class);

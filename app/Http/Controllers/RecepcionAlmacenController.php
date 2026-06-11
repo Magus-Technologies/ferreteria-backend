@@ -608,21 +608,30 @@ class RecepcionAlmacenController extends Controller
                             : 0;
                         $costoReal = (float) $costo + $fleteUnitario;
 
-                        $costService = app(\App\Services\Producto\ProductoCostoService::class);
+                        $loteService = app(\App\Services\Producto\ProductoLoteService::class);
 
                         if (!$todasBonificacion && $costo > 0) {
-                            $costService->actualizarCostoConPEPS($productoAlmacenModel, $costoReal, $cantidadTotalProducto);
+                            // Cada recepción crea un LOTE nuevo con su costo real (crudo + flete).
+                            // resyncDerivados (dentro de registrarLote) recalcula costo,
+                            // stock_fraccion y los buckets legacy desde los lotes.
+                            $loteService->registrarLote(
+                                $productoAlmacenModel,
+                                $costoReal,
+                                $cantidadTotalProducto,
+                                ['recepcion_id' => $recepcion->id]
+                            );
                         } else {
-                            // Bonificación: solo incrementar stock sin cambiar costo
-                            $productoAlmacenModel->stock_fraccion += $cantidadTotalProducto;
-                            $productoAlmacenModel->stock_costo_actual += $cantidadTotalProducto;
-                            $productoAlmacenModel->costo = 0;
+                            // Bonificación: entra a costo 0 (no infla el costo del inventario).
+                            $loteService->registrarLote(
+                                $productoAlmacenModel,
+                                0,
+                                $cantidadTotalProducto,
+                                ['recepcion_id' => $recepcion->id]
+                            );
                         }
 
-                        // costo (y los buckets) ya incluyen el flete; costo_con_flete = costo (compat).
-                        $productoAlmacenModel->costo_con_flete = (float) $productoAlmacenModel->costo;
-
-                        $productoAlmacenModel->save();
+                        // registrarLote ya guardó el producto con los derivados al día.
+                        $productoAlmacenModel->refresh();
                         
                         \Illuminate\Support\Facades\Log::info(
                             "Stock actualizado en store (Recepcion): AlmacenProducto {$productoAlmacen->id}, " .
@@ -1046,15 +1055,14 @@ class RecepcionAlmacenController extends Controller
                         $acumulado += $cantidadTotal;
                     }
 
-                    // Revertir stock y buckets de costo PEPS SOLO si no es finalización.
-                    // Bajamos stock_costo_actual junto con stock_fraccion para que no se
-                    // desincronicen (la recepción en sí queda intacta como histórico).
+                    // Revertir el lote creado por esta recepción SOLO si no es finalización.
+                    // revertirLotesPorRecepcion le quita a esos lotes su cantidad inicial
+                    // (puede quedar negativo si ya se vendió) y recalcula los derivados.
                     if (!$recepcion->es_finalizacion && $acumulado > 0) {
                         $paModel = ProductoAlmacen::find($productoAlmacenId);
                         if ($paModel) {
-                            app(\App\Services\Producto\ProductoCostoService::class)
-                                ->revertirRecepcionConPEPS($paModel, $acumulado);
-                            $paModel->save();
+                            app(\App\Services\Producto\ProductoLoteService::class)
+                                ->revertirLotesPorRecepcion($paModel, $recepcion->id);
                             app(ProductoCacheService::class)->invalidateProductosAlmacen($paModel->almacen_id);
                         }
                     }

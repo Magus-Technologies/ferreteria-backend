@@ -173,6 +173,10 @@ class ProductoRepository implements ProductoRepositoryInterface
                     ->with([
                         'almacen:id,name',
                         'ubicacion:id,name',
+                        'lotes' => function ($lq) {
+                            $lq->select(['id', 'producto_almacen_id', 'costo', 'cantidad_restante', 'secuencia'])
+                                ->where('cantidad_restante', '!=', 0);
+                        },
                         'unidadesDerivadas' => function ($udq) {
                             $udq->select([
                                 'id', 'producto_almacen_id', 'unidad_derivada_id', 'factor',
@@ -335,6 +339,25 @@ class ProductoRepository implements ProductoRepositoryInterface
             ];
         }
 
+        // ── Lotes PEPS (capas de costo) con stock, orden FIFO (más viejo primero) ──
+        $loteRows = DB::table('productoalmacen_lote')
+            ->select(['id', 'producto_almacen_id', 'costo', 'cantidad_restante', 'secuencia'])
+            ->whereIn('producto_almacen_id', $productoAlmacenIds)
+            ->where('cantidad_restante', '!=', 0)
+            ->orderBy('secuencia', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
+
+        $lotesPorAlmacen = [];
+        foreach ($loteRows as $lote) {
+            $lotesPorAlmacen[$lote->producto_almacen_id][] = [
+                'id' => (int) $lote->id,
+                'costo' => $lote->costo,
+                'cantidad_restante' => $lote->cantidad_restante,
+                'secuencia' => (int) $lote->secuencia,
+            ];
+        }
+
         // ── Agrupar productoEnAlmacenes por producto_id ──
         $almacenesPorProducto = [];
         foreach ($almacenesRows as $pa) {
@@ -359,6 +382,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                     'name' => $pa->ubicacion_name,
                 ],
                 'unidades_derivadas' => $udPorAlmacen[$pa->id] ?? [],
+                'lotes' => $lotesPorAlmacen[$pa->id] ?? [],
             ];
         }
 
