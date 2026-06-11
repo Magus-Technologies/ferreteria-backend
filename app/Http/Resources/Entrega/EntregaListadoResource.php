@@ -51,6 +51,9 @@ class EntregaListadoResource extends JsonResource
             'fecha_creacion'   => $this->fecha_creacion?->toDateString(),
             'fecha_programada' => $this->formatDate($fechaProgramada),
             'fecha_ejecutada'  => $this->fecha_ejecutada?->toIso8601String(),
+            // Timestamp real de registro — la columna "Fecha Registro" lo usa
+            // para mostrar fecha+hora y ordenar entregas del mismo dia.
+            'created_at'       => $this->created_at?->toIso8601String(),
             'hora_inicio'      => $this->hora_inicio,
             'hora_fin'         => $this->hora_fin,
 
