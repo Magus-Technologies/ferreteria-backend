@@ -55,7 +55,7 @@ class SerieDocumentoController extends Controller
                 'regex:/^[A-Z0-9]{4}$/',
             ],
             'correlativo' => 'integer|min:0',
-            'almacen_id' => 'required|integer|exists:almacenes,id',
+            'almacen_id' => 'required|integer|exists:almacen,id',
             'activo' => 'boolean',
         ]);
 
@@ -124,7 +124,7 @@ class SerieDocumentoController extends Controller
                 'regex:/^[A-Z0-9]{4}$/',
             ],
             'correlativo' => 'integer|min:0',
-            'almacen_id' => 'integer|exists:almacenes,id',
+            'almacen_id' => 'integer|exists:almacen,id',
             'activo' => 'boolean',
         ]);
 
@@ -173,7 +173,7 @@ class SerieDocumentoController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'tipo_documento' => 'required|string|in:01,03,nv,in,sa,rc',
-            'almacen_id' => 'required|integer|exists:almacenes,id',
+            'almacen_id' => 'required|integer|exists:almacen,id',
         ]);
 
         if ($validator->fails()) {

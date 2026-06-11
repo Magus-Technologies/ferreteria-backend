@@ -50,7 +50,7 @@ class EmpresaController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'almacen_id' => 'required|exists:almacenes,id',
+            'almacen_id' => 'required|exists:almacen,id',
             'marca_id' => 'required|exists:marca,id',
             'serie_ingreso' => 'nullable|integer',
             'serie_salida' => 'nullable|integer',
@@ -113,7 +113,7 @@ class EmpresaController extends Controller
         $empresa = Empresa::findOrFail($id);
 
         $validated = $request->validate([
-            'almacen_id' => 'sometimes|required|exists:almacenes,id',
+            'almacen_id' => 'sometimes|required|exists:almacen,id',
             'marca_id' => 'sometimes|required|exists:marca,id',
             'serie_ingreso' => 'nullable|integer',
             'serie_salida' => 'nullable|integer',
