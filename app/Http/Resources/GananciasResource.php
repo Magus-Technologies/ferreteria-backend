@@ -34,6 +34,9 @@ class GananciasResource extends JsonResource
             'costo_total' => (float) $this->costo_total,
             'ganancia' => (float) $this->ganancia,
             'cc' => $this->cc,
+            // Indicador de desglose por lote PEPS (ej. "Lote 1/2"); null si la
+            // fila no proviene de un desglose por costos distintos.
+            'desglose_lote' => $this->desglose_lote ?? null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

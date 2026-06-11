@@ -65,6 +65,10 @@ class GananciasQueryBuilder
                 DB::raw(self::COSTO_EXPR . " * udiv.cantidad as costo_total"),
                 DB::raw("(udiv.precio - " . self::COSTO_EXPR . ") * udiv.cantidad as ganancia"),
                 DB::raw("COALESCE(dp.id, 'SIN_METODO') as cc"),
+                // Campos auxiliares para desglosar por lote (no se muestran tal cual):
+                'v.id as venta_id',
+                'pav.producto_almacen_id as producto_almacen_id',
+                'udiv.factor as factor',
                 'v.created_at',
                 'v.updated_at'
             ]);
