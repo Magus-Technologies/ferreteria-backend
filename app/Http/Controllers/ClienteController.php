@@ -147,7 +147,7 @@ class ClienteController extends Controller
         $rules = [
             'tipo_cliente' => ['nullable', Rule::in(['p', 'e', 'Persona', 'Empresa'])],
             'numero_documento' => [
-                'required',
+                'nullable',
                 'string',
                 'max:11',
                 'unique:cliente,numero_documento'
@@ -176,6 +176,11 @@ class ClienteController extends Controller
 
         // Asignar tipo de cliente detectado
         $validated['tipo_cliente'] = $tipoCliente;
+
+        // Sin documento: generar placeholder único para no violar la restricción UNIQUE.
+        if (empty($validated['numero_documento'])) {
+            $validated['numero_documento'] = 'SN-' . \Illuminate\Support\Str::upper(\Illuminate\Support\Str::random(8));
+        }
 
         // Estado por defecto
         $validated['estado'] = $validated['estado'] ?? true;

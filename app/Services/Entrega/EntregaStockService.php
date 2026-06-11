@@ -29,8 +29,10 @@ class EntregaStockService
                 // Reducir cantidad pendiente de la UDV
                 $udv->decrement('cantidad_pendiente', $cantidad);
 
-                // Reducir stock físico solo si la venta no lo aplicó aún
-                if (! $venta->stock_aplicado) {
+                // Reducir stock físico solo si la venta no lo aplicó aún.
+                // descuenta_stock=false (venta administrativa, "Descontar stock: NO"):
+                // el cliente ya tiene el producto, NUNCA se toca stock físico.
+                if (! $venta->stock_aplicado && $venta->descuenta_stock) {
                     $pa = $udv->productoAlmacenVenta?->productoAlmacen;
                     if ($pa) {
                         $fraccion = $cantidad * (float) $udv->factor;
@@ -72,8 +74,10 @@ class EntregaStockService
                 // Restaurar cantidad pendiente
                 $udv->increment('cantidad_pendiente', $cantidad);
 
-                // Restaurar stock físico solo si la venta no lo administra
-                if (! $venta->stock_aplicado) {
+                // Restaurar stock físico solo si la venta no lo administra.
+                // descuenta_stock=false: la venta nunca descontó stock (ni la venta
+                // ni la entrega), así que anular NO debe devolver stock fantasma.
+                if (! $venta->stock_aplicado && $venta->descuenta_stock) {
                     $pa = $udv->productoAlmacenVenta?->productoAlmacen;
                     if ($pa) {
                         $fraccion = $cantidad * (float) $udv->factor;
