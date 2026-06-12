@@ -82,27 +82,12 @@ class ProductoLoteService
     {
         $this->inicializarDesdeBucketsSiVacio($pa);
 
-        // Recepciones PARCIALES de la MISMA compra: sumar al lote ya existente de
-        // esa compra (misma fila, misma posición FIFO de la 1.ª recepción), no
-        // crear otra fila. Solo si el costo coincide (debería, con el flete
-        // prorrateado sobre el total de la línea); si difiere, fila separada.
+        // Cada recepción genera SU PROPIA fila (lote), incluso si es una recepción
+        // parcial de la misma compra: una compra recepcionada en 2/3/4 partes
+        // produce 2/3/4 filas, cada una con su cantidad y su posición de llegada.
+        // (Decisión del cliente 2026-06-12; antes se fusionaban por compra.)
+        // compra_id se guarda solo como trazabilidad del origen.
         $compraId = $origen['compra_id'] ?? null;
-        if ($compraId !== null) {
-            $existente = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
-                ->where('compra_id', $compraId)
-                ->get()
-                ->first(fn($l) => abs((float) $l->costo - $costo) < 0.0001);
-
-            if ($existente) {
-                $existente->cantidad_inicial = (float) $existente->cantidad_inicial + $cantidad;
-                $existente->cantidad_restante = (float) $existente->cantidad_restante + $cantidad;
-                $existente->save();
-
-                $this->resyncDerivados($pa);
-
-                return $existente;
-            }
-        }
 
         $secuencia = $secuenciaOverride
             ?? ((int) (ProductoAlmacenLote::where('producto_almacen_id', $pa->id)->max('secuencia') ?? 0) + 1);
