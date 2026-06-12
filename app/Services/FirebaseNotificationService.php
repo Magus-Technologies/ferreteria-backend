@@ -256,20 +256,43 @@ class FirebaseNotificationService
         array $data = [],
         array $excludeTokens = []
     ): int {
+        Log::channel('firebase')->info('sendToUsersWithModuleAccess iniciado', [
+            'modulePermission' => $modulePermission,
+            'title' => $title,
+        ]);
+
         $users = User::with(['restrictions', 'roles.restrictions'])
             ->whereNotNull('fcm_token')
             ->where('estado', true)
-            ->get()
-            ->filter(fn(User $user) => $user->hasAccess($modulePermission))
-            ->pluck('fcm_token')
-            ->toArray();
+            ->get();
 
-        $tokens = array_diff($users, $excludeTokens);
+        $totalConToken = $users->count();
 
-        if (empty($tokens)) return 0;
+        $conAcceso = $users->filter(fn(User $user) => $user->hasAccess($modulePermission));
+
+        $sinAcceso = $totalConToken - $conAcceso->count();
+
+        $tokens = array_diff($conAcceso->pluck('fcm_token')->toArray(), $excludeTokens);
+
+        Log::channel('firebase')->info('sendToUsersWithModuleAccess: resultado consulta', [
+            'total_usuarios_con_token' => $totalConToken,
+            'sin_acceso_modulo' => $sinAcceso,
+            'excluidos_ya_notificados' => count($excludeTokens),
+            'destinatarios_finales' => count($tokens),
+        ]);
+
+        if (empty($tokens)) {
+            Log::channel('firebase')->warning('sendToUsersWithModuleAccess: 0 destinatarios, no se envió nada');
+            return 0;
+        }
 
         $results = $this->sendToMultiple(array_values($tokens), $title, $body, $data);
-        return count(array_filter($results));
+        $exitosos = count(array_filter($results));
+        Log::channel('firebase')->info('sendToUsersWithModuleAccess: completado', [
+            'enviados' => $exitosos,
+            'total_destinatarios' => count($tokens),
+        ]);
+        return $exitosos;
     }
 
     // ==================== PRIVADO ====================
