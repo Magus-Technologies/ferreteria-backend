@@ -25,6 +25,7 @@ use App\Models\ValeCompra;
 use App\Models\VentaHistorial;
 use App\Services\Entrega\EntregaService;
 use App\Services\Interfaces\FacturaServiceInterface;
+use App\Services\SerieDocumentoService;
 use App\Services\ValeCompraService;
 use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\Request;
@@ -37,6 +38,7 @@ class VentaController extends Controller
         private FacturaServiceInterface $facturaService,
         private ValeCompraService $valeCompraService,
         private EntregaService $entregaService,
+        private SerieDocumentoService $serieDocumentoService,
     ) {}
 
     /**
@@ -332,23 +334,15 @@ class VentaController extends Controller
             // Generar serie y número automáticamente si no se proporcionan.
             // No se generan para ventas En Espera (borrador) — se reservan al pasar a Creado
             // para no consumir correlativos ni generar huecos en la numeración SUNAT.
+            // Usa SerieDocumentoService que garantiza atomicidad (sin race conditions).
             $estadoVentaTmp = $validated['estado_de_venta'] ?? 'cr';
             if ($estadoVentaTmp !== 'ee' && (empty($validated['serie']) || empty($validated['numero']))) {
-                $serieDoc = \App\Models\SerieDocumento::where('tipo_documento', $validated['tipo_documento'])
-                    ->where('almacen_id', $validated['almacen_id'])
-                    ->where('activo', true)
-                    ->orderBy('created_at', 'desc')
-                    ->first();
-
-                if (! $serieDoc) {
-                    throw new \Exception("No se encontró una serie activa para el tipo de documento {$validated['tipo_documento']} en el almacén {$validated['almacen_id']}");
-                }
-
-                $nuevoCorrelativo = $serieDoc->correlativo + 1;
-                $serieDoc->update(['correlativo' => $nuevoCorrelativo]);
-
-                $validated['serie'] = $serieDoc->serie;
-                $validated['numero'] = $nuevoCorrelativo;
+                $correlativo = $this->serieDocumentoService->reservarCorrelativoSimple(
+                    $validated['tipo_documento'],
+                    $validated['almacen_id']
+                );
+                $validated['serie']  = $correlativo['serie'];
+                $validated['numero'] = $correlativo['numero'];
             }
 
             // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente
@@ -1147,24 +1141,18 @@ class VentaController extends Controller
 
             // Si transición En Espera → Creado y la venta aún no tiene serie/numero,
             // reservar correlativo ahora (se difirió en store para no consumir números
-            // en borradores).
+            // en borradores). Usa servicio atómico para evitar duplicados.
             if ($estadoAnterior === 'ee' && $estadoNuevo !== 'ee' && (empty($venta->serie) || empty($venta->numero))) {
                 $tipoDocVenta = $venta->tipo_documento instanceof \BackedEnum
                     ? $venta->tipo_documento->value
                     : $venta->tipo_documento;
-                $serieDoc = \App\Models\SerieDocumento::where('tipo_documento', $tipoDocVenta)
-                    ->where('almacen_id', $venta->almacen_id)
-                    ->where('activo', true)
-                    ->orderBy('created_at', 'desc')
-                    ->first();
-                if (! $serieDoc) {
-                    throw new \Exception("No se encontró una serie activa para el tipo de documento {$tipoDocVenta} en el almacén {$venta->almacen_id}");
-                }
-                $nuevoCorrelativo = $serieDoc->correlativo + 1;
-                $serieDoc->update(['correlativo' => $nuevoCorrelativo]);
+                $correlativo = $this->serieDocumentoService->reservarCorrelativoSimple(
+                    $tipoDocVenta,
+                    $venta->almacen_id
+                );
                 $venta->update([
-                    'serie' => $serieDoc->serie,
-                    'numero' => $nuevoCorrelativo,
+                    'serie'  => $correlativo['serie'],
+                    'numero' => $correlativo['numero'],
                 ]);
                 $venta->refresh();
 
