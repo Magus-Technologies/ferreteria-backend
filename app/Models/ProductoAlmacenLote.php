@@ -12,6 +12,7 @@ class ProductoAlmacenLote extends Model
     protected $fillable = [
         'producto_almacen_id',
         'recepcion_id',
+        'compra_id',
         'ingreso_salida_id',
         'costo',
         'cantidad_inicial',

@@ -601,24 +601,41 @@ class RecepcionAlmacenController extends Controller
                             ->every(fn($ud) => $ud['bonificacion'] ?? false);
                         
                         // Costo REAL = costo crudo + flete prorrateado de esta compra.
-                        // Se alimenta a los buckets PEPS para que lotes con DISTINTO flete se
-                        // separen en costo_anterior / costo_actual (PEPS por costo real).
-                        $fleteUnitario = ($cantidadTotalProducto > 0 && $sumaFletes > 0)
-                            ? ($sumaFletes / $cantidadTotalProducto)
+                        //
+                        // El flete se prorratea sobre la cantidad TOTAL de la línea de la
+                        // COMPRA, no sobre lo recibido: en recepciones PARCIALES el form
+                        // manda el flete total de la línea cada vez, y dividirlo solo entre
+                        // lo recibido lo duplicaba e inflaba (ej. compra de 7 con flete 7 =
+                        // +1/u real; recibir 3 daba +2.33/u y luego 4 daba +1.75/u → flete
+                        // cobrado 14 en vez de 7). Sin compra asociada (OC/directa) se
+                        // mantiene el prorrateo sobre lo recibido.
+                        $baseProrrateoFlete = $cantidadTotalProducto;
+                        if ($request->compra_id && $refProductoDoc) {
+                            $totalLineaCompra = (float) \App\Models\UnidadDerivadaInmutableCompra::where('producto_almacen_compra_id', $refProductoDoc->id)
+                                ->where('bonificacion', false)
+                                ->get()
+                                ->sum(fn ($u) => (float) $u->cantidad * (float) $u->factor);
+                            if ($totalLineaCompra > 0) {
+                                $baseProrrateoFlete = $totalLineaCompra;
+                            }
+                        }
+                        $fleteUnitario = ($baseProrrateoFlete > 0 && $sumaFletes > 0)
+                            ? ($sumaFletes / $baseProrrateoFlete)
                             : 0;
                         $costoReal = (float) $costo + $fleteUnitario;
 
                         $loteService = app(\App\Services\Producto\ProductoLoteService::class);
 
                         if (!$todasBonificacion && $costo > 0) {
-                            // Cada recepción crea un LOTE nuevo con su costo real (crudo + flete).
-                            // resyncDerivados (dentro de registrarLote) recalcula costo,
-                            // stock_fraccion y los buckets legacy desde los lotes.
+                            // Lote con el costo real (crudo + flete). Si es una recepción
+                            // PARCIAL de una compra ya recepcionada antes, registrarLote
+                            // SUMA al lote existente de esa compra (misma fila/costo) en
+                            // vez de crear otra fila.
                             $loteService->registrarLote(
                                 $productoAlmacenModel,
                                 $costoReal,
                                 $cantidadTotalProducto,
-                                ['recepcion_id' => $recepcion->id]
+                                ['recepcion_id' => $recepcion->id, 'compra_id' => $request->compra_id]
                             );
                         } else {
                             // Bonificación: entra a costo 0 (no infla el costo del inventario).
@@ -626,7 +643,7 @@ class RecepcionAlmacenController extends Controller
                                 $productoAlmacenModel,
                                 0,
                                 $cantidadTotalProducto,
-                                ['recepcion_id' => $recepcion->id]
+                                ['recepcion_id' => $recepcion->id, 'compra_id' => $request->compra_id]
                             );
                         }
 
@@ -1061,8 +1078,10 @@ class RecepcionAlmacenController extends Controller
                     if (!$recepcion->es_finalizacion && $acumulado > 0) {
                         $paModel = ProductoAlmacen::find($productoAlmacenId);
                         if ($paModel) {
+                            // Pasa compra y cantidad: si el lote está FUSIONADO (varias
+                            // recepciones de la misma compra) solo resta lo de ESTA recepción.
                             app(\App\Services\Producto\ProductoLoteService::class)
-                                ->revertirLotesPorRecepcion($paModel, $recepcion->id);
+                                ->revertirLotesPorRecepcion($paModel, $recepcion->id, $recepcion->compra_id, (float) $acumulado);
                             app(ProductoCacheService::class)->invalidateProductosAlmacen($paModel->almacen_id);
                         }
                     }
