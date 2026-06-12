@@ -73,7 +73,7 @@ class ProductoLoteService
      * Registra un nuevo lote de costo (entrada por recepción o ingreso) y
      * recalcula los derivados.
      *
-     * @param array{recepcion_id?: int, compra_id?: string|null, ingreso_salida_id?: int} $origen
+     * @param array{recepcion_id?: int, compra_id?: string|null, ingreso_salida_id?: int, transferencia_stock_id?: int} $origen
      * @param int|null $secuenciaOverride Posición FIFO explícita. Un ingreso que
      *        "hereda" el costo del lote anterior pasa la secuencia de ese lote para
      *        quedar adyacente a él (se consume junto); null = al final (más nuevo).
@@ -97,6 +97,7 @@ class ProductoLoteService
             'recepcion_id' => $origen['recepcion_id'] ?? null,
             'compra_id' => $compraId,
             'ingreso_salida_id' => $origen['ingreso_salida_id'] ?? null,
+            'transferencia_stock_id' => $origen['transferencia_stock_id'] ?? null,
             'costo' => $costo,
             'cantidad_inicial' => $cantidad,
             'cantidad_restante' => $cantidad,
@@ -324,6 +325,34 @@ class ProductoLoteService
             $resta = $cantidad ?? (float) $lote->cantidad_inicial;
             $lote->cantidad_restante = (float) $lote->cantidad_restante - $resta;
             $lote->cantidad_inicial = max((float) $lote->cantidad_inicial - $resta, 0);
+            $lote->save();
+        }
+
+        $this->resyncDerivados($pa);
+    }
+
+    /**
+     * Revierte los lotes creados en el DESTINO por una transferencia anulada.
+     * Idempotente: resta la cantidad inicial del lote y la deja en 0, así una
+     * segunda llamada (ej. al editar la transferencia producto por producto)
+     * no vuelve a restar.
+     */
+    public function revertirLotesPorTransferencia(ProductoAlmacen $pa, int $transferenciaId, ?float $cantidadFallback = null): void
+    {
+        $lotes = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
+            ->where('transferencia_stock_id', $transferenciaId)
+            ->get();
+
+        if ($lotes->isEmpty() && $cantidadFallback !== null && $cantidadFallback > 0) {
+            // Transferencia anterior al ledger (el destino no tiene lotes marcados):
+            // consumir FIFO la cantidad para que el stock baje igual.
+            $this->consumirLotes($pa, $cantidadFallback, null);
+            return;
+        }
+
+        foreach ($lotes as $lote) {
+            $lote->cantidad_restante = (float) $lote->cantidad_restante - (float) $lote->cantidad_inicial;
+            $lote->cantidad_inicial = 0;
             $lote->save();
         }
 
