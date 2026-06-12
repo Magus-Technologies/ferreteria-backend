@@ -9,12 +9,15 @@ use Illuminate\Support\Facades\Log;
 
 class EntregaNotificacionService
 {
+    private const PERMISO_MODULO_ENTREGAS = 'facturacion-electronica.mis-entregas.index';
+
     public function __construct(
         private FirebaseNotificationService $firebase
     ) {}
 
     /**
-     * Notifica al chofer cuando se le asigna una entrega.
+     * Notifica al chofer cuando se le asigna una entrega,
+     * y también a todos los usuarios con acceso al módulo de entregas.
      */
     public function notificarAsignacion(Entrega $entrega): void
     {
@@ -34,15 +37,27 @@ class EntregaNotificacionService
         $cuerpo = "Venta {$label}" .
             ($entrega->direccion_entrega ? " a {$entrega->direccion_entrega}" : '');
 
+        $titulo = $entrega->tipo_pedido === 'externo'
+            ? 'Nueva Entrega Disponible'
+            : 'Nueva Entrega Programada';
+
+        $notifiedTokens = [];
+
         // Pedido externo: broadcast por cargo
         if ($entrega->tipo_pedido === 'externo' && $entrega->cargo_destino) {
             $this->firebase->sendToCargo(
                 $entrega->cargo_destino,
-                'Nueva Entrega Disponible',
+                $titulo,
                 $cuerpo,
                 $datos
             );
-            return;
+
+            $cargoTokens = User::where('cargo', $entrega->cargo_destino)
+                ->whereNotNull('fcm_token')
+                ->where('estado', true)
+                ->pluck('fcm_token')
+                ->toArray();
+            $notifiedTokens = array_merge($notifiedTokens, $cargoTokens);
         }
 
         // Pedido interno: notificación directa al chofer
@@ -51,11 +66,28 @@ class EntregaNotificacionService
             if ($chofer && $chofer->fcm_token) {
                 $this->firebase->sendNotification(
                     $chofer->fcm_token,
-                    'Nueva Entrega Programada',
+                    $titulo,
                     $cuerpo,
                     $datos
                 );
+                $notifiedTokens[] = $chofer->fcm_token;
             }
+        }
+
+        // Broadcast a todos los usuarios con acceso al módulo de entregas
+        try {
+            $this->firebase->sendToUsersWithModuleAccess(
+                self::PERMISO_MODULO_ENTREGAS,
+                $titulo,
+                $cuerpo,
+                $datos,
+                $notifiedTokens
+            );
+        } catch (\Exception $e) {
+            Log::warning('Error notificando a usuarios del módulo de entregas', [
+                'message' => $e->getMessage(),
+                'entrega_id' => $entrega->id,
+            ]);
         }
     }
 
@@ -64,10 +96,46 @@ class EntregaNotificacionService
      */
     public function notificarReasignacion(Entrega $entrega, string $choferAnteriorId): void
     {
-        // Notificar al nuevo chofer
         $this->notificarAsignacion($entrega);
 
-        // Log para auditoría
         Log::info("Entrega #{$entrega->id} reasignada de chofer {$choferAnteriorId} a {$entrega->chofer_id}");
+    }
+
+    /**
+     * Notifica a todos los usuarios con acceso al módulo que una entrega
+     * fue completada (estado "Entregado"). La notificación apunta al
+     * calendario de entregas.
+     */
+    public function notificarCompletada(Entrega $entrega): void
+    {
+        $entrega->loadMissing('venta');
+        $venta = $entrega->venta;
+        $label = $venta ? "{$venta->serie}-{$venta->numero}" : "#{$entrega->id}";
+
+        $datos = [
+            'type'        => 'entrega_completada',
+            'entrega_id'  => (string) $entrega->id,
+            'venta_serie' => $venta->serie ?? '',
+            'venta_numero'=> $venta->numero ?? '',
+            'direccion'   => $entrega->direccion_entrega ?? '',
+            'link'        => '/ui/facturacion-electronica/mis-ventas/calendario',
+        ];
+
+        $cuerpo = "Venta {$label}" .
+            ($entrega->direccion_entrega ? " — {$entrega->direccion_entrega}" : '');
+
+        try {
+            $this->firebase->sendToUsersWithModuleAccess(
+                self::PERMISO_MODULO_ENTREGAS,
+                '✅ Entrega Completada',
+                $cuerpo,
+                $datos
+            );
+        } catch (\Exception $e) {
+            Log::warning('Error notificando completada', [
+                'message' => $e->getMessage(),
+                'entrega_id' => $entrega->id,
+            ]);
+        }
     }
 }
