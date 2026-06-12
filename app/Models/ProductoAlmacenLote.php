@@ -14,6 +14,7 @@ class ProductoAlmacenLote extends Model
         'recepcion_id',
         'compra_id',
         'ingreso_salida_id',
+        'transferencia_stock_id',
         'costo',
         'cantidad_inicial',
         'cantidad_restante',

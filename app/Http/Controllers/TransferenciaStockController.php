@@ -174,7 +174,28 @@ class TransferenciaStockController extends Controller
                     ['estado' => true],
                 );
 
-                // Crear detalle
+                // Mover stock vía ledger PEPS: consumir lotes FIFO en el ORIGEN y
+                // crear en el DESTINO un lote por cada tramo consumido, con SU
+                // costo real. Así el destino recibe los mismos costos (anterior/
+                // actual y el detalle del select) que salieron del origen.
+                $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+                $resConsumo = $loteService->consumirLotes(
+                    $productoAlmacenOrigen,
+                    $cantidadFraccion,
+                    ['tipo' => 'transferencia', 'id' => $transferencia->id]
+                );
+                foreach ($resConsumo['consumos'] as $tramo) {
+                    $loteService->registrarLote(
+                        $productoAlmacenDestino,
+                        $tramo['costo'],
+                        $tramo['cantidad'],
+                        ['transferencia_stock_id' => $transferencia->id]
+                    );
+                }
+                $productoAlmacenOrigen->refresh();
+                $productoAlmacenDestino->refresh();
+
+                // Crear detalle (costo = costo PEPS real de lo transferido)
                 ProductoTransferenciaStock::create([
                     'transferencia_stock_id' => $transferencia->id,
                     'producto_almacen_origen_id' => $productoAlmacenOrigen->id,
@@ -183,18 +204,11 @@ class TransferenciaStockController extends Controller
                     'unidad_derivada_id' => $unidadDerivadaId,
                     'factor' => $factor,
                     'cantidad' => $cantidad,
-                    'costo' => $productoAlmacenOrigen->costo,
+                    'costo' => $resConsumo['costo_promedio'],
                     'stock_anterior_origen' => $stockAnteriorOrigen,
                     'stock_nuevo_origen' => $stockNuevoOrigen,
                     'stock_anterior_destino' => $stockAnteriorDestino,
                     'stock_nuevo_destino' => $stockNuevoDestino,
-                ]);
-
-                // Actualizar stocks
-                $productoAlmacenOrigen->update(['stock_fraccion' => $stockNuevoOrigen]);
-                $productoAlmacenDestino->update([
-                    'stock_fraccion' => $stockNuevoDestino,
-                    'costo' => $productoAlmacenOrigen->costo,
                 ]);
             }
 
@@ -266,14 +280,30 @@ class TransferenciaStockController extends Controller
                     ->where('estado', true)
                     ->findOrFail($id);
 
-                // 1. Revertir stock original
+                // 1. Revertir stock original vía ledger PEPS (una vez por producto):
+                //    devolver a los lotes exactos del origen y quitar del destino
+                //    los lotes que la transferencia creó.
+                $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+                $totalPorOrigen = [];
+                $totalPorDestino = [];
                 foreach ($transferencia->productos as $detalle) {
-                    $origen  = ProductoAlmacen::find($detalle->producto_almacen_origen_id);
-                    $destino = ProductoAlmacen::find($detalle->producto_almacen_destino_id);
-                    $cant    = (float) $detalle->factor * (float) $detalle->cantidad;
-
-                    if ($origen)  $origen->update(['stock_fraccion'  => (float) $origen->stock_fraccion  + $cant]);
-                    if ($destino) $destino->update(['stock_fraccion' => (float) $destino->stock_fraccion - $cant]);
+                    $cant = (float) $detalle->factor * (float) $detalle->cantidad;
+                    $totalPorOrigen[$detalle->producto_almacen_origen_id] =
+                        ($totalPorOrigen[$detalle->producto_almacen_origen_id] ?? 0) + $cant;
+                    $totalPorDestino[$detalle->producto_almacen_destino_id] =
+                        ($totalPorDestino[$detalle->producto_almacen_destino_id] ?? 0) + $cant;
+                }
+                foreach ($totalPorOrigen as $paId => $totalFr) {
+                    $origen = ProductoAlmacen::find($paId);
+                    if ($origen) {
+                        $loteService->revertirConsumoOReingresar($origen, 'transferencia', $transferencia->id, (float) $totalFr);
+                    }
+                }
+                foreach ($totalPorDestino as $paId => $totalFr) {
+                    $destino = ProductoAlmacen::find($paId);
+                    if ($destino) {
+                        $loteService->revertirLotesPorTransferencia($destino, $transferencia->id, (float) $totalFr);
+                    }
                 }
 
                 // 2. Borrar detalles anteriores
@@ -337,6 +367,24 @@ class TransferenciaStockController extends Controller
                         ['estado' => true]
                     );
 
+                    // Mover stock vía ledger PEPS (igual que store): consumir lotes
+                    // FIFO en el origen y crear los mismos lotes en el destino.
+                    $resConsumo = $loteService->consumirLotes(
+                        $productoAlmacenOrigen,
+                        $cantidadFraccion,
+                        ['tipo' => 'transferencia', 'id' => $transferencia->id]
+                    );
+                    foreach ($resConsumo['consumos'] as $tramo) {
+                        $loteService->registrarLote(
+                            $productoAlmacenDestino,
+                            $tramo['costo'],
+                            $tramo['cantidad'],
+                            ['transferencia_stock_id' => $transferencia->id]
+                        );
+                    }
+                    $productoAlmacenOrigen->refresh();
+                    $productoAlmacenDestino->refresh();
+
                     ProductoTransferenciaStock::create([
                         'transferencia_stock_id'    => $transferencia->id,
                         'producto_almacen_origen_id'  => $productoAlmacenOrigen->id,
@@ -345,15 +393,12 @@ class TransferenciaStockController extends Controller
                         'unidad_derivada_id'          => $unidadDerivadaId,
                         'factor'                      => $factor,
                         'cantidad'                    => $cantidad,
-                        'costo'                       => $productoAlmacenOrigen->costo,
+                        'costo'                       => $resConsumo['costo_promedio'],
                         'stock_anterior_origen'       => $stockAnteriorOrigen,
                         'stock_nuevo_origen'          => $stockNuevoOrigen,
                         'stock_anterior_destino'      => $stockAnteriorDestino,
                         'stock_nuevo_destino'         => $stockNuevoDestino,
                     ]);
-
-                    $productoAlmacenOrigen->update(['stock_fraccion' => $stockNuevoOrigen]);
-                    $productoAlmacenDestino->update(['stock_fraccion' => $stockNuevoDestino, 'costo' => $productoAlmacenOrigen->costo]);
                 }
 
                 // 5. Actualizar cabecera
@@ -394,29 +439,42 @@ class TransferenciaStockController extends Controller
                 ->where('estado', true)
                 ->findOrFail($id);
 
+            // Totales por producto (una transferencia podría tener 2 líneas del
+            // mismo producto): validar y revertir UNA vez por producto_almacen.
+            $totalPorOrigen = [];
+            $totalPorDestino = [];
             foreach ($transferencia->productos as $detalle) {
-                $productoAlmacenOrigen = ProductoAlmacen::find($detalle->producto_almacen_origen_id);
-                $productoAlmacenDestino = ProductoAlmacen::find($detalle->producto_almacen_destino_id);
-
                 $cantidadFraccion = (float) $detalle->factor * (float) $detalle->cantidad;
+                $totalPorOrigen[$detalle->producto_almacen_origen_id] =
+                    ($totalPorOrigen[$detalle->producto_almacen_origen_id] ?? 0) + $cantidadFraccion;
+                $totalPorDestino[$detalle->producto_almacen_destino_id] =
+                    ($totalPorDestino[$detalle->producto_almacen_destino_id] ?? 0) + $cantidadFraccion;
+            }
 
-                // Validar que el destino tenga stock suficiente para revertir
-                if ($productoAlmacenDestino && (float) $productoAlmacenDestino->stock_fraccion < $cantidadFraccion) {
+            // Validar que el destino tenga stock suficiente para revertir
+            foreach ($totalPorDestino as $paDestinoId => $totalFr) {
+                $paDestino = ProductoAlmacen::find($paDestinoId);
+                if ($paDestino && (float) $paDestino->stock_fraccion < $totalFr) {
                     return response()->json([
                         'message' => 'No se puede anular: el almacén destino ya no tiene stock suficiente para revertir',
                     ], 400);
                 }
+            }
 
-                // Revertir: devolver al origen, quitar del destino
-                if ($productoAlmacenOrigen) {
-                    $productoAlmacenOrigen->update([
-                        'stock_fraccion' => (float) $productoAlmacenOrigen->stock_fraccion + $cantidadFraccion,
-                    ]);
+            // Revertir vía ledger PEPS: devolver el stock a los lotes EXACTOS del
+            // origen (consumo registrado; fallback para transferencias previas al
+            // ledger) y quitar del destino los lotes que esta transferencia creó.
+            $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+            foreach ($totalPorOrigen as $paOrigenId => $totalFr) {
+                $paOrigen = ProductoAlmacen::find($paOrigenId);
+                if ($paOrigen) {
+                    $loteService->revertirConsumoOReingresar($paOrigen, 'transferencia', $transferencia->id, (float) $totalFr);
                 }
-                if ($productoAlmacenDestino) {
-                    $productoAlmacenDestino->update([
-                        'stock_fraccion' => (float) $productoAlmacenDestino->stock_fraccion - $cantidadFraccion,
-                    ]);
+            }
+            foreach ($totalPorDestino as $paDestinoId => $totalFr) {
+                $paDestino = ProductoAlmacen::find($paDestinoId);
+                if ($paDestino) {
+                    $loteService->revertirLotesPorTransferencia($paDestino, $transferencia->id, (float) $totalFr);
                 }
             }
 
