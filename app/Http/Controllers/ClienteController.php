@@ -36,12 +36,15 @@ class ClienteController extends Controller
                 // Acentos: comparamos `LOWER(REPLACE(..., acentos, sinAcento))`
                 // en SQL para que "Perez" matchee "Pérez".
                 //
-                // Con 2+ tokens la consulta es un NOMBRE (persona/empresa):
+                // Con 2+ PALABRAS la consulta es un NOMBRE (persona/empresa):
                 // se restringe a campos de identidad. Si incluyera contacto,
                 // "ELIAS C" traería a GRUPO MI REDENTOR porque su email
-                // contiene "elias" y la "c" matchea cualquier cosa.
-                // Con 1 token se mantiene la búsqueda amplia (tel/email).
-                $camposTexto = count($tokens) >= 2
+                // contiene "elias". Se cuentan las palabras del texto CRUDO
+                // (no los tokens: tokenizeSearch descarta los de 1 caracter,
+                // y la "c" de "ELIAS C" es justamente una de esas).
+                // Con 1 palabra se mantiene la búsqueda amplia (tel/email).
+                $palabrasCrudas = preg_split('/\s+/u', trim((string) $request->search), -1, PREG_SPLIT_NO_EMPTY);
+                $camposTexto = count($palabrasCrudas) >= 2
                     ? [
                         'numero_documento',
                         'nombres',
