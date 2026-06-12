@@ -84,7 +84,7 @@ class EntregaNotificacionService
                 $notifiedTokens
             );
         } catch (\Exception $e) {
-            Log::warning('Error notificando a usuarios del módulo de entregas', [
+            Log::channel('firebase')->warning('Error notificando a usuarios del módulo de entregas', [
                 'message' => $e->getMessage(),
                 'entrega_id' => $entrega->id,
             ]);
@@ -98,7 +98,7 @@ class EntregaNotificacionService
     {
         $this->notificarAsignacion($entrega);
 
-        Log::info("Entrega #{$entrega->id} reasignada de chofer {$choferAnteriorId} a {$entrega->chofer_id}");
+        Log::channel('firebase')->info("Entrega #{$entrega->id} reasignada de chofer {$choferAnteriorId} a {$entrega->chofer_id}");
     }
 
     /**
@@ -132,7 +132,7 @@ class EntregaNotificacionService
                 $datos
             );
         } catch (\Exception $e) {
-            Log::warning('Error notificando completada', [
+            Log::channel('firebase')->warning('Error notificando completada', [
                 'message' => $e->getMessage(),
                 'entrega_id' => $entrega->id,
             ]);

@@ -27,7 +27,7 @@ class FirebaseNotificationService
         return Cache::remember('firebase_access_token', 55 * 60, function () {
             try {
                 if (!file_exists($this->serviceAccountPath)) {
-                    Log::error('Firebase: Archivo de credenciales no encontrado', [
+                    Log::channel('firebase')->error('Firebase: Archivo de credenciales no encontrado', [
                         'path' => $this->serviceAccountPath
                     ]);
                     return null;
@@ -36,7 +36,7 @@ class FirebaseNotificationService
                 $credentials = json_decode(file_get_contents($this->serviceAccountPath), true);
 
                 if (!$credentials) {
-                    Log::error('Firebase: Error al parsear credenciales');
+                    Log::channel('firebase')->error('Firebase: Error al parsear credenciales');
                     return null;
                 }
 
@@ -52,7 +52,7 @@ class FirebaseNotificationService
 
                 $privateKey = openssl_pkey_get_private($credentials['private_key']);
                 if (!$privateKey) {
-                    Log::error('Firebase: Error al cargar clave privada');
+                    Log::channel('firebase')->error('Firebase: Error al cargar clave privada');
                     return null;
                 }
 
@@ -67,18 +67,18 @@ class FirebaseNotificationService
 
                 if ($response->successful()) {
                     $data = $response->json();
-                    Log::info('Firebase: Access token obtenido exitosamente');
+                    Log::channel('firebase')->info('Firebase: Access token obtenido exitosamente');
                     return $data['access_token'] ?? null;
                 }
 
-                Log::error('Firebase: Error al obtener access token', [
+                Log::channel('firebase')->error('Firebase: Error al obtener access token', [
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
                 return null;
 
             } catch (\Exception $e) {
-                Log::error('Firebase: Excepción al obtener token', [
+                Log::channel('firebase')->error('Firebase: Excepción al obtener token', [
                     'message' => $e->getMessage(),
                 ]);
                 return null;
@@ -103,7 +103,7 @@ class FirebaseNotificationService
         $accessToken = $this->getAccessToken();
 
         if (!$accessToken) {
-            Log::warning('Firebase: No se pudo obtener access token');
+            Log::channel('firebase')->warning('Firebase: No se pudo obtener access token');
             return false;
         }
 
@@ -116,7 +116,7 @@ class FirebaseNotificationService
             ])->post($this->fcmUrl, $payload);
 
             if ($response->successful()) {
-                Log::info('Firebase: Notificación enviada exitosamente', [
+                Log::channel('firebase')->info('Firebase: Notificación enviada exitosamente', [
                     'token' => substr($fcmToken, 0, 20) . '...',
                     'title' => $title,
                 ]);
@@ -137,7 +137,7 @@ class FirebaseNotificationService
                     ])->post($this->fcmUrl, $payload);
 
                     if ($retry->successful()) {
-                        Log::info('Firebase: Notificación enviada tras refrescar token');
+                        Log::channel('firebase')->info('Firebase: Notificación enviada tras refrescar token');
                         return true;
                     }
                     $error = $retry->json();
@@ -145,7 +145,7 @@ class FirebaseNotificationService
                 }
             }
 
-            Log::error('Firebase: Error al enviar notificación', [
+            Log::channel('firebase')->error('Firebase: Error al enviar notificación', [
                 'status' => $status,
                 'error' => $error,
             ]);
@@ -158,7 +158,7 @@ class FirebaseNotificationService
             return false;
 
         } catch (\Exception $e) {
-            Log::error('Firebase: Excepción al enviar notificación', [
+            Log::channel('firebase')->error('Firebase: Excepción al enviar notificación', [
                 'message' => $e->getMessage(),
             ]);
             return false;
@@ -341,7 +341,7 @@ class FirebaseNotificationService
             }
         }
 
-        Log::error('Firebase: Error en multicast', [
+        Log::channel('firebase')->error('Firebase: Error en multicast', [
             'status' => $status,
             'token_count' => count($tokens),
             'error' => $error,
@@ -378,11 +378,11 @@ class FirebaseNotificationService
     {
         try {
             User::where('fcm_token', $token)->update(['fcm_token' => null]);
-            Log::warning('Firebase: Token inválido limpiado de la DB', [
+            Log::channel('firebase')->warning('Firebase: Token inválido limpiado de la DB', [
                 'token' => substr($token, 0, 20) . '...',
             ]);
         } catch (\Exception $e) {
-            Log::error('Firebase: Error al limpiar token inválido', [
+            Log::channel('firebase')->error('Firebase: Error al limpiar token inválido', [
                 'message' => $e->getMessage(),
             ]);
         }

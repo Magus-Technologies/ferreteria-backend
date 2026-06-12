@@ -18,6 +18,7 @@ use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class EntregaProductoController extends Controller
 {
@@ -240,7 +241,7 @@ class EntregaProductoController extends Controller
                     $notifiedTokens
                 );
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::warning('Error notificando a usuarios del módulo de entregas', [
+                Log::channel('firebase')->warning('Error notificando a usuarios del módulo de entregas', [
                     'message' => $e->getMessage(),
                     'entrega_id' => $entrega->id,
                 ]);
