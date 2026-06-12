@@ -499,7 +499,7 @@ class AutorizacionService
                 $this->fcm->sendToRole('ADMINISTRADOR', $titulo, $body, $data);
             }
         } catch (\Exception $e) {
-            Log::warning('Error enviando notificación de autorización: ' . $e->getMessage());
+            Log::channel('firebase')->warning('Error enviando notificación de autorización: ' . $e->getMessage());
         }
     }
 
@@ -534,7 +534,7 @@ class AutorizacionService
 
             $this->fcm->sendNotification($solicitante->fcm_token, $titulo, $body, $data);
         } catch (\Exception $e) {
-            Log::warning('Error notificando solicitante: ' . $e->getMessage());
+            Log::channel('firebase')->warning('Error notificando solicitante: ' . $e->getMessage());
         }
     }
 }

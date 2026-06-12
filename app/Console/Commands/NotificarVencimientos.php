@@ -77,7 +77,7 @@ class NotificarVencimientos extends Command
             ];
 
             $this->firebaseService->sendNotification($user->fcm_token, $title, $body, $data);
-            Log::info("Notificación enviada: Cotización {$cotizacion->numero} vence pronto a usuario {$user->id}");
+            Log::channel('firebase')->info("Notificación enviada: Cotización {$cotizacion->numero} vence pronto a usuario {$user->id}");
         }
     }
 
@@ -100,7 +100,7 @@ class NotificarVencimientos extends Command
             ];
 
             $this->firebaseService->sendNotification($user->fcm_token, $title, $body, $data);
-            Log::info("Notificación enviada: Préstamo {$prestamo->numero} vence pronto a usuario {$user->id}");
+            Log::channel('firebase')->info("Notificación enviada: Préstamo {$prestamo->numero} vence pronto a usuario {$user->id}");
         }
     }
 
@@ -120,7 +120,7 @@ class NotificarVencimientos extends Command
             ];
 
             $this->firebaseService->sendNotification($user->fcm_token, $title, $body, $data);
-            Log::info("Notificación enviada: Promoción {$vale->nombre} termina pronto a usuario {$user->id}");
+            Log::channel('firebase')->info("Notificación enviada: Promoción {$vale->nombre} termina pronto a usuario {$user->id}");
         }
     }
 
@@ -145,7 +145,7 @@ class NotificarVencimientos extends Command
             ];
 
             $this->firebaseService->sendNotification($user->fcm_token, $title, $body, $data);
-            Log::info("Notificación enviada: Requerimiento {$req->codigo} vence pronto a usuario {$user->id}");
+            Log::channel('firebase')->info("Notificación enviada: Requerimiento {$req->codigo} vence pronto a usuario {$user->id}");
         }
     }
 }
