@@ -47,7 +47,35 @@ return new class extends Migration
             }
         }
 
-        // ── 2. Agregar UNIQUE constraint ────────────────────────────────────
+        // ── 2. Verificar que no queden duplicados ───────────────────────────
+        // Si quedan duplicados que NO se pudieron limpiar automáticamente
+        // (ventas reales con entregas o ya facturadas), NO se puede agregar
+        // el constraint — el ALTER TABLE fallaría y rompería el deploy.
+        // En ese caso se omite el constraint y se deja constancia: el
+        // SerieDocumentoService atómico ya previene nuevos duplicados a nivel
+        // de aplicación. Tras limpiar manualmente, agregar el constraint con:
+        //   ALTER TABLE venta ADD UNIQUE uq_venta_serie_numero (serie, numero);
+        $restantes = DB::select("
+            SELECT serie, numero, COUNT(*) as cnt
+            FROM venta
+            WHERE serie IS NOT NULL AND numero IS NOT NULL
+            GROUP BY serie, numero
+            HAVING cnt > 1
+        ");
+
+        if (! empty($restantes)) {
+            $lista = collect($restantes)
+                ->map(fn ($d) => "{$d->serie}-{$d->numero} (x{$d->cnt})")
+                ->implode(', ');
+
+            $mensaje = "uq_venta_serie_numero NO agregado: duplicados pendientes de limpieza manual: {$lista}";
+            \Illuminate\Support\Facades\Log::warning($mensaje);
+            echo "\nWARNING: {$mensaje}\n";
+
+            return;
+        }
+
+        // ── 3. Agregar UNIQUE constraint ────────────────────────────────────
         // Safety net: aunque el servicio atómico previene la race condition a
         // nivel de aplicación, el constraint garantiza unicidad en la DB.
         Schema::table('venta', function (Blueprint $table) {
@@ -57,8 +85,12 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('venta', function (Blueprint $table) {
-            $table->dropUnique('uq_venta_serie_numero');
-        });
+        // El constraint puede no existir si up() lo omitió por duplicados
+        $existe = DB::select("SHOW INDEX FROM venta WHERE Key_name = 'uq_venta_serie_numero'");
+        if (! empty($existe)) {
+            Schema::table('venta', function (Blueprint $table) {
+                $table->dropUnique('uq_venta_serie_numero');
+            });
+        }
     }
 };
