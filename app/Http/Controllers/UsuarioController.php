@@ -45,6 +45,20 @@ class UsuarioController extends Controller
             $query->where('rol_sistema', $request->rol_sistema);
         }
 
+        // Filtro por acceso a módulo (sistema de blacklist)
+        // Cuando se pasa modulo_acceso, se devuelven solo los usuarios
+        // que NO tienen restringido ese permiso.
+        if ($request->has('modulo_acceso')) {
+            $query->with(['restrictions', 'roles.restrictions']);
+            $usuarios = $query->orderBy('name', 'asc')->get()
+                ->filter(fn(User $user) => $user->hasAccess($request->modulo_acceso))
+                ->values();
+
+            return response()->json([
+                'data' => $usuarios
+            ]);
+        }
+
         $usuarios = $query->orderBy('name', 'asc')->get();
 
         return response()->json([

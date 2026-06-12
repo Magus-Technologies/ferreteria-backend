@@ -201,6 +201,7 @@ class EntregaProductoController extends Controller
             $notifBody = "Venta {$venta->serie}-{$venta->numero}" .
                 ($direccionEntrega ? " a {$direccionEntrega}" : '');
 
+            $notifiedTokens = [];
             $cargoDestino = $validated['cargo_destino'] ?? null;
             if ($tipoPedido === 'externo' && !empty($cargoDestino)) {
                 $this->firebaseService->sendToCargo(
@@ -209,6 +210,13 @@ class EntregaProductoController extends Controller
                     $notifBody,
                     $notifData
                 );
+
+                $cargoUserTokens = User::where('cargo', $cargoDestino)
+                    ->whereNotNull('fcm_token')
+                    ->where('estado', true)
+                    ->pluck('fcm_token')
+                    ->toArray();
+                $notifiedTokens = array_merge($notifiedTokens, $cargoUserTokens);
             } elseif (!empty($validated['chofer_id'])) {
                 $despachador = User::find($validated['chofer_id']);
                 if ($despachador && $despachador->fcm_token) {
@@ -218,7 +226,24 @@ class EntregaProductoController extends Controller
                         $notifBody,
                         $notifData
                     );
+                    $notifiedTokens[] = $despachador->fcm_token;
                 }
+            }
+
+            // Broadcast a todos los usuarios con acceso al módulo de entregas
+            try {
+                $this->firebaseService->sendToUsersWithModuleAccess(
+                    'facturacion-electronica.mis-entregas.index',
+                    $tipoPedido === 'externo' ? 'Nueva Entrega Disponible' : 'Nueva Entrega Programada',
+                    $notifBody,
+                    $notifData,
+                    $notifiedTokens
+                );
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning('Error notificando a usuarios del módulo de entregas', [
+                    'message' => $e->getMessage(),
+                    'entrega_id' => $entrega->id,
+                ]);
             }
 
             return response()->json([

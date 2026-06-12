@@ -142,7 +142,7 @@ class EntregaService
 
     public function confirmar(Entrega $entrega, string $userId): Entrega
     {
-        return DB::transaction(function () use ($entrega, $userId) {
+        $result = DB::transaction(function () use ($entrega, $userId) {
             $this->transicion->transicionar($entrega, CodigoEstadoEntrega::Entregado, $userId);
             $this->stock->aplicar($entrega->fresh());
             // Espejar estado al legacy + recalcular cantidad_pendiente para que
@@ -150,6 +150,11 @@ class EntregaService
             $this->syncLegacy->sincronizar($entrega->fresh());
             return $entrega->fresh($this->eagerLoadDefault());
         });
+
+        // Notificar a usuarios con acceso al módulo/calendario
+        $this->notificacion->notificarCompletada($result);
+
+        return $result;
     }
 
     // ─────────────────────────────────────────────────────────────

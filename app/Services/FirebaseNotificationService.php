@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
@@ -12,6 +13,8 @@ class FirebaseNotificationService
     private string $serviceAccountPath;
     private string $fcmUrl;
 
+    private const MAX_TOKENS_PER_REQUEST = 500;
+
     public function __construct()
     {
         $this->projectId = config('services.firebase.project_id', 'ferreteria-38320');
@@ -19,12 +22,8 @@ class FirebaseNotificationService
         $this->fcmUrl = "https://fcm.googleapis.com/v1/projects/{$this->projectId}/messages:send";
     }
 
-    /**
-     * Obtiene un token de acceso OAuth2 usando el Service Account
-     */
     private function getAccessToken(): ?string
     {
-        // Cache del token por 55 minutos (expira en 60)
         return Cache::remember('firebase_access_token', 55 * 60, function () {
             try {
                 if (!file_exists($this->serviceAccountPath)) {
@@ -35,13 +34,12 @@ class FirebaseNotificationService
                 }
 
                 $credentials = json_decode(file_get_contents($this->serviceAccountPath), true);
-                
+
                 if (!$credentials) {
                     Log::error('Firebase: Error al parsear credenciales');
                     return null;
                 }
 
-                // Crear JWT para obtener access token
                 $now = time();
                 $header = base64_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
                 $payload = base64_encode(json_encode([
@@ -52,7 +50,6 @@ class FirebaseNotificationService
                     'exp' => $now + 3600,
                 ]));
 
-                // Firmar con la clave privada
                 $privateKey = openssl_pkey_get_private($credentials['private_key']);
                 if (!$privateKey) {
                     Log::error('Firebase: Error al cargar clave privada');
@@ -63,7 +60,6 @@ class FirebaseNotificationService
                 openssl_sign("$header.$payload", $signature, $privateKey, OPENSSL_ALGO_SHA256);
                 $jwt = "$header.$payload." . $this->base64UrlEncode($signature);
 
-                // Intercambiar JWT por access token
                 $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
                     'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
                     'assertion' => $jwt,
@@ -90,9 +86,6 @@ class FirebaseNotificationService
         });
     }
 
-    /**
-     * Base64 URL encode
-     */
     private function base64UrlEncode(string $data): string
     {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
@@ -108,33 +101,14 @@ class FirebaseNotificationService
         array $data = []
     ): bool {
         $accessToken = $this->getAccessToken();
-        
+
         if (!$accessToken) {
             Log::warning('Firebase: No se pudo obtener access token');
             return false;
         }
 
         try {
-            $payload = [
-                'message' => [
-                    'token' => $fcmToken,
-                    'notification' => [
-                        'title' => $title,
-                        'body' => $body,
-                    ],
-                    'webpush' => [
-                        'notification' => [
-                            'icon' => '/icon-192x192.png',
-                            'badge' => '/icon-72x72.png',
-                            'vibrate' => [200, 100, 200],
-                        ],
-                        'fcm_options' => [
-                            'link' => config('app.url') . '/ui/facturacion-electronica/mis-entregas',
-                        ],
-                    ],
-                    'data' => array_map('strval', $data), // FCM requiere valores string
-                ],
-            ];
+            $payload = $this->buildPayload([$fcmToken], $title, $body, $data);
 
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $accessToken,
@@ -150,27 +124,35 @@ class FirebaseNotificationService
             }
 
             $error = $response->json();
+            $status = $response->status();
+
+            // Token expirado — refrescar y reintentar una vez
+            if ($status === 401) {
+                Cache::forget('firebase_access_token');
+                $newToken = $this->getAccessToken();
+                if ($newToken) {
+                    $retry = Http::withHeaders([
+                        'Authorization' => 'Bearer ' . $newToken,
+                        'Content-Type' => 'application/json',
+                    ])->post($this->fcmUrl, $payload);
+
+                    if ($retry->successful()) {
+                        Log::info('Firebase: Notificación enviada tras refrescar token');
+                        return true;
+                    }
+                    $error = $retry->json();
+                    $status = $retry->status();
+                }
+            }
+
             Log::error('Firebase: Error al enviar notificación', [
-                'status' => $response->status(),
+                'status' => $status,
                 'error' => $error,
             ]);
 
-            // Si el token es inválido, limpiar cache y reintentar
-            if ($response->status() === 401) {
-                Cache::forget('firebase_access_token');
-            }
-
-            // Token de dispositivo inválido
-            if (isset($error['error']['details'])) {
-                foreach ($error['error']['details'] as $detail) {
-                    if (str_contains($detail['@type'] ?? '', 'UNREGISTERED') ||
-                        str_contains($detail['errorCode'] ?? '', 'UNREGISTERED')) {
-                        // TODO: Limpiar token inválido de la DB
-                        Log::warning('Firebase: Token de dispositivo inválido', [
-                            'token' => substr($fcmToken, 0, 20) . '...',
-                        ]);
-                    }
-                }
+            // Token de dispositivo inválido — limpiar
+            if ($this->isUnregisteredError($error)) {
+                $this->cleanupInvalidToken($fcmToken);
             }
 
             return false;
@@ -184,7 +166,8 @@ class FirebaseNotificationService
     }
 
     /**
-     * Envía notificación a múltiples dispositivos
+     * Envía notificación a múltiples dispositivos usando multicast (FCM v1)
+     * Máximo 500 tokens por request. Los lotes se procesan secuencialmente.
      */
     public function sendToMultiple(
         array $fcmTokens,
@@ -193,9 +176,24 @@ class FirebaseNotificationService
         array $data = []
     ): array {
         $results = [];
-        
-        foreach ($fcmTokens as $token) {
-            $results[$token] = $this->sendNotification($token, $title, $body, $data);
+        $chunks = array_chunk(array_values($fcmTokens), self::MAX_TOKENS_PER_REQUEST);
+
+        foreach ($chunks as $chunk) {
+            $batchResults = $this->sendMulticastBatch($chunk, $title, $body, $data);
+
+            foreach ($batchResults as $i => $result) {
+                $token = $chunk[$i] ?? null;
+                if ($token === null) continue;
+
+                if ($result['success'] ?? false) {
+                    $results[$token] = true;
+                } else {
+                    $results[$token] = false;
+                    if (!empty($result['unregistered'])) {
+                        $this->cleanupInvalidToken($token);
+                    }
+                }
+            }
         }
 
         return $results;
@@ -211,21 +209,17 @@ class FirebaseNotificationService
         array $data = [],
         ?string $excludeUserId = null
     ): int {
-        $users = \App\Models\User::where('cargo', $cargo)
+        $tokens = User::where('cargo', $cargo)
             ->whereNotNull('fcm_token')
             ->where('estado', true)
             ->when($excludeUserId, fn($q) => $q->where('id', '!=', $excludeUserId))
-            ->get();
+            ->pluck('fcm_token')
+            ->toArray();
 
-        $successCount = 0;
+        if (empty($tokens)) return 0;
 
-        foreach ($users as $user) {
-            if ($this->sendNotification($user->fcm_token, $title, $body, $data)) {
-                $successCount++;
-            }
-        }
-
-        return $successCount;
+        $results = $this->sendToMultiple($tokens, $title, $body, $data);
+        return count(array_filter($results));
     }
 
     /**
@@ -237,19 +231,160 @@ class FirebaseNotificationService
         string $body,
         array $data = []
     ): int {
-        $users = \App\Models\User::where('rol_sistema', $rolSistema)
+        $tokens = User::where('rol_sistema', $rolSistema)
             ->whereNotNull('fcm_token')
             ->where('estado', true)
-            ->get();
+            ->pluck('fcm_token')
+            ->toArray();
 
-        $successCount = 0;
+        if (empty($tokens)) return 0;
 
-        foreach ($users as $user) {
-            if ($this->sendNotification($user->fcm_token, $title, $body, $data)) {
-                $successCount++;
+        $results = $this->sendToMultiple($tokens, $title, $body, $data);
+        return count(array_filter($results));
+    }
+
+    /**
+     * Envía notificación a todos los usuarios activos con FCM token
+     * que tengan acceso al permiso de módulo especificado.
+     *
+     * Usa el sistema de blacklist: los usuarios sin la restricción tienen acceso.
+     */
+    public function sendToUsersWithModuleAccess(
+        string $modulePermission,
+        string $title,
+        string $body,
+        array $data = [],
+        array $excludeTokens = []
+    ): int {
+        $users = User::with(['restrictions', 'roles.restrictions'])
+            ->whereNotNull('fcm_token')
+            ->where('estado', true)
+            ->get()
+            ->filter(fn(User $user) => $user->hasAccess($modulePermission))
+            ->pluck('fcm_token')
+            ->toArray();
+
+        $tokens = array_diff($users, $excludeTokens);
+
+        if (empty($tokens)) return 0;
+
+        $results = $this->sendToMultiple(array_values($tokens), $title, $body, $data);
+        return count(array_filter($results));
+    }
+
+    // ==================== PRIVADO ====================
+
+    private function buildPayload(array $tokens, string $title, string $body, array $data): array
+    {
+        $message = [
+            'notification' => [
+                'title' => $title,
+                'body' => $body,
+            ],
+            'webpush' => [
+                'notification' => [
+                    'icon' => '/icon-192x192.png',
+                    'badge' => '/icon-72x72.png',
+                    'vibrate' => [200, 100, 200],
+                ],
+                'fcm_options' => [
+                    'link' => config('app.url') . '/ui/facturacion-electronica/mis-entregas',
+                ],
+            ],
+            'data' => array_map('strval', $data),
+        ];
+
+        if (count($tokens) === 1) {
+            $message['token'] = $tokens[0];
+        } else {
+            $message['registration_tokens'] = $tokens;
+        }
+
+        return ['message' => $message];
+    }
+
+    private function sendMulticastBatch(array $tokens, string $title, string $body, array $data): array
+    {
+        $accessToken = $this->getAccessToken();
+        if (!$accessToken) {
+            return array_fill(0, count($tokens), ['success' => false]);
+        }
+
+        $payload = $this->buildPayload($tokens, $title, $body, $data);
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $accessToken,
+            'Content-Type' => 'application/json',
+        ])->post($this->fcmUrl, $payload);
+
+        if ($response->successful()) {
+            return $this->parseMulticastResults($response->json(), $tokens);
+        }
+
+        $status = $response->status();
+        $error = $response->json();
+
+        // 401 — token expirado, reintentar una vez
+        if ($status === 401) {
+            Cache::forget('firebase_access_token');
+            $newToken = $this->getAccessToken();
+            if ($newToken) {
+                $retry = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $newToken,
+                    'Content-Type' => 'application/json',
+                ])->post($this->fcmUrl, $payload);
+
+                if ($retry->successful()) {
+                    return $this->parseMulticastResults($retry->json(), $tokens);
+                }
+                $error = $retry->json();
             }
         }
 
-        return $successCount;
+        Log::error('Firebase: Error en multicast', [
+            'status' => $status,
+            'token_count' => count($tokens),
+            'error' => $error,
+        ]);
+
+        return array_fill(0, count($tokens), ['success' => false]);
+    }
+
+    private function parseMulticastResults(array $response, array $tokens): array
+    {
+        $results = $response['results'] ?? [];
+
+        return array_map(function ($result) {
+            $isUnregistered = $this->isUnregisteredError($result);
+            return [
+                'success' => !isset($result['error']),
+                'error' => $result['error'] ?? null,
+                'unregistered' => $isUnregistered,
+                'message_id' => $result['message_id'] ?? null,
+            ];
+        }, $results);
+    }
+
+    private function isUnregisteredError(?array $errorDetail): bool
+    {
+        if (!$errorDetail) return false;
+
+        $errorCode = $errorDetail['errorCode'] ?? $errorDetail['error'] ?? '';
+        return str_contains($errorCode, 'UNREGISTERED')
+            || str_contains($errorDetail['@type'] ?? '', 'UNREGISTERED');
+    }
+
+    private function cleanupInvalidToken(string $token): void
+    {
+        try {
+            User::where('fcm_token', $token)->update(['fcm_token' => null]);
+            Log::warning('Firebase: Token inválido limpiado de la DB', [
+                'token' => substr($token, 0, 20) . '...',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Firebase: Error al limpiar token inválido', [
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 }
