@@ -20,6 +20,34 @@ class GuiaRemisionController extends Controller
     }
 
     /**
+     * GET /api/guias-remision/siguiente-numero/preview
+     * Obtiene la serie y el siguiente número sin reservarlo.
+     * Replica la lógica de auto-generación de GuiaRemisionService::crear.
+     */
+    public function siguienteNumero(Request $request)
+    {
+        $request->validate([
+            'tipo_guia' => 'sometimes|string|in:ELECTRONICA_REMITENTE,ELECTRONICA_TRANSPORTISTA,FISICA',
+        ]);
+
+        $tipoGuia = $request->input('tipo_guia', 'ELECTRONICA_REMITENTE');
+        $serie = match ($tipoGuia) {
+            'ELECTRONICA_TRANSPORTISTA' => 'V001',
+            'FISICA' => 'TF01',
+            default => 'T001',
+        };
+
+        $maxNumero = GuiaRemision::where('serie', $serie)->max('numero') ?? 0;
+
+        return response()->json([
+            'data' => [
+                'serie' => $serie,
+                'numero' => $maxNumero + 1,
+            ],
+        ]);
+    }
+
+    /**
      * Display a listing of the resource (todas las guías con filtros).
      */
     public function index(Request $request)

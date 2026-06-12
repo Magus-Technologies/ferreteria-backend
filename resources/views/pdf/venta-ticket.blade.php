@@ -93,7 +93,7 @@
     <div style="padding: 2px 0 6px;">
         <table>
             <tr>
-                <td style="text-transform:uppercase; {{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">{{ strlen($clienteDocumento) === 11 ? 'RUC:' : 'DNI:' }}</td>
+                <td style="text-transform:uppercase; {{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">{{ !ctype_digit($clienteDocumento) ? 'DOC:' : (strlen($clienteDocumento) === 11 ? 'RUC:' : 'DNI:') }}</td>
                 <td style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ $clienteDocumento }}</td>
             </tr>
             <tr>
