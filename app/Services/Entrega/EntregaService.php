@@ -163,12 +163,16 @@ class EntregaService
 
     public function marcarEnCamino(Entrega $entrega, string $userId): Entrega
     {
-        return DB::transaction(function () use ($entrega, $userId) {
+        $result = DB::transaction(function () use ($entrega, $userId) {
             $this->transicion->transicionar($entrega, CodigoEstadoEntrega::EnCamino, $userId);
             $this->stock->aplicar($entrega->fresh());
             $this->syncLegacy->sincronizar($entrega->fresh());
             return $entrega->fresh($this->eagerLoadDefault());
         });
+
+        $this->notificacion->notificarEnCamino($result);
+
+        return $result;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -315,6 +319,10 @@ class EntregaService
                 'unidad_derivada_venta_id' => $item['unidad_derivada_venta_id'],
                 'cantidad'                 => $item['cantidad'],
             ]);
+        }
+
+        if ($entrega->chofer_id || $entrega->cargo_destino) {
+            $this->notificacion->notificarAsignacion($entrega->load('venta'));
         }
 
         return $entrega;

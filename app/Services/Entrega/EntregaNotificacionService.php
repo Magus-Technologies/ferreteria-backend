@@ -102,6 +102,61 @@ class EntregaNotificacionService
     }
 
     /**
+     * Notifica al chofer y a los usuarios del módulo que la entrega
+     * está "en camino".
+     */
+    public function notificarEnCamino(Entrega $entrega): void
+    {
+        $entrega->loadMissing('venta');
+        $venta = $entrega->venta;
+        $label = $venta ? "{$venta->serie}-{$venta->numero}" : "#{$entrega->id}";
+
+        $datos = [
+            'type'        => 'entrega_en_camino',
+            'entrega_id'  => (string) $entrega->id,
+            'venta_serie' => $venta->serie ?? '',
+            'venta_numero'=> $venta->numero ?? '',
+            'direccion'   => $entrega->direccion_entrega ?? '',
+            'link'        => '/ui/facturacion-electronica/mis-entregas',
+        ];
+
+        $cuerpo = "Venta {$label}" .
+            ($entrega->direccion_entrega ? " — {$entrega->direccion_entrega}" : '');
+
+        $titulo = 'Entrega en Camino';
+
+        $notifiedTokens = [];
+
+        if ($entrega->chofer_id) {
+            $chofer = User::find($entrega->chofer_id);
+            if ($chofer && $chofer->fcm_token) {
+                $this->firebase->sendNotification(
+                    $chofer->fcm_token,
+                    $titulo,
+                    $cuerpo,
+                    $datos
+                );
+                $notifiedTokens[] = $chofer->fcm_token;
+            }
+        }
+
+        try {
+            $this->firebase->sendToUsersWithModuleAccess(
+                self::PERMISO_MODULO_ENTREGAS,
+                $titulo,
+                $cuerpo,
+                $datos,
+                $notifiedTokens
+            );
+        } catch (\Exception $e) {
+            Log::channel('firebase')->warning('Error notificando en camino', [
+                'message' => $e->getMessage(),
+                'entrega_id' => $entrega->id,
+            ]);
+        }
+    }
+
+    /**
      * Notifica a todos los usuarios con acceso al módulo que una entrega
      * fue completada (estado "Entregado"). La notificación apunta al
      * calendario de entregas.
