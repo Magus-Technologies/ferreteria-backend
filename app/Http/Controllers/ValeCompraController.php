@@ -98,6 +98,17 @@ class ValeCompraController extends Controller
             },
         ])->findOrFail($id);
 
+        // Nombres de los productos del descuento (descuento_producto_ids es un
+        // JSON de ids sin relación): el form de edición los necesita para
+        // mostrar nombres en vez de ids.
+        $descuentoIds = $vale->descuento_producto_ids ?? [];
+        $vale->setAttribute(
+            'descuento_productos',
+            ! empty($descuentoIds)
+                ? \App\Models\Producto::whereIn('id', $descuentoIds)->get(['id', 'name', 'cod_producto'])
+                : []
+        );
+
         return response()->json($vale);
     }
 
