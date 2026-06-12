@@ -209,7 +209,7 @@ class GananciasService implements GananciasServiceInterface
         $totalPerdida = $datos->where('ganancia', '<', 0)->sum(fn($item) => abs($item->ganancia));
 
         return ResumenHelper::buildResumenDatos(
-            $datos->sum('subtotal'),
+            $datos->sum('subtot'),
             $datos->sum('costo_total'),
             $datos->sum('ganancia'),
             0, // gastos_u

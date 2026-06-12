@@ -73,17 +73,44 @@ class ProductoLoteService
      * Registra un nuevo lote de costo (entrada por recepción o ingreso) y
      * recalcula los derivados.
      *
-     * @param array{recepcion_id?: int, ingreso_salida_id?: int} $origen
+     * @param array{recepcion_id?: int, compra_id?: string|null, ingreso_salida_id?: int} $origen
+     * @param int|null $secuenciaOverride Posición FIFO explícita. Un ingreso que
+     *        "hereda" el costo del lote anterior pasa la secuencia de ese lote para
+     *        quedar adyacente a él (se consume junto); null = al final (más nuevo).
      */
-    public function registrarLote(ProductoAlmacen $pa, float $costo, float $cantidad, array $origen = []): ProductoAlmacenLote
+    public function registrarLote(ProductoAlmacen $pa, float $costo, float $cantidad, array $origen = [], ?int $secuenciaOverride = null): ProductoAlmacenLote
     {
         $this->inicializarDesdeBucketsSiVacio($pa);
 
-        $secuencia = (int) (ProductoAlmacenLote::where('producto_almacen_id', $pa->id)->max('secuencia') ?? 0) + 1;
+        // Recepciones PARCIALES de la MISMA compra: sumar al lote ya existente de
+        // esa compra (misma fila, misma posición FIFO de la 1.ª recepción), no
+        // crear otra fila. Solo si el costo coincide (debería, con el flete
+        // prorrateado sobre el total de la línea); si difiere, fila separada.
+        $compraId = $origen['compra_id'] ?? null;
+        if ($compraId !== null) {
+            $existente = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
+                ->where('compra_id', $compraId)
+                ->get()
+                ->first(fn($l) => abs((float) $l->costo - $costo) < 0.0001);
+
+            if ($existente) {
+                $existente->cantidad_inicial = (float) $existente->cantidad_inicial + $cantidad;
+                $existente->cantidad_restante = (float) $existente->cantidad_restante + $cantidad;
+                $existente->save();
+
+                $this->resyncDerivados($pa);
+
+                return $existente;
+            }
+        }
+
+        $secuencia = $secuenciaOverride
+            ?? ((int) (ProductoAlmacenLote::where('producto_almacen_id', $pa->id)->max('secuencia') ?? 0) + 1);
 
         $lote = ProductoAlmacenLote::create([
             'producto_almacen_id' => $pa->id,
             'recepcion_id' => $origen['recepcion_id'] ?? null,
+            'compra_id' => $compraId,
             'ingreso_salida_id' => $origen['ingreso_salida_id'] ?? null,
             'costo' => $costo,
             'cantidad_inicial' => $cantidad,
@@ -287,18 +314,31 @@ class ProductoLoteService
     }
 
     /**
-     * Revierte la entrada de una recepción anulada: a los lotes de esa recepción
-     * les quita su cantidad inicial (puede quedar negativo si ya se vendió, igual
-     * que el comportamiento anterior). Recalcula derivados.
+     * Revierte la entrada de una recepción anulada (puede quedar negativo si ya
+     * se vendió, igual que antes). Como las recepciones parciales de una misma
+     * compra se FUSIONAN en un solo lote, se resta exactamente la $cantidad de la
+     * recepción anulada (no la cantidad inicial del lote, que puede incluir otras
+     * recepciones). El lote se busca por recepción y, si no, por la compra.
      */
-    public function revertirLotesPorRecepcion(ProductoAlmacen $pa, int $recepcionId): void
+    public function revertirLotesPorRecepcion(ProductoAlmacen $pa, int $recepcionId, ?string $compraId = null, ?float $cantidad = null): void
     {
-        $lotes = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
+        $lote = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
             ->where('recepcion_id', $recepcionId)
-            ->get();
+            ->first();
 
-        foreach ($lotes as $lote) {
-            $lote->cantidad_restante = (float) $lote->cantidad_restante - (float) $lote->cantidad_inicial;
+        // La recepción anulada se fusionó en el lote creado por OTRA recepción
+        // de la misma compra → buscar por compra.
+        if (! $lote && $compraId !== null) {
+            $lote = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
+                ->where('compra_id', $compraId)
+                ->orderBy('secuencia')->orderBy('id')
+                ->first();
+        }
+
+        if ($lote) {
+            $resta = $cantidad ?? (float) $lote->cantidad_inicial;
+            $lote->cantidad_restante = (float) $lote->cantidad_restante - $resta;
+            $lote->cantidad_inicial = max((float) $lote->cantidad_inicial - $resta, 0);
             $lote->save();
         }
 
@@ -347,19 +387,34 @@ class ProductoLoteService
             ? $sumCostoPos / $sumStockPos
             : (float) ($pa->costo ?? 0); // sin stock positivo: conservar último costo
 
-        // Buckets legacy: anterior = lote más viejo con stock; actual = el resto.
+        // Buckets legacy:
+        //  - "anterior" = tramo de lotes MÁS VIEJOS que comparten el mismo costo,
+        //    PERO solo si después hay lotes con costo más nuevo (distinto).
+        //  - "actual" = el resto (ponderado).
+        //  - Si solo hay UN costo vivo (un lote, o varios al mismo costo, p.ej.
+        //    recepciones parciales de la misma compra) → todo va a "actual" y
+        //    anterior queda vacío, igual que el modelo original de 2 buckets.
         $primero = $positivos->first();
         if ($primero) {
-            $stockAnterior = (float) $primero->cantidad_restante;
-            $costoAnterior = (float) $primero->costo;
-            $stockActual = $stockTotal - $stockAnterior;
+            $costoRef = (float) $primero->costo;
+            $grupoViejo = $positivos->takeWhile(fn($l) => abs((float) $l->costo - $costoRef) < 0.0001);
+            $resto = $positivos->slice($grupoViejo->count());
 
-            // Costo del "actual" = ponderado del resto de positivos; si no hay
-            // resto, usa el costo ponderado general.
-            $resto = $positivos->slice(1);
-            $sumStockResto = (float) $resto->sum(fn($l) => (float) $l->cantidad_restante);
-            $sumCostoResto = (float) $resto->sum(fn($l) => (float) $l->cantidad_restante * (float) $l->costo);
-            $costoActual = $sumStockResto > 0 ? $sumCostoResto / $sumStockResto : $costoPonderado;
+            if ($resto->isEmpty()) {
+                // Un solo costo vivo → es el ACTUAL (no hay lote más nuevo).
+                $stockAnterior = 0.0;
+                $costoAnterior = null;
+                $stockActual = $stockTotal;
+                $costoActual = $costoRef;
+            } else {
+                $stockAnterior = (float) $grupoViejo->sum(fn($l) => (float) $l->cantidad_restante);
+                $costoAnterior = $costoRef;
+                $stockActual = $stockTotal - $stockAnterior;
+
+                $sumStockResto = (float) $resto->sum(fn($l) => (float) $l->cantidad_restante);
+                $sumCostoResto = (float) $resto->sum(fn($l) => (float) $l->cantidad_restante * (float) $l->costo);
+                $costoActual = $sumStockResto > 0 ? $sumCostoResto / $sumStockResto : $costoPonderado;
+            }
         } else {
             // Sin stock positivo (0 o negativo).
             $stockAnterior = 0.0;

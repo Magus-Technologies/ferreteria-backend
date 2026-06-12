@@ -274,12 +274,31 @@ class IngresoSalidaController extends Controller
                 "estado" => true,
             ]);
 
+            // Costo del movimiento según PEPS (regla del usuario):
+            //  - INGRESO (no trae costo propio): hereda el costo del lote más viejo
+            //    con stock (el "anterior"); si no hay stock, jala el costo ACTUAL
+            //    (último costo conocido). NUNCA el promedio del almacén.
+            //  - SALIDA: costo PEPS real de lo que va a consumir (simulado, sin mutar).
+            $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+            $loteAnterior = null;
+            if ($esIngreso) {
+                $loteAnterior = \App\Models\ProductoAlmacenLote::where('producto_almacen_id', $productoAlmacen->id)
+                    ->where('cantidad_restante', '>', 0)
+                    ->orderBy('secuencia')->orderBy('id')
+                    ->first();
+                $costoMovimiento = $loteAnterior
+                    ? (float) $loteAnterior->costo
+                    : (float) ($productoAlmacen->costo_actual ?? $productoAlmacen->costo ?? 0);
+            } else {
+                $costoMovimiento = $loteService->simularCostoConsumo($productoAlmacen, abs($cantidadFraccion));
+            }
+
             // PASO 8: Crear ProductoAlmacenIngresoSalida
             $productoAlmacenIngresoSalida = ProductoAlmacenIngresoSalida::create(
                 [
                     "ingreso_id" => $ingresoSalida->id,
                     "producto_almacen_id" => $productoAlmacen->id,
-                    "costo" => $productoAlmacen->costo,
+                    "costo" => $costoMovimiento,
                 ],
             );
 
@@ -338,17 +357,18 @@ class IngresoSalidaController extends Controller
             }
 
             // PASO 13: Actualizar inventario vía ledger de lotes PEPS.
-            // INGRESO → crea un lote nuevo con su costo. SALIDA → consume lotes FIFO
-            // (más viejo primero). resyncDerivados recalcula costo, stock_fraccion y
-            // los buckets legacy desde los lotes.
-            $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+            // INGRESO → crea un lote con el costo heredado ($costoMovimiento). Si
+            // heredó del lote "anterior", se inserta ADYACENTE a él (misma secuencia)
+            // para que se consuma junto, como si hubiera entrado a ese bucket.
+            // SALIDA → consume lotes FIFO (más viejo primero). resyncDerivados
+            // recalcula costo, stock_fraccion y los buckets legacy desde los lotes.
             if ($esIngreso) {
-                $costoIngreso = (float) $productoAlmacenIngresoSalida->costo;
                 $loteService->registrarLote(
                     $productoAlmacen,
-                    $costoIngreso,
+                    $costoMovimiento,
                     $cantidadFraccion, // > 0
-                    ['ingreso_salida_id' => $ingresoSalida->id]
+                    ['ingreso_salida_id' => $ingresoSalida->id],
+                    $loteAnterior?->secuencia
                 );
             } else {
                 $loteService->consumirLotes(
