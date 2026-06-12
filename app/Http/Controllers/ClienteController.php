@@ -35,16 +35,32 @@ class ClienteController extends Controller
                 // en uno de los campos (AND entre tokens, OR entre campos).
                 // Acentos: comparamos `LOWER(REPLACE(..., acentos, sinAcento))`
                 // en SQL para que "Perez" matchee "Pérez".
-                $camposTexto = [
-                    'numero_documento',
-                    'nombres',
-                    'apellidos',
-                    'razon_social',
-                    'telefono',
-                    'celular',
-                    'email',
-                    'contacto_referencia',
-                ];
+                //
+                // Con 2+ PALABRAS la consulta es un NOMBRE (persona/empresa):
+                // se restringe a campos de identidad. Si incluyera contacto,
+                // "ELIAS C" traería a GRUPO MI REDENTOR porque su email
+                // contiene "elias". Se cuentan las palabras del texto CRUDO
+                // (no los tokens: tokenizeSearch descarta los de 1 caracter,
+                // y la "c" de "ELIAS C" es justamente una de esas).
+                // Con 1 palabra se mantiene la búsqueda amplia (tel/email).
+                $palabrasCrudas = preg_split('/\s+/u', trim((string) $request->search), -1, PREG_SPLIT_NO_EMPTY);
+                $camposTexto = count($palabrasCrudas) >= 2
+                    ? [
+                        'numero_documento',
+                        'nombres',
+                        'apellidos',
+                        'razon_social',
+                    ]
+                    : [
+                        'numero_documento',
+                        'nombres',
+                        'apellidos',
+                        'razon_social',
+                        'telefono',
+                        'celular',
+                        'email',
+                        'contacto_referencia',
+                    ];
                 $query->where(function ($q) use ($tokens, $camposTexto) {
                     foreach ($tokens as $token) {
                         $q->where(function ($sub) use ($token, $camposTexto) {
@@ -159,12 +175,17 @@ class ClienteController extends Controller
             'estado' => 'nullable|boolean',
         ];
 
-        // Si es Persona (DNI): nombres y apellidos son requeridos
+        // Si es Persona (DNI): nombres y apellidos son requeridos.
+        // Excepcion: clientes de venta rapida SIN documento (nombre libre
+        // tipeado en crear-venta) — una sola palabra no tiene apellido
+        // separable, asi que apellidos pasa a ser opcional.
         if ($tipoCliente === 'p') {
             $rules['nombres'] = 'required|string|max:255';
-            $rules['apellidos'] = 'required|string|max:255';
+            $rules['apellidos'] = $request->filled('numero_documento')
+                ? 'required|string|max:255'
+                : 'nullable|string|max:255';
             $rules['razon_social'] = 'nullable|string|max:255';
-        } 
+        }
         // Si es Empresa (RUC): razon_social es requerida
         else {
             $rules['nombres'] = 'nullable|string|max:255';

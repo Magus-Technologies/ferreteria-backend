@@ -236,6 +236,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // GUÍAS DE REMISIÓN
     // ============================================
     Route::prefix('guias-remision')->group(function () {
+        Route::get('/siguiente-numero/preview', [GuiaRemisionController::class, 'siguienteNumero']);
         Route::post('/{id}/emitir', [GuiaRemisionController::class, 'emitir']);
         Route::post('/{id}/anular', [GuiaRemisionController::class, 'anular']);
         Route::post('/{id}/enviar-sunat', [GuiaRemisionController::class, 'enviarSunat']);

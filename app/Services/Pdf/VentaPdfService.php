@@ -370,7 +370,11 @@ class VentaPdfService
             'vendedor' => $venta->user->name,
             'recomendadoPor' => $this->getNombreRecomendado($venta),
             'clienteNombre' => $clienteNombre,
-            'clienteDocumento' => $cliente?->numero_documento ?? '99999999',
+            // Placeholder "SN-XXXXXXXX" = cliente registrado sin documento:
+            // en el ticket se muestra "—" (la blade etiqueta "DOC:" en ese caso).
+            'clienteDocumento' => str_starts_with((string) ($cliente?->numero_documento ?? ''), 'SN-')
+                ? '—'
+                : ($cliente?->numero_documento ?? '99999999'),
             'clienteDireccion' => $cliente?->direccion ?? '',
             'metodosPago' => $metodosPago,
             'sobrecargoVisible' => $sobrecargoVisible,
@@ -709,7 +713,10 @@ class VentaPdfService
                 'Hora' => PdfService::formatFecha($fecha, 'H:i:s'),
             ],
             [
-                'RUC / DNI' => $cliente?->numero_documento ?? '',
+                // Placeholder "SN-XXXXXXXX" = cliente sin documento → mostrar "—"
+                'RUC / DNI' => str_starts_with((string) ($cliente?->numero_documento ?? ''), 'SN-')
+                    ? '—'
+                    : ($cliente?->numero_documento ?? ''),
                 'Tipo Doc.' => $venta->tipo_documento->value,
             ],
             [

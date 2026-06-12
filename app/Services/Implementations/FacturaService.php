@@ -93,15 +93,9 @@ class FacturaService implements FacturaServiceInterface
             $totalIgv = $dataGreenter['mto_igv'];
             $importeTotal = $dataGreenter['total'];
 
-            // Determinar tipo de documento del cliente
-            $clienteTipoDoc = '1'; // DNI por defecto
-            if ($cliente->tipo_documento === 'ruc') {
-                $clienteTipoDoc = '6';
-            } elseif ($cliente->tipo_documento === 'pasaporte') {
-                $clienteTipoDoc = '7';
-            } elseif ($cliente->tipo_documento === 'carnet_extranjeria') {
-                $clienteTipoDoc = '4';
-            }
+            // Determinar tipo y numero de documento del cliente (catalogo 06).
+            // Clientes sin documento real van como tipo '0' / numero '0'.
+            [$clienteTipoDoc, $clienteNumDoc] = $this->docClienteParaSunat($cliente);
 
             // Crear registro de comprobante en estado pendiente (NO ENVIADO)
             // Usar el user_id directamente (ahora soporta ULIDs)
@@ -117,7 +111,7 @@ class FacturaService implements FacturaServiceInterface
                 'hora_emision' => $venta->fecha,
                 'cliente_id' => $cliente->id,
                 'cliente_tipo_documento' => $clienteTipoDoc,
-                'cliente_numero_documento' => $cliente->numero_documento,
+                'cliente_numero_documento' => $clienteNumDoc,
                 'cliente_razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'Cliente',
                 'cliente_direccion' => $cliente->direccion,
                 'cliente_email' => $cliente->email,
@@ -572,12 +566,15 @@ class FacturaService implements FacturaServiceInterface
             'mto_igv' => round($igv, 2),
             'total' => round($total, 2),
             'monto_en_letras' => $this->convertirNumeroALetras($total),
-            'cliente' => [
-                'tipo_doc' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
-                'num_doc' => $cliente->numero_documento,
-                'razon_social' => $cliente->razon_social ?? $cliente->nombre ?? 'CLIENTE',
-                'direccion' => $cliente->direccion ?? '',
-            ],
+            'cliente' => (function () use ($cliente) {
+                [$tipoDoc, $numDoc] = $this->docClienteParaSunat($cliente);
+                return [
+                    'tipo_doc' => $tipoDoc,
+                    'num_doc' => $numDoc,
+                    'razon_social' => $cliente->razon_social ?? $cliente->nombre ?? 'CLIENTE',
+                    'direccion' => $cliente->direccion ?? '',
+                ];
+            })(),
             'items' => $items,
         ];
     }
@@ -735,7 +732,7 @@ class FacturaService implements FacturaServiceInterface
     {
         try {
             $cliente = $venta->cliente;
-            $clienteTipoDoc = $cliente->tipo_documento === 'ruc' ? '6' : '1';
+            [$clienteTipoDoc, $clienteNumDoc] = $this->docClienteParaSunat($cliente);
 
             $qrText = implode('|', [
                 \App\Models\Empresa::getRucEmisor(),
@@ -746,7 +743,7 @@ class FacturaService implements FacturaServiceInterface
                 number_format($total, 2, '.', ''),
                 $venta->fecha->format('Y-m-d'),
                 $clienteTipoDoc,
-                $cliente->numero_documento,
+                $clienteNumDoc,
                 $hashCpe,
             ]);
 
@@ -763,5 +760,32 @@ class FacturaService implements FacturaServiceInterface
         } catch (\Exception $e) {
             return null;
         }
+    }
+
+    /**
+     * Tipo y numero de documento del cliente para SUNAT (catalogo 06).
+     *
+     * Clientes sin documento real (placeholder "SN-XXXXXXXX" generado por
+     * ClienteController al crear sin documento) van como tipo '0'
+     * (DOC.TRIB.NO.DOM.SIN.RUC) y numero '0' — el formato que SUNAT acepta
+     * para consumidor final no identificado en boletas (< S/ 700).
+     *
+     * @return array{0: string, 1: string} [tipoDoc, numDoc]
+     */
+    private function docClienteParaSunat($cliente): array
+    {
+        $numDoc = (string) ($cliente->numero_documento ?? '');
+        if ($numDoc === '' || str_starts_with($numDoc, 'SN-')) {
+            return ['0', '0'];
+        }
+
+        $tipoDoc = match ($cliente->tipo_documento) {
+            'ruc' => '6',
+            'pasaporte' => '7',
+            'carnet_extranjeria' => '4',
+            default => '1', // DNI
+        };
+
+        return [$tipoDoc, $numDoc];
     }
 }
