@@ -39,6 +39,7 @@ Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->middlewa
         Route::get('/productos-mas-vendidos',  [DashboardFacturacionController::class, 'productosMasVendidos']);
         Route::get('/ventas-por-tipo-documento', [DashboardFacturacionController::class, 'ventasPorTipoDocumento']);
         Route::get('/ingresos-por-canal',      [DashboardFacturacionController::class, 'ingresosPorCanal']);
+        Route::get('/ingresos-por-despacho',   [DashboardFacturacionController::class, 'ingresosPorDespacho']);
     });
 
     // ========== COMPROBANTES ELECTRÓNICOS ==========

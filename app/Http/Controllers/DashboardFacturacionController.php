@@ -61,4 +61,9 @@ class DashboardFacturacionController extends Controller
     {
         return response()->json(['data' => $this->service->ingresosPorCanal($this->filtros($request))]);
     }
+
+    public function ingresosPorDespacho(Request $request): JsonResponse
+    {
+        return response()->json(['data' => $this->service->ingresosPorTipoDespacho($this->filtros($request))]);
+    }
 }

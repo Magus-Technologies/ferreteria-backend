@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\CanalVenta;
 use App\Enums\EstadoDeVenta;
 use App\Enums\FormaDePago;
 use App\Enums\TipoDocumento;
@@ -35,6 +36,7 @@ class Venta extends Model
         'fecha',
         'estado_de_venta',
         'tipo_despacho',
+        'canal',
         'stock_aplicado',
         'descuenta_stock',
         'cliente_id',
@@ -51,6 +53,7 @@ class Venta extends Model
             'forma_de_pago' => FormaDePago::class,
             'tipo_moneda' => TipoMoneda::class,
             'estado_de_venta' => EstadoDeVenta::class,
+            'canal' => CanalVenta::class,
             'tipo_de_cambio' => 'decimal:4',
             'stock_aplicado' => 'boolean',
             'descuenta_stock' => 'boolean',

@@ -25,6 +25,9 @@ interface DashboardFacturacionServiceInterface
     /** Ventas (importe y n° de ventas) agrupadas por tipo de documento. */
     public function ventasPorTipoDocumento(array $filtros): array;
 
-    /** Ingresos y n° de pedidos agrupados por tipo de canal (despacho). */
+    /** Ingresos y n° de pedidos agrupados por canal (presencial / web). */
     public function ingresosPorCanal(array $filtros): array;
+
+    /** Ingresos y n° de pedidos agrupados por tipo de despacho. */
+    public function ingresosPorTipoDespacho(array $filtros): array;
 }

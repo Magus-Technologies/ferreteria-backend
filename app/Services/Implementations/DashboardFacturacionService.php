@@ -111,14 +111,30 @@ class DashboardFacturacionService implements DashboardFacturacionServiceInterfac
     public function ingresosPorCanal(array $filtros): array
     {
         $rows = $this->baseProductosQuery($filtros)
+            ->selectRaw('v.canal as canal, SUM(' . self::IMPORTE . ') as value, COUNT(DISTINCT v.id) as pedidos')
+            ->groupBy('v.canal')
+            ->get();
+
+        $nombres = ['presencial' => 'Presencial', 'web' => 'Web'];
+
+        return $rows->map(fn($r) => [
+            'label'   => $nombres[$r->canal] ?? ($r->canal ?? 'Presencial'),
+            'value'   => round((float) $r->value, 2),
+            'pedidos' => (int) $r->pedidos,
+        ])->toArray();
+    }
+
+    public function ingresosPorTipoDespacho(array $filtros): array
+    {
+        $rows = $this->baseProductosQuery($filtros)
             ->selectRaw('v.tipo_despacho as tipo, SUM(' . self::IMPORTE . ') as value, COUNT(DISTINCT v.id) as pedidos')
             ->groupBy('v.tipo_despacho')
             ->get();
 
-        $nombres = ['in' => 'Inmediato', 'pr' => 'Programado'];
+        $nombres = ['et' => 'En Tienda', 'do' => 'Domicilio', 'pa' => 'Parcial'];
 
         return $rows->map(fn($r) => [
-            'label'   => $nombres[$r->tipo] ?? ($r->tipo ?? 'Sin canal'),
+            'label'   => $nombres[$r->tipo] ?? ($r->tipo ?? 'Sin despacho'),
             'value'   => round((float) $r->value, 2),
             'pedidos' => (int) $r->pedidos,
         ])->toArray();

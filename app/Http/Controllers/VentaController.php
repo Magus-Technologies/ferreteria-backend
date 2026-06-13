@@ -265,6 +265,7 @@ class VentaController extends Controller
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'required|date',
             'estado_de_venta' => 'required|string',
+            'canal' => 'nullable|string|in:presencial,web',
             'tipo_despacho' => 'nullable|string|in:et,do,pa',
             'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
             'omitir_entrega' => 'sometimes|boolean',
@@ -388,6 +389,7 @@ class VentaController extends Controller
                 'fecha' => $validated['fecha'],
                 'estado_de_venta' => $estadoEnum,
                 'tipo_despacho' => $validated['tipo_despacho'] ?? null,
+                'canal' => $validated['canal'] ?? 'presencial',
                 'cliente_id' => $validated['cliente_id'],
                 'direccion_seleccionada' => $validated['direccion_seleccionada'] ?? null, // Guardar dirección seleccionada
                 'recomendado_por_id' => $validated['recomendado_por_id'] ?? null,
