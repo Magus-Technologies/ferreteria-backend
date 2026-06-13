@@ -292,8 +292,13 @@ class RecepcionAlmacenController extends Controller
         $parentDocId = $recepcion->compra_id ?? $recepcion->orden_compra_id;
         if (!$parentDocId) return;
 
-        // Obtener todas las recepciones asociadas al mismo documento padre
-        $query = RecepcionAlmacen::where('estado', true);
+        // Obtener todas las recepciones asociadas al mismo documento padre.
+        // Incluir SIEMPRE la recepción que se está viendo, aunque esté deshecha
+        // (estado=false): así su detalle conserva las cantidades recepcionadas /
+        // finalizadas y no se muestran en blanco al anularla.
+        $query = RecepcionAlmacen::where(function ($q) use ($recepcion) {
+            $q->where('estado', true)->orWhere('id', $recepcion->id);
+        });
         if ($recepcion->compra_id) {
             $query->where('compra_id', $recepcion->compra_id);
         } else {
