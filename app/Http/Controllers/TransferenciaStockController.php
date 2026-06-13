@@ -16,6 +16,43 @@ use Illuminate\Support\Facades\Auth;
 class TransferenciaStockController extends Controller
 {
     /**
+     * Resumen para el dashboard: "Préstamos" (stock que SALE del almacén = origen)
+     * vs "Prestés" (stock que ENTRA al almacén = destino), valorizado (cantidad*costo).
+     * GET /api/transferencias-stock-resumen-dashboard
+     */
+    public function resumenDashboard(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+        ]);
+
+        $monto = function (string $columnaAlmacen) use ($request): float {
+            $q = DB::table('producto_transferencia_stock as pts')
+                ->join('transferencia_stock as ts', 'pts.transferencia_stock_id', '=', 'ts.id')
+                ->where('ts.estado', 1);
+
+            if ($request->filled('almacen_id')) {
+                $q->where("ts.$columnaAlmacen", $request->almacen_id);
+            }
+            if ($request->filled('desde')) {
+                $q->whereDate('ts.fecha', '>=', $request->desde);
+            }
+            if ($request->filled('hasta')) {
+                $q->whereDate('ts.fecha', '<=', $request->hasta);
+            }
+
+            return (float) $q->selectRaw('COALESCE(SUM(pts.cantidad * pts.costo), 0) as total')->value('total');
+        };
+
+        return response()->json(['data' => [
+            ['label' => 'Préstamos', 'value' => round($monto('almacen_origen_id'), 2)],
+            ['label' => 'Prestés', 'value' => round($monto('almacen_destino_id'), 2)],
+        ]]);
+    }
+
+    /**
      * GET /api/transferencias-stock
      */
     public function index(Request $request): JsonResponse

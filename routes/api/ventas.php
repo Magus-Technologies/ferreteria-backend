@@ -160,6 +160,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // TRANSFERENCIAS DE STOCK (entre almacenes)
     // ============================================
+    Route::get('transferencias-stock-resumen-dashboard', [\App\Http\Controllers\TransferenciaStockController::class, 'resumenDashboard']);
     Route::apiResource('transferencias-stock', \App\Http\Controllers\TransferenciaStockController::class)->only(['index', 'show', 'store', 'update', 'destroy'])->middleware('broadcast:transferencias-stock');
 
     // ============================================
