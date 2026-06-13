@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\GananciasController;
+use App\Http\Controllers\DashboardContableController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -34,5 +35,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Obtener detalle de pérdidas
         Route::get('/perdidas-detalle', [GananciasController::class, 'perdidasDetalle']);
+    });
+
+    // Dashboard contable y financiero (gráficos)
+    Route::prefix('dashboard-contable')->group(function () {
+        Route::get('/porcentaje-ganancias', [DashboardContableController::class, 'porcentajeGanancias']);
+        Route::get('/cierres-con-perdida', [DashboardContableController::class, 'cierresConPerdida']);
+        Route::get('/clientes-morosos', [DashboardContableController::class, 'clientesMorosos']);
+        Route::get('/ganancias-por-recomendacion', [DashboardContableController::class, 'gananciasPorRecomendacion']);
+        Route::get('/resumen-cards', [DashboardContableController::class, 'resumenCards']);
     });
 });

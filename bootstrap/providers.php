@@ -7,6 +7,7 @@ return [
     App\Providers\CompraReporteServiceProvider::class,
     App\Providers\InventarioReporteServiceProvider::class,
     App\Providers\DashboardFacturacionServiceProvider::class,
+    App\Providers\DashboardContableServiceProvider::class,
     App\Providers\CierreCajaServiceProvider::class,
     App\Providers\FacturacionElectronicaServiceProvider::class,
     App\Providers\GananciasServiceProvider::class,
