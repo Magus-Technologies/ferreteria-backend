@@ -169,6 +169,7 @@ class ClienteController extends Controller
                 'unique:cliente,numero_documento'
             ],
             'telefono' => 'nullable|string|max:20',
+            'celular' => 'nullable|string|max:20',
             'profesion_id' => 'nullable|integer|exists:profesion,id',
             'email' => 'nullable|email|max:255',
             'fecha_nacimiento' => 'nullable|date',
@@ -249,6 +250,7 @@ class ClienteController extends Controller
                 Rule::unique('cliente', 'numero_documento')->ignore($cliente->id)
             ],
             'telefono' => 'nullable|string|max:20',
+            'celular' => 'nullable|string|max:20',
             'profesion_id' => 'nullable|integer|exists:profesion,id',
             'email' => 'nullable|email|max:255',
             'fecha_nacimiento' => 'nullable|date',
