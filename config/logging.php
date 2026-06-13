@@ -128,10 +128,13 @@ return [
         ],
 
         // ─── Canal específico para notificaciones push ───
+        // Nivel PROPIO (no hereda LOG_LEVEL): en producción LOG_LEVEL=error
+        // filtraba todos los info/warning y el archivo nunca se creaba.
+        // Este canal es de diagnóstico — siempre debe registrar todo.
         'firebase' => [
             'driver' => 'daily',
             'path' => storage_path('logs/firebase.log'),
-            'level' => env('LOG_LEVEL', 'debug'),
+            'level' => env('LOG_FIREBASE_LEVEL', 'debug'),
             'days' => env('LOG_DAILY_DAYS', 30),
             'replace_placeholders' => true,
         ],

@@ -108,12 +108,11 @@ class FirebaseNotificationService
         }
 
         try {
-            $payload = $this->buildPayload([$fcmToken], $title, $body, $data);
+            $payload = $this->buildPayload($fcmToken, $title, $body, $data);
 
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $accessToken,
-                'Content-Type' => 'application/json',
-            ])->post($this->fcmUrl, $payload);
+            $response = Http::withToken($accessToken)
+                ->timeout(15)
+                ->post($this->fcmUrl, $payload);
 
             if ($response->successful()) {
                 Log::channel('firebase')->info('Firebase: Notificación enviada exitosamente', [
@@ -123,7 +122,6 @@ class FirebaseNotificationService
                 return true;
             }
 
-            $error = $response->json();
             $status = $response->status();
 
             // Token expirado — refrescar y reintentar una vez
@@ -131,27 +129,29 @@ class FirebaseNotificationService
                 Cache::forget('firebase_access_token');
                 $newToken = $this->getAccessToken();
                 if ($newToken) {
-                    $retry = Http::withHeaders([
-                        'Authorization' => 'Bearer ' . $newToken,
-                        'Content-Type' => 'application/json',
-                    ])->post($this->fcmUrl, $payload);
+                    $retry = Http::withToken($newToken)
+                        ->timeout(15)
+                        ->post($this->fcmUrl, $payload);
 
                     if ($retry->successful()) {
                         Log::channel('firebase')->info('Firebase: Notificación enviada tras refrescar token');
                         return true;
                     }
-                    $error = $retry->json();
+                    $response = $retry;
                     $status = $retry->status();
                 }
             }
 
+            $error = $response->json('error') ?? [];
+
             Log::channel('firebase')->error('Firebase: Error al enviar notificación', [
                 'status' => $status,
-                'error' => $error,
+                'error_status' => $error['status'] ?? null,
+                'error_message' => $error['message'] ?? null,
             ]);
 
             // Token de dispositivo inválido — limpiar
-            if ($this->isUnregisteredError($error)) {
+            if ($this->isUnregisteredV1($error)) {
                 $this->cleanupInvalidToken($fcmToken);
             }
 
@@ -166,8 +166,13 @@ class FirebaseNotificationService
     }
 
     /**
-     * Envía notificación a múltiples dispositivos usando multicast (FCM v1)
-     * Máximo 500 tokens por request. Los lotes se procesan secuencialmente.
+     * Envía notificación a múltiples dispositivos.
+     *
+     * IMPORTANTE: la API FCM HTTP v1 (/v1/projects/.../messages:send) NO
+     * soporta multicast — acepta UN token por request. El campo
+     * `registration_tokens` era de la API legacy (apagada por Google en
+     * 2024) y v1 lo rechaza con 400. Por eso se envía un request por token,
+     * en paralelo con Http::pool (lotes de 50 conexiones concurrentes).
      */
     public function sendToMultiple(
         array $fcmTokens,
@@ -175,28 +180,102 @@ class FirebaseNotificationService
         string $body,
         array $data = []
     ): array {
+        $tokens = array_values(array_unique(array_filter($fcmTokens)));
+        if (empty($tokens)) return [];
+
+        $accessToken = $this->getAccessToken();
+        if (!$accessToken) {
+            Log::channel('firebase')->error('Firebase: sin access token, no se envió a múltiples', [
+                'token_count' => count($tokens),
+            ]);
+            return array_fill_keys($tokens, false);
+        }
+
         $results = [];
-        $chunks = array_chunk(array_values($fcmTokens), self::MAX_TOKENS_PER_REQUEST);
 
-        foreach ($chunks as $chunk) {
-            $batchResults = $this->sendMulticastBatch($chunk, $title, $body, $data);
+        foreach (array_chunk($tokens, 50) as $chunk) {
+            $responses = Http::pool(fn ($pool) => array_map(
+                fn ($token) => $pool->as($token)
+                    ->withToken($accessToken)
+                    ->timeout(15)
+                    ->post($this->fcmUrl, $this->buildPayload($token, $title, $body, $data)),
+                $chunk
+            ));
 
-            foreach ($batchResults as $i => $result) {
-                $token = $chunk[$i] ?? null;
-                if ($token === null) continue;
+            foreach ($chunk as $token) {
+                $response = $responses[$token] ?? null;
 
-                if ($result['success'] ?? false) {
-                    $results[$token] = true;
-                } else {
+                // Http::pool devuelve la excepción como valor cuando falla la conexión
+                if (!$response instanceof \Illuminate\Http\Client\Response) {
                     $results[$token] = false;
-                    if (!empty($result['unregistered'])) {
-                        $this->cleanupInvalidToken($token);
+                    Log::channel('firebase')->error('Firebase: error de conexión en envío', [
+                        'token' => substr($token, 0, 20) . '...',
+                        'error' => $response instanceof \Throwable ? $response->getMessage() : 'desconocido',
+                    ]);
+                    continue;
+                }
+
+                if ($response->successful()) {
+                    $results[$token] = true;
+                    continue;
+                }
+
+                // 401: access token expirado — refrescar y reintentar este token
+                if ($response->status() === 401) {
+                    Cache::forget('firebase_access_token');
+                    $nuevoToken = $this->getAccessToken();
+                    if ($nuevoToken) {
+                        $accessToken = $nuevoToken;
+                        $retry = Http::withToken($accessToken)
+                            ->timeout(15)
+                            ->post($this->fcmUrl, $this->buildPayload($token, $title, $body, $data));
+                        if ($retry->successful()) {
+                            $results[$token] = true;
+                            continue;
+                        }
+                        $response = $retry;
                     }
+                }
+
+                $results[$token] = false;
+                $error = $response->json('error') ?? [];
+
+                Log::channel('firebase')->error('Firebase: error al enviar a token', [
+                    'token' => substr($token, 0, 20) . '...',
+                    'status' => $response->status(),
+                    'error_status' => $error['status'] ?? null,
+                    'error_message' => $error['message'] ?? null,
+                ]);
+
+                if ($this->isUnregisteredV1($error)) {
+                    $this->cleanupInvalidToken($token);
                 }
             }
         }
 
+        $exitosos = count(array_filter($results));
+        Log::channel('firebase')->info('Firebase: envío múltiple completado', [
+            'total' => count($tokens),
+            'exitosos' => $exitosos,
+            'fallidos' => count($tokens) - $exitosos,
+        ]);
+
         return $results;
+    }
+
+    /**
+     * Detecta token no registrado en formato de error FCM v1:
+     * status NOT_FOUND o details[].errorCode UNREGISTERED.
+     */
+    private function isUnregisteredV1(array $error): bool
+    {
+        if (($error['status'] ?? '') === 'NOT_FOUND') return true;
+
+        foreach ($error['details'] ?? [] as $detail) {
+            if (($detail['errorCode'] ?? '') === 'UNREGISTERED') return true;
+        }
+
+        return false;
     }
 
     /**
@@ -297,104 +376,28 @@ class FirebaseNotificationService
 
     // ==================== PRIVADO ====================
 
-    private function buildPayload(array $tokens, string $title, string $body, array $data): array
+    private function buildPayload(string $token, string $title, string $body, array $data): array
     {
-        $message = [
-            'notification' => [
-                'title' => $title,
-                'body' => $body,
-            ],
-            'webpush' => [
+        return [
+            'message' => [
+                'token' => $token,
                 'notification' => [
-                    'icon' => '/icon-192x192.png',
-                    'badge' => '/icon-72x72.png',
-                    'vibrate' => [200, 100, 200],
+                    'title' => $title,
+                    'body' => $body,
                 ],
-                'fcm_options' => [
-                    'link' => config('app.url') . '/ui/facturacion-electronica/mis-entregas',
+                'webpush' => [
+                    'notification' => [
+                        'icon' => '/icon-192x192.png',
+                        'badge' => '/icon-72x72.png',
+                        'vibrate' => [200, 100, 200],
+                    ],
+                    'fcm_options' => [
+                        'link' => config('app.url') . ($data['link'] ?? '/ui/facturacion-electronica/mis-entregas'),
+                    ],
                 ],
+                'data' => array_map('strval', $data),
             ],
-            'data' => array_map('strval', $data),
         ];
-
-        if (count($tokens) === 1) {
-            $message['token'] = $tokens[0];
-        } else {
-            $message['registration_tokens'] = $tokens;
-        }
-
-        return ['message' => $message];
-    }
-
-    private function sendMulticastBatch(array $tokens, string $title, string $body, array $data): array
-    {
-        $accessToken = $this->getAccessToken();
-        if (!$accessToken) {
-            return array_fill(0, count($tokens), ['success' => false]);
-        }
-
-        $payload = $this->buildPayload($tokens, $title, $body, $data);
-
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $accessToken,
-            'Content-Type' => 'application/json',
-        ])->post($this->fcmUrl, $payload);
-
-        if ($response->successful()) {
-            return $this->parseMulticastResults($response->json(), $tokens);
-        }
-
-        $status = $response->status();
-        $error = $response->json();
-
-        // 401 — token expirado, reintentar una vez
-        if ($status === 401) {
-            Cache::forget('firebase_access_token');
-            $newToken = $this->getAccessToken();
-            if ($newToken) {
-                $retry = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $newToken,
-                    'Content-Type' => 'application/json',
-                ])->post($this->fcmUrl, $payload);
-
-                if ($retry->successful()) {
-                    return $this->parseMulticastResults($retry->json(), $tokens);
-                }
-                $error = $retry->json();
-            }
-        }
-
-        Log::channel('firebase')->error('Firebase: Error en multicast', [
-            'status' => $status,
-            'token_count' => count($tokens),
-            'error' => $error,
-        ]);
-
-        return array_fill(0, count($tokens), ['success' => false]);
-    }
-
-    private function parseMulticastResults(array $response, array $tokens): array
-    {
-        $results = $response['results'] ?? [];
-
-        return array_map(function ($result) {
-            $isUnregistered = $this->isUnregisteredError($result);
-            return [
-                'success' => !isset($result['error']),
-                'error' => $result['error'] ?? null,
-                'unregistered' => $isUnregistered,
-                'message_id' => $result['message_id'] ?? null,
-            ];
-        }, $results);
-    }
-
-    private function isUnregisteredError(?array $errorDetail): bool
-    {
-        if (!$errorDetail) return false;
-
-        $errorCode = $errorDetail['errorCode'] ?? $errorDetail['error'] ?? '';
-        return str_contains($errorCode, 'UNREGISTERED')
-            || str_contains($errorDetail['@type'] ?? '', 'UNREGISTERED');
     }
 
     private function cleanupInvalidToken(string $token): void
