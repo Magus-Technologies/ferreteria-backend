@@ -88,6 +88,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/stock-valorizado', [InventarioReporteController::class, 'stockValorizado']);
         Route::get('/stock-bajo', [InventarioReporteController::class, 'stockBajo']);
         Route::get('/cantidades-vendidas', [InventarioReporteController::class, 'cantidadesVendidas']);
+        Route::get('/demanda-por-categoria', [InventarioReporteController::class, 'demandaPorCategoria']);
+        Route::get('/costo-ajuste', [InventarioReporteController::class, 'costoAjuste']);
+        Route::get('/productos-rotados', [InventarioReporteController::class, 'productosRotados']);
+        Route::get('/inventario-por-anio', [InventarioReporteController::class, 'inventarioPorAnio']);
+        Route::get('/productos-sin-rotar', [InventarioReporteController::class, 'productosSinRotar']);
     });
 
     // ============================================

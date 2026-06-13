@@ -248,6 +248,176 @@ class InventarioReporteService implements InventarioReporteServiceInterface
         ];
     }
 
+    /**
+     * Demanda (unidades vendidas) por categoría. Usa udiv para las cantidades
+     * reales y agrupa por la categoría del producto.
+     */
+    public function obtenerDemandaPorCategoria(array $filtros, int $limit = 10): array
+    {
+        $query = DB::table('unidadderivadainmutableventa as udiv')
+            ->join('productoalmacenventa as pav', 'udiv.producto_almacen_venta_id', '=', 'pav.id')
+            ->join('productoalmacen as pa', 'pav.producto_almacen_id', '=', 'pa.id')
+            ->join('producto as p', 'pa.producto_id', '=', 'p.id')
+            ->join('venta as v', 'pav.venta_id', '=', 'v.id')
+            ->leftJoin('categoria as c', 'p.categoria_id', '=', 'c.id')
+            ->where('v.estado_de_venta', '!=', 'an');
+
+        if (!empty($filtros['almacen_id'])) {
+            $query->where('pa.almacen_id', $filtros['almacen_id']);
+        }
+
+        $this->aplicarFiltrosFecha($query, $filtros, 'v.fecha');
+
+        $rows = $query->selectRaw("COALESCE(c.name, 'Sin categoría') as label, SUM(udiv.cantidad) as value")
+            ->groupBy('c.name')
+            ->orderByDesc('value')
+            ->limit($limit)
+            ->get();
+
+        return $rows->map(fn($r) => [
+            'label' => $r->label,
+            'value' => round((float) $r->value, 2),
+        ])->toArray();
+    }
+
+    /**
+     * Costo de ajuste de inventario: suma del costo de los ingresos/salidas
+     * manuales (ajustes) en el periodo. costo vive en productoalmaceningresosalida.
+     */
+    public function obtenerCostoAjuste(array $filtros): float
+    {
+        $query = DB::table('unidadderivadainmutableingresosalida as udis')
+            ->join('productoalmaceningresosalida as pais', 'udis.producto_almacen_ingreso_salida_id', '=', 'pais.id')
+            ->join('ingresosalida as iss', 'pais.ingreso_id', '=', 'iss.id')
+            ->where('iss.estado', 1);
+
+        if (!empty($filtros['almacen_id'])) {
+            $query->where('iss.almacen_id', $filtros['almacen_id']);
+        }
+
+        $this->aplicarFiltrosFecha($query, $filtros, 'iss.fecha');
+
+        $total = $query->selectRaw('SUM(udis.cantidad * pais.costo) as total')->value('total');
+
+        return round((float) $total, 2);
+    }
+
+    /**
+     * Productos rotados: cantidad de productos distintos con al menos una venta
+     * en el periodo, y el total de productos del almacén.
+     */
+    public function obtenerProductosRotados(array $filtros): array
+    {
+        $rotadosQuery = DB::table('productoalmacenventa as pav')
+            ->join('productoalmacen as pa', 'pav.producto_almacen_id', '=', 'pa.id')
+            ->join('venta as v', 'pav.venta_id', '=', 'v.id')
+            ->where('v.estado_de_venta', '!=', 'an');
+
+        if (!empty($filtros['almacen_id'])) {
+            $rotadosQuery->where('pa.almacen_id', $filtros['almacen_id']);
+        }
+        $this->aplicarFiltrosFecha($rotadosQuery, $filtros, 'v.fecha');
+
+        $rotados = $rotadosQuery->distinct()->count('pa.producto_id');
+
+        $totalQuery = DB::table('productoalmacen as pa');
+        if (!empty($filtros['almacen_id'])) {
+            $totalQuery->where('pa.almacen_id', $filtros['almacen_id']);
+        }
+        $total = $totalQuery->distinct()->count('pa.producto_id');
+
+        return ['rotados' => (int) $rotados, 'total' => (int) $total];
+    }
+
+    /**
+     * Valorización del inventario al inicio (1/ene) y fin (31/dic) del año,
+     * reconstruida desde el kardex (último saldo por producto a cada fecha).
+     */
+    public function obtenerInventarioPorAnio(array $filtros): array
+    {
+        $anio = (int) ($filtros['anio'] ?? date('Y'));
+        $almacenId = !empty($filtros['almacen_id']) ? (int) $filtros['almacen_id'] : null;
+
+        return [
+            'inicial' => $this->valorizacionAFecha(sprintf('%04d-01-01 00:00:00', $anio), $almacenId, '<'),
+            'final'   => $this->valorizacionAFecha(sprintf('%04d-12-31 23:59:59', $anio), $almacenId, '<='),
+        ];
+    }
+
+    /**
+     * Suma de stock_actual * costo_actual usando el ÚLTIMO movimiento de kardex
+     * por producto_almacen a la fecha dada.
+     */
+    private function valorizacionAFecha(string $fechaLimite, ?int $almacenId, string $operador): float
+    {
+        $sub = DB::table('kardex_inventarios')
+            ->selectRaw('stock_actual, costo_actual, ROW_NUMBER() OVER (PARTITION BY producto_almacen_id ORDER BY fecha DESC, orden DESC, id DESC) as rn')
+            ->where('fecha', $operador, $fechaLimite);
+
+        if ($almacenId) {
+            $sub->where('almacen_id', $almacenId);
+        }
+
+        // Solo cuenta stock positivo: un stock negativo (sobreventa / kardex
+        // incompleto) es un error de data, no un valor negativo de inventario.
+        $total = DB::query()->fromSub($sub, 't')
+            ->where('t.rn', 1)
+            ->selectRaw('SUM(CASE WHEN t.stock_actual > 0 THEN t.stock_actual * t.costo_actual ELSE 0 END) as total')
+            ->value('total');
+
+        return round((float) $total, 2);
+    }
+
+    /**
+     * Productos sin rotar: con stock > 0 pero SIN ninguna venta en el periodo.
+     */
+    public function obtenerProductosSinRotar(array $filtros, int $perPage = 100, int $page = 1): array
+    {
+        // Subconsulta: producto_id que SÍ tuvieron venta en el periodo.
+        $vendidos = DB::table('productoalmacenventa as pav')
+            ->join('venta as v', 'pav.venta_id', '=', 'v.id')
+            ->join('productoalmacen as pa2', 'pav.producto_almacen_id', '=', 'pa2.id')
+            ->where('v.estado_de_venta', '!=', 'an')
+            ->select('pa2.producto_id');
+        if (!empty($filtros['almacen_id'])) {
+            $vendidos->where('pa2.almacen_id', $filtros['almacen_id']);
+        }
+        $this->aplicarFiltrosFecha($vendidos, $filtros, 'v.fecha');
+
+        $query = DB::table('productoalmacen as pa')
+            ->join('producto as p', 'pa.producto_id', '=', 'p.id')
+            ->leftJoin('marca as m', 'p.marca_id', '=', 'm.id')
+            ->leftJoin('categoria as c', 'p.categoria_id', '=', 'c.id')
+            ->where('pa.stock_fraccion', '>', 0)
+            ->whereNotIn('pa.producto_id', $vendidos);
+        if (!empty($filtros['almacen_id'])) {
+            $query->where('pa.almacen_id', $filtros['almacen_id']);
+        }
+
+        $query->select([
+            'p.id',
+            'p.cod_producto',
+            'p.name as producto',
+            'm.name as marca',
+            'c.name as categoria',
+            'pa.stock_fraccion as stock',
+            'p.stock_min',
+            'pa.costo as costo_unitario',
+        ])->orderByDesc('pa.stock_fraccion');
+
+        $total = (clone $query)->count();
+        $offset = ($page - 1) * $perPage;
+        $data = $query->offset($offset)->limit($perPage)->get();
+
+        return [
+            'data' => $data->toArray(),
+            'current_page' => $page,
+            'last_page' => (int) ceil($total / max($perPage, 1)),
+            'per_page' => $perPage,
+            'total' => $total,
+        ];
+    }
+
     private function buildStockQuery(array $filtros)
     {
         $query = DB::table('productoalmacen as pa')

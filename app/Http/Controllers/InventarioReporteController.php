@@ -83,6 +83,78 @@ class InventarioReporteController extends Controller
         return response()->json($resultado);
     }
 
+    public function demandaPorCategoria(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'limit' => 'sometimes|integer|min:1|max:50',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta']);
+        $limit = $request->get('limit', 10);
+
+        $datos = $this->reporteService->obtenerDemandaPorCategoria($filtros, $limit);
+
+        return response()->json(['data' => $datos]);
+    }
+
+    public function costoAjuste(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta']);
+
+        return response()->json(['data' => ['costo_ajuste' => $this->reporteService->obtenerCostoAjuste($filtros)]]);
+    }
+
+    public function productosRotados(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta']);
+
+        return response()->json(['data' => $this->reporteService->obtenerProductosRotados($filtros)]);
+    }
+
+    public function inventarioPorAnio(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'anio' => 'sometimes|integer|min:2000|max:2100',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'anio']);
+
+        return response()->json(['data' => $this->reporteService->obtenerInventarioPorAnio($filtros)]);
+    }
+
+    public function productosSinRotar(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+            'per_page' => 'sometimes|integer|min:1|max:10000',
+            'page' => 'sometimes|integer|min:1',
+        ]);
+
+        $filtros = $request->only(['almacen_id', 'desde', 'hasta']);
+        $perPage = $request->get('per_page', 100);
+        $page = $request->get('page', 1);
+
+        return response()->json($this->reporteService->obtenerProductosSinRotar($filtros, $perPage, $page));
+    }
+
     public function cantidadesVendidas(Request $request): JsonResponse
     {
         $request->validate([

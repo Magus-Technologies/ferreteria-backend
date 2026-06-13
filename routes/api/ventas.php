@@ -75,6 +75,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // PRÉSTAMOS (Clientes)
     // ============================================
+    // Resumen para dashboard (sin requerir caja abierta, es solo lectura).
+    Route::get('prestamos-resumen-dashboard', [PrestamoController::class, 'resumenDashboard']);
     Route::prefix('prestamos')->middleware(['caja.abierta', 'broadcast:prestamos'])->group(function () {
         Route::get('/siguiente-numero/preview', [PrestamoController::class, 'siguienteNumero']);
         Route::get('/{id}/pagos', [PrestamoController::class, 'listarPagos']);

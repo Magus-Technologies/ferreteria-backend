@@ -29,6 +29,52 @@ use Illuminate\Validation\Rule;
 class PrestamoController extends Controller
 {
     /**
+     * Resumen para el dashboard: monto de "Préstamos" (lo que prestamos, PRESTAR)
+     * vs "Prestés" (lo que pedimos prestado, PEDIR_PRESTADO) en el periodo.
+     */
+    public function resumenDashboard(Request $request): JsonResponse
+    {
+        $request->validate([
+            'almacen_id' => 'sometimes|integer',
+            'desde' => 'sometimes|date',
+            'hasta' => 'sometimes|date',
+        ]);
+
+        $query = Prestamo::query()->whereNull('fecha_anulacion');
+
+        if ($request->filled('almacen_id')) {
+            $query->where('almacen_id', $request->almacen_id);
+        }
+        if ($request->filled('desde')) {
+            $query->whereDate('fecha', '>=', $request->desde);
+        }
+        if ($request->filled('hasta')) {
+            $query->whereDate('fecha', '<=', $request->hasta);
+        }
+
+        $porTipo = (clone $query)
+            ->selectRaw('tipo_operacion, SUM(monto_total) as total, SUM(monto_pendiente) as pendiente')
+            ->groupBy('tipo_operacion')
+            ->get()
+            ->keyBy('tipo_operacion');
+
+        $data = [
+            [
+                'label' => 'Préstamos',
+                'value' => round((float) ($porTipo->get('PRESTAR')->total ?? 0), 2),
+                'pendiente' => round((float) ($porTipo->get('PRESTAR')->pendiente ?? 0), 2),
+            ],
+            [
+                'label' => 'Prestés',
+                'value' => round((float) ($porTipo->get('PEDIR_PRESTADO')->total ?? 0), 2),
+                'pendiente' => round((float) ($porTipo->get('PEDIR_PRESTADO')->pendiente ?? 0), 2),
+            ],
+        ];
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
      * Listar todos los préstamos
      */
     public function index(Request $request): JsonResponse
