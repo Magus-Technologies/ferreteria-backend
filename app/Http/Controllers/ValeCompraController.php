@@ -268,12 +268,13 @@ class ValeCompraController extends Controller
             // Generar código único
             $codigo = ValeCompra::generarNuevoCodigo();
 
-            // Normalizar tipo_umbral: PRODUCTO_GRATIS y DOS_POR_UNO siempre van por
-            // unidades; si el form no lo envió, inferir por modalidad (compatibilidad).
-            if (in_array($validated['tipo_promocion'], ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)) {
-                $validated['tipo_umbral'] = 'CANTIDAD';
-            } elseif (empty($validated['tipo_umbral'])) {
-                $validated['tipo_umbral'] = in_array($validated['modalidad'], ['POR_PRODUCTOS', 'MIXTO'], true)
+            // Normalizar tipo_umbral SOLO si el form no lo envió: se respeta la
+            // elección explícita del usuario (incluido NINGUNO, válido para todos
+            // los tipos). Sin umbral elegido, PRODUCTO_GRATIS/DOS_POR_UNO van por
+            // unidades y el resto se infiere por modalidad (compatibilidad).
+            if (empty($validated['tipo_umbral'])) {
+                $validated['tipo_umbral'] = in_array($validated['tipo_promocion'], ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
+                    || in_array($validated['modalidad'], ['POR_PRODUCTOS', 'MIXTO'], true)
                     ? 'CANTIDAD' : 'MONTO';
             }
 
@@ -387,13 +388,13 @@ class ValeCompraController extends Controller
         try {
             $datosAnteriores = $vale->toArray();
 
-            // Normalizar tipo_umbral: PRODUCTO_GRATIS y DOS_POR_UNO siempre por unidades.
+            // Normalizar tipo_umbral SOLO si vino vacío en el request: se respeta la
+            // elección explícita del usuario (incluido NINGUNO, válido para todos los tipos).
             $tipoPromo = $validated['tipo_promocion'] ?? $vale->tipo_promocion;
             $modalidadFinal = $validated['modalidad'] ?? $vale->modalidad;
-            if (in_array($tipoPromo, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)) {
-                $validated['tipo_umbral'] = 'CANTIDAD';
-            } elseif (array_key_exists('tipo_umbral', $validated) && empty($validated['tipo_umbral'])) {
-                $validated['tipo_umbral'] = in_array($modalidadFinal, ['POR_PRODUCTOS', 'MIXTO'], true)
+            if (array_key_exists('tipo_umbral', $validated) && empty($validated['tipo_umbral'])) {
+                $validated['tipo_umbral'] = in_array($tipoPromo, ['PRODUCTO_GRATIS', 'DOS_POR_UNO'], true)
+                    || in_array($modalidadFinal, ['POR_PRODUCTOS', 'MIXTO'], true)
                     ? 'CANTIDAD' : 'MONTO';
             }
 
@@ -735,7 +736,9 @@ class ValeCompraController extends Controller
             ->first();
 
         if ($valeGenerado) {
-            if ($valeGenerado->fecha_validez_generado && $valeGenerado->fecha_validez_generado->isPast()) {
+            // fecha_validez_generado es DATE: isPast() lo daría por vencido desde la
+            // medianoche del día límite; debe poder canjearse hasta ese mismo día.
+            if ($valeGenerado->fecha_validez_generado && $valeGenerado->fecha_validez_generado->lt(today())) {
                 return response()->json([
                     'valido' => false,
                     'message' => 'Este vale ha expirado.',

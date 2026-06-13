@@ -76,9 +76,11 @@ class ValeCompraAplicado extends Model
 
     public function scopeValesPendientes($query)
     {
+        // fecha_validez_generado es DATE (sin hora): comparar por fecha para que
+        // el código siga siendo canjeable durante TODO el día límite.
         return $query->where('genera_vale_futuro', true)
                     ->where('usado', false)
-                    ->where('fecha_validez_generado', '>=', now());
+                    ->whereDate('fecha_validez_generado', '>=', today());
     }
 
     public function scopePorCliente($query, int $clienteId)
@@ -98,7 +100,8 @@ class ValeCompraAplicado extends Model
             return false;
         }
 
-        if ($this->fecha_validez_generado && $this->fecha_validez_generado < now()) {
+        // Comparar por fecha (no datetime): el código vale hasta el FINAL del día límite.
+        if ($this->fecha_validez_generado && $this->fecha_validez_generado->lt(today())) {
             return false;
         }
 
