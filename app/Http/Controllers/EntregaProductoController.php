@@ -18,7 +18,6 @@ use App\Services\Producto\ComplementarioStockService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class EntregaProductoController extends Controller
 {
@@ -186,65 +185,6 @@ class EntregaProductoController extends Controller
                         }
                     }
                 }
-            }
-
-            // Enviar notificaciones FCM según tipo de pedido
-            $tipoPedido = $validated['tipo_pedido'] ?? 'interno';
-            $notifData = [
-                'type' => 'pedido_entrega',
-                'entrega_id' => (string) $entrega->id,
-                'tipo_pedido' => $tipoPedido,
-                'venta_serie' => $venta->serie ?? '',
-                'venta_numero' => $venta->numero ?? '',
-                'direccion' => $validated['direccion_entrega'] ?? '',
-            ];
-            $direccionEntrega = $validated['direccion_entrega'] ?? null;
-            $notifBody = "Venta {$venta->serie}-{$venta->numero}" .
-                ($direccionEntrega ? " a {$direccionEntrega}" : '');
-
-            $notifiedTokens = [];
-            $cargoDestino = $validated['cargo_destino'] ?? null;
-            if ($tipoPedido === 'externo' && !empty($cargoDestino)) {
-                $this->firebaseService->sendToCargo(
-                    $cargoDestino,
-                    'Nueva Entrega Disponible',
-                    $notifBody,
-                    $notifData
-                );
-
-                $cargoUserTokens = User::where('cargo', $cargoDestino)
-                    ->whereNotNull('fcm_token')
-                    ->where('estado', true)
-                    ->pluck('fcm_token')
-                    ->toArray();
-                $notifiedTokens = array_merge($notifiedTokens, $cargoUserTokens);
-            } elseif (!empty($validated['chofer_id'])) {
-                $despachador = User::find($validated['chofer_id']);
-                if ($despachador && $despachador->fcm_token) {
-                    $this->firebaseService->sendNotification(
-                        $despachador->fcm_token,
-                        'Nueva Entrega Programada',
-                        $notifBody,
-                        $notifData
-                    );
-                    $notifiedTokens[] = $despachador->fcm_token;
-                }
-            }
-
-            // Broadcast a todos los usuarios con acceso al módulo de entregas
-            try {
-                $this->firebaseService->sendToUsersWithModuleAccess(
-                    'facturacion-electronica.mis-entregas.index',
-                    $tipoPedido === 'externo' ? 'Nueva Entrega Disponible' : 'Nueva Entrega Programada',
-                    $notifBody,
-                    $notifData,
-                    $notifiedTokens
-                );
-            } catch (\Exception $e) {
-                Log::channel('firebase')->warning('Error notificando a usuarios del módulo de entregas', [
-                    'message' => $e->getMessage(),
-                    'entrega_id' => $entrega->id,
-                ]);
             }
 
             return response()->json([

@@ -128,8 +128,13 @@ class EntregaService
             // después NO vuelve a descontar, y anular lo revierte.
             $this->stock->aplicar($entrega->fresh());
 
-            if ($entrega->chofer_id || $entrega->cargo_destino) {
-                $this->notificacion->notificarAsignacion($entrega->load('venta'));
+            // Notificar tras el commit (no dentro de la transacción) y solo
+            // entregas accionables. Sin guard chofer/cargo: el broadcast al
+            // módulo aplica también a entregas de almacén sin chofer.
+            if (in_array($estadoInicial->value, ['pe', 'ec'], true)) {
+                DB::afterCommit(function () use ($entrega) {
+                    $this->notificacion->notificarAsignacion($entrega->load('venta'));
+                });
             }
 
             return $entrega->fresh($this->eagerLoadDefault());
@@ -163,12 +168,16 @@ class EntregaService
 
     public function marcarEnCamino(Entrega $entrega, string $userId): Entrega
     {
-        return DB::transaction(function () use ($entrega, $userId) {
+        $result = DB::transaction(function () use ($entrega, $userId) {
             $this->transicion->transicionar($entrega, CodigoEstadoEntrega::EnCamino, $userId);
             $this->stock->aplicar($entrega->fresh());
             $this->syncLegacy->sincronizar($entrega->fresh());
             return $entrega->fresh($this->eagerLoadDefault());
         });
+
+        $this->notificacion->notificarEnCamino($result);
+
+        return $result;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -292,6 +301,7 @@ class EntregaService
             'quien_entrega_id'        => $quienEntregaId,
             'almacen_salida_id'       => $data['almacen_salida_id'],
             'tipo_pedido'             => $data['tipo_pedido'] ?? 'interno',
+            'cargo_destino'           => $data['cargo_destino'] ?? null,
             'chofer_id'               => $data['chofer_id'] ?? null,
             'vehiculo_id'             => $data['vehiculo_id'] ?? null,
             'user_creador_id'         => $data['user_creador_id'],
@@ -315,6 +325,19 @@ class EntregaService
                 'unidad_derivada_venta_id' => $item['unidad_derivada_venta_id'],
                 'cantidad'                 => $item['cantidad'],
             ]);
+        }
+
+        // Notificar solo entregas que requieren acción (pendiente/en camino).
+        // Las que nacen ya entregadas ('en', ej. venta en caja) no notifican.
+        // Sin guard por chofer/cargo: notificarAsignacion decide internamente
+        // a quién (chofer directo, cargo, broadcast al módulo) — una entrega
+        // de almacén sin chofer también debe avisar al equipo.
+        // afterCommit: el push sale recién cuando la transacción del caller
+        // confirmó (si corre fuera de transacción, ejecuta inmediato).
+        if (in_array($data['estado_entrega'], ['pe', 'ec'], true)) {
+            DB::afterCommit(function () use ($entrega) {
+                $this->notificacion->notificarAsignacion($entrega->load('venta'));
+            });
         }
 
         return $entrega;
