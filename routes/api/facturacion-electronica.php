@@ -7,6 +7,7 @@ use App\Http\Controllers\FacturacionElectronica\MotivoNotaController;
 use App\Http\Controllers\FacturacionElectronica\ComprobanteElectronicoController;
 use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\ComunicacionBajaController;
+use App\Http\Controllers\DashboardFacturacionController;
 use App\Models\ComprobanteElectronico;
 use Illuminate\Support\Facades\Route;
 
@@ -28,6 +29,17 @@ Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->middlewa
     // ========== CONFIGURACIÓN ==========
     Route::get('/configuracion/auto-send-status', [ConfiguracionController::class, 'getAutoSendStatus']);
     Route::post('/configuracion/auto-send-status', [ConfiguracionController::class, 'updateAutoSendStatus']);
+
+    // ========== DASHBOARD ==========
+    Route::prefix('dashboard')->group(function () {
+        Route::get('/resumen',                 [DashboardFacturacionController::class, 'resumen']);
+        Route::get('/ventas-por-categoria',    [DashboardFacturacionController::class, 'ventasPorCategoria']);
+        Route::get('/ventas-por-marca',        [DashboardFacturacionController::class, 'ventasPorMarca']);
+        Route::get('/ventas-por-metodo-pago',  [DashboardFacturacionController::class, 'ventasPorMetodoPago']);
+        Route::get('/productos-mas-vendidos',  [DashboardFacturacionController::class, 'productosMasVendidos']);
+        Route::get('/ventas-por-tipo-documento', [DashboardFacturacionController::class, 'ventasPorTipoDocumento']);
+        Route::get('/ingresos-por-canal',      [DashboardFacturacionController::class, 'ingresosPorCanal']);
+    });
 
     // ========== COMPROBANTES ELECTRÓNICOS ==========
     Route::prefix('comprobantes')->group(function () {
