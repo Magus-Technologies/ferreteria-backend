@@ -375,7 +375,7 @@ class VentaPdfService
             'clienteDocumento' => str_starts_with((string) ($cliente?->numero_documento ?? ''), 'SN-')
                 ? '—'
                 : ($cliente?->numero_documento ?? '99999999'),
-            'clienteDireccion' => $cliente?->direccion ?? '',
+            'clienteDireccion' => $this->resolverDireccionCliente($venta),
             'metodosPago' => $metodosPago,
             'sobrecargoVisible' => $sobrecargoVisible,
             'productos' => $productos,
@@ -412,6 +412,10 @@ class VentaPdfService
         return Venta::with([
             'user.empresa',
             'cliente',
+            // Direcciones normalizadas (D1-D4): el cliente ya NO tiene columna
+            // plana `direccion`, vive en direcciones_cliente. Sin esto, el PDF
+            // mostraba la dirección vacía.
+            'cliente.direcciones',
             'recomendadoPor',
             'almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
@@ -692,6 +696,32 @@ class VentaPdfService
     }
 
     /**
+     * Resolver la dirección del cliente para el PDF según el tipo seleccionado
+     * en la venta (direccion_seleccionada: D1-D4). Las direcciones viven en la
+     * tabla normalizada `direcciones_cliente` (el cliente ya no tiene columna
+     * plana `direccion`). Si el tipo elegido no existe, cae a D1, y si no, a la
+     * primera disponible.
+     */
+    private function resolverDireccionCliente(Venta $venta): string
+    {
+        $cliente = $venta->cliente;
+        if (!$cliente) return '';
+
+        $tipo = $venta->direccion_seleccionada instanceof \BackedEnum
+            ? $venta->direccion_seleccionada->value
+            : ($venta->direccion_seleccionada ?? null);
+        $tipo = $tipo ?: 'D1';
+
+        $direcciones = $cliente->direcciones ?? collect();
+
+        $seleccionada = $direcciones->firstWhere('tipo', $tipo)
+            ?? $direcciones->firstWhere('tipo', 'D1')
+            ?? $direcciones->first();
+
+        return (string) ($seleccionada?->direccion ?? '');
+    }
+
+    /**
      * Preparar las filas de informacion del cliente.
      */
     private function prepararInfoCliente(Venta $venta, string $moneda = 'SOLES'): array
@@ -709,7 +739,7 @@ class VentaPdfService
                 'F. Emision' => PdfService::formatFecha($fecha),
             ],
             [
-                'Direccion' => $cliente?->direccion ?? '',
+                'Direccion' => $this->resolverDireccionCliente($venta),
                 'Hora' => PdfService::formatFecha($fecha, 'H:i:s'),
             ],
             [
