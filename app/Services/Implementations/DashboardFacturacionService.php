@@ -21,18 +21,22 @@ class DashboardFacturacionService implements DashboardFacturacionServiceInterfac
             'SUM(' . self::IMPORTE . ') as importe, COUNT(DISTINCT v.id) as num_ventas'
         )->first();
 
-        // Importe por tipo de documento en una sola pasada.
+        // Importe y n° de comprobantes por tipo de documento en una sola pasada.
         $porDoc = $this->baseProductosQuery($filtros)
-            ->selectRaw('v.tipo_documento as tipo, SUM(' . self::IMPORTE . ') as importe')
+            ->selectRaw('v.tipo_documento as tipo, SUM(' . self::IMPORTE . ') as importe, COUNT(DISTINCT v.id) as num')
             ->groupBy('v.tipo_documento')
-            ->pluck('importe', 'tipo');
+            ->get()
+            ->keyBy('tipo');
 
         return [
-            'total_ventas'    => round((float) ($totales->importe ?? 0), 2),
-            'num_ventas'      => (int) ($totales->num_ventas ?? 0),
-            'total_facturas'  => round((float) ($porDoc['01'] ?? 0), 2),
-            'total_boletas'   => round((float) ($porDoc['03'] ?? 0), 2),
-            'total_notas'     => round((float) ($porDoc['nv'] ?? 0), 2),
+            'total_ventas'   => round((float) ($totales->importe ?? 0), 2),
+            'num_ventas'     => (int) ($totales->num_ventas ?? 0),
+            'total_facturas' => round((float) ($porDoc->get('01')->importe ?? 0), 2),
+            'num_facturas'   => (int) ($porDoc->get('01')->num ?? 0),
+            'total_boletas'  => round((float) ($porDoc->get('03')->importe ?? 0), 2),
+            'num_boletas'    => (int) ($porDoc->get('03')->num ?? 0),
+            'total_notas'    => round((float) ($porDoc->get('nv')->importe ?? 0), 2),
+            'num_notas'      => (int) ($porDoc->get('nv')->num ?? 0),
         ];
     }
 
