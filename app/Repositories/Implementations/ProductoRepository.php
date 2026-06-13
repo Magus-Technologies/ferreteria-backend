@@ -458,6 +458,14 @@ class ProductoRepository implements ProductoRepositoryInterface
                         ->with([
                             'almacen:id,name',
                             'ubicacion:id,name',
+                            // Lotes PEPS (capas de costo): el modal de búsqueda los
+                            // necesita para mostrar el desglose por lote en la columna
+                            // "Costo Actual" (igual que el listado-completo de Mi Almacén).
+                            // Sin esto la columna cae al fallback de un solo bucket.
+                            'lotes' => function ($lq) {
+                                $lq->select(['id', 'producto_almacen_id', 'costo', 'cantidad_restante', 'secuencia'])
+                                    ->where('cantidad_restante', '!=', 0);
+                            },
                             'unidadesDerivadas' => function ($udq) {
                                 $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'comision_publico', 'precio_especial', 'comision_especial', 'activador_especial', 'precio_minimo', 'comision_minimo', 'activador_minimo', 'precio_ultimo', 'comision_ultimo', 'activador_ultimo', 'producto_complementario_id', 'producto_complementario_cantidad')
                                     ->with([
