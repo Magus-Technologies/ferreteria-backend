@@ -20,8 +20,12 @@ class ComprobanteElectronicoController extends Controller
             $tipo = $request->input('tipo'); // 01=Factura, 03=Boleta
             $limit = $request->input('limit', 50);
             $paraNotaDebito = $request->input('para_nota_debito', false); // Nuevo parámetro
+            $fechaDesde = $request->input('fecha_desde');
+            $fechaHasta = $request->input('fecha_hasta');
 
-            if (empty($query)) {
+            // Permitir búsqueda por SOLO rango de fechas (sin texto), como el
+            // modal de cotizaciones. Solo devolver vacío si no hay NI texto NI fechas.
+            if (empty($query) && empty($fechaDesde) && empty($fechaHasta)) {
                 return response()->json([
                     'success' => true,
                     'data' => [],
@@ -37,7 +41,8 @@ class ComprobanteElectronicoController extends Controller
                 ->where('estado_sunat', 'ACEPTADO')
                 // ✅ FILTRO: Solo Facturas (01) y Boletas (03), NO Notas de Crédito (07) ni Débito (08)
                 ->whereIn('tipo_comprobante', ['01', '03'])
-                ->where(function ($q) use ($query) {
+                // Texto opcional: si no viene, se filtra solo por fechas/tipo.
+                ->when($query, function ($q) use ($query) {
                     // Buscar por serie-número concatenado (ej: B001-6, F001-123)
                     if (str_contains($query, '-')) {
                         [$serie, $numero] = explode('-', $query, 2);
@@ -47,16 +52,20 @@ class ComprobanteElectronicoController extends Controller
                         });
                     } else {
                         // Buscar por serie, número o cliente (nombres, apellidos, razón social o documento)
-                        $q->where('serie', 'like', "%{$query}%")
-                            ->orWhere('correlativo', 'like', "%{$query}%")
-                            ->orWhereHas('cliente', function ($q2) use ($query) {
-                                $q2->where('nombres', 'like', "%{$query}%")
-                                    ->orWhere('apellidos', 'like', "%{$query}%")
-                                    ->orWhere('razon_social', 'like', "%{$query}%")
-                                    ->orWhere('numero_documento', 'like', "%{$query}%");
-                            });
+                        $q->where(function ($subQ) use ($query) {
+                            $subQ->where('serie', 'like', "%{$query}%")
+                                ->orWhere('correlativo', 'like', "%{$query}%")
+                                ->orWhereHas('cliente', function ($q2) use ($query) {
+                                    $q2->where('nombres', 'like', "%{$query}%")
+                                        ->orWhere('apellidos', 'like', "%{$query}%")
+                                        ->orWhere('razon_social', 'like', "%{$query}%")
+                                        ->orWhere('numero_documento', 'like', "%{$query}%");
+                                });
+                        });
                     }
                 })
+                ->when($fechaDesde, fn($q) => $q->whereDate('fecha_emision', '>=', $fechaDesde))
+                ->when($fechaHasta, fn($q) => $q->whereDate('fecha_emision', '<=', $fechaHasta))
                 ->when($tipo, fn($q) => $q->where('tipo_comprobante', $tipo))
                 // ✅ NUEVO FILTRO: Excluir comprobantes con nota de débito aceptada
                 ->when($paraNotaDebito, function ($q) {

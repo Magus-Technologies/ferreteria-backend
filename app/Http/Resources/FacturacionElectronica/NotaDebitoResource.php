@@ -29,6 +29,13 @@ class NotaDebitoResource extends JsonResource
                     'numero' => $this->venta->numero,
                     'numero_completo' => "{$this->venta->serie}-{$this->venta->numero}",
                     'total' => $this->venta->total,
+                    'cliente' => $this->venta->cliente ? [
+                        'id' => $this->venta->cliente->id,
+                        'numero_documento' => $this->venta->cliente->numero_documento,
+                        'nombres' => $this->venta->cliente->nombres,
+                        'apellidos' => $this->venta->cliente->apellidos,
+                        'razon_social' => $this->venta->cliente->razon_social,
+                    ] : null,
                 ];
             }),
             'motivo_id' => $this->motivo_id,
@@ -46,6 +53,32 @@ class NotaDebitoResource extends JsonResource
             'monto_igv' => (float) $this->monto_igv,
             'monto_subtotal' => (float) $this->monto_subtotal,
             'referencia_documento' => $this->referencia_documento,
+            // Comprobante afectado + sus items (para la tabla detalle del front).
+            // El repositorio (getAll) ya carga comprobanteReferencia.detalles.
+            'comprobante_referencia' => $this->whenLoaded('comprobanteReferencia', function () {
+                if (!$this->comprobanteReferencia) return null;
+                $comprobante = $this->comprobanteReferencia;
+                if (!$comprobante->relationLoaded('detalles')) {
+                    $comprobante->load('detalles');
+                }
+                return [
+                    'id' => $comprobante->id,
+                    'numero' => $comprobante->numero_completo,
+                    'detalles' => $comprobante->detalles->map(function ($detalle) {
+                        return [
+                            'id' => $detalle->id,
+                            'codigo_producto' => $detalle->codigo_producto,
+                            'descripcion' => $detalle->descripcion,
+                            'unidad_medida' => $detalle->unidad_medida,
+                            'cantidad' => $detalle->cantidad,
+                            'precio_unitario' => $detalle->precio_unitario,
+                            'subtotal' => $detalle->subtotal,
+                            'igv' => $detalle->igv,
+                            'total' => $detalle->total,
+                        ];
+                    })->toArray(),
+                ];
+            }),
             'fecha' => $this->fecha,
             'fecha_formato' => $this->fecha?->format('d/m/Y'),
             'estado' => $this->estado,

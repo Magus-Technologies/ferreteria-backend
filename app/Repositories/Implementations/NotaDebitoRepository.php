@@ -31,7 +31,9 @@ class NotaDebitoRepository implements NotaDebitoRepositoryInterface
 
     public function getAll(array $filters = []): Collection
     {
-        $query = NotaDebito::with(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico']);
+        // comprobanteReferencia.detalles → items del comprobante afectado, para
+        // la tabla detalle del front (master-detail). Sin esto el listado no los trae.
+        $query = NotaDebito::with(['venta.cliente', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico', 'comprobanteReferencia.detalles']);
 
         $this->applyFilters($query, $filters);
 
@@ -40,7 +42,7 @@ class NotaDebitoRepository implements NotaDebitoRepositoryInterface
 
     public function getPaginated(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        $query = NotaDebito::with(['venta', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico']);
+        $query = NotaDebito::with(['venta.cliente', 'motivo', 'usuario', 'almacen', 'comprobanteElectronico', 'comprobanteReferencia.detalles']);
 
         $this->applyFilters($query, $filters);
 
