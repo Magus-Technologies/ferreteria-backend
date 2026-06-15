@@ -3,16 +3,25 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class TipoCambioController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
-            $data = Cache::remember('tipo_cambio_sunat', 3600, function () {
-                return $this->consultarTipoCambio();
+            // Fecha opcional (YYYY-MM-DD): permite traer el tipo de cambio de un
+            // día anterior (ej. al crear una compra/orden con fecha pasada).
+            $fecha = $request->query('fecha');
+            if ($fecha && !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $fecha)) {
+                $fecha = null;
+            }
+
+            $cacheKey = 'tipo_cambio_sunat' . ($fecha ? "_{$fecha}" : '');
+            $data = Cache::remember($cacheKey, 3600, function () use ($fecha) {
+                return $this->consultarTipoCambio($fecha);
             });
 
             return response()->json($data);
@@ -23,17 +32,21 @@ class TipoCambioController extends Controller
         }
     }
 
-    private function consultarTipoCambio(): array
+    private function consultarTipoCambio(?string $fecha = null): array
     {
-        // API principal: SUNAT via apis.net.pe
+        // API principal: SUNAT via apis.net.pe (soporta ?date=YYYY-MM-DD)
         try {
-            $response = Http::withOptions(['verify' => false])
+            $request = Http::withOptions(['verify' => false])
                 ->timeout(10)
                 ->withHeaders([
                     'Referer' => 'https://apis.net.pe/tipo-de-cambio-sunat-api',
                     'Authorization' => 'Bearer ' . config('services.apis_peru.token', 'apis-token-12676.06vC22lNLuV4uUGX4CsxHcdKf2tT92T8'),
-                ])
-                ->get('https://api.apis.net.pe/v2/sunat/tipo-cambio');
+                ]);
+
+            $url = 'https://api.apis.net.pe/v2/sunat/tipo-cambio';
+            $response = $fecha
+                ? $request->get($url, ['date' => $fecha])
+                : $request->get($url);
 
             if ($response->successful()) {
                 $data = $response->json();
