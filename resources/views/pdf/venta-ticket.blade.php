@@ -106,6 +106,12 @@
                 <td style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ $clienteDireccion }}</td>
             </tr>
             @endif
+            @if(!empty($clienteTelefono))
+            <tr>
+                <td style="text-transform:uppercase; {{ $bloques['info_label']['css'] ?? 'font-weight:bold;font-size:5pt;' }}">Tel&eacute;fono:</td>
+                <td style="{{ $bloques['info_valor']['css'] ?? 'font-size:5pt;' }}">{{ $clienteTelefono }}</td>
+            </tr>
+            @endif
         </table>
     </div>
 

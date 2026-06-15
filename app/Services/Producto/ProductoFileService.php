@@ -226,6 +226,8 @@ class ProductoFileService implements ProductoFileServiceInterface
                 $cacheService = app(ProductoCacheService::class);
                 foreach ($almacenIds as $almacenId) {
                     $cacheService->invalidateProductosAlmacen($almacenId);
+                    \Illuminate\Support\Facades\Cache::forget("productos_listado_completo_{$almacenId}");
+                    \Illuminate\Support\Facades\Cache::forget("productos_listado_ligero_{$almacenId}");
                 }
             }
 

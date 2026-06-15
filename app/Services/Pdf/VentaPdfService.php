@@ -376,6 +376,7 @@ class VentaPdfService
                 ? '—'
                 : ($cliente?->numero_documento ?? '99999999'),
             'clienteDireccion' => $this->resolverDireccionCliente($venta),
+            'clienteTelefono' => $this->resolverTelefonosCliente($cliente),
             'metodosPago' => $metodosPago,
             'sobrecargoVisible' => $sobrecargoVisible,
             'productos' => $productos,
@@ -722,6 +723,21 @@ class VentaPdfService
     }
 
     /**
+     * Teléfonos del cliente para el PDF: ambos (telefono / celular) separados
+     * por " / ", omitiendo los vacíos. Devuelve '' si no hay ninguno.
+     */
+    private function resolverTelefonosCliente(?\App\Models\Cliente $cliente): string
+    {
+        if (!$cliente) return '';
+        // array_unique: si Cel 1 y Cel 2 tienen el mismo número, no repetirlo.
+        $tels = array_unique(array_filter([
+            trim((string) ($cliente->telefono ?? '')),
+            trim((string) ($cliente->celular ?? '')),
+        ]));
+        return implode(' / ', $tels);
+    }
+
+    /**
      * Preparar las filas de informacion del cliente.
      */
     private function prepararInfoCliente(Venta $venta, string $moneda = 'SOLES'): array
@@ -741,6 +757,11 @@ class VentaPdfService
             [
                 'Direccion' => $this->resolverDireccionCliente($venta),
                 'Hora' => PdfService::formatFecha($fecha, 'H:i:s'),
+            ],
+            [
+                // Ambos teléfonos del cliente separados por " / "
+                'Telefono' => $this->resolverTelefonosCliente($cliente),
+                'Email' => $cliente?->email ?? '',
             ],
             [
                 // Placeholder "SN-XXXXXXXX" = cliente sin documento → mostrar "—"
