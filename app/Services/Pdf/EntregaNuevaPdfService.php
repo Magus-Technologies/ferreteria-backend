@@ -21,6 +21,7 @@ class EntregaNuevaPdfService
     {
         $entrega = Entrega::with([
             'venta.cliente',
+            'venta.historial',
             'estadoEntrega',
             'tipoEntrega',
             'tipoDespacho',
@@ -139,8 +140,18 @@ class EntregaNuevaPdfService
             ['TIPO DESPACHO' => $tipoDespachoLabel, 'ESTADO' => $estadoLabel],
         ];
 
+        // ── Recibido: detectar edición posterior a entrega física ──
+        $entregaFisica = $estadoCodigo === 'en';
+        $ultimaEdicion = null;
+        if ($entregaFisica) {
+            $ultimaEdicion = $entrega->venta?->historial
+                ?->sortByDesc('created_at')
+                ->first(fn($h) => $h->accion === 'edicion');
+        }
+        $mostrarRecibido = $ultimaEdicion !== null;
+
         // ── Productos (tabla) ─────────────────────────────────────
-        $productosTabla = $this->prepararProductosDesdeDetalles($entrega, $estadoCodigo);
+        $productosTabla = $this->prepararProductosDesdeDetalles($entrega, $estadoCodigo, $ultimaEdicion);
 
         // ── Estilos ───────────────────────────────────────────────
         $formatoPlantilla = $formato === 'a4' ? 'A4' : 'Ticket';
@@ -155,7 +166,7 @@ class EntregaNuevaPdfService
             'cliente'             => $cliente,
             'productos'           => $productosTabla,
             'productosTabla'      => $productosTabla,
-            'mostrarRecibido'     => false,
+            'mostrarRecibido'     => $mostrarRecibido,
             'entregaNumero'       => $entrega->venta_entrega_secuencia ?? 1,
             'entregasTotales'     => null, // no calculamos el total de entregas del grupo
             'fechaUltimaEdicion'  => null,
@@ -183,11 +194,22 @@ class EntregaNuevaPdfService
         return PdfService::render('pdf.entrega-ticket', $data, $nombreArchivo, 'portrait', [0, 0, 226.77, 841.89]);
     }
 
-    private function prepararProductosDesdeDetalles(Entrega $entrega, string $estadoCodigo): array
+    private function prepararProductosDesdeDetalles(Entrega $entrega, string $estadoCodigo, ?object $ultimaEdicion = null): array
     {
-        // Solo 'en' (Entregado) significa entrega física completada.
-        // 'ec' sigue siendo "en camino" — no se puede contar como entregado.
         $entregaFisica = $estadoCodigo === 'en';
+
+        $prevQuantities = [];
+        if ($entregaFisica && $ultimaEdicion) {
+            $datosAnteriores = is_array($ultimaEdicion->datos_anteriores)
+                ? $ultimaEdicion->datos_anteriores
+                : json_decode($ultimaEdicion->datos_anteriores ?? '{}', true);
+            foreach ($datosAnteriores['productos'] ?? [] as $ph) {
+                foreach ($ph['unidades'] ?? [] as $ud) {
+                    $key = strtolower(trim($ph['codigo'] ?? '')) . '|' . strtolower(trim($ud['unidad'] ?? ''));
+                    $prevQuantities[$key] = (float) ($ud['cantidad'] ?? 0);
+                }
+            }
+        }
 
         $tabla = [];
         foreach ($entrega->detalles as $detalle) {
@@ -196,21 +218,34 @@ class EntregaNuevaPdfService
             $pa       = $pav?->productoAlmacen;
             $producto = $pa?->producto;
 
-            // Base = la cantidad de ESTA entrega, no el total del UDV.
-            // El UDV agrupa toda la venta; detalle->cantidad es lo que
-            // corresponde a este despacho específico.
-            $cantidad  = (float) ($detalle->cantidad ?? 0);
-            $entregado = $entregaFisica ? $cantidad : 0.0;
-            $pendiente = $entregaFisica ? 0.0 : $cantidad;
+            $codigo      = $producto?->cod_producto ?? '';
+            $unidad      = $udv?->unidadDerivadaInmutable?->name ?? '';
+            $udvCantidad = (float) ($udv?->cantidad ?? 0);
+            $detalleQty  = (float) ($detalle->cantidad ?? 0);
+
+            $key             = strtolower(trim($codigo)) . '|' . strtolower(trim($unidad));
+            $cantidadAnterior = $prevQuantities[$key] ?? $udvCantidad;
+            $recibido        = max($cantidadAnterior - $udvCantidad, 0);
+
+            if ($ultimaEdicion && $recibido > 0) {
+                $cantidad  = max($cantidadAnterior, $udvCantidad);
+                $entregado = $udvCantidad;
+                $pendiente = 0.0;
+            } else {
+                $cantidad  = $detalleQty;
+                $entregado = $entregaFisica ? $detalleQty : 0.0;
+                $pendiente = $entregaFisica ? 0.0 : $detalleQty;
+                $recibido  = 0.0;
+            }
 
             $tabla[] = [
-                'codigo'    => $producto?->cod_producto ?? '',
+                'codigo'    => $codigo,
                 'nombre'    => $producto?->name ?? '—',
                 'cantidad'  => $cantidad,
                 'entregado' => $entregado,
                 'pendiente' => $pendiente,
-                'recibido'  => 0,
-                'unidad'    => $udv?->unidadDerivadaInmutable?->name ?? '',
+                'recibido'  => $recibido,
+                'unidad'    => $unidad,
                 'ubicacion' => $detalle->ubicacion ?? '',
             ];
         }
