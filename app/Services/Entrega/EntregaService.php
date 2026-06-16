@@ -7,6 +7,7 @@ use App\Enums\CodigoQuienEntrega;
 use App\Enums\CodigoTipoDespacho;
 use App\Enums\CodigoTipoEntrega;
 use App\Exceptions\Entrega\TransicionInvalidaException;
+use Illuminate\Support\Facades\Log;
 use App\Models\Entrega;
 use App\Models\EntregaDetalle;
 use App\Models\EstadoEntrega;
@@ -336,7 +337,14 @@ class EntregaService
         // confirmó (si corre fuera de transacción, ejecuta inmediato).
         if (in_array($data['estado_entrega'], ['pe', 'ec'], true)) {
             DB::afterCommit(function () use ($entrega) {
-                $this->notificacion->notificarAsignacion($entrega->load('venta'));
+                try {
+                    $this->notificacion->notificarAsignacion($entrega->load('venta'));
+                } catch (\Throwable $e) {
+                    Log::error('[Firebase] Error al enviar notificación de nueva entrega', [
+                        'entrega_id' => $entrega->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             });
         }
 
