@@ -38,14 +38,16 @@ class ConsultaDocumentoController extends Controller
 
         // Buscar en ventas (factura, boleta, nota de venta)
         if (in_array($tipoDocumento, ['01', '03', 'NV'])) {
-            $venta = Venta::with('comprobanteElectronico')
+            $venta = Venta::with('comprobanteElectronico', 'despliegueDePagoVentas')
                 ->where('serie', $serie)
                 ->where('numero', $numero)
                 ->first();
 
             if ($venta) {
                 $ce = $venta->comprobanteElectronico;
-                $montoReal = $ce ? (float) ($ce->importe_total ?? 0) : (float) ($venta->total ?? 0);
+                $montoReal = $ce
+                    ? (float) ($ce->importe_total ?? 0)
+                    : (float) $venta->despliegueDePagoVentas->sum('monto');
 
                 if (abs($montoIngresado - $montoReal) > 0.01) {
                     return response()->json([
@@ -127,7 +129,9 @@ class ConsultaDocumentoController extends Controller
 
         $montoIngresado = (float) str_replace(',', '', $montoParam);
         $ce = $venta->comprobanteElectronico;
-        $montoReal = $ce ? (float) ($ce->importe_total ?? 0) : (float) ($venta->total ?? 0);
+        $montoReal = $ce
+            ? (float) ($ce->importe_total ?? 0)
+            : (float) $venta->despliegueDePagoVentas->sum('monto');
 
         if (abs($montoIngresado - $montoReal) > 0.01) {
             Log::warning("Consulta documento: monto no coincide para venta #{$id}. Ingresado: {$montoIngresado}, Real: {$montoReal}");
