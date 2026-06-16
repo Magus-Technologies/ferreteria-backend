@@ -166,10 +166,12 @@ class ConsultaDocumentoController extends Controller
             'monto' => (float) $dp->monto,
         ]);
 
-        $subtotal = collect($productos)->sum('subtotal');
+        $rawTotal = collect($productos)->sum('subtotal');
         $totalDescuento = collect($productos)->sum('descuento');
-        $igv = ($subtotal - $totalDescuento) * 0.18;
-        $total = $subtotal - $totalDescuento + $igv;
+        // Prices stored with IGV included — back out instead of adding again.
+        $total = $rawTotal - $totalDescuento;
+        $subtotal = round($total / 1.18, 2);
+        $igv = round($total - $subtotal, 2);
 
         // Si hay comprobante electrónico, usar esos totales (más precisos)
         $ce = $venta->comprobanteElectronico;
