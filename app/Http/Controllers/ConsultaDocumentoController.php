@@ -6,6 +6,7 @@ use App\Models\Venta;
 use App\Models\GuiaRemision;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class ConsultaDocumentoController extends Controller
 {
@@ -61,21 +62,24 @@ class ConsultaDocumentoController extends Controller
     /**
      * Consulta pública de documento (venta o guía de remisión).
      * No requiere autenticación.
+     * Requiere el parámetro ?monto= para validar y mostrar el documento.
      */
-    public function show(string $tipo, string $id): JsonResponse
+    public function show(string $tipo, string $id, Request $request): JsonResponse
     {
+        $monto = $request->query('monto');
+
         if ($tipo === 'venta') {
-            return $this->consultaVenta($id);
+            return $this->consultaVenta($id, $monto);
         }
 
         if ($tipo === 'guia') {
-            return $this->consultaGuia($id);
+            return $this->consultaGuia($id, $monto);
         }
 
         return response()->json(['error' => ['message' => 'Tipo de documento no válido']], 400);
     }
 
-    private function consultaVenta(string $id): JsonResponse
+    private function consultaVenta(string $id, ?string $montoParam): JsonResponse
     {
         $venta = Venta::with([
             'cliente:id,nombres,apellidos,razon_social,numero_documento',
@@ -90,6 +94,20 @@ class ConsultaDocumentoController extends Controller
 
         if (!$venta) {
             return response()->json(['error' => ['message' => 'Documento no encontrado']], 404);
+        }
+
+        // Validar monto neto obligatorio
+        if (!$montoParam) {
+            return response()->json(['error' => ['message' => 'Debe ingresar el monto neto del comprobante']], 400);
+        }
+
+        $montoIngresado = (float) str_replace(',', '', $montoParam);
+        $ce = $venta->comprobanteElectronico;
+        $montoReal = $ce ? (float) ($ce->importe_total ?? 0) : (float) ($venta->total ?? 0);
+
+        if (abs($montoIngresado - $montoReal) > 0.01) {
+            Log::warning("Consulta documento: monto no coincide para venta #{$id}. Ingresado: {$montoIngresado}, Real: {$montoReal}");
+            return response()->json(['error' => ['message' => 'El monto ingresado no coincide con el comprobante']], 403);
         }
 
         $empresa = $venta->user?->empresa;
@@ -172,11 +190,12 @@ class ConsultaDocumentoController extends Controller
                 ],
                 'observaciones' => $venta->descripcion ?: null,
                 'pdf_url' => url("/api/pdf/venta/{$id}"),
+                'xml_url' => $ce && $ce->tiene_xml ? url("/api/facturas/comprobante/{$ce->id}/xml") : null,
             ],
         ]);
     }
 
-    private function consultaGuia(string $id): JsonResponse
+    private function consultaGuia(string $id, ?string $montoParam): JsonResponse
     {
         $guia = GuiaRemision::with([
             'cliente:id,nombres,apellidos,razon_social,numero_documento',
@@ -189,6 +208,15 @@ class ConsultaDocumentoController extends Controller
 
         if (!$guia) {
             return response()->json(['error' => ['message' => 'Documento no encontrado']], 404);
+        }
+
+        // Para guías, si se proporciona monto validamos, si no se omite
+        if ($montoParam !== null) {
+            $montoIngresado = (float) str_replace(',', '', $montoParam);
+            $montoReal = 0.0; // guías no tienen monto neto
+            if (abs($montoIngresado - $montoReal) > 0.01) {
+                return response()->json(['error' => ['message' => 'El monto ingresado no coincide']], 403);
+            }
         }
 
         $empresa = $guia->user?->empresa;

@@ -90,11 +90,37 @@ class InventarioReporteService implements InventarioReporteServiceInterface
         if (!empty($filtros['almacen_id'])) {
             $query->where('pa.almacen_id', $filtros['almacen_id']);
         }
+        if (!empty($filtros['categoria_id'])) {
+            $query->where('p.categoria_id', $filtros['categoria_id']);
+        }
+        if (!empty($filtros['marca_id'])) {
+            $query->where('p.marca_id', $filtros['marca_id']);
+        }
+        if (!empty($filtros['search'])) {
+            $search = $filtros['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('p.name', 'like', "%{$search}%")
+                  ->orWhere('p.cod_producto', 'like', "%{$search}%");
+            });
+        }
 
         $resumen = $query->selectRaw("
             COUNT(DISTINCT p.id) as total_productos,
             SUM(pa.stock_fraccion) as total_stock,
             SUM(pa.stock_fraccion * pa.costo) as valorizacion_total,
+            SUM(pa.stock_fraccion * COALESCE((
+                SELECT ud.precio_publico
+                FROM productoalmacenunidadderivada ud
+                WHERE ud.producto_almacen_id = pa.id
+                ORDER BY ABS(ud.factor - 1), ud.id
+                LIMIT 1
+            ), 0) / NULLIF(COALESCE((
+                SELECT ud.factor
+                FROM productoalmacenunidadderivada ud
+                WHERE ud.producto_almacen_id = pa.id
+                ORDER BY ABS(ud.factor - 1), ud.id
+                LIMIT 1
+            ), 1), 0)) as valorizacion_venta,
             SUM(CASE WHEN pa.stock_fraccion <= 0 THEN 1 ELSE 0 END) as productos_sin_stock,
             SUM(CASE WHEN pa.stock_fraccion > 0 AND pa.stock_fraccion < p.stock_min THEN 1 ELSE 0 END) as productos_stock_bajo
         ")->first();
@@ -103,6 +129,7 @@ class InventarioReporteService implements InventarioReporteServiceInterface
             'total_productos' => (int)($resumen->total_productos ?? 0),
             'total_stock' => round((float)($resumen->total_stock ?? 0), 2),
             'valorizacion_total' => round((float)($resumen->valorizacion_total ?? 0), 2),
+            'valorizacion_venta' => round((float)($resumen->valorizacion_venta ?? 0), 2),
             'productos_sin_stock' => (int)($resumen->productos_sin_stock ?? 0),
             'productos_stock_bajo' => (int)($resumen->productos_stock_bajo ?? 0),
         ];

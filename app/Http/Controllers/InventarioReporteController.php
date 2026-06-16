@@ -38,9 +38,12 @@ class InventarioReporteController extends Controller
     {
         $request->validate([
             'almacen_id' => 'sometimes|integer',
+            'categoria_id' => 'sometimes|integer',
+            'marca_id' => 'sometimes|integer',
+            'search' => 'sometimes|string|max:255',
         ]);
 
-        $filtros = $request->only(['almacen_id']);
+        $filtros = $request->only(['almacen_id', 'categoria_id', 'marca_id', 'search']);
         $resumen = $this->reporteService->obtenerResumenInventario($filtros);
 
         return response()->json(['data' => $resumen]);
