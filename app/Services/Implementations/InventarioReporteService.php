@@ -90,6 +90,19 @@ class InventarioReporteService implements InventarioReporteServiceInterface
         if (!empty($filtros['almacen_id'])) {
             $query->where('pa.almacen_id', $filtros['almacen_id']);
         }
+        if (!empty($filtros['categoria_id'])) {
+            $query->where('p.categoria_id', $filtros['categoria_id']);
+        }
+        if (!empty($filtros['marca_id'])) {
+            $query->where('p.marca_id', $filtros['marca_id']);
+        }
+        if (!empty($filtros['search'])) {
+            $search = $filtros['search'];
+            $query->where(function ($q) use ($search) {
+                $q->where('p.name', 'like', "%{$search}%")
+                  ->orWhere('p.cod_producto', 'like', "%{$search}%");
+            });
+        }
 
         $resumen = $query->selectRaw("
             COUNT(DISTINCT p.id) as total_productos,
