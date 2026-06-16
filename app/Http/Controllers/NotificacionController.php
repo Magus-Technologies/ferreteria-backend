@@ -83,7 +83,7 @@ class NotificacionController extends Controller
             'despachador_id' => 'required|string',
             'venta_serie' => 'required|string',
             'venta_numero' => 'required', // Puede ser string o número
-            'direccion' => 'required|string',
+            'direccion' => 'nullable|string',
             'fecha_programada' => 'required|string',
             'cliente_nombre' => 'nullable|string',
         ]);

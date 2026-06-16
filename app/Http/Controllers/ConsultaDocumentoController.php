@@ -19,6 +19,7 @@ class ConsultaDocumentoController extends Controller
         $serie = $request->query('serie');
         $correlativo = $request->query('correlativo');
         $tipoDocumento = $request->query('tipo_documento');
+        $montoParam = $request->query('monto');
 
         if (!$serie || !$correlativo || !$tipoDocumento) {
             return response()->json([
@@ -26,15 +27,34 @@ class ConsultaDocumentoController extends Controller
             ], 400);
         }
 
+        if (!$montoParam) {
+            return response()->json([
+                'error' => ['message' => 'Debe ingresar el monto neto del comprobante'],
+            ], 400);
+        }
+
+        $montoIngresado = (float) str_replace(',', '', $montoParam);
         $numero = ltrim($correlativo, '0') ?: '0';
 
         // Buscar en ventas (factura, boleta, nota de venta)
         if (in_array($tipoDocumento, ['01', '03', 'NV'])) {
-            $venta = Venta::where('serie', $serie)
+            $venta = Venta::with('comprobanteElectronico', 'despliegueDePagoVentas')
+                ->where('serie', $serie)
                 ->where('numero', $numero)
                 ->first();
 
             if ($venta) {
+                $ce = $venta->comprobanteElectronico;
+                $montoReal = $ce
+                    ? (float) ($ce->importe_total ?? 0)
+                    : (float) $venta->despliegueDePagoVentas->sum('monto');
+
+                if (abs($montoIngresado - $montoReal) > 0.01) {
+                    return response()->json([
+                        'error' => ['message' => 'El monto ingresado no coincide con el comprobante'],
+                    ], 403);
+                }
+
                 return response()->json([
                     'data' => ['tipo' => 'venta', 'id' => $venta->id],
                 ]);
@@ -48,6 +68,12 @@ class ConsultaDocumentoController extends Controller
                 ->first();
 
             if ($guia) {
+                if (abs($montoIngresado - 0) > 0.01) {
+                    return response()->json([
+                        'error' => ['message' => 'El monto ingresado no coincide'],
+                    ], 403);
+                }
+
                 return response()->json([
                     'data' => ['tipo' => 'guia', 'id' => $guia->id],
                 ]);
@@ -103,7 +129,9 @@ class ConsultaDocumentoController extends Controller
 
         $montoIngresado = (float) str_replace(',', '', $montoParam);
         $ce = $venta->comprobanteElectronico;
-        $montoReal = $ce ? (float) ($ce->importe_total ?? 0) : (float) ($venta->total ?? 0);
+        $montoReal = $ce
+            ? (float) ($ce->importe_total ?? 0)
+            : (float) $venta->despliegueDePagoVentas->sum('monto');
 
         if (abs($montoIngresado - $montoReal) > 0.01) {
             Log::warning("Consulta documento: monto no coincide para venta #{$id}. Ingresado: {$montoIngresado}, Real: {$montoReal}");
@@ -138,10 +166,12 @@ class ConsultaDocumentoController extends Controller
             'monto' => (float) $dp->monto,
         ]);
 
-        $subtotal = collect($productos)->sum('subtotal');
+        $rawTotal = collect($productos)->sum('subtotal');
         $totalDescuento = collect($productos)->sum('descuento');
-        $igv = ($subtotal - $totalDescuento) * 0.18;
-        $total = $subtotal - $totalDescuento + $igv;
+        // Prices stored with IGV included — back out instead of adding again.
+        $total = $rawTotal - $totalDescuento;
+        $subtotal = round($total / 1.18, 2);
+        $igv = round($total - $subtotal, 2);
 
         // Si hay comprobante electrónico, usar esos totales (más precisos)
         $ce = $venta->comprobanteElectronico;

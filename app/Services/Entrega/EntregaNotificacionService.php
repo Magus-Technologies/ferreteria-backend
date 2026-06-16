@@ -64,13 +64,17 @@ class EntregaNotificacionService
         if ($entrega->chofer_id) {
             $chofer = User::find($entrega->chofer_id);
             if ($chofer && $chofer->fcm_token) {
-                $this->firebase->sendNotification(
+                $sent = $this->firebase->sendNotification(
                     $chofer->fcm_token,
                     $titulo,
                     $cuerpo,
                     $datos
                 );
-                $notifiedTokens[] = $chofer->fcm_token;
+                // Only exclude from broadcast if the direct send actually succeeded.
+                // If it failed, the chofer will still receive it via the module broadcast.
+                if ($sent) {
+                    $notifiedTokens[] = $chofer->fcm_token;
+                }
             }
         }
 
