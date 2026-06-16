@@ -66,6 +66,7 @@ class RecepcionAlmacenController extends Controller
             'compra.ordenCompra:id,codigo,estado',
             'ordenCompra.proveedor',
             'ordenCompra.almacen',
+            'productosPorAlmacen.productoAlmacen.almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
@@ -87,6 +88,14 @@ class RecepcionAlmacenController extends Controller
                 ->orWhereHas('ordenCompra', function ($subQ) use ($request) {
                     $subQ->where('almacen_id', $request->almacen_id);
                 });
+            });
+        }
+
+        // Filtrar por el ALMACÉN RECEPTOR real (donde entró el stock), que puede
+        // diferir del almacén de la Compra/OrdenCompra cuando se recepciona en otro almacén.
+        if ($request->has('almacen_recepcion_id')) {
+            $query->whereHas('productosPorAlmacen.productoAlmacen', function ($q) use ($request) {
+                $q->where('almacen_id', $request->almacen_recepcion_id);
             });
         }
 
@@ -482,7 +491,13 @@ class RecepcionAlmacenController extends Controller
                 // 3. Procesar cada producto
                 $stocksAnteriores = []; // Guardar stocks anteriores para kardex
                 $costosAnteriores = []; // Guardar costos anteriores para kardex
-                
+                // Resolver cada UnidadDerivadaInmutable una sola vez por nombre y reutilizarla
+                // en el loop de stock y en el de kardex (evita firstOrCreate duplicado por unidad).
+                $unidadesInmutablesCache = [];
+                // Acumular almacenes a invalidar para hacerlo una sola vez al final
+                // (varios productos suelen entrar al mismo almacén receptor).
+                $almacenesAInvalidar = [];
+
                 foreach ($request->productos_por_almacen as $productoData) {
                     $productoId = $productoData['producto_id'];
                     $almacenId = $productoData['almacen_id'];
@@ -529,10 +544,11 @@ class RecepcionAlmacenController extends Controller
 
                     // 4. Procesar cada unidad derivada
                     foreach ($productoData['unidades_derivadas'] as $udData) {
-                        $unidadInmutable = \App\Models\UnidadDerivadaInmutable::firstOrCreate(
-                            ['name' => $udData['unidad_derivada_name']],
-                            ['name' => $udData['unidad_derivada_name']]
-                        );
+                        $unidadInmutable = $unidadesInmutablesCache[$udData['unidad_derivada_name']]
+                            ??= \App\Models\UnidadDerivadaInmutable::firstOrCreate(
+                                ['name' => $udData['unidad_derivada_name']],
+                                ['name' => $udData['unidad_derivada_name']]
+                            );
 
                         $factor = (float) $udData['factor'];
                         $cantidad = (float) $udData['cantidad'];
@@ -670,7 +686,8 @@ class RecepcionAlmacenController extends Controller
                         );
                     }
 
-                    app(\App\Services\Cache\ProductoCacheService::class)->invalidateProductosAlmacen($productoAlmacen->almacen_id);
+                    // Diferir la invalidación de caché: se hace una sola vez por almacén al final.
+                    $almacenesAInvalidar[$productoAlmacen->almacen_id] = true;
                 }
 
                 // 5. Registrar en kardex inventario (ENTRADA - con impacto en stock)
@@ -696,10 +713,11 @@ class RecepcionAlmacenController extends Controller
                         $acumuladoKardex = 0; // fracciones acumuladas para stock_anterior correcto por unidad
 
                         foreach ($productoData['unidades_derivadas'] as $udData) {
-                            $unidadInmutable = \App\Models\UnidadDerivadaInmutable::firstOrCreate(
-                                ['name' => $udData['unidad_derivada_name']],
-                                ['name' => $udData['unidad_derivada_name']]
-                            );
+                            $unidadInmutable = $unidadesInmutablesCache[$udData['unidad_derivada_name']]
+                                ??= \App\Models\UnidadDerivadaInmutable::firstOrCreate(
+                                    ['name' => $udData['unidad_derivada_name']],
+                                    ['name' => $udData['unidad_derivada_name']]
+                                );
 
                             // Crear objeto temporal con la estructura esperada por registrarRecepcion
                             $unidadTemporal = (object) [
@@ -725,6 +743,12 @@ class RecepcionAlmacenController extends Controller
                             $acumuladoKardex += (float) $udData['cantidad'] * (float) $udData['factor'];
                         }
                     }
+                }
+
+                // 6. Invalidar caché de productos una sola vez por almacén afectado
+                $cacheService = app(\App\Services\Cache\ProductoCacheService::class);
+                foreach (array_keys($almacenesAInvalidar) as $almacenIdAfectado) {
+                    $cacheService->invalidateProductosAlmacen($almacenIdAfectado);
                 }
 
                 // 7. Verificar si quedan productos pendientes
