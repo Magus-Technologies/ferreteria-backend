@@ -38,16 +38,30 @@ class ConsultaDocumentoController extends Controller
 
         // Buscar en ventas (factura, boleta, nota de venta)
         if (in_array($tipoDocumento, ['01', '03', 'NV'])) {
-            $venta = Venta::with('comprobanteElectronico', 'despliegueDePagoVentas')
-                ->where('serie', $serie)
+            $venta = Venta::with([
+                'comprobanteElectronico',
+                'despliegueDePagoVentas',
+                'productosPorAlmacen.unidadesDerivadas',
+            ])->where('serie', $serie)
                 ->where('numero', $numero)
                 ->first();
 
             if ($venta) {
                 $ce = $venta->comprobanteElectronico;
-                $montoReal = $ce
-                    ? (float) ($ce->importe_total ?? 0)
-                    : (float) $venta->despliegueDePagoVentas->sum('monto');
+
+                if ($ce) {
+                    $montoReal = (float) ($ce->importe_total ?? 0);
+                } else {
+                    $subtotal = 0;
+                    foreach ($venta->productosPorAlmacen as $pav) {
+                        foreach ($pav->unidadesDerivadas as $ud) {
+                            $subtotal += (float) $ud->cantidad * ((float) $ud->precio + (float) $ud->recargo);
+                        }
+                    }
+                    $descuento = $venta->productosPorAlmacen->flatMap->unidadesDerivadas->sum(fn($ud) => (float) $ud->descuento);
+                    $igv = ($subtotal - $descuento) * 0.18;
+                    $montoReal = $subtotal - $descuento + $igv;
+                }
 
                 if (abs($montoIngresado - $montoReal) > 0.01) {
                     return response()->json([
@@ -129,9 +143,20 @@ class ConsultaDocumentoController extends Controller
 
         $montoIngresado = (float) str_replace(',', '', $montoParam);
         $ce = $venta->comprobanteElectronico;
-        $montoReal = $ce
-            ? (float) ($ce->importe_total ?? 0)
-            : (float) $venta->despliegueDePagoVentas->sum('monto');
+
+        if ($ce) {
+            $montoReal = (float) ($ce->importe_total ?? 0);
+        } else {
+            $subtotal = 0;
+            foreach ($venta->productosPorAlmacen as $pav) {
+                foreach ($pav->unidadesDerivadas as $ud) {
+                    $subtotal += (float) $ud->cantidad * ((float) $ud->precio + (float) $ud->recargo);
+                }
+            }
+            $descuento = $venta->productosPorAlmacen->flatMap->unidadesDerivadas->sum(fn($ud) => (float) $ud->descuento);
+            $igv = ($subtotal - $descuento) * 0.18;
+            $montoReal = $subtotal - $descuento + $igv;
+        }
 
         if (abs($montoIngresado - $montoReal) > 0.01) {
             Log::warning("Consulta documento: monto no coincide para venta #{$id}. Ingresado: {$montoIngresado}, Real: {$montoReal}");
