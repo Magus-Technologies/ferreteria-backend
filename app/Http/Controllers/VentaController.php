@@ -1124,6 +1124,37 @@ class VentaController extends Controller
             // Update venta
             $venta->update($updateData);
 
+            // Si cambió el tipo_documento, re-asignar correlativo para que
+            // la serie corresponda al nuevo tipo (B001→Boleta, F001→Factura).
+            $tipoDocAnterior = $datosAnteriores['tipo_documento'];
+            $tipoDocNuevoVal = $venta->tipo_documento instanceof \BackedEnum
+                ? $venta->tipo_documento->value
+                : $venta->tipo_documento;
+
+            if ($tipoDocAnterior !== $tipoDocNuevoVal
+                && in_array($tipoDocNuevoVal, ['01', '03', 'nv'], true)
+                && ($estadoAnterior ?? 'cr') !== 'ee'
+            ) {
+                try {
+                    $nuevoCorrelativo = $this->serieDocumentoService->reservarCorrelativoSimple(
+                        $tipoDocNuevoVal,
+                        $venta->almacen_id
+                    );
+                    $venta->update([
+                        'serie'  => $nuevoCorrelativo['serie'],
+                        'numero' => $nuevoCorrelativo['numero'],
+                    ]);
+                    $venta->refresh();
+                } catch (\Exception $e) {
+                    \Log::warning('No se pudo re-asignar correlativo al cambiar tipo_documento', [
+                        'venta_id'       => $venta->id,
+                        'tipo_anterior'  => $tipoDocAnterior,
+                        'tipo_nuevo'     => $tipoDocNuevoVal,
+                        'error'          => $e->getMessage(),
+                    ]);
+                }
+            }
+
             // Si se recupera una venta anulada, reactivar entregas canceladas
             $estadoNuevo = isset($updateData['estado_de_venta'])
                 ? ($updateData['estado_de_venta'] instanceof \BackedEnum ? $updateData['estado_de_venta']->value : $updateData['estado_de_venta'])
