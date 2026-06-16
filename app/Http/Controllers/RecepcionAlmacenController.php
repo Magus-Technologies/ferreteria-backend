@@ -507,8 +507,14 @@ class RecepcionAlmacenController extends Controller
                     // Referencia para decrementar cantidad_pendiente (Compra o OrdenCompra)
                     $refProductoDoc = null;
                     if ($request->compra_id) {
+                        // La línea de la compra apunta al producto_almacen del ALMACÉN DE LA COMPRA.
+                        // Al recepcionar en otro almacén, $productoAlmacen->id es el del almacén
+                        // receptor y no coincide; por eso buscamos la línea por PRODUCTO, no por
+                        // producto_almacen_id, para decrementar el pendiente correctamente.
                         $refProductoDoc = \App\Models\ProductoAlmacenCompra::where('compra_id', $request->compra_id)
-                            ->where('producto_almacen_id', $productoAlmacen->id)
+                            ->whereHas('productoAlmacen', function ($q) use ($productoId) {
+                                $q->where('producto_id', $productoId);
+                            })
                             ->first();
                     } else if ($request->orden_compra_id) {
                         $refProductoDoc = \App\Models\OrdenCompraProducto::where('orden_compra_id', $request->orden_compra_id)
@@ -1009,12 +1015,16 @@ class RecepcionAlmacenController extends Controller
                     ->with(['unidadesDerivadas', 'productoAlmacen'])
                     ->get();
 
-                // Mapeo de productos del documento padre (Compra u OrdenCompra)
+                // Mapeo de productos del documento padre (Compra u OrdenCompra).
+                // Se mapea por producto_id (no por producto_almacen_id) para que la
+                // restauración del pendiente funcione aunque la recepción se haya hecho
+                // en un almacén distinto al de la compra.
                 $productosDocPadreMap = collect();
                 if ($recepcion->compra_id) {
                     $productosDocPadreMap = ProductoAlmacenCompra::where('compra_id', $recepcion->compra_id)
+                        ->with('productoAlmacen')
                         ->get()
-                        ->keyBy('producto_almacen_id');
+                        ->keyBy(fn ($pac) => $pac->productoAlmacen->producto_id);
                 } else if ($recepcion->orden_compra_id) {
                     $productosDocPadreMap = \App\Models\OrdenCompraProducto::where('orden_compra_id', $recepcion->orden_compra_id)
                         ->get()
@@ -1027,10 +1037,8 @@ class RecepcionAlmacenController extends Controller
                     $productoAlmacenId = $productoRecepcion->producto_almacen_id;
                     $productoId = $productoRecepcion->productoAlmacen->producto_id;
 
-                    // Encontrar el producto correspondiente en el documento padre
-                    $productoDocPadre = $recepcion->compra_id
-                        ? $productosDocPadreMap->get($productoAlmacenId)
-                        : $productosDocPadreMap->get($productoId);
+                    // Encontrar el producto correspondiente en el documento padre (por producto_id)
+                    $productoDocPadre = $productosDocPadreMap->get($productoId);
 
                     if (!$productoDocPadre) {
                         // Si no se encuentra, logueamos pero continuamos (podría ser un producto eliminado de la compra?)
