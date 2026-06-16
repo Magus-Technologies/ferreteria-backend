@@ -19,6 +19,7 @@ class ConsultaDocumentoController extends Controller
         $serie = $request->query('serie');
         $correlativo = $request->query('correlativo');
         $tipoDocumento = $request->query('tipo_documento');
+        $montoParam = $request->query('monto');
 
         if (!$serie || !$correlativo || !$tipoDocumento) {
             return response()->json([
@@ -26,15 +27,32 @@ class ConsultaDocumentoController extends Controller
             ], 400);
         }
 
+        if (!$montoParam) {
+            return response()->json([
+                'error' => ['message' => 'Debe ingresar el monto neto del comprobante'],
+            ], 400);
+        }
+
+        $montoIngresado = (float) str_replace(',', '', $montoParam);
         $numero = ltrim($correlativo, '0') ?: '0';
 
         // Buscar en ventas (factura, boleta, nota de venta)
         if (in_array($tipoDocumento, ['01', '03', 'NV'])) {
-            $venta = Venta::where('serie', $serie)
+            $venta = Venta::with('comprobanteElectronico')
+                ->where('serie', $serie)
                 ->where('numero', $numero)
                 ->first();
 
             if ($venta) {
+                $ce = $venta->comprobanteElectronico;
+                $montoReal = $ce ? (float) ($ce->importe_total ?? 0) : (float) ($venta->total ?? 0);
+
+                if (abs($montoIngresado - $montoReal) > 0.01) {
+                    return response()->json([
+                        'error' => ['message' => 'El monto ingresado no coincide con el comprobante'],
+                    ], 403);
+                }
+
                 return response()->json([
                     'data' => ['tipo' => 'venta', 'id' => $venta->id],
                 ]);
@@ -48,6 +66,12 @@ class ConsultaDocumentoController extends Controller
                 ->first();
 
             if ($guia) {
+                if (abs($montoIngresado - 0) > 0.01) {
+                    return response()->json([
+                        'error' => ['message' => 'El monto ingresado no coincide'],
+                    ], 403);
+                }
+
                 return response()->json([
                     'data' => ['tipo' => 'guia', 'id' => $guia->id],
                 ]);
