@@ -479,6 +479,16 @@ class ProductoRepository implements ProductoRepositoryInterface
                             // (Bug preexistente en el findByAlmacen original)
                             'compras' => function ($cq) {
                                 $cq->select('id', 'producto_almacen_id', 'costo', 'compra_id')
+                                    // Solo compras realmente INGRESADAS a inventario.
+                                    // Se excluyen las "en espera" (ee) y "anuladas" (an):
+                                    // no afectan kardex/stock, así que no deben aparecer
+                                    // en "Últimas 6 compras ingresadas".
+                                    ->whereHas('compra', function ($q) {
+                                        $q->whereIn('estado_de_compra', [
+                                            \App\Enums\EstadoDeCompraDefinitiva::Creado->value,
+                                            \App\Enums\EstadoDeCompraDefinitiva::Procesado->value,
+                                        ]);
+                                    })
                                     ->with([
                                         'compra:id,fecha,proveedor_id,user_id,tipo_documento,serie,numero,estado_de_compra',
                                         'compra.proveedor:id,razon_social',
