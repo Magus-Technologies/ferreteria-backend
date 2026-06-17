@@ -232,9 +232,11 @@ class EntregaNuevaPdfService
                 $entregado = $udvCantidad;
                 $pendiente = 0.0;
             } else {
-                $cantidad  = $detalleQty;
-                $entregado = $entregaFisica ? $detalleQty : 0.0;
-                $pendiente = $entregaFisica ? 0.0 : $detalleQty;
+                $pendienteTotal = (float) ($udv?->cantidad_pendiente ?? $udvCantidad);
+                $entregadoAntes = max(0.0, $udvCantidad - $pendienteTotal);
+                $cantidad  = $udvCantidad;
+                $entregado = $entregaFisica ? $detalleQty : $entregadoAntes;
+                $pendiente = $entregaFisica ? 0.0 : $pendienteTotal;
                 $recibido  = 0.0;
             }
 
