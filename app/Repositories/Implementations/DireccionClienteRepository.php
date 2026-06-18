@@ -73,7 +73,12 @@ class DireccionClienteRepository implements DireccionClienteRepositoryInterface
     }
 
     /**
-     * Actualizar el estado principal de las direcciones de un cliente
+     * Actualizar el estado principal de las direcciones de un cliente.
+     *
+     * IMPORTANTE: No reasigna el campo `tipo` (D1/D2/D3/D4) porque la tabla
+     * tiene un UNIQUE CONSTRAINT sobre (cliente_id, tipo) y reasignar tipos
+     * causa un duplicate key error. El flag `es_principal` es suficiente para
+     * indicar cuál es la dirección principal — el `tipo` es solo un label.
      */
     public function updatePrincipalStatus(int $clienteId, int $nuevaPrincipalId): void
     {
@@ -82,25 +87,9 @@ class DireccionClienteRepository implements DireccionClienteRepositoryInterface
             DireccionCliente::where('cliente_id', $clienteId)
                 ->update(['es_principal' => false]);
 
-            // Marcar la nueva dirección como principal y asignar tipo D1
+            // Marcar la nueva dirección como principal (sin cambiar tipo)
             DireccionCliente::where('id', $nuevaPrincipalId)
-                ->update([
-                    'es_principal' => true,
-                    'tipo' => 'D1'
-                ]);
-
-            // Reasignar tipos a las demás direcciones
-            $direcciones = DireccionCliente::where('cliente_id', $clienteId)
-                ->where('id', '!=', $nuevaPrincipalId)
-                ->orderBy('id')
-                ->get();
-
-            $tipos = ['D2', 'D3', 'D4'];
-            foreach ($direcciones as $index => $direccion) {
-                if (isset($tipos[$index])) {
-                    $direccion->update(['tipo' => $tipos[$index]]);
-                }
-            }
+                ->update(['es_principal' => true]);
         });
     }
 }
