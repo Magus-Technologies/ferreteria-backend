@@ -157,6 +157,12 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/api/kardex.php';       // Kardex (inventario, facturación, finanzas)
     require __DIR__ . '/api/facturacion-electronica.php';  // Facturación electrónica (notas de débito, crédito, facturas)
     require __DIR__ . '/api/ganancias.php';    // Gestión contable y financiera - Mis Ganancias
+
+    // Exportación formato CONTASIS (Libro de Ventas y Compras)
+    Route::prefix('contasis')->group(function () {
+        Route::get('/ventas',  [\App\Http\Controllers\ContasisController::class, 'ventas']);
+        Route::get('/compras', [\App\Http\Controllers\ContasisController::class, 'compras']);
+    });
     require __DIR__ . '/api/analisis-perdidas.php'; // Análisis detallado de pérdidas
     require __DIR__ . '/api/analisis-peps.php';     // Análisis PEPS - diferencia de tipo de cambio
     require __DIR__ . '/api/ingresos.php';     // Gestión contable y financiera - Mis Ingresos
