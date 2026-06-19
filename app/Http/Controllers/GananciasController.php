@@ -35,7 +35,7 @@ class GananciasController extends Controller
             'confirmar_caja' => 'sometimes|string',
             'mostrar_hora' => 'sometimes|string',
             'incluir' => 'sometimes|string',
-            'per_page' => 'sometimes|integer|min:1|max:100',
+            'per_page' => 'sometimes|integer|min:1|max:10000',
             'page' => 'sometimes|integer|min:1',
         ]);
 
