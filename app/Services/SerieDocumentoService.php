@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Almacen;
 use App\Models\SerieDocumento;
 use Illuminate\Support\Facades\DB;
 
@@ -33,8 +34,9 @@ class SerieDocumentoService
             ->first();
 
         if (! $serieDoc) {
+            $almacenNombre = Almacen::find($almacenId)?->name ?? "ID {$almacenId}";
             throw new \Exception(
-                "No se encontró una serie activa para el tipo de documento {$tipoDocumento} en el almacén {$almacenId}"
+                "No hay serie activa para \"{$tipoDocumento}\" en la sucursal \"{$almacenNombre}\". Configúrala en Configuración → Series."
             );
         }
 

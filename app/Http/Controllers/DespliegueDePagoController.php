@@ -98,6 +98,7 @@ class DespliegueDePagoController extends Controller
             'requiere_numero_serie' => 'sometimes|boolean',
             'sobrecargo_porcentaje' => 'sometimes|numeric|min:0|max:100',
             'tipo_sobrecargo' => 'sometimes|in:porcentaje,monto_fijo,ninguno',
+            'distribuir_en_precios' => 'sometimes|boolean',
             'adicional' => 'sometimes|numeric|min:0',
             'mostrar' => 'sometimes|boolean',
             'numero_celular' => [
@@ -173,6 +174,7 @@ class DespliegueDePagoController extends Controller
             'requiere_numero_serie' => 'sometimes|boolean',
             'sobrecargo_porcentaje' => 'sometimes|numeric|min:0|max:100',
             'tipo_sobrecargo' => 'sometimes|in:porcentaje,monto_fijo,ninguno',
+            'distribuir_en_precios' => 'sometimes|boolean',
             'adicional' => 'sometimes|numeric|min:0',
             'mostrar' => 'sometimes|boolean',
             'numero_celular' => [

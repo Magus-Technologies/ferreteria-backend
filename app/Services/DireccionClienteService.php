@@ -71,7 +71,9 @@ class DireccionClienteService
         $datosActualizacion = [];
 
         if (array_key_exists('direccion', $data)) {
-            $datosActualizacion['direccion'] = $data['direccion'];
+            // ConvertEmptyStringsToNull middleware convierte '' a null.
+            // Convertir null a '' para guardar un string vacío en la DB.
+            $datosActualizacion['direccion'] = $data['direccion'] ?? '';
         }
 
         if (array_key_exists('referencia', $data)) {

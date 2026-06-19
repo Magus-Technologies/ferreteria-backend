@@ -164,6 +164,18 @@ class ProductoLoteService
                 $ultimo->cantidad_restante = (float) $ultimo->cantidad_restante - $restante;
                 $ultimo->save();
                 $consumos[] = ['lote_id' => $ultimo->id, 'cantidad' => $restante, 'costo' => $costoUlt];
+            } else {
+                // No existe ningún lote (almacén secundario sin stock cargado).
+                // Crear un lote con cantidad negativa para que resyncDerivados
+                // refleje la sobreventa igual que en el almacén principal.
+                $loteNegativo = ProductoAlmacenLote::create([
+                    'producto_almacen_id' => $pa->id,
+                    'costo'               => $costoUlt,
+                    'cantidad_inicial'    => 0,
+                    'cantidad_restante'   => -$restante,
+                    'secuencia'           => 1,
+                ]);
+                $consumos[] = ['lote_id' => $loteNegativo->id, 'cantidad' => $restante, 'costo' => $costoUlt];
             }
             $costoTotal += $restante * $costoUlt;
             $cantConsumida += $restante;

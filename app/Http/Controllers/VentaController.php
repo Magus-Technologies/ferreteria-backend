@@ -338,10 +338,14 @@ class VentaController extends Controller
             // Usa SerieDocumentoService que garantiza atomicidad (sin race conditions).
             $estadoVentaTmp = $validated['estado_de_venta'] ?? 'cr';
             if ($estadoVentaTmp !== 'ee' && (empty($validated['serie']) || empty($validated['numero']))) {
-                $correlativo = $this->serieDocumentoService->reservarCorrelativoSimple(
-                    $validated['tipo_documento'],
-                    $validated['almacen_id']
-                );
+                try {
+                    $correlativo = $this->serieDocumentoService->reservarCorrelativoSimple(
+                        $validated['tipo_documento'],
+                        $validated['almacen_id']
+                    );
+                } catch (\Exception $e) {
+                    abort(422, $e->getMessage());
+                }
                 $validated['serie']  = $correlativo['serie'];
                 $validated['numero'] = $correlativo['numero'];
             }

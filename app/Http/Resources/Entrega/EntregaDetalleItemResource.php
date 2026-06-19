@@ -28,6 +28,7 @@ class EntregaDetalleItemResource extends JsonResource
             'unidad'                   => $udiName,
             'factor'                   => $udv ? (float) $udv->factor : null,
             'cantidad_pendiente'       => $udv ? (float) $udv->cantidad_pendiente : null,
+            'udv_cantidad'             => $udv ? (float) $udv->cantidad : null,
             'producto' => $producto ? [
                 'id'           => $producto->id,
                 'name'         => $producto->name,

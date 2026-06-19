@@ -22,7 +22,9 @@ class UpdateDireccionClienteRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'direccion' => 'sometimes|string|max:500',
+            // 'nullable' permite que ConvertEmptyStringsToNull convierta '' a null
+            // sin fallar la regla 'string'. El service convierte null a '' antes de guardar.
+            'direccion' => 'sometimes|nullable|string|max:500',
             'referencia' => 'nullable|string|max:500',
             'latitud' => [
                 'nullable',

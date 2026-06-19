@@ -23,10 +23,10 @@ class VentaPdfService
         $venta = $this->obtenerVenta($ventaId);
         $empresa = $venta->user->empresa;
 
-        // Sobrecargo total excluyendo Izipay: la comisión de Izipay la absorbe el negocio
-        // y no se traslada al cliente en el ticket (ni en la línea de display ni en el TOTAL).
+        // Sobrecargo total excluyendo métodos que distribuyen en precios (ej. Izipay, Culqui):
+        // esos métodos no muestran el sobrecargo como línea separada, lo absorben en el PU.
         $sobrecargoTotal = $venta->despliegueDePagoVentas
-            ->reject(fn($dp) => preg_match('/iz[iy]pay/i', $dp->despliegueDePago->name ?? ''))
+            ->reject(fn($dp) => (bool) ($dp->despliegueDePago->distribuir_en_precios ?? false))
             ->sum('sobrecargo_aplicado') ?? 0;
 
         $productos = $this->prepararProductos($venta, $sobrecargoTotal);
@@ -232,7 +232,7 @@ class VentaPdfService
         // Metodos de pago
         $metodosPago = [];
         foreach ($venta->despliegueDePagoVentas as $dp) {
-            $esIzypay = (bool) preg_match('/iz[iy]pay/i', $dp->despliegueDePago->name ?? '');
+            $esIzypay = (bool) ($dp->despliegueDePago->distribuir_en_precios ?? false);
             $monto = (float) $dp->monto;
             $sobrecargo = (float) ($dp->sobrecargo_aplicado ?? 0);
             $metodosPago[] = [
