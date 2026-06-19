@@ -77,8 +77,13 @@ class ProductoLoteService
      * @param int|null $secuenciaOverride Posición FIFO explícita. Un ingreso que
      *        "hereda" el costo del lote anterior pasa la secuencia de ese lote para
      *        quedar adyacente a él (se consume junto); null = al final (más nuevo).
+     * @param bool $resync Si es false, NO recalcula derivados al terminar. Útil
+     *        para registrar varios lotes seguidos del mismo producto_almacen
+     *        (p. ej. una transferencia que consume N tramos PEPS) y llamar
+     *        {@see resyncDerivados()} UNA sola vez al final, evitando recalcular
+     *        y disparar la invalidación de cache N veces.
      */
-    public function registrarLote(ProductoAlmacen $pa, float $costo, float $cantidad, array $origen = [], ?int $secuenciaOverride = null): ProductoAlmacenLote
+    public function registrarLote(ProductoAlmacen $pa, float $costo, float $cantidad, array $origen = [], ?int $secuenciaOverride = null, bool $resync = true): ProductoAlmacenLote
     {
         $this->inicializarDesdeBucketsSiVacio($pa);
 
@@ -104,7 +109,9 @@ class ProductoLoteService
             'secuencia' => $secuencia,
         ]);
 
-        $this->resyncDerivados($pa);
+        if ($resync) {
+            $this->resyncDerivados($pa);
+        }
 
         return $lote;
     }

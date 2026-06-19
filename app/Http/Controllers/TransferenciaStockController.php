@@ -226,9 +226,12 @@ class TransferenciaStockController extends Controller
                         $productoAlmacenDestino,
                         $tramo['costo'],
                         $tramo['cantidad'],
-                        ['transferencia_stock_id' => $transferencia->id]
+                        ['transferencia_stock_id' => $transferencia->id],
+                        resync: false
                     );
                 }
+                // Recalcular derivados del destino UNA sola vez (no por cada tramo).
+                $loteService->resyncDerivados($productoAlmacenDestino);
                 $productoAlmacenOrigen->refresh();
                 $productoAlmacenDestino->refresh();
 
@@ -416,9 +419,12 @@ class TransferenciaStockController extends Controller
                             $productoAlmacenDestino,
                             $tramo['costo'],
                             $tramo['cantidad'],
-                            ['transferencia_stock_id' => $transferencia->id]
+                            ['transferencia_stock_id' => $transferencia->id],
+                            resync: false
                         );
                     }
+                    // Recalcular derivados del destino UNA sola vez (no por cada tramo).
+                    $loteService->resyncDerivados($productoAlmacenDestino);
                     $productoAlmacenOrigen->refresh();
                     $productoAlmacenDestino->refresh();
 

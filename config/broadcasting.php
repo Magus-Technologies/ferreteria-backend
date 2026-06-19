@@ -43,6 +43,12 @@ return [
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                // ModelChanged es ShouldBroadcastNow: el publish a Reverb es SÍNCRONO
+                // dentro de la request de escritura. Si Reverb está caído/remoto y la
+                // conexión se cuelga, bloquearía cada POST/PUT/DELETE. Acotamos para
+                // que falle rápido (el middleware BroadcastModelChanges traga el error).
+                'timeout' => env('REVERB_CLIENT_TIMEOUT', 3),
+                'connect_timeout' => env('REVERB_CLIENT_CONNECT_TIMEOUT', 2),
             ],
         ],
 
