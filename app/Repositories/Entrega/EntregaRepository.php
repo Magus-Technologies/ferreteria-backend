@@ -140,8 +140,18 @@ class EntregaRepository implements EntregaRepositoryInterface
         }
 
         if (! empty($filtros['chofer_id'])) {
-            $choferId = $filtros['chofer_id'];
-            $query->where('chofer_id', $choferId);
+            if (! empty($filtros['incluir_recojo_tienda'])) {
+                $choferId = $filtros['chofer_id'];
+                $query->where(function ($q) use ($choferId) {
+                    $q->where('chofer_id', $choferId)
+                      ->orWhere(function ($q2) {
+                          $q2->whereNull('chofer_id')
+                             ->whereHas('tipoEntrega', fn ($q3) => $q3->where('codigo', 'rt'));
+                      });
+                });
+            } else {
+                $query->where('chofer_id', $filtros['chofer_id']);
+            }
         }
 
         if (! empty($filtros['vehiculo_id'])) {

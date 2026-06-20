@@ -23,9 +23,10 @@ class ListarEntregasRequest extends FormRequest
             'chofer_id'          => ['nullable', 'string', 'exists:user,id'],
             'vehiculo_id'        => ['nullable'],
             'vehiculo_id.*'      => ['integer', 'exists:vehiculo,id'],
-            'solo_con_pendientes'=> ['nullable', 'boolean'],
-            'solo_sin_entregas'  => ['nullable', 'boolean'],
-            'solo_programadas'   => ['nullable', 'boolean'],
+            'solo_con_pendientes'  => ['nullable', 'boolean'],
+            'solo_sin_entregas'    => ['nullable', 'boolean'],
+            'solo_programadas'     => ['nullable', 'boolean'],
+            'incluir_recojo_tienda'=> ['nullable', 'boolean'],
             'per_page'           => ['nullable', 'integer', 'min:1', 'max:100'],
             'page'               => ['nullable', 'integer', 'min:1'],
         ];

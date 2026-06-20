@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AutorizacionController;
 use App\Http\Controllers\CatalogoController;
+use App\Http\Controllers\ConfiguracionEntregaController;
 use App\Http\Controllers\ConfiguracionImpresionController;
 use App\Http\Controllers\ConfiguracionNotificacionController;
 use App\Http\Controllers\EmpresaController;
@@ -171,6 +172,12 @@ Route::middleware('auth:sanctum')->group(function () {
     require __DIR__ . '/api/servicios.php';    // Servicios (catálogo de servicios para ventas)
     require __DIR__ . '/api/ordenes-compra.php'; // Requerimientos internos y Órdenes de compra
     require __DIR__ . '/api/entregas.php';       // Entregas (catálogos, listado, CRUD, acciones)
+
+    // ============================================
+    // CONFIGURACIÓN DE ENTREGA
+    // ============================================
+    Route::get('configuracion/entrega', [ConfiguracionEntregaController::class, 'index']);
+    Route::put('configuracion/entrega', [ConfiguracionEntregaController::class, 'update']);
 
     // ============================================
     // USUARIOS
