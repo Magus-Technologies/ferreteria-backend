@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>Ticket Entrega #{{ $entrega->id }}</title>
+    <title>Vale de Recojo #{{ $entrega->id }}</title>
     <style>
         {!! $font_face_css ?? '' !!}
 
@@ -55,18 +55,16 @@
 
     <div class="separator"></div>
 
-    {{-- Blade exclusivo para ENTREGA (despacho a domicilio / parcial). El recojo
-         en tienda se imprime con recojo-ticket.blade.php. Mientras está pendiente
-         es un "Vale de Despacho", en tránsito "Entrega en Camino", y al concluir
-         "Ticket de Entrega". El service envía $tipoDocumentoTitulo; el match es
-         solo fallback. --}}
+    {{-- Título: este blade es exclusivo para RECOJO EN TIENDA. Mientras está
+         pendiente es un "Vale de Recojo" (papel que el cliente lleva al almacén);
+         si ya fue recogido/cancelado cambia el título. El service envía
+         $tipoDocumentoTitulo; el match es solo fallback. --}}
     @php
         $tituloPdf = $tipoDocumentoTitulo ?? match($entrega->estado_entrega) {
-            'pe' => 'VALE DE DESPACHO',
-            'ec' => 'ENTREGA EN CAMINO',
+            'pe' => 'VALE DE RECOJO',
             'en' => 'TICKET DE ENTREGA',
-            'ca' => 'ENTREGA CANCELADA',
-            default => 'TICKET DE ENTREGA',
+            'ca' => 'RECOJO CANCELADO',
+            default => 'VALE DE RECOJO',
         };
     @endphp
     <div style="padding: 4px 0;">
