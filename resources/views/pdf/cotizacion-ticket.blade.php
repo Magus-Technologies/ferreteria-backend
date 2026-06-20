@@ -134,6 +134,12 @@
                 <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:8pt;' }}">T. DESCUENTO:</td>
                 <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:8pt;' }}">S/ {{ number_format($calculos['total_descuento'], 2) }}</td>
             </tr>
+            @if(!empty($esRuc))
+            <tr style="border-bottom: 1px solid #ccc;">
+                <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:8pt;' }}">IGV (18%):</td>
+                <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:8pt;' }}">S/ {{ number_format($calculos['igv'] ?? 0, 2) }}</td>
+            </tr>
+            @endif
             <tr style="background-color: #f0f0f0;">
                 <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:9pt;' }}">TOTAL:</td>
                 <td style="text-align:right; font-weight:bold; {{ $bloques['total_valor']['css'] ?? 'font-size:9pt;' }}">S/ {{ number_format($calculos['total'], 2) }}</td>

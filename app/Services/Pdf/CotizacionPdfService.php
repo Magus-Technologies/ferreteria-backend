@@ -15,10 +15,12 @@ class CotizacionPdfService
         $empresa = $cotizacion->user->empresa;
 
         $productos = $this->prepararProductos($cotizacion);
-        $calculos = $this->calcularTotales($productos);
+        // El IGV solo se desglosa cuando el cliente es RUC (11 dígitos).
+        $esRuc = strlen($cotizacion->cliente?->numero_documento ?? '') === 11;
+        $calculos = $this->calcularTotales($productos, $esRuc);
 
         if ($formato === 'ticket') {
-            return $this->generarTicket($cotizacion, $empresa, $productos, $calculos);
+            return $this->generarTicket($cotizacion, $empresa, $productos, $calculos, $esRuc);
         }
 
         $plantilla = PlantillaImpresion::obtenerParaConFormato((int) $empresa->id, 'cotizacion', 'A4');
@@ -39,6 +41,7 @@ class CotizacionPdfService
             'numeroDocumento' => $cotizacion->numero,
             'productos' => $productos,
             'calculos' => $calculos,
+            'esRuc' => $esRuc,
             'filas' => $this->prepararInfoCliente($cotizacion),
             'son' => PdfService::numeroALetras($calculos['total']),
             'moneda' => $cotizacion->tipo_moneda?->value === 'Soles' ? 'SOL' : 'USD',
@@ -55,7 +58,7 @@ class CotizacionPdfService
         return PdfService::render('pdf.cotizacion', $data, $filename);
     }
 
-    private function generarTicket($cotizacion, $empresa, array $productos, array $calculos): Response
+    private function generarTicket($cotizacion, $empresa, array $productos, array $calculos, bool $esRuc = false): Response
     {
         $cliente = $cotizacion->cliente;
         $clienteNombre = $cliente?->razon_social
@@ -86,6 +89,7 @@ class CotizacionPdfService
             'numeroDocumento' => $cotizacion->numero,
             'productos' => $productos,
             'calculos' => $calculos,
+            'esRuc' => $esRuc,
             'clienteNombre' => $clienteNombre,
             'clienteDocumento' => $cliente?->numero_documento ?? '99999999',
             'clienteDireccion' => $direccion,
@@ -155,15 +159,19 @@ class CotizacionPdfService
         return $productos;
     }
 
-    private function calcularTotales(array $productos): array
+    private function calcularTotales(array $productos, bool $esRuc = false): array
     {
         $subtotal = array_sum(array_column($productos, 'subtotal'));
         $totalDescuento = array_sum(array_column($productos, 'descuento'));
         $total = $subtotal - $totalDescuento;
 
+        // El total ya incluye IGV (18%). Solo se desglosa cuando el cliente es RUC.
+        $igv = $esRuc ? round($total - $total / 1.18, 2) : 0;
+
         return [
             'subtotal' => $subtotal,
             'total_descuento' => $totalDescuento,
+            'igv' => $igv,
             'total' => $total,
         ];
     }

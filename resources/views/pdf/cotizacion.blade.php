@@ -46,11 +46,13 @@
         'son' => $son,
         'moneda' => $moneda,
         'observaciones' => $observaciones,
-        'totales' => [
+        'totales' => array_values(array_filter([
             ['label' => 'SUBTOTAL', 'valor' => number_format($calculos['subtotal'], 2)],
             ['label' => 'T. DESCUENTO', 'valor' => number_format($calculos['total_descuento'], 2)],
+            // IGV solo se muestra cuando el cliente es RUC.
+            !empty($esRuc) ? ['label' => 'IGV (18%)', 'valor' => number_format($calculos['igv'] ?? 0, 2)] : null,
             ['label' => 'TOTAL', 'valor' => number_format($calculos['total'], 2)],
-        ],
+        ])),
     ])
 
     {{-- Footer --}}
