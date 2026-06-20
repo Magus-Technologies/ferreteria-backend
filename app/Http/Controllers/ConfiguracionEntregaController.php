@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\ConfiguracionEntrega;
+use App\Traits\BroadcastsModelChanges;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ConfiguracionEntregaController extends Controller
 {
+    use BroadcastsModelChanges;
     public function index(): JsonResponse
     {
         $config = ConfiguracionEntrega::where('clave', 'roles_entrega_tienda')->first();
@@ -28,6 +30,8 @@ class ConfiguracionEntregaController extends Controller
             ['clave' => 'roles_entrega_tienda'],
             ['valor' => $validated['roles_entrega_tienda']]
         );
+
+        $this->broadcastChange('configuracion-entrega', 'updated');
 
         return response()->json(['success' => true]);
     }
