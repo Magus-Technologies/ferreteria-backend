@@ -15,6 +15,7 @@ class CatalogoCargo extends Model
         'parent',
         'highlight',
         'staff',
+        'visible_organigrama',
         'estado',
         'role_id',
     ];
@@ -22,6 +23,7 @@ class CatalogoCargo extends Model
     protected $casts = [
         'highlight' => 'boolean',
         'staff' => 'boolean',
+        'visible_organigrama' => 'boolean',
         'estado' => 'boolean',
     ];
 

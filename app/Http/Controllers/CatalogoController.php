@@ -127,7 +127,7 @@ class CatalogoController extends Controller
             $query->where('parent', $request->input('parent'));
         }
 
-        $cargos = $query->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff', 'role_id']);
+        $cargos = $query->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff', 'visible_organigrama', 'role_id']);
 
         return response()->json([
             'data' => $cargos
@@ -146,6 +146,7 @@ class CatalogoController extends Controller
             'parent' => ['nullable', 'string', 'max:120'],
             'highlight' => ['sometimes', 'boolean'],
             'staff' => ['sometimes', 'boolean'],
+            'visible_organigrama' => ['sometimes', 'boolean'],
             'estado' => ['sometimes', 'boolean'],
             'role_id' => ['nullable', 'integer', 'exists:role,id'],
         ]);
@@ -168,7 +169,7 @@ class CatalogoController extends Controller
     public function show(string $codigo): JsonResponse
     {
         $cargo = CatalogoCargo::where('codigo', $codigo)
-            ->firstOrFail(['codigo', 'descripcion', 'parent', 'highlight', 'staff']);
+            ->firstOrFail(['codigo', 'descripcion', 'parent', 'highlight', 'staff', 'visible_organigrama']);
 
         return response()->json([
             'data' => $cargo
@@ -189,6 +190,7 @@ class CatalogoController extends Controller
             'parent' => ['nullable', 'string', 'max:120'],
             'highlight' => ['sometimes', 'boolean'],
             'staff' => ['sometimes', 'boolean'],
+            'visible_organigrama' => ['sometimes', 'boolean'],
             'estado' => ['sometimes', 'boolean'],
             'role_id' => ['nullable', 'integer', 'exists:role,id'],
         ]);
@@ -250,7 +252,7 @@ class CatalogoController extends Controller
 
         $cargos = CatalogoCargo::with('role:id,name,descripcion')
             ->orderBy('descripcion')
-            ->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff', 'estado', 'role_id'])
+            ->get(['id', 'codigo', 'descripcion', 'parent', 'highlight', 'staff', 'visible_organigrama', 'estado', 'role_id'])
             ->map(function ($c) use ($conteos) {
                 return [
                     'id' => $c->id,
@@ -259,6 +261,7 @@ class CatalogoController extends Controller
                     'parent' => $c->parent,
                     'highlight' => (bool) $c->highlight,
                     'staff' => (bool) $c->staff,
+                    'visible_organigrama' => (bool) $c->visible_organigrama,
                     'estado' => (bool) $c->estado,
                     'role_id' => $c->role_id,
                     'role' => $c->role ? ['id' => $c->role->id, 'name' => $c->role->name, 'descripcion' => $c->role->descripcion] : null,
