@@ -3,6 +3,7 @@
 namespace App\Services\Pdf;
 
 use App\Models\NotaCredito;
+use App\Models\PlantillaImpresion;
 use Illuminate\Http\Response;
 
 class NotaCreditoPdfService
@@ -11,6 +12,14 @@ class NotaCreditoPdfService
     {
         $nota = $this->obtenerNota($id);
         $empresa = $nota->usuario->empresa;
+
+        // Plantilla del comprobante para respetar flags como "ocultar logo" en ticket.
+        $plantilla = PlantillaImpresion::obtenerParaConFormato(
+            (int) $empresa->id,
+            'nota-credito',
+            $formato === 'ticket' ? 'Ticket' : 'A4'
+        );
+        $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
 
         $productos = $this->prepararProductos($nota);
         $calculos = $this->calcularTotales($nota, $productos);
@@ -49,6 +58,7 @@ class NotaCreditoPdfService
             'calculos' => $calculos,
             'son' => PdfService::numeroALetras($calculos['total']),
             'observaciones' => $nota->observaciones ?: '- NINGUNA',
+            'msg' => $msg,
         ];
 
         $filename = "NC-{$numeroCompleto}.pdf";

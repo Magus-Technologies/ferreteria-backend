@@ -48,6 +48,8 @@ class PlantillaImpresion extends Model
         'ocultar_canjear' => false,
         'ocultar_despedida' => false,
         'ocultar_cuentas_bancarias' => false,
+        // Oculta el logo de la empresa en el ticket (configurable por comprobante).
+        'ocultar_logo' => false,
     ];
 
     /**
