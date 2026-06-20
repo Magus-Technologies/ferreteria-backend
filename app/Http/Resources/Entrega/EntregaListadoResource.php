@@ -65,6 +65,7 @@ class EntregaListadoResource extends JsonResource
             'motivo_anulacion'   => $this->motivo_anulacion,
             'user_entregado_id'   => $this->user_entregado_id,
             'user_entregado_name' => $this->userEntregado?->name,
+            'almacen_salida_name' => $this->almacenSalida?->name,
 
             'venta' => $this->whenLoaded('venta', fn () => [
                 'id'              => $this->venta->id,

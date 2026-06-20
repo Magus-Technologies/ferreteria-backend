@@ -125,6 +125,7 @@ class EntregaRepository implements EntregaRepositoryInterface
             'venta.cliente.direcciones:id,cliente_id,tipo,direccion,latitud,longitud',
             'chofer:id,name',
             'userEntregado:id,name',
+            'almacenSalida:id,name',
             'vehiculo:id,name,placa',
             'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',

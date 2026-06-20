@@ -27,6 +27,7 @@ class EntregaNuevaPdfService
             'tipoDespacho',
             'almacenSalida:id,name',
             'chofer:id,name',
+            'userEntregado:id,name',
             'userCreador:id,name,empresa_id',
             'userCreador.empresa',
             'venta.user.empresa',
@@ -67,7 +68,7 @@ class EntregaNuevaPdfService
         $adapter->tipo_despacho      = $entrega->tipoDespacho?->codigo?->value ?? '';
         $adapter->user_entregado_id  = $entrega->user_entregado_id;
         $adapter->grupo_entrega_id   = null; // no existe en el nuevo modelo
-        $adapter->despachador        = $entrega->chofer;
+        $adapter->despachador        = $entrega->chofer ?? $entrega->userEntregado;
         $adapter->user               = $entrega->userCreador;
         $adapter->almacenSalida      = $entrega->almacenSalida;
         $adapter->venta              = $entrega->venta;
@@ -136,7 +137,7 @@ class EntregaNuevaPdfService
                     : ($adapter->fecha_programada ? \Carbon\Carbon::parse($adapter->fecha_programada)->format('d/m/Y') : '-'),
                 'ALMACEN' => $adapter->almacenSalida?->name ?? '-',
             ],
-            ['TIPO ENTREGA' => $tipoEntregaLabel, 'DESPACHADOR' => $adapter->despachador?->name ?? $adapter->user?->name ?? '-'],
+            ['TIPO ENTREGA' => $tipoEntregaLabel, 'DESPACHADOR' => $adapter->despachador?->name ?? $entrega->userEntregado?->name ?? $adapter->user?->name ?? '-'],
             ['TIPO DESPACHO' => $tipoDespachoLabel, 'ESTADO' => $estadoLabel],
         ];
 
