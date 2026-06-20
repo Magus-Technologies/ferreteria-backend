@@ -153,10 +153,15 @@ class EntregaNuevaPdfService
         // ── Productos (tabla) ─────────────────────────────────────
         $productosTabla = $this->prepararProductosDesdeDetalles($entrega, $estadoCodigo, $ultimaEdicion);
 
+        // Recojo en tienda ('rt') usa sus propios blades y su propio comprobante
+        // de estilos ('recojo'); el resto usa los de entrega.
+        $esRecojo = $adapter->tipo_entrega === 'rt';
+
         // ── Estilos ───────────────────────────────────────────────
         $formatoPlantilla = $formato === 'a4' ? 'A4' : 'Ticket';
+        $comprobanteEstilos = $esRecojo ? 'recojo' : 'entrega';
         $estilos = $empresa
-            ? $this->prepararDatosPlantilla((int) $empresa->id, 'entrega', $formatoPlantilla)
+            ? $this->prepararDatosPlantilla((int) $empresa->id, $comprobanteEstilos, $formatoPlantilla)
             : ['est' => [], 'msg' => [], 'bloques' => [], 'font_face_css' => ''];
 
         $data = array_merge([
@@ -187,11 +192,17 @@ class EntregaNuevaPdfService
             default => "TICKET-ENTREGA-{$id}.pdf",
         };
 
+        // Recojo en tienda usa sus propios blades (recojo-*); el resto
+        // (despacho a domicilio / parcial / en camino / entregado / cancelado)
+        // usa los blades de entrega (entrega-*).
+        $vistaA4     = $esRecojo ? 'pdf.recojo-a4' : 'pdf.entrega-a4';
+        $vistaTicket = $esRecojo ? 'pdf.recojo-ticket' : 'pdf.entrega-ticket';
+
         if ($formato === 'a4') {
-            return PdfService::render('pdf.entrega-a4', $data, $nombreArchivo, 'portrait');
+            return PdfService::render($vistaA4, $data, $nombreArchivo, 'portrait');
         }
 
-        return PdfService::render('pdf.entrega-ticket', $data, $nombreArchivo, 'portrait', [0, 0, 226.77, 841.89]);
+        return PdfService::render($vistaTicket, $data, $nombreArchivo, 'portrait', [0, 0, 226.77, 841.89]);
     }
 
     private function prepararProductosDesdeDetalles(Entrega $entrega, string $estadoCodigo, ?object $ultimaEdicion = null): array
