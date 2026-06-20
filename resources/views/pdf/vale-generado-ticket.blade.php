@@ -42,7 +42,7 @@
 <body>
     {{-- Header empresa --}}
     <div class="text-center" style="margin-bottom: 4px;">
-        @if($logoPath)
+        @if($logoPath && !($msg['ocultar_logo'] ?? false))
             <img src="{{ $logoPath }}" style="max-height: 80px; max-width: 140px;" alt="Logo">
         @endif
         <div style="margin-top: 2px;">

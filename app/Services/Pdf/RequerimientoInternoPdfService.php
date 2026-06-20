@@ -2,6 +2,7 @@
 
 namespace App\Services\Pdf;
 
+use App\Models\PlantillaImpresion;
 use App\Models\RequerimientoInterno;
 use Illuminate\Http\Response;
 
@@ -56,6 +57,17 @@ class RequerimientoInternoPdfService
         $productos = $this->prepararProductos($requerimiento);
         $servicios = $this->prepararServicios($requerimiento);
 
+        // Plantilla del comprobante para respetar flags como "ocultar logo" en ticket.
+        $comprobantePlantilla = $requerimiento->tipo_solicitud === 'OS'
+            ? 'requerimiento-servicio'
+            : 'requerimiento-compra';
+        $plantilla = PlantillaImpresion::obtenerParaConFormato(
+            (int) $empresa->id,
+            $comprobantePlantilla,
+            $formato === 'ticket' ? 'Ticket' : 'A4'
+        );
+        $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
+
         return [
             'requerimiento' => $requerimiento,
             'empresa' => $empresa,
@@ -64,6 +76,7 @@ class RequerimientoInternoPdfService
             'productos' => $productos,
             'servicios' => $servicios,
             'columnas' => $columnas,
+            'msg' => $msg,
         ];
     }
 

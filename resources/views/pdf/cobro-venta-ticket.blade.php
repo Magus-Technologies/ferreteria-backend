@@ -50,7 +50,7 @@
 <body>
     {{-- Header: Solo Logo --}}
     <div class="text-center" style="margin-bottom: 4px;">
-        @if($logoPath)
+        @if($logoPath && !($msg['ocultar_logo'] ?? false))
             <img src="{{ $logoPath }}" style="max-height: 120px; max-width: 180px;" alt="Logo">
         @endif
     </div>
