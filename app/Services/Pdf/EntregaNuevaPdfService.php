@@ -228,15 +228,17 @@ class EntregaNuevaPdfService
             $recibido        = max($cantidadAnterior - $udvCantidad, 0);
 
             if ($ultimaEdicion && $recibido > 0) {
-                $cantidad  = max($cantidadAnterior, $udvCantidad);
+                // Post-edit confirmed: show what this delivery had originally,
+                // net delivered ($udvCantidad) after returns ($recibido).
+                $cantidad  = $detalleQty;
                 $entregado = $udvCantidad;
                 $pendiente = 0.0;
             } else {
-                $pendienteTotal = (float) ($udv?->cantidad_pendiente ?? $udvCantidad);
-                $entregadoAntes = max(0.0, $udvCantidad - $pendienteTotal);
-                $cantidad  = $udvCantidad;
-                $entregado = $entregaFisica ? $detalleQty : $entregadoAntes;
-                $pendiente = $entregaFisica ? 0.0 : $pendienteTotal;
+                // Normal case: Total = what THIS delivery was programmed for,
+                // not the full sale qty. Mirrors the frontend per-delivery logic.
+                $cantidad  = $detalleQty;
+                $entregado = $entregaFisica ? $detalleQty : 0.0;
+                $pendiente = $entregaFisica ? 0.0 : $detalleQty;
                 $recibido  = 0.0;
             }
 
