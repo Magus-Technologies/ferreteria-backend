@@ -124,6 +124,7 @@ class EntregaRepository implements EntregaRepositoryInterface
             // Direcciones con GPS para el modal Mapa de Entrega (fallback de coords).
             'venta.cliente.direcciones:id,cliente_id,tipo,direccion,latitud,longitud',
             'chofer:id,name',
+            'userEntregado:id,name',
             'vehiculo:id,name,placa',
             'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',

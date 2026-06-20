@@ -63,7 +63,8 @@ class EntregaListadoResource extends JsonResource
             'longitud'           => $longitud !== null ? (float) $longitud : null,
             'observaciones'      => $this->observaciones,
             'motivo_anulacion'   => $this->motivo_anulacion,
-            'user_entregado_id'  => $this->user_entregado_id,
+            'user_entregado_id'   => $this->user_entregado_id,
+            'user_entregado_name' => $this->userEntregado?->name,
 
             'venta' => $this->whenLoaded('venta', fn () => [
                 'id'              => $this->venta->id,
