@@ -32,7 +32,7 @@ class CatalogoController extends Controller
     public function roles(): JsonResponse
     {
         $roles = Role::orderBy('name', 'asc')
-            ->get(['id', 'name', 'descripcion']);
+            ->get(['id', 'name', 'descripcion', 'rol_sistema']);
 
         return response()->json([
             'data' => $roles
