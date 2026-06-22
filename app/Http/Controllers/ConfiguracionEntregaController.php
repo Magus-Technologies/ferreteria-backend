@@ -22,9 +22,8 @@ class ConfiguracionEntregaController extends Controller
 
     public function update(Request $request): JsonResponse
     {
-        $rolesValidos = Role::whereNotNull('rol_sistema')
-            ->pluck('rol_sistema')
-            ->unique()
+        $rolesValidos = Role::where('name', '!=', 'admin_global')
+            ->pluck('name')
             ->values()
             ->toArray();
 
