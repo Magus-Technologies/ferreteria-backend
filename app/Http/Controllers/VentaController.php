@@ -1515,22 +1515,23 @@ class VentaController extends Controller
             $venta->stock_aplicado = $descontarStockAhora;
             $venta->save();
 
-            // ── Transición especial: auto-crear entrega EnTienda cuando no existe ──
-            // Dos casos cubiertos:
+            // ── Auto-crear entrega EnTienda cuando no existe ninguna activa ──
+            // Casos cubiertos:
             //  A) 'ee' → 'cr': store() la saltó porque era venta en espera.
-            //  B) 'an' → 'cr': la venta fue anulada sin haber tenido entrega
-            //     (p.ej. se guardó como 'ee', se anuló y luego se recuperó).
-            //     La línea 1088 reactivaría entregas canceladas, pero si no
-            //     existía ninguna no hace nada — este bloque la crea.
+            //  B) 'an' → 'cr': la venta fue anulada sin haber tenido entrega activa.
+            //  C) Cualquier estado → edición normal: la única entrega existente
+            //     fue cancelada (p.ej. devolución parcial) y se reedita la venta;
+            //     se crea una nueva entrega con las cantidades actualizadas.
             //
-            // Si la venta 'an' SÍ tenía entrega, la línea 1088 ya la reactivó
-            // a 'pe' y este bloque no ejecuta.
+            // Si ya existe alguna entrega ACTIVA (pe/ec/en), este bloque no
+            // ejecuta — las cantidades se actualizan por el loop de regeneración.
             if (
-                in_array($estadoAnterior, ['ee', 'an']) &&
-                ! in_array($estadoNuevo, ['ee', 'an']) &&
                 $tipoDespachoNuevo === 'et' &&
+                ! in_array($estadoNuevo, ['ee', 'an']) &&
                 ! $omitirEntregaUpdate &&
-                ! \App\Models\Entrega::where('venta_id', $id)->exists()
+                ! \App\Models\Entrega::where('venta_id', $id)
+                    ->whereHas('estadoEntrega', fn ($q) => $q->whereNotIn('codigo', ['ca']))
+                    ->exists()
             ) {
                 $quienEntregaAuto = $validated['quien_entrega'] ?? 'almacen';
                 $estadoEntregaAuto = $noDescontarStockUpdate
