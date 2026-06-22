@@ -597,12 +597,12 @@ class ValeCompraController extends Controller
         $cantidadTotal = (float) ($validated['cantidad_total'] ?? 0);
         $precioTotal = (float) $validated['precio_total'];
 
-        \Log::info('🔍 valesAplicables called', [
-            'precio_total' => $precioTotal,
-            'cantidad_total' => $cantidadTotal,
-            'producto_ids' => $validated['producto_ids'] ?? [],
-            'cliente_id' => $validated['cliente_id'] ?? null,
-        ]);
+        // \Log::info('🔍 valesAplicables called', [
+        //     'precio_total' => $precioTotal,
+        //     'cantidad_total' => $cantidadTotal,
+        //     'producto_ids' => $validated['producto_ids'] ?? [],
+        //     'cliente_id' => $validated['cliente_id'] ?? null,
+        // ]);
 
         $detalles = $validated['detalles'] ?? [];
 
@@ -669,10 +669,10 @@ class ValeCompraController extends Controller
             return false;
         })->values();
 
-        \Log::info('✅ valesAplicables result', [
-            'count' => $valesAplicables->count(),
-            'codigos' => $valesAplicables->pluck('codigo')->toArray(),
-        ]);
+        // \Log::info('✅ valesAplicables result', [
+        //     'count' => $valesAplicables->count(),
+        //     'codigos' => $valesAplicables->pluck('codigo')->toArray(),
+        // ]);
 
         return response()->json([
             'data' => $valesAplicables,

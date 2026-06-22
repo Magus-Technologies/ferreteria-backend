@@ -78,11 +78,11 @@ class KardexFacturacionService
             'factor' => $factor,
         ]);
 
-        \Log::info('KardexFacturacion registrar:', [
-            'nominal' => $dataToSave['cantidad'],
-            'base' => $cantIngresoBase ?: $cantSalidaBase,
-            'costo_anterior' => $costoAnteriorBase,
-        ]);
+        // \Log::info('KardexFacturacion registrar:', [
+        //     'nominal' => $dataToSave['cantidad'],
+        //     'base' => $cantIngresoBase ?: $cantSalidaBase,
+        //     'costo_anterior' => $costoAnteriorBase,
+        // ]);
 
         return KardexFacturacion::create($dataToSave);
     }
