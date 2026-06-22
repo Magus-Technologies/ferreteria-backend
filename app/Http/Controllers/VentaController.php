@@ -1266,6 +1266,31 @@ class VentaController extends Controller
                     }
                 }
 
+                // Snapshot de detalles de entregas CANCELADAS para preservar las
+                // cantidades originales. Sin esto, al editar la venta se pierden
+                // los detalles cancelados y allEntregadoMap nunca puede superar
+                // el nuevo total, haciendo que devolvio=0 siempre.
+                $entregasCanceladas = \App\Models\Entrega::where('venta_id', $id)
+                    ->whereHas('estadoEntrega', fn ($q) => $q->where('codigo', 'ca'))
+                    ->with([
+                        'detalles.unidadDerivadaVenta.productoAlmacenVenta',
+                        'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
+                    ])
+                    ->get();
+
+                $detallesCancelados = [];
+                foreach ($entregasCanceladas as $entrega) {
+                    foreach ($entrega->detalles as $detalle) {
+                        $udv = $detalle->unidadDerivadaVenta;
+                        if (! $udv) continue;
+                        $pav = $udv->productoAlmacenVenta;
+                        $unidadInmutable = $udv->unidadDerivadaInmutable;
+                        if (! $pav || ! $unidadInmutable) continue;
+                        $clave = $pav->producto_almacen_id . ':' . $unidadInmutable->name;
+                        $detallesCancelados[$entrega->id][$clave] = (float) $detalle->cantidad;
+                    }
+                }
+
                 // Eliminar registros hijos en orden correcto para evitar FK constraint
                 $productoAlmacenVentaIds = ProductoAlmacenVenta::where('venta_id', $id)->pluck('id');
                 $unidadDerivadaVentaIds = UnidadDerivadaInmutableVenta::whereIn('producto_almacen_venta_id', $productoAlmacenVentaIds)->pluck('id');
@@ -1381,6 +1406,25 @@ class VentaController extends Controller
                             'cantidad' => $cantSolicitada,
                             'ubicacion' => null,
                         ]);
+                    }
+                }
+
+                // Recrear entrega_detalle de entregas CANCELADAS con cantidades
+                // originales (sin capear al nuevo total). Esto permite que
+                // allEntregadoMap en el frontend refleje lo que se comprometió
+                // históricamente, haciendo que devolvio = max(0, comprometido - nuevo_total) > 0
+                // cuando la venta se redujo después de haber comprometido stock.
+                foreach ($entregasCanceladas as $entrega) {
+                    $clavesCancelada = $detallesCancelados[$entrega->id] ?? [];
+                    foreach ($nuevasUdvPorClave as $clave => $udvNueva) {
+                        if (array_key_exists($clave, $clavesCancelada)) {
+                            \App\Models\EntregaDetalle::create([
+                                'entrega_id'               => $entrega->id,
+                                'unidad_derivada_venta_id' => $udvNueva->id,
+                                'cantidad'                 => $clavesCancelada[$clave],
+                                'ubicacion'                => null,
+                            ]);
+                        }
                     }
                 }
 
