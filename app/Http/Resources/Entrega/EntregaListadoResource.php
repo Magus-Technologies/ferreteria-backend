@@ -63,13 +63,21 @@ class EntregaListadoResource extends JsonResource
             'longitud'           => $longitud !== null ? (float) $longitud : null,
             'observaciones'      => $this->observaciones,
             'motivo_anulacion'   => $this->motivo_anulacion,
-            'user_entregado_id'  => $this->user_entregado_id,
+            'user_entregado_id'   => $this->user_entregado_id,
+            'user_entregado_name' => $this->userEntregado?->name,
+            'almacen_salida_name' => $this->almacenSalida?->name,
 
             'venta' => $this->whenLoaded('venta', fn () => [
                 'id'              => $this->venta->id,
                 'serie'           => $this->venta->serie,
                 'numero'          => $this->venta->numero,
                 'tipo_documento'  => $this->venta->tipo_documento,
+                'historial' => $this->venta->relationLoaded('historial')
+                    ? $this->venta->historial->map(fn ($h) => [
+                        'accion'           => $h->accion,
+                        'datos_anteriores' => $h->datos_anteriores,
+                    ])->values()->toArray()
+                    : [],
                 'cliente' => $this->venta->cliente ? [
                     'id'               => $this->venta->cliente->id,
                     'razon_social'     => $this->venta->cliente->razon_social

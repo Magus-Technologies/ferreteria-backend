@@ -1266,6 +1266,31 @@ class VentaController extends Controller
                     }
                 }
 
+                // Snapshot de detalles de entregas CANCELADAS para preservar las
+                // cantidades originales. Sin esto, al editar la venta se pierden
+                // los detalles cancelados y allEntregadoMap nunca puede superar
+                // el nuevo total, haciendo que devolvio=0 siempre.
+                $entregasCanceladas = \App\Models\Entrega::where('venta_id', $id)
+                    ->whereHas('estadoEntrega', fn ($q) => $q->where('codigo', 'ca'))
+                    ->with([
+                        'detalles.unidadDerivadaVenta.productoAlmacenVenta',
+                        'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
+                    ])
+                    ->get();
+
+                $detallesCancelados = [];
+                foreach ($entregasCanceladas as $entrega) {
+                    foreach ($entrega->detalles as $detalle) {
+                        $udv = $detalle->unidadDerivadaVenta;
+                        if (! $udv) continue;
+                        $pav = $udv->productoAlmacenVenta;
+                        $unidadInmutable = $udv->unidadDerivadaInmutable;
+                        if (! $pav || ! $unidadInmutable) continue;
+                        $clave = $pav->producto_almacen_id . ':' . $unidadInmutable->name;
+                        $detallesCancelados[$entrega->id][$clave] = (float) $detalle->cantidad;
+                    }
+                }
+
                 // Eliminar registros hijos en orden correcto para evitar FK constraint
                 $productoAlmacenVentaIds = ProductoAlmacenVenta::where('venta_id', $id)->pluck('id');
                 $unidadDerivadaVentaIds = UnidadDerivadaInmutableVenta::whereIn('producto_almacen_venta_id', $productoAlmacenVentaIds)->pluck('id');
@@ -1384,6 +1409,25 @@ class VentaController extends Controller
                     }
                 }
 
+                // Recrear entrega_detalle de entregas CANCELADAS con cantidades
+                // originales (sin capear al nuevo total). Esto permite que
+                // allEntregadoMap en el frontend refleje lo que se comprometió
+                // históricamente, haciendo que devolvio = max(0, comprometido - nuevo_total) > 0
+                // cuando la venta se redujo después de haber comprometido stock.
+                foreach ($entregasCanceladas as $entrega) {
+                    $clavesCancelada = $detallesCancelados[$entrega->id] ?? [];
+                    foreach ($nuevasUdvPorClave as $clave => $udvNueva) {
+                        if (array_key_exists($clave, $clavesCancelada)) {
+                            \App\Models\EntregaDetalle::create([
+                                'entrega_id'               => $entrega->id,
+                                'unidad_derivada_venta_id' => $udvNueva->id,
+                                'cantidad'                 => $clavesCancelada[$clave],
+                                'ubicacion'                => null,
+                            ]);
+                        }
+                    }
+                }
+
                 // Forzar re-confirmación de entregas tras editar la venta:
                 // las entregas que estaban 'en' (entregado) o 'ec' (en camino)
                 // pasan a 'pe' (pendiente) para que el usuario re-valide
@@ -1471,22 +1515,23 @@ class VentaController extends Controller
             $venta->stock_aplicado = $descontarStockAhora;
             $venta->save();
 
-            // ── Transición especial: auto-crear entrega EnTienda cuando no existe ──
-            // Dos casos cubiertos:
+            // ── Auto-crear entrega EnTienda cuando no existe ninguna activa ──
+            // Casos cubiertos:
             //  A) 'ee' → 'cr': store() la saltó porque era venta en espera.
-            //  B) 'an' → 'cr': la venta fue anulada sin haber tenido entrega
-            //     (p.ej. se guardó como 'ee', se anuló y luego se recuperó).
-            //     La línea 1088 reactivaría entregas canceladas, pero si no
-            //     existía ninguna no hace nada — este bloque la crea.
+            //  B) 'an' → 'cr': la venta fue anulada sin haber tenido entrega activa.
+            //  C) Cualquier estado → edición normal: la única entrega existente
+            //     fue cancelada (p.ej. devolución parcial) y se reedita la venta;
+            //     se crea una nueva entrega con las cantidades actualizadas.
             //
-            // Si la venta 'an' SÍ tenía entrega, la línea 1088 ya la reactivó
-            // a 'pe' y este bloque no ejecuta.
+            // Si ya existe alguna entrega ACTIVA (pe/ec/en), este bloque no
+            // ejecuta — las cantidades se actualizan por el loop de regeneración.
             if (
-                in_array($estadoAnterior, ['ee', 'an']) &&
-                ! in_array($estadoNuevo, ['ee', 'an']) &&
                 $tipoDespachoNuevo === 'et' &&
+                ! in_array($estadoNuevo, ['ee', 'an']) &&
                 ! $omitirEntregaUpdate &&
-                ! \App\Models\Entrega::where('venta_id', $id)->exists()
+                ! \App\Models\Entrega::where('venta_id', $id)
+                    ->whereHas('estadoEntrega', fn ($q) => $q->whereNotIn('codigo', ['ca']))
+                    ->exists()
             ) {
                 $quienEntregaAuto = $validated['quien_entrega'] ?? 'almacen';
                 $estadoEntregaAuto = $noDescontarStockUpdate

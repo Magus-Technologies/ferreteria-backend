@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ConfiguracionEntrega;
+use App\Models\Role;
 use App\Traits\BroadcastsModelChanges;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,9 +22,14 @@ class ConfiguracionEntregaController extends Controller
 
     public function update(Request $request): JsonResponse
     {
+        $rolesValidos = Role::where('name', '!=', 'admin_global')
+            ->pluck('name')
+            ->values()
+            ->toArray();
+
         $validated = $request->validate([
             'roles_entrega_tienda'   => ['required', 'array'],
-            'roles_entrega_tienda.*' => ['string', 'in:ADMINISTRADOR,VENDEDOR,ALMACENERO,CONTADOR,DESPACHADOR,CONDUCTOR'],
+            'roles_entrega_tienda.*' => ['string', 'in:' . implode(',', $rolesValidos)],
         ]);
 
         ConfiguracionEntrega::updateOrCreate(
