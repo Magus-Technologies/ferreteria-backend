@@ -2476,13 +2476,11 @@ class VentaController extends Controller
                 }
             ], 'fecha')
             ->where('forma_de_pago', FormaDePago::Credito)
-            ->when($estadoPago === 'pendientes', function ($q) {
-                // Pendientes: solo ventas aún abiertas (Creado)
-                $q->where('estado_de_venta', EstadoDeVenta::Creado);
-            }, function ($q) {
-                // Pagadas o Todas: incluir también las ya procesadas (completamente pagadas)
-                $q->whereIn('estado_de_venta', [EstadoDeVenta::Creado, EstadoDeVenta::Procesado]);
-            });
+            // Incluir Creado y Procesado en todos los casos; quién es "pendiente" o
+            // "pagada" lo decide el saldo real más abajo, no el estado. Así una venta
+            // que quedó marcada Procesado pero aún debe centavos sigue saliendo como
+            // pendiente.
+            ->whereIn('estado_de_venta', [EstadoDeVenta::Creado, EstadoDeVenta::Procesado]);
 
         // Filtros opcionales
         if ($request->has('almacen_id')) {
@@ -2552,9 +2550,9 @@ class VentaController extends Controller
                 $saldo        = $total - $totalCobrado;
 
                 if ($estadoPago === 'pendientes') {
-                    return $saldo > 0.01; // Solo con saldo pendiente
+                    return round($saldo, 2) > 0; // Cualquier saldo pendiente (aunque sea 1 centavo)
                 } elseif ($estadoPago === 'pagadas') {
-                    return $saldo <= 0.01; // Solo pagadas completamente
+                    return round($saldo, 2) <= 0; // Solo pagadas completamente
                 } else {
                     return true; // Todas
                 }
@@ -2575,9 +2573,9 @@ class VentaController extends Controller
             $saldo        = $total - $totalCobrado;
 
             if ($estadoPago === 'pendientes') {
-                return $saldo > 0.01; // Solo con saldo pendiente
+                return round($saldo, 2) > 0; // Cualquier saldo pendiente (aunque sea 1 centavo)
             } elseif ($estadoPago === 'pagadas') {
-                return $saldo <= 0.01; // Solo pagadas completamente
+                return round($saldo, 2) <= 0; // Solo pagadas completamente
             } else {
                 return true; // Todas
             }
@@ -2750,9 +2748,12 @@ class VentaController extends Controller
                 'user_id'               => $validated['user_id'],
             ]);
 
-            // Actualizar estado de la venta si quedó completamente pagada
+            // Actualizar estado de la venta solo si quedó completamente pagada.
+            // Se compara redondeando a 2 decimales para absorber el ruido de punto
+            // flotante (pagar el total exacto pero que el float dé 19.9999998) sin
+            // perdonar un centavo real sin cobrar (pagar 19.99 de 20.00).
             $nuevoTotalCobrado = $totalCobrado + $validated['monto'];
-            if ($nuevoTotalCobrado >= ($totalVenta - 0.01)) {
+            if (round($nuevoTotalCobrado, 2) >= round($totalVenta, 2)) {
                 $venta->update(['estado_de_venta' => EstadoDeVenta::Procesado]);
             }
 
@@ -2833,9 +2834,10 @@ class VentaController extends Controller
                     'user_id'               => $validated['user_id'],
                 ]);
 
-                // Actualizar estado si quedó completamente pagada
+                // Actualizar estado solo si quedó completamente pagada (redondeo a
+                // 2 decimales: absorbe ruido de float, no perdona centavos reales).
                 $nuevoTotalCobrado = $totalCobrado + $item['monto'];
-                if ($nuevoTotalCobrado >= ($totalVenta - 0.01)) {
+                if (round($nuevoTotalCobrado, 2) >= round($totalVenta, 2)) {
                     $venta->update(['estado_de_venta' => EstadoDeVenta::Procesado]);
                 }
 
@@ -2897,9 +2899,10 @@ class VentaController extends Controller
             $totalCobradoActivo = $venta->cobrosVenta()->where('estado', true)->sum('monto');
             $saldoPendiente = $totalVenta - $totalCobradoActivo;
 
-            // Si había quedado como Procesado pero ahora tiene saldo pendiente, volver a Pendiente
-            if ($venta->estado_de_venta === EstadoDeVenta::Procesado && $saldoPendiente > 0.01) {
-                $venta->update(['estado_de_venta' => EstadoDeVenta::Pendiente]);
+            // Si había quedado como Procesado pero ahora tiene saldo pendiente, reabrirla.
+            // (El enum no tiene "Pendiente"; el estado abierto es Creado.)
+            if ($venta->estado_de_venta === EstadoDeVenta::Procesado && round($saldoPendiente, 2) > 0) {
+                $venta->update(['estado_de_venta' => EstadoDeVenta::Creado]);
             }
 
             return response()->json([
