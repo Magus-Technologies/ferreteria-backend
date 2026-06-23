@@ -109,6 +109,18 @@ class VentaController extends Controller
                 $query->where('estado_de_venta', $estadoEnum->value);
             }
         }
+
+        // Filter by estado_cuenta
+           if ($request->has('estado_cuenta')) {
+            $ec = $request->estado_cuenta;
+            if ($ec === 'pagado') {
+                $query->where('estado_de_venta', EstadoDeVenta::Procesado->value);
+            } elseif ($ec === 'deuda') {
+                $query->where('estado_de_venta', EstadoDeVenta::Creado->value)
+                      ->where('forma_de_pago', FormaDePago::Credito->value);
+            }
+        }
+
         // Filtro "Todos" (sin estado): no se aplica ninguna exclusión, se
         // devuelven TODOS los estados (Creado, En Espera, Anulado, etc.). Los
         // totales del front excluyen del cálculo los estados que no son ventas
@@ -266,7 +278,7 @@ class VentaController extends Controller
             'fecha' => 'required|date',
             'estado_de_venta' => 'required|string',
             'canal' => 'nullable|string|in:presencial,web',
-            'tipo_despacho' => 'nullable|string|in:et,do,pa',
+            'tipo_despacho' => 'nullable|string|in:et,do,pa,oc',
             'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
             'omitir_entrega' => 'sometimes|boolean',
             // descontar_stock=no significa "el cliente ya tiene el producto":
@@ -517,7 +529,7 @@ class VentaController extends Controller
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
             $noDescontarStock = ($validated['descontar_stock'] ?? 'si') === 'no';
             $stockYaAplicado = (bool) ($validated['stock_ya_aplicado'] ?? false);
-            $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa'])
+            $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa', 'oc'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
                 && ! $noDescontarStock
@@ -943,7 +955,7 @@ class VentaController extends Controller
             'tipo_de_cambio' => 'nullable|numeric',
             'fecha' => 'sometimes|date',
             'estado_de_venta' => 'sometimes|string',
-            'tipo_despacho' => 'nullable|string|in:et,do,pa',
+            'tipo_despacho' => 'nullable|string|in:et,do,pa,oc',
             'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
             'omitir_entrega' => 'sometimes|boolean',
             'cliente_id' => 'sometimes|integer',
@@ -1475,7 +1487,7 @@ class VentaController extends Controller
             $tipoDespachoNuevo = $validated['tipo_despacho'] ?? $tipoDespachoAnterior;
             $omitirEntregaUpdate = (bool) ($validated['omitir_entrega'] ?? false);
             $noDescontarStockUpdate = ($validated['descontar_stock'] ?? 'si') === 'no';
-            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do'])
+            $descontarStockAhora = in_array($tipoDespachoNuevo, ['et', 'do', 'oc'])
                 && $estadoNuevo !== 'ee'
                 && ! $omitirEntregaUpdate
                 && ! $noDescontarStockUpdate;
