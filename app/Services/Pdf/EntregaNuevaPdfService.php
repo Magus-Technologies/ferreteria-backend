@@ -142,14 +142,16 @@ class EntregaNuevaPdfService
         ];
 
         // ── Recibido: detectar edición posterior a entrega física ──
-        $entregaFisica = $estadoCodigo === 'en';
+        // user_entregado_id se preserva cuando el backend resetea 'en'→'pe' al editar
+        // la venta, por lo que no basta con verificar $estadoCodigo === 'en'.
+        $fueEntregadaFisicamente = $estadoCodigo === 'en' || $entrega->user_entregado_id !== null;
         $ultimaEdicion = null;
-        if ($entregaFisica) {
+        if ($fueEntregadaFisicamente) {
             $ultimaEdicion = $entrega->venta?->historial
                 ?->sortByDesc('created_at')
                 ->first(fn($h) => $h->accion === 'edicion');
         }
-        $mostrarRecibido = $ultimaEdicion !== null;
+        $mostrarRecibido = $fueEntregadaFisicamente && $ultimaEdicion !== null;
 
         // ── Productos (tabla) ─────────────────────────────────────
         $productosTabla = $this->prepararProductosDesdeDetalles($entrega, $estadoCodigo, $ultimaEdicion);
@@ -208,7 +210,7 @@ class EntregaNuevaPdfService
 
     private function prepararProductosDesdeDetalles(Entrega $entrega, string $estadoCodigo, ?object $ultimaEdicion = null): array
     {
-        $entregaFisica = $estadoCodigo === 'en';
+        $entregaFisica = $estadoCodigo === 'en' || $entrega->user_entregado_id !== null;
 
         $prevQuantities = [];
         if ($entregaFisica && $ultimaEdicion) {
