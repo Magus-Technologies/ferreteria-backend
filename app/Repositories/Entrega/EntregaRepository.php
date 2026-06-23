@@ -130,6 +130,7 @@ class EntregaRepository implements EntregaRepositoryInterface
             'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto',
             'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.ubicacion',
+            'venta.historial',
         ]);
 
         if (! empty($filtros['estado'])) {

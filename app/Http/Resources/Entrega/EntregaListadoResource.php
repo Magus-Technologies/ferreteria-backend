@@ -72,6 +72,12 @@ class EntregaListadoResource extends JsonResource
                 'serie'           => $this->venta->serie,
                 'numero'          => $this->venta->numero,
                 'tipo_documento'  => $this->venta->tipo_documento,
+                'historial' => $this->venta->relationLoaded('historial')
+                    ? $this->venta->historial->map(fn ($h) => [
+                        'accion'           => $h->accion,
+                        'datos_anteriores' => $h->datos_anteriores,
+                    ])->values()->toArray()
+                    : [],
                 'cliente' => $this->venta->cliente ? [
                     'id'               => $this->venta->cliente->id,
                     'razon_social'     => $this->venta->cliente->razon_social
