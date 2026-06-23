@@ -247,11 +247,18 @@ class EntregaNuevaPdfService
                 $entregado = $udvCantidad;
                 $pendiente = 0.0;
             } elseif ($ultimaEdicion) {
-                // Increase or same-qty edit: show full picture with pending remainder.
-                $cantidad  = max($cantidadAnterior, $udvCantidad);
-                $entregado = $entregaFisica ? min($cantidadAnterior, $udvCantidad) : 0.0;
-                $pendiente = $entregaFisica ? max($udvCantidad - $cantidadAnterior, 0.0) : $udvCantidad;
-                $recibido  = 0.0;
+                // Increase or same-qty edit.
+                $cantidad = max($cantidadAnterior, $udvCantidad);
+                $recibido = 0.0;
+                if ($udvCantidad > $cantidadAnterior && $estadoCodigo === 'en') {
+                    // Re-confirmed after increase: all units now delivered.
+                    $entregado = $entregaFisica ? $udvCantidad : 0.0;
+                    $pendiente = 0.0;
+                } else {
+                    // Pending after increase, or same-qty edit.
+                    $entregado = $entregaFisica ? min($cantidadAnterior, $udvCantidad) : 0.0;
+                    $pendiente = $entregaFisica ? max($udvCantidad - $cantidadAnterior, 0.0) : $udvCantidad;
+                }
             } else {
                 // Normal case (no edit): Total = what this delivery was programmed for.
                 $cantidad  = $detalleQty;

@@ -1404,19 +1404,16 @@ class VentaController extends Controller
                 // dejando la entrega VACÍA si el usuario cambió todos los
                 // productos en la edición.
                 foreach ($entregasActivas as $entrega) {
-                    $clavesSolicitadas = $detallesPorEntrega[$entrega->id] ?? [];
                     foreach ($nuevasUdvPorClave as $clave => $udvNueva) {
-                        $cantSolicitada = array_key_exists($clave, $clavesSolicitadas)
-                            ? min((float) $clavesSolicitadas[$clave], (float) $udvNueva->cantidad)
-                            // Producto nuevo agregado en la edición — presume que
-                            // se entregará todo cuando el usuario re-confirme la
-                            // entrega ('pe' → 'en').
-                            : (float) $udvNueva->cantidad;
+                        // Use the new UDV total always:
+                        //  - Decrease (new < original): equals min(original, new) = new — correct.
+                        //  - Increase (new > original): expands coverage so re-confirmation
+                        //    covers all units and cantidad_pendiente → 0 after confirm.
                         \App\Models\EntregaDetalle::create([
-                            'entrega_id' => $entrega->id,
+                            'entrega_id'               => $entrega->id,
                             'unidad_derivada_venta_id' => $udvNueva->id,
-                            'cantidad' => $cantSolicitada,
-                            'ubicacion' => null,
+                            'cantidad'                 => (float) $udvNueva->cantidad,
+                            'ubicacion'                => null,
                         ]);
                     }
                 }
