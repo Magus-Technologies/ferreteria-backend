@@ -310,10 +310,10 @@ class GananciasQueryFilter
         if (!empty($this->filtros['incluir'])) {
             switch ($this->filtros['incluir']) {
                 case 'con_ganancia':
-                    $query->whereRaw('(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad > 0');
+                    $query->whereRaw('(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) * udiv.factor) * udiv.cantidad > 0');
                     break;
                 case 'con_perdida':
-                    $query->whereRaw('(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END)) * udiv.cantidad < 0');
+                    $query->whereRaw('(udiv.precio - (CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) * udiv.factor) * udiv.cantidad < 0');
                     break;
                 case 'sin_costo':
                     $query->whereRaw('(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) = 0');

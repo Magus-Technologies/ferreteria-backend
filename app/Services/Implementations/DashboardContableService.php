@@ -8,7 +8,10 @@ use Illuminate\Support\Facades\DB;
 class DashboardContableService implements DashboardContableServiceInterface
 {
     private const IMPORTE = 'udiv.precio * udiv.cantidad';
-    private const COSTO   = 'CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END * udiv.cantidad';
+    // pav.costo/pa.costo están por unidad base (fracción); udiv.cantidad está en
+    // unidades derivadas, por eso se multiplica también por udiv.factor. Sin el
+    // ×factor el costo queda subvaluado y la ganancia inflada con unidades derivadas.
+    private const COSTO   = '(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) * udiv.cantidad * udiv.factor';
 
     public function porcentajeGananciasPorMes(array $filtros): array
     {

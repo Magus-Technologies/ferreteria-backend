@@ -7,9 +7,19 @@ use Illuminate\Support\Facades\DB;
 class GananciasQueryBuilder
 {
     /**
-     * Expresión SQL para obtener el costo correcto (pav.costo o pa.costo)
+     * Expresión SQL para obtener el costo correcto por UNIDAD BASE (fracción).
+     * pav.costo / pa.costo se guardan como costo PEPS por unidad base.
      */
     private const COSTO_EXPR = 'CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END';
+
+    /**
+     * Costo por UNIDAD DERIVADA = costo por unidad base × factor de conversión.
+     * Necesario porque udiv.precio y udiv.cantidad están en unidades derivadas
+     * (p.ej. cajas), mientras que el costo está por unidad base. Sin el ×factor,
+     * el costo queda subvaluado y la ganancia inflada en productos con unidades
+     * derivadas (factor > 1).
+     */
+    private const COSTO_UNIT_EXPR = '(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) * udiv.factor';
 
     /**
      * Query base para ventas con joins comunes
@@ -61,9 +71,9 @@ class GananciasQueryBuilder
                 DB::raw("udiv.cantidad as cant"),
                 DB::raw("udiv.precio as p_unit"),
                 DB::raw("udiv.precio * udiv.cantidad as subtot"),
-                DB::raw(self::COSTO_EXPR . " as costo"),
-                DB::raw(self::COSTO_EXPR . " * udiv.cantidad as costo_total"),
-                DB::raw("(udiv.precio - " . self::COSTO_EXPR . ") * udiv.cantidad as ganancia"),
+                DB::raw(self::COSTO_UNIT_EXPR . " as costo"),
+                DB::raw(self::COSTO_UNIT_EXPR . " * udiv.cantidad as costo_total"),
+                DB::raw("(udiv.precio - (" . self::COSTO_UNIT_EXPR . ")) * udiv.cantidad as ganancia"),
                 DB::raw("COALESCE(dp.id, 'SIN_METODO') as cc"),
                 // Campos auxiliares para desglosar por lote (no se muestran tal cual):
                 'v.id as venta_id',
@@ -82,10 +92,10 @@ class GananciasQueryBuilder
         return self::baseVentasQuery()
             ->selectRaw('
                 SUM(udiv.precio * udiv.cantidad) as total_ventas,
-                SUM(' . self::COSTO_EXPR . ' * udiv.cantidad) as total_costo,
-                SUM((udiv.precio - ' . self::COSTO_EXPR . ') * udiv.cantidad) as total_ganancia,
+                SUM(' . self::COSTO_UNIT_EXPR . ' * udiv.cantidad) as total_costo,
+                SUM((udiv.precio - (' . self::COSTO_UNIT_EXPR . ')) * udiv.cantidad) as total_ganancia,
                 COUNT(DISTINCT v.id) as total_transacciones,
-                SUM(CASE WHEN udiv.precio < ' . self::COSTO_EXPR . ' THEN (' . self::COSTO_EXPR . ' - udiv.precio) * udiv.cantidad ELSE 0 END) as total_perdida
+                SUM(CASE WHEN udiv.precio < (' . self::COSTO_UNIT_EXPR . ') THEN ((' . self::COSTO_UNIT_EXPR . ') - udiv.precio) * udiv.cantidad ELSE 0 END) as total_perdida
             ');
     }
 
@@ -104,7 +114,7 @@ class GananciasQueryBuilder
                 'v.fecha',
                 'p.name as producto',
                 DB::raw("'VENTA BAJO COSTO' as motivo"),
-                DB::raw("((" . self::COSTO_EXPR . ") - udiv.precio) * udiv.cantidad as monto"),
+                DB::raw("((" . self::COSTO_UNIT_EXPR . ") - udiv.precio) * udiv.cantidad as monto"),
                 DB::raw("CASE 
                     WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
                     THEN CONCAT(
@@ -136,7 +146,7 @@ class GananciasQueryBuilder
             ->where('v.estado_de_venta', '!=', 'an')
             // Excluir ventas administrativas ("no descontar stock") también de las pérdidas.
             ->whereRaw('(v.descuenta_stock IS NULL OR v.descuenta_stock = 1)')
-            ->whereRaw('udiv.precio < (' . self::COSTO_EXPR . ')');
+            ->whereRaw('udiv.precio < (' . self::COSTO_UNIT_EXPR . ')');
     }
 
     /**
@@ -154,7 +164,9 @@ class GananciasQueryBuilder
                 'isa.fecha',
                 'p.name as producto',
                 DB::raw("UPPER(tis.name) as motivo"),
-                DB::raw("pais.costo * udis.cantidad as monto"),
+                // pais.costo está por unidad base; udis.cantidad está en unidades
+                // derivadas, por eso se multiplica por udis.factor.
+                DB::raw("pais.costo * udis.cantidad * udis.factor as monto"),
                 DB::raw("CASE 
                     WHEN isa.serie IS NOT NULL THEN CONCAT(isa.serie, '-', LPAD(isa.numero, 8, '0'))
                     ELSE CONCAT('NS-', LPAD(isa.numero, 8, '0'))
