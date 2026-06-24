@@ -1254,10 +1254,13 @@ class CompraController extends Controller
             'desde' => 'sometimes|date',
             'hasta' => 'sometimes|date',
             'search' => 'sometimes|string',
-            'per_page' => 'sometimes|integer|min:1|max:100',
+            'estado_pago' => 'sometimes|in:pendientes,pagadas,todas',
+            'per_page' => 'sometimes|integer|min:-1|max:100',
             'page' => 'sometimes|integer|min:1',
             'dias' => 'sometimes|integer|min:0|max:365',
         ]);
+
+        $estadoPago = $request->input('estado_pago', 'pendientes');
 
         $query = Compra::query()
             ->with([
@@ -1321,40 +1324,46 @@ class CompraController extends Controller
 
         $perPage = $request->input('per_page', 50);
 
+        // Filtro por estado de pago según el saldo real (no según el estado de la
+        // compra): "pendientes" = aún debe algo, "pagadas" = saldo liquidado,
+        // "todas" = sin filtrar. Antes esto estaba fijo en "solo con saldo", por
+        // eso las compras ya pagadas nunca se podían ver.
+        $filtrarPorEstadoPago = function ($compra) use ($estadoPago) {
+            $total = $this->getTotalCompra($compra);
+            $totalPagado = (float) ($compra->total_pagado ?? 0);
+            $saldo = round($total - $totalPagado, 2);
+
+            if ($estadoPago === 'pendientes') {
+                return $saldo > 0; // Cualquier saldo pendiente (aunque sea 1 centavo)
+            } elseif ($estadoPago === 'pagadas') {
+                return $saldo <= 0; // Solo pagadas completamente
+            }
+            return true; // Todas
+        };
+
         if ($perPage === -1) {
             // Return all without pagination
             $compras = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->limit(100)->get();
 
-            // Filter only purchases with pending balance
-            $comprasConSaldo = $compras->filter(function ($compra) {
-                $total = $this->getTotalCompra($compra);
-                $totalPagado = (float) ($compra->total_pagado ?? 0);
-                $saldo = $total - $totalPagado;
-                return $saldo > 0.01; // Only show if balance > 1 cent
-            });
+            $comprasFiltradas = $compras->filter($filtrarPorEstadoPago);
 
             return response()->json([
-                'data' => $comprasConSaldo->values(),
-                'total' => $comprasConSaldo->count(),
+                'data' => $comprasFiltradas->values(),
+                'total' => $comprasFiltradas->count(),
             ]);
         }
 
         $compras = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->paginate($perPage);
 
-        // Filter only purchases with pending balance
-        $comprasConSaldo = $compras->getCollection()->filter(function ($compra) {
-            $total = $this->getTotalCompra($compra);
-            $totalPagado = (float) ($compra->total_pagado ?? 0);
-            $saldo = $total - $totalPagado;
-            return $saldo > 0.01; // Only show if balance > 1 cent
-        });
+        $comprasFiltradas = $compras->getCollection()->filter($filtrarPorEstadoPago)->values();
 
-        // Update the collection with filtered results
-        $compras->setCollection($comprasConSaldo);
+        // Update the collection with filtered results (reindexada para que el
+        // JSON salga como arreglo y no como objeto con claves dispersas).
+        $compras->setCollection($comprasFiltradas);
 
         return response()->json([
             'data' => $compras->items(),
-            'total' => $comprasConSaldo->count(),
+            'total' => $comprasFiltradas->count(),
             'current_page' => $compras->currentPage(),
             'per_page' => $compras->perPage(),
             'last_page' => $compras->lastPage(),
