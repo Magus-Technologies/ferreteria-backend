@@ -242,14 +242,25 @@ class EntregaNuevaPdfService
             $recibido        = max($cantidadAnterior - $udvCantidad, 0);
 
             if ($ultimaEdicion && $recibido > 0) {
-                // Post-edit confirmed: show what this delivery had originally,
-                // net delivered ($udvCantidad) after returns ($recibido).
+                // Decrease: units were returned — show original delivery, net delivered, recibido.
                 $cantidad  = $detalleQty;
                 $entregado = $udvCantidad;
                 $pendiente = 0.0;
+            } elseif ($ultimaEdicion) {
+                // Increase or same-qty edit.
+                $cantidad = max($cantidadAnterior, $udvCantidad);
+                $recibido = 0.0;
+                if ($udvCantidad > $cantidadAnterior && $estadoCodigo === 'en') {
+                    // Re-confirmed after increase: all units now delivered.
+                    $entregado = $entregaFisica ? $udvCantidad : 0.0;
+                    $pendiente = 0.0;
+                } else {
+                    // Pending after increase, or same-qty edit.
+                    $entregado = $entregaFisica ? min($cantidadAnterior, $udvCantidad) : 0.0;
+                    $pendiente = $entregaFisica ? max($udvCantidad - $cantidadAnterior, 0.0) : $udvCantidad;
+                }
             } else {
-                // Normal case: Total = what THIS delivery was programmed for,
-                // not the full sale qty. Mirrors the frontend per-delivery logic.
+                // Normal case (no edit): Total = what this delivery was programmed for.
                 $cantidad  = $detalleQty;
                 $entregado = $entregaFisica ? $detalleQty : 0.0;
                 $pendiente = $entregaFisica ? 0.0 : $detalleQty;
