@@ -213,6 +213,7 @@ class EntregaNuevaPdfService
         $entregaFisica = $estadoCodigo === 'en' || $entrega->user_entregado_id !== null;
 
         $prevQuantities = [];
+        $prevProductos  = [];
         if ($entregaFisica && $ultimaEdicion) {
             $datosAnteriores = is_array($ultimaEdicion->datos_anteriores)
                 ? $ultimaEdicion->datos_anteriores
@@ -220,7 +221,14 @@ class EntregaNuevaPdfService
             foreach ($datosAnteriores['productos'] ?? [] as $ph) {
                 foreach ($ph['unidades'] ?? [] as $ud) {
                     $key = strtolower(trim($ph['codigo'] ?? '')) . '|' . strtolower(trim($ud['unidad'] ?? ''));
-                    $prevQuantities[$key] = (float) ($ud['cantidad'] ?? 0);
+                    $qty = (float) ($ud['cantidad'] ?? 0);
+                    $prevQuantities[$key] = $qty;
+                    $prevProductos[$key]  = [
+                        'nombre'   => $ph['nombre'] ?? '—',
+                        'codigo'   => $ph['codigo'] ?? '',
+                        'unidad'   => $ud['unidad'] ?? '',
+                        'cantidad' => $qty,
+                    ];
                 }
             }
         }
@@ -277,6 +285,31 @@ class EntregaNuevaPdfService
                 'unidad'    => $unidad,
                 'ubicacion' => $detalle->ubicacion ?? '',
             ];
+        }
+
+        // Products removed from the venta after this delivery was created have their
+        // entrega_detalle cascade-deleted, so they don't appear in the loop above.
+        // Recover them from datos_anteriores and show them as fully "recibido".
+        if ($entregaFisica && $ultimaEdicion && !empty($prevProductos)) {
+            $processedKeys = [];
+            foreach ($tabla as $fila) {
+                $k = strtolower(trim($fila['codigo'])) . '|' . strtolower(trim($fila['unidad']));
+                $processedKeys[$k] = true;
+            }
+            foreach ($prevProductos as $key => $prev) {
+                if (!isset($processedKeys[$key])) {
+                    $tabla[] = [
+                        'codigo'    => $prev['codigo'],
+                        'nombre'    => $prev['nombre'],
+                        'cantidad'  => $prev['cantidad'],
+                        'entregado' => 0.0,
+                        'pendiente' => 0.0,
+                        'recibido'  => $prev['cantidad'],
+                        'unidad'    => $prev['unidad'],
+                        'ubicacion' => '',
+                    ];
+                }
+            }
         }
 
         return $tabla;
