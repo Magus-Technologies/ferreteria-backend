@@ -1033,11 +1033,15 @@ class CompraController extends Controller
             throw new \Exception('No puedes seleccionar Egreso asociado (legado) y Despliegue de Pago al mismo tiempo');
         }
 
-        // Validación de duplicado: (serie, numero, proveedor_id) es UNIQUE en la DB
+        // Validación de duplicado: (serie, numero, proveedor_id) debe ser único
+        // ENTRE COMPRAS VIGENTES. Las anuladas conservan su serie/número como
+        // registro histórico, pero no deben bloquear el re-registro de la misma
+        // factura (antes una anulada bloqueaba y obligaba a "liberar" el número).
         if (!empty($compra['serie']) && !empty($compra['numero']) && !empty($compra['proveedor_id'])) {
             $query = Compra::where('serie', $compra['serie'])
                 ->where('numero', $compra['numero'])
-                ->where('proveedor_id', $compra['proveedor_id']);
+                ->where('proveedor_id', $compra['proveedor_id'])
+                ->where('estado_de_compra', '!=', EstadoDeCompraDefinitiva::Anulado);
 
             if (!empty($compra['id'])) {
                 $query->where('id', '!=', $compra['id']);
@@ -1277,8 +1281,12 @@ class CompraController extends Controller
             ], 'monto')
             // Only credit purchases
             ->where('forma_de_pago', FormaDePago::Credito)
-            // Only active purchases (not cancelled)
-            ->where('estado_de_compra', '!=', EstadoDeCompraDefinitiva::Anulado);
+            // Solo compras formalmente registradas: Creado o Procesado. Se excluyen
+            // las anuladas y las "en espera" (ee), que aún no son cuentas por pagar.
+            ->whereIn('estado_de_compra', [
+                EstadoDeCompraDefinitiva::Creado,
+                EstadoDeCompraDefinitiva::Procesado,
+            ]);
 
         // Filter by almacen_id
         if ($request->has('almacen_id')) {

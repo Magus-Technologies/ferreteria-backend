@@ -466,6 +466,12 @@ class RecepcionAlmacenController extends Controller
                     $compraActual = DB::table('compra')->where('id', $request->compra_id)->first();
                     if ($compraActual) {
                         $estadoCompraAnterior = $compraActual->estado_de_compra;
+
+                        // Una compra "en espera" no está formalmente registrada, por lo
+                        // que no puede recepcionarse hasta que se confirme (Creado).
+                        if ($estadoCompraAnterior === EstadoDeCompraDefinitiva::EnEspera->value) {
+                            throw new \Exception('No se puede recepcionar una compra en espera. Primero debe registrarla.');
+                        }
                     }
                 }
 
