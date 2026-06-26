@@ -60,10 +60,10 @@
 
     {{-- SON + Observaciones + Totales --}}
     @php
-        $filasTotales = [
+        $filasTotales = array_values(array_filter([
             ['label' => 'SUBTOTAL', 'valor' => number_format($calculos['subtotal'], 2)],
-            ['label' => 'IGV (18%)', 'valor' => number_format($calculos['igv'], 2)],
-        ];
+            empty($esNotaVenta) ? ['label' => 'IGV (18%)', 'valor' => number_format($calculos['igv'], 2)] : null,
+        ]));
         if (!empty($valesDescuento ?? [])) {
             foreach ($valesDescuento as $vd) {
                 $filasTotales[] = [
