@@ -49,7 +49,7 @@ class VentaPdfService
         $moneda = $venta->tipo_moneda?->value === 's' ? 'SOLES' : 'DOLARES';
 
         if ($formato === 'ticket') {
-            return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales, $valesDescuento, $moneda);
+            return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales, $valesDescuento, $moneda, $esNotaVenta);
         }
 
         $codigoQr = $this->obtenerCodigoQr($venta);
@@ -89,6 +89,7 @@ class VentaPdfService
             'msg' => $msg,
             'bloques' => $bloques,
             'font_face_css' => $fontFaceCss,
+            'esNotaVenta' => $esNotaVenta,
         ];
 
         $filename = "{$venta->tipo_documento->value}-{$venta->serie}-{$venta->numero}.pdf";
@@ -215,7 +216,7 @@ class VentaPdfService
         );
     }
 
-    private function generarTicket($venta, $empresa, array $productos, array $calculos, bool $sinVales = false, array $valesDescuento = [], string $moneda = 'SOLES'): Response
+    private function generarTicket($venta, $empresa, array $productos, array $calculos, bool $sinVales = false, array $valesDescuento = [], string $moneda = 'SOLES', bool $esNotaVenta = false): Response
     {
         $cliente = $venta->cliente;
         $clienteNombre = $cliente?->razon_social
@@ -392,6 +393,7 @@ class VentaPdfService
             'msg' => $msg,
             'bloques' => $bloques,
             'font_face_css' => $fontFaceCss,
+            'esNotaVenta' => $esNotaVenta,
         ];
 
         $filename = "TICKET-{$venta->serie}-{$venta->numero}.pdf";

@@ -191,6 +191,7 @@
                 <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($calculos['total_descuento'], 2) }}</td>
             </tr>
             @endif
+            @if(empty($esNotaVenta))
             <tr style="border-bottom: 1px solid #000;">
                 <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">OP.GRAVADA</td>
                 <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($calculos['subtotal'], 2) }}</td>
@@ -199,6 +200,7 @@
                 <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">IGV 18%</td>
                 <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($calculos['igv'], 2) }}</td>
             </tr>
+            @endif
             @if(!empty($valesDescuento ?? []))
                 @foreach($valesDescuento as $vd)
                 <tr style="border-bottom: 1px solid #000;">
