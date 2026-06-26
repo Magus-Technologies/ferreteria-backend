@@ -27,6 +27,7 @@ class GananciasResource extends JsonResource
             'vendedor' => $this->vendedor,
             'producto' => $this->producto,
             'marca' => $this->marca,
+            'unidad' => $this->unidad,
             'cant' => (float) $this->cant,
             'p_unit' => (float) $this->p_unit,
             'subtot' => (float) $this->subtot,
