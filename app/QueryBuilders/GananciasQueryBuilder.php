@@ -50,6 +50,7 @@ class GananciasQueryBuilder
         return self::baseVentasQuery()
             ->leftJoin('desplieguedepagoventa as dpv', 'v.id', '=', 'dpv.venta_id')
             ->leftJoin('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
+            ->leftJoin('unidadderivadainmutable as udi', 'udiv.unidad_derivada_inmutable_id', '=', 'udi.id')
             ->select([
                 DB::raw("DATE_FORMAT(v.fecha, '%d/%m/%Y') as fecha"),
                 DB::raw("TIME_FORMAT(v.fecha, '%H:%i:%s') as hora_emision"),
@@ -68,6 +69,7 @@ class GananciasQueryBuilder
                 DB::raw("COALESCE(u.name, 'SISTEMA') as vendedor"),
                 DB::raw("COALESCE(p.name, 'PRODUCTO SIN NOMBRE') as producto"),
                 DB::raw("COALESCE(m.name, 'SIN MARCA') as marca"),
+                DB::raw("COALESCE(udi.name, 'UNIDAD') as unidad"),
                 DB::raw("udiv.cantidad as cant"),
                 DB::raw("udiv.precio as p_unit"),
                 DB::raw("udiv.precio * udiv.cantidad as subtot"),
