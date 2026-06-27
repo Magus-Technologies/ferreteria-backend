@@ -47,6 +47,7 @@ class VentaPdfService
         }
 
         $moneda = $venta->tipo_moneda?->value === 's' ? 'SOLES' : 'DOLARES';
+        $esNotaVenta = ($venta->tipo_documento->value ?? '') === 'nv';
 
         if ($formato === 'ticket') {
             return $this->generarTicket($venta, $empresa, $productos, $calculos, $sinVales, $valesDescuento, $moneda, $esNotaVenta);
@@ -56,7 +57,6 @@ class VentaPdfService
         $consultaUrl = $this->getConsultaUrl();
 
         $plantilla = PlantillaImpresion::obtenerParaConFormato((int) $empresa->id, 'venta', 'A4');
-        $esNotaVenta = ($venta->tipo_documento->value ?? '') === 'nv';
         $logosExtras = $esNotaVenta ? $this->obtenerLogosExtras($plantilla->logos_nota_venta ?? []) : [];
 
         $est = $this->resolverEstilos($plantilla->estilos ?? []);
