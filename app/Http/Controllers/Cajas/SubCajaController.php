@@ -343,6 +343,117 @@ class SubCajaController extends Controller
     }
 
     /**
+     * Listar el efectivo disponible SEPARADO por vendedor + caja + método de efectivo.
+     *
+     * Cada fila representa el efectivo (apertura + ventas en efectivo − egresos) de un
+     * vendedor en una Caja Chica para un método de pago de efectivo. Sirve para el
+     * traslado a bóveda, donde debe figurar el efectivo de cada usuario por separado.
+     *
+     * Acepta ?apertura_cierre_caja_id= para limitar a la caja principal de esa apertura.
+     */
+    public function getEfectivoPorVendedor(): JsonResponse
+    {
+        try {
+            $aperturaCierreId = request()->query('apertura_cierre_caja_id');
+
+            // Si se indica la apertura, limitar a su caja principal
+            $cajaPrincipalId = null;
+            if ($aperturaCierreId) {
+                $apertura = \App\Models\AperturaCierreCaja::find($aperturaCierreId);
+                $cajaPrincipalId = $apertura?->caja_principal_id;
+            }
+
+            // Solo Cajas Chicas (donde vive el efectivo de los vendedores)
+            $cajasChicas = \App\Models\SubCaja::where('estado', true)
+                ->where('tipo_caja', 'CC')
+                ->when($cajaPrincipalId, fn ($q) => $q->where('caja_principal_id', $cajaPrincipalId))
+                ->get();
+
+            $filas = [];
+
+            foreach ($cajasChicas as $subCaja) {
+                // Despliegues de pago de EFECTIVO de esta caja
+                $desplieguesEfectivo = collect($subCaja->getDesplieguePagos())->filter(function ($despliegue) {
+                    $metodo = $despliegue->metodoDePago;
+                    if (!$metodo) {
+                        return false;
+                    }
+                    $sinCuenta = empty($metodo->cuenta_bancaria) || $metodo->cuenta_bancaria === 'SIN-CUENTA';
+                    return $sinCuenta && stripos($metodo->name, 'efectivo') !== false;
+                });
+
+                if ($desplieguesEfectivo->isEmpty()) {
+                    continue;
+                }
+
+                // Apertura activa de esta caja principal
+                $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+                    ->whereNull('fecha_cierre')
+                    ->first();
+
+                // Vendedores con efectivo en esta caja: los de la distribución de apertura
+                // más los que tengan transacciones registradas.
+                $vendedorIds = collect();
+                if ($aperturaActiva) {
+                    $vendedorIds = $vendedorIds->merge(
+                        \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                            ->pluck('user_id')
+                    );
+                }
+                $vendedorIds = $vendedorIds
+                    ->merge(\App\Models\TransaccionCaja::where('sub_caja_id', $subCaja->id)->pluck('user_id'))
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                foreach ($vendedorIds as $vendedorId) {
+                    $vendedor = \App\Models\User::find($vendedorId);
+                    if (!$vendedor) {
+                        continue;
+                    }
+
+                    foreach ($desplieguesEfectivo as $despliegue) {
+                        $saldo = (float) $this->calcularSaldoVendedorPorMetodoPago(
+                            $subCaja->id,
+                            $vendedorId,
+                            $despliegue->id
+                        );
+
+                        // Solo mostrar lo que tenga efectivo disponible
+                        if ($saldo <= 0) {
+                            continue;
+                        }
+
+                        $filas[] = [
+                            'vendedor_id' => $vendedorId,
+                            'vendedor_nombre' => $vendedor->name,
+                            'sub_caja_id' => $subCaja->id,
+                            'sub_caja_nombre' => $subCaja->nombre,
+                            'despliegue_pago_id' => $despliegue->id,
+                            'metodo_nombre' => $despliegue->name,
+                            'efectivo_disponible' => number_format($saldo, 2, '.', ''),
+                        ];
+                    }
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $filas,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('❌ Error en getEfectivoPorVendedor', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener efectivo por vendedor: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Obtener todos los vendedores con efectivo disponible
      * Los vendedores NO tienen cajas asignadas, solo tienen transacciones en las sub-cajas
      */

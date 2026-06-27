@@ -80,15 +80,17 @@ class AperturaCajaController extends Controller
                     ], 422);
                 }
 
-                // 4. Bloquear si la caja ya tiene una apertura ABIERTA (sin cerrar).
+                // 4. Bloquear si la caja ya tiene una apertura ABIERTA del DÍA ACTUAL.
                 //    Regla de negocio: una vez aperturada, NO se puede volver a
                 //    aperturar hasta cerrarla. En el mismo día se puede aperturar
                 //    varias veces, pero siempre en secuencia apertura -> cierre ->
-                //    apertura (cola). No se filtra por fecha: una apertura olvidada
-                //    de un día anterior también bloquea hasta que se cierre.
+                //    apertura (cola). Las aperturas olvidadas de días anteriores las
+                //    cierra el comando `cajas:cerrar-olvidadas`, así que NO deben
+                //    bloquear la apertura de hoy.
                 $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
                     ->where('estado', 'abierta')
                     ->whereNull('fecha_cierre')
+                    ->whereDate('fecha_apertura', now()->startOfDay())
                     ->first();
 
                 if ($aperturaActiva) {
@@ -231,6 +233,70 @@ class AperturaCajaController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Error al aperturar la caja: ' . $e->getMessage(),
+                ], 500);
+            }
+        });
+    }
+
+    /**
+     * Anular / deshacer una apertura ABIERTA (cuando se aperturó por error).
+     *
+     * Revierte el efectivo agregado a la caja chica y elimina las distribuciones,
+     * dejando la caja libre para una nueva apertura. Solo se permite si la apertura
+     * está abierta y NO tiene actividad posterior (ventas/movimientos o traslados).
+     */
+    public function anular(string $id): JsonResponse
+    {
+        return DB::transaction(function () use ($id) {
+            try {
+                $apertura = AperturaCierreCaja::find($id);
+
+                if (!$apertura) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Apertura no encontrada',
+                    ], 404);
+                }
+
+                // Solo se puede deshacer una apertura que sigue abierta
+                if ($apertura->estado !== 'abierta') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Solo se puede deshacer una apertura que está abierta.',
+                    ], 422);
+                }
+
+                // Guardia: no permitir deshacer si ya hubo actividad en la caja
+                $tieneMovimientos = MovimientoCaja::where('apertura_cierre_id', $apertura->id)->exists();
+                $tieneTraslados = \App\Models\TrasladoBoveda::where('apertura_cierre_caja_id', $apertura->id)->exists();
+
+                if ($tieneMovimientos || $tieneTraslados) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No se puede deshacer: la caja ya tiene movimientos registrados. Realice el cierre normal.',
+                    ], 422);
+                }
+
+                // Revertir el efectivo que la apertura sumó a la caja chica
+                $cajaChica = SubCaja::find($apertura->sub_caja_id);
+                if ($cajaChica) {
+                    $cajaChica->saldo_actual = max(0, (float) $cajaChica->saldo_actual - (float) $apertura->monto_apertura);
+                    $cajaChica->save();
+                }
+
+                // Eliminar distribuciones de efectivo y la apertura
+                \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)->delete();
+                $apertura->delete();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Apertura anulada exitosamente. La caja quedó disponible para una nueva apertura.',
+                ], 200);
+            } catch (Exception $e) {
+                Log::error('Error al anular apertura: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al anular la apertura: ' . $e->getMessage(),
                 ], 500);
             }
         });

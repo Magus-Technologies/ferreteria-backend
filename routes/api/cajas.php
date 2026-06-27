@@ -72,6 +72,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/todas-con-saldo-vendedor', [SubCajaController::class, 'getTodasConSaldoVendedor']);
             Route::get('/todas-con-saldo-efectivo', [SubCajaController::class, 'getTodasConSaldoEfectivo']);
             Route::get('/vendedores-con-efectivo', [SubCajaController::class, 'getVendedoresConEfectivo']);
+            Route::get('/efectivo-por-vendedor', [SubCajaController::class, 'getEfectivoPorVendedor']);
             Route::get('/buscar-por-despliegue/{desplieguePagoId}', [SubCajaController::class, 'buscarPorDesplieguePago']);
             Route::get('/{id}', [SubCajaController::class, 'show']);
             Route::put('/{id}', [SubCajaController::class, 'update']);
@@ -93,6 +94,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/consulta-apertura/{cajaPrincipalId}', [AperturaCajaController::class, 'consultaApertura']);
         Route::get('/historial-aperturas', [AperturaCajaController::class, 'historial']);
         Route::get('/historial-aperturas/todas', [AperturaCajaController::class, 'historialTodas']);
+        Route::post('/apertura/{id}/anular', [AperturaCajaController::class, 'anular']); // Deshacer una apertura abierta
         Route::post('/apertura/{id}/enviar-email', [AperturaCajaController::class, 'enviarTicketEmail']); // Enviar ticket de apertura por correo
         Route::get('/apertura/{id}/test-email', [AperturaCajaController::class, 'testEnviarEmail']); // TEST: Enviar email sin PDF
 
