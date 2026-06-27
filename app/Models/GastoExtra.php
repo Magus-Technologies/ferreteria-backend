@@ -18,6 +18,7 @@ class GastoExtra extends Model
         'id',
         'monto',
         'concepto',
+        'estado',
         'user_id',
         'despliegue_pago_id',
     ];
