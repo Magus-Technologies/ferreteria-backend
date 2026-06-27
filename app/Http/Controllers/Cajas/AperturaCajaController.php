@@ -80,17 +80,17 @@ class AperturaCajaController extends Controller
                     ], 422);
                 }
 
-                // 4. Bloquear si la caja ya tiene una apertura ABIERTA del DÍA ACTUAL.
-                //    Regla de negocio: una vez aperturada, NO se puede volver a
-                //    aperturar hasta cerrarla. En el mismo día se puede aperturar
-                //    varias veces, pero siempre en secuencia apertura -> cierre ->
-                //    apertura (cola). Las aperturas olvidadas de días anteriores las
-                //    cierra el comando `cajas:cerrar-olvidadas`, así que NO deben
-                //    bloquear la apertura de hoy.
+                // 4. Bloquear si la caja ya tiene una apertura ABIERTA (sin cerrar).
+                //    Regla de negocio (estricta): mientras exista una apertura abierta
+                //    NO se puede aperturar otra; primero hay que cerrarla (o deshacerla
+                //    si fue un error). En el día se apertura y cierra varias veces, pero
+                //    siempre en secuencia apertura -> cierre -> apertura (cola). No se
+                //    filtra por fecha: una apertura olvidada también bloquea hasta que
+                //    se cierre (el comando `cajas:cerrar-olvidadas` cierra las de días
+                //    anteriores).
                 $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
                     ->where('estado', 'abierta')
                     ->whereNull('fecha_cierre')
-                    ->whereDate('fecha_apertura', now()->startOfDay())
                     ->first();
 
                 if ($aperturaActiva) {
