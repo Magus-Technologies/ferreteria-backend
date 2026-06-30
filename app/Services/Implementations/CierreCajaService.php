@@ -81,6 +81,16 @@ class CierreCajaService implements CierreCajaServiceInterface
     {
         $apertura = $this->aperturaRepository->findById($aperturaId);
 
+        // El id puede ser de un ARQUEO (el front lo manda desde el historial). Resolver
+        // a su apertura para re-cerrar. Así re-cerrar NO requiere una caja abierta.
+        if (!$apertura) {
+            $arqueo = \App\Models\ArqueoDiario::find($aperturaId);
+            if ($arqueo) {
+                $aperturaId = $arqueo->apertura_cierre_caja_id;
+                $apertura = $this->aperturaRepository->findById($aperturaId);
+            }
+        }
+
         if (!$apertura) {
             throw new AperturaNoEncontradaException();
         }
