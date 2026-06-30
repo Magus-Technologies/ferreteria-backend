@@ -64,12 +64,12 @@ class CierreCajaController extends Controller
             } catch (AperturaNoEncontradaException $e) {
                 // No es encargado, intentar como vendedor
 
-                // Buscar distribuciones activas del vendedor (SOLO HOY para forzar nueva distribución diaria)
-                $hoy = now()->startOfDay();
+                // Buscar distribuciones del vendedor cuya apertura siga ABIERTA (sin cerrar),
+                // sin importar el día: la caja activa va desde la apertura hasta el cierre.
                 $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('user_id', $userId)
-                    ->where('created_at', '>=', $hoy)
                     ->whereHas('aperturaCierreCaja', function ($query) {
-                        $query->whereNull('fecha_cierre');
+                        $query->whereNull('fecha_cierre')
+                              ->where('estado', 'abierta');
                     })
                     ->with('aperturaCierreCaja')
                     ->get();
