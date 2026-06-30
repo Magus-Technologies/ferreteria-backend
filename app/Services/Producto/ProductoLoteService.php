@@ -91,16 +91,15 @@ class ProductoLoteService
         $restante = (float) $cantidad;
         $lote = null;
 
-        // CASO 1 (mismo costo): si hay lotes NEGATIVOS (sobreventa) con EXACTAMENTE el
-        // mismo costo que esta entrada, primero se SALDA la deuda contra ellos (la
-        // recepción "paga" lo sobrevendido) en vez de crear una fila nueva. Solo se
-        // netea cuando el costo coincide; con costo distinto se crea lote nuevo aparte.
+        // SOBREVENTA (stock negativo): si hay lotes NEGATIVOS, la recepción primero
+        // SALDA esa deuda contra ellos (resta el negativo) en vez de crear una fila
+        // nueva. Regla: el costo del lote se REEMPLAZA por el costo entrante (sea igual
+        // o distinto al viejo) → el negativo siempre queda valuado al último costo real.
         if ($restante > 0.0001) {
             $negativos = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
                 ->where('cantidad_restante', '<', 0)
                 ->orderBy('secuencia')->orderBy('id')
-                ->get()
-                ->filter(fn ($l) => abs((float) $l->costo - $costo) < 0.0001);
+                ->get();
 
             foreach ($negativos as $neg) {
                 if ($restante <= 0.0001) {
@@ -109,6 +108,7 @@ class ProductoLoteService
                 $deuda = abs((float) $neg->cantidad_restante);      // ej. 23
                 $aplicar = min($restante, $deuda);                  // lo que esta entrada salda
                 $neg->cantidad_restante = (float) $neg->cantidad_restante + $aplicar; // -23 + aplicar
+                $neg->costo = $costo;                               // reemplazar costo por el entrante
                 $neg->save();
                 $restante -= $aplicar;
                 $lote = $neg;
@@ -441,9 +441,18 @@ class ProductoLoteService
         $sumStockPos = (float) $positivos->sum(fn($l) => (float) $l->cantidad_restante);
         $sumCostoPos = (float) $positivos->sum(fn($l) => (float) $l->cantidad_restante * (float) $l->costo);
 
-        $costoPonderado = $sumStockPos > 0
-            ? $sumCostoPos / $sumStockPos
-            : (float) ($pa->costo ?? 0); // sin stock positivo: conservar último costo
+        if ($sumStockPos > 0) {
+            $costoPonderado = $sumCostoPos / $sumStockPos;
+        } else {
+            // Sin stock positivo: si hay stock NEGATIVO (sobreventa), el costo es el de
+            // esos lotes negativos (que la recepción reemplaza por el costo entrante).
+            // Si no hay negativos tampoco, conservar el último costo.
+            $negLotes = $lotes->filter(fn($l) => (float) $l->cantidad_restante < -0.0001);
+            $sumNeg = (float) $negLotes->sum(fn($l) => abs((float) $l->cantidad_restante));
+            $costoPonderado = $sumNeg > 0
+                ? (float) $negLotes->sum(fn($l) => abs((float) $l->cantidad_restante) * (float) $l->costo) / $sumNeg
+                : (float) ($pa->costo ?? 0);
+        }
 
         // Buckets legacy:
         //  - "anterior" = tramo de lotes MÁS VIEJOS que comparten el mismo costo,
