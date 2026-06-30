@@ -111,10 +111,12 @@ class VentaController extends Controller
         }
 
         // Filter by estado_cuenta
-           if ($request->has('estado_cuenta')) {
+        if ($request->has('estado_cuenta')) {
             $ec = $request->estado_cuenta;
             if ($ec === 'pagado') {
-                $query->where('estado_de_venta', EstadoDeVenta::Procesado->value);
+                // Credit ventas with active cobros (approximation — total is not a stored column).
+                $query->where('forma_de_pago', FormaDePago::Credito->value)
+                      ->whereRaw('(SELECT COALESCE(SUM(monto), 0) FROM cobroventa WHERE venta_id = venta.id AND estado = 1) > 0');
             } elseif ($ec === 'deuda') {
                 $query->where('estado_de_venta', EstadoDeVenta::Creado->value)
                       ->where('forma_de_pago', FormaDePago::Credito->value);
@@ -1750,25 +1752,22 @@ class VentaController extends Controller
                 ], 400);
             }
 
-            // Si la venta era Procesada (crédito 100% pagado), revertir
-            // los cobros: marcar estado=false y decrementar el monto del
+            // Revertir cobros activos: marcar estado=false y decrementar el monto del
             // método de pago correspondiente (sale dinero de caja).
-            $eraProcesada = $venta->estado_de_venta === EstadoDeVenta::Procesado;
-            if ($eraProcesada) {
-                foreach ($venta->cobrosVenta as $cobro) {
-                    if ($cobro->despliegue_de_pago_id) {
-                        $despliegue = DespliegueDePago::find($cobro->despliegue_de_pago_id);
-                        if ($despliegue && $despliegue->metodo_de_pago_id) {
-                            MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
-                                ->decrement('monto', (float) $cobro->monto);
-                        }
+            $cobrosActivos = $venta->cobrosVenta->where('estado', true);
+            foreach ($cobrosActivos as $cobro) {
+                if ($cobro->despliegue_de_pago_id) {
+                    $despliegue = DespliegueDePago::find($cobro->despliegue_de_pago_id);
+                    if ($despliegue && $despliegue->metodo_de_pago_id) {
+                        MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
+                            ->decrement('monto', (float) $cobro->monto);
                     }
-                    $cobro->update([
-                        'estado' => false,
-                        'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '')
-                            . 'ANULADO POR ANULACIÓN DE VENTA',
-                    ]);
                 }
+                $cobro->update([
+                    'estado' => false,
+                    'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '')
+                        . 'ANULADO POR ANULACIÓN DE VENTA',
+                ]);
             }
 
             // Verificar entregas (tabla NUEVA): si hay entregas ya entregadas,
@@ -2530,11 +2529,9 @@ class VentaController extends Controller
                 }
             ], 'fecha')
             ->where('forma_de_pago', FormaDePago::Credito)
-            // Incluir Creado y Procesado en todos los casos; quién es "pendiente" o
-            // "pagada" lo decide el saldo real más abajo, no el estado. Así una venta
-            // que quedó marcada Procesado pero aún debe centavos sigue saliendo como
-            // pendiente.
-            ->whereIn('estado_de_venta', [EstadoDeVenta::Creado, EstadoDeVenta::Procesado]);
+            // Solo ventas en estado Creado (crédito activo); el saldo real
+            // (total_cobrado vs. total) determina si es pendiente o pagada.
+            ->where('estado_de_venta', EstadoDeVenta::Creado);
 
         // Filtros opcionales
         if ($request->has('almacen_id')) {
@@ -2802,14 +2799,8 @@ class VentaController extends Controller
                 'user_id'               => $validated['user_id'],
             ]);
 
-            // Actualizar estado de la venta solo si quedó completamente pagada.
-            // Se compara redondeando a 2 decimales para absorber el ruido de punto
-            // flotante (pagar el total exacto pero que el float dé 19.9999998) sin
-            // perdonar un centavo real sin cobrar (pagar 19.99 de 20.00).
-            $nuevoTotalCobrado = $totalCobrado + $validated['monto'];
-            if (round($nuevoTotalCobrado, 2) >= round($totalVenta, 2)) {
-                $venta->update(['estado_de_venta' => EstadoDeVenta::Procesado]);
-            }
+            // El estado de la venta permanece en Creado; el saldo se calcula
+            // dinámicamente a partir del total cobrado vs. el total de la venta.
 
             // Cargar relaciones para la respuesta
             $cobro->load('despliegueDePago.metodoDePago', 'user:id,name');
@@ -2888,12 +2879,8 @@ class VentaController extends Controller
                     'user_id'               => $validated['user_id'],
                 ]);
 
-                // Actualizar estado solo si quedó completamente pagada (redondeo a
-                // 2 decimales: absorbe ruido de float, no perdona centavos reales).
-                $nuevoTotalCobrado = $totalCobrado + $item['monto'];
-                if (round($nuevoTotalCobrado, 2) >= round($totalVenta, 2)) {
-                    $venta->update(['estado_de_venta' => EstadoDeVenta::Procesado]);
-                }
+                // El estado de la venta permanece en Creado; el saldo se calcula
+                // dinámicamente a partir del total cobrado vs. el total de la venta.
 
                 $cobrosCreados[] = $cobro;
                 $ventasActualizadas[] = [
@@ -2953,11 +2940,7 @@ class VentaController extends Controller
             $totalCobradoActivo = $venta->cobrosVenta()->where('estado', true)->sum('monto');
             $saldoPendiente = $totalVenta - $totalCobradoActivo;
 
-            // Si había quedado como Procesado pero ahora tiene saldo pendiente, reabrirla.
-            // (El enum no tiene "Pendiente"; el estado abierto es Creado.)
-            if ($venta->estado_de_venta === EstadoDeVenta::Procesado && round($saldoPendiente, 2) > 0) {
-                $venta->update(['estado_de_venta' => EstadoDeVenta::Creado]);
-            }
+            // El estado permanece en Creado; el saldo se recalcula dinámicamente.
 
             return response()->json([
                 'data'    => $cobro->fresh(),

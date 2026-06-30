@@ -462,11 +462,10 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             ? $venta->estado_de_venta->value 
             : $venta->estado_de_venta;
 
-        // ✅ VALIDACIÓN CORREGIDA: Aceptar ventas en estado 'cr' (Creado) o 'pr' (Procesado)
-        if (!in_array($estadoVenta, ['cr', 'pr'])) {
+        if ($estadoVenta !== 'cr') {
             return [
                 'valido' => false,
-                'mensaje' => 'La venta debe estar en estado Creado o Procesado',
+                'mensaje' => 'La venta debe estar en estado Creado',
             ];
         }
 
@@ -509,11 +508,9 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             ? $venta->estado_de_venta->value 
             : $venta->estado_de_venta;
 
-        // ✅ VALIDACIÓN CORREGIDA: Aceptar ventas en estado 'cr' (Creado) o 'pr' (Procesado)
-        // Las ventas al contado se crean en estado 'cr' y son válidas para NC
-        if (!in_array($estadoVenta, ['cr', 'pr'])) {
+        if ($estadoVenta !== 'cr') {
             throw NotaCreditoException::ventaNoValida(
-                'La venta debe estar en estado Creado o Procesado. Estado actual: ' . $estadoVenta
+                'La venta debe estar en estado Creado. Estado actual: ' . $estadoVenta
             );
         }
 
