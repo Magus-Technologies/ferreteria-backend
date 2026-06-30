@@ -87,27 +87,52 @@ class ProductoLoteService
     {
         $this->inicializarDesdeBucketsSiVacio($pa);
 
-        // Cada recepción genera SU PROPIA fila (lote), incluso si es una recepción
-        // parcial de la misma compra: una compra recepcionada en 2/3/4 partes
-        // produce 2/3/4 filas, cada una con su cantidad y su posición de llegada.
-        // (Decisión del cliente 2026-06-12; antes se fusionaban por compra.)
-        // compra_id se guarda solo como trazabilidad del origen.
         $compraId = $origen['compra_id'] ?? null;
+        $restante = (float) $cantidad;
+        $lote = null;
 
-        $secuencia = $secuenciaOverride
-            ?? ((int) (ProductoAlmacenLote::where('producto_almacen_id', $pa->id)->max('secuencia') ?? 0) + 1);
+        // CASO 1 (mismo costo): si hay lotes NEGATIVOS (sobreventa) con EXACTAMENTE el
+        // mismo costo que esta entrada, primero se SALDA la deuda contra ellos (la
+        // recepción "paga" lo sobrevendido) en vez de crear una fila nueva. Solo se
+        // netea cuando el costo coincide; con costo distinto se crea lote nuevo aparte.
+        if ($restante > 0.0001) {
+            $negativos = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
+                ->where('cantidad_restante', '<', 0)
+                ->orderBy('secuencia')->orderBy('id')
+                ->get()
+                ->filter(fn ($l) => abs((float) $l->costo - $costo) < 0.0001);
 
-        $lote = ProductoAlmacenLote::create([
-            'producto_almacen_id' => $pa->id,
-            'recepcion_id' => $origen['recepcion_id'] ?? null,
-            'compra_id' => $compraId,
-            'ingreso_salida_id' => $origen['ingreso_salida_id'] ?? null,
-            'transferencia_stock_id' => $origen['transferencia_stock_id'] ?? null,
-            'costo' => $costo,
-            'cantidad_inicial' => $cantidad,
-            'cantidad_restante' => $cantidad,
-            'secuencia' => $secuencia,
-        ]);
+            foreach ($negativos as $neg) {
+                if ($restante <= 0.0001) {
+                    break;
+                }
+                $deuda = abs((float) $neg->cantidad_restante);      // ej. 23
+                $aplicar = min($restante, $deuda);                  // lo que esta entrada salda
+                $neg->cantidad_restante = (float) $neg->cantidad_restante + $aplicar; // -23 + aplicar
+                $neg->save();
+                $restante -= $aplicar;
+                $lote = $neg;
+            }
+        }
+
+        // Crear lote nuevo SOLO con el excedente que no se usó para saldar negativos.
+        // (Cada recepción genera su propia fila; una recepción parcial produce su fila.)
+        if ($restante > 0.0001 || $lote === null) {
+            $secuencia = $secuenciaOverride
+                ?? ((int) (ProductoAlmacenLote::where('producto_almacen_id', $pa->id)->max('secuencia') ?? 0) + 1);
+
+            $lote = ProductoAlmacenLote::create([
+                'producto_almacen_id' => $pa->id,
+                'recepcion_id' => $origen['recepcion_id'] ?? null,
+                'compra_id' => $compraId,
+                'ingreso_salida_id' => $origen['ingreso_salida_id'] ?? null,
+                'transferencia_stock_id' => $origen['transferencia_stock_id'] ?? null,
+                'costo' => $costo,
+                'cantidad_inicial' => max($restante, 0),
+                'cantidad_restante' => max($restante, 0),
+                'secuencia' => $secuencia,
+            ]);
+        }
 
         if ($resync) {
             $this->resyncDerivados($pa);
