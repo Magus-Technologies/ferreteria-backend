@@ -261,6 +261,8 @@ class ClasificadorMovimientos
     {
         $ingresos = DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
+            ->leftJoin('desplieguedepago as dp', 'tc.despliegue_pago_id', '=', 'dp.id')
+            ->leftJoin('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
             ->whereIn('tc.sub_caja_id', $subCajasIds)
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'ingreso')
@@ -283,7 +285,10 @@ class ClasificadorMovimientos
                 'tc.descripcion',
                 'tc.referencia_tipo',
                 'tc.created_at',
-                'sc.nombre as sub_caja'
+                'sc.nombre as sub_caja',
+                'mp.name as metodo_nombre',
+                'mp.cuenta_bancaria as metodo_cuenta',
+                'dp.name as despliegue_nombre'
             ])
             ->get();
 
@@ -297,6 +302,8 @@ class ClasificadorMovimientos
     {
         $gastos = DB::table('transacciones_caja as tc')
             ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
+            ->leftJoin('desplieguedepago as dp', 'tc.despliegue_pago_id', '=', 'dp.id')
+            ->leftJoin('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
             ->whereIn('tc.sub_caja_id', $subCajasIds)
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'egreso')
@@ -313,6 +320,9 @@ class ClasificadorMovimientos
                 'tc.referencia_tipo',
                 'tc.created_at',
                 'sc.nombre as sub_caja',
+                'mp.name as metodo_nombre',
+                'mp.cuenta_bancaria as metodo_cuenta',
+                'dp.name as despliegue_nombre',
                 DB::raw("'gasto' as tipo")
             ])
             ->get();

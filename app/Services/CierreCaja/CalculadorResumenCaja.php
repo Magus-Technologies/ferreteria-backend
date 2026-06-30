@@ -46,22 +46,30 @@ class CalculadorResumenCaja
             })
             ->sum('total');
 
+        // ¿El movimiento es en EFECTIVO? Se detecta por el MÉTODO (sin cuenta bancaria y
+        // nombre "efectivo"), no por el nombre de la sub-caja. Así un ingreso/gasto en
+        // cualquier caja de efectivo (ej. "caja negra") sí afecta el total en caja.
+        // Fallback: si no hay método (movimiento antiguo), se usa el nombre "Chica".
+        $esEfectivo = function ($item): bool {
+            $cuenta = $item->metodo_cuenta ?? null;
+            $sinCuenta = empty($cuenta) || $cuenta === 'SIN-CUENTA' || $cuenta === '-';
+            $nombre = strtolower(($item->metodo_nombre ?? '') . ' ' . ($item->despliegue_nombre ?? ''));
+            if (!empty($item->metodo_nombre) || !empty($item->despliegue_nombre)) {
+                return $sinCuenta && stripos($nombre, 'efectivo') !== false;
+            }
+            return stripos($item->sub_caja ?? '', 'Chica') !== false;
+        };
+
         // Filtrar solo otros ingresos en EFECTIVO (unir normales + extras para el cálculo de efectivo)
         $todosLosIngresosManuales = $clasificacion['otros_ingresos']->concat($clasificacion['ingresos_extras']);
         $otrosIngresosEfectivo = $todosLosIngresosManuales
-            ->filter(function ($ingreso) {
-                // Verificar si el ingreso es en efectivo (sub_caja contiene "Chica" o es efectivo)
-                return stripos($ingreso->sub_caja ?? '', 'Chica') !== false;
-            })
+            ->filter($esEfectivo)
             ->sum('monto');
 
         // Filtrar solo gastos en EFECTIVO (unir normales + extras para el cálculo de efectivo)
         $todosLosEgresosManuales = $clasificacion['gastos_y_pagos']->concat($clasificacion['gastos_extras']);
         $gastosEfectivo = $todosLosEgresosManuales
-            ->filter(function ($gasto) {
-                // Verificar si el gasto es en efectivo (sub_caja contiene "Chica" o es efectivo)
-                return stripos($gasto->sub_caja ?? '', 'Chica') !== false;
-            })
+            ->filter($esEfectivo)
             ->sum('monto');
 
         $montoEsperado = $clasificacion['efectivo_inicial']
@@ -78,13 +86,17 @@ class CalculadorResumenCaja
         $detalleVentas = $this->formatearDetalleVentas($clasificacion['ventas']);
 
         // Función auxiliar para formatear movimientos manuales
-        $formatearManual = function ($item, $tipoDefault = 'ingreso_manual') {
+        $formatearManual = function ($item, $tipoDefault = 'ingreso_manual') use ($esEfectivo) {
             return [
                 'id' => $item->id,
                 'tipo' => $item->tipo ?? $tipoDefault,
                 'monto' => number_format($item->monto, 2, '.', ''),
                 'concepto' => $item->descripcion,
                 'sub_caja' => $item->sub_caja,
+                // Despliegue/método del movimiento, para mostrarlo en el detalle.
+                'metodo' => $item->metodo_nombre ?? null,
+                'despliegue' => $item->despliegue_nombre ?? null,
+                'es_efectivo' => $esEfectivo($item),
                 'created_at' => $item->created_at,
             ];
         };
