@@ -46,9 +46,10 @@ class ClasificadorMovimientos
             $fechaInicio = $fechaDia->copy()->startOfDay();
             $fechaFin = $fechaDia->copy()->endOfDay();
         } else {
-            // Para cierre definitivo: desde apertura hasta cierre (o +12 horas)
+            // Desde la apertura HASTA el cierre. Si sigue abierta, hasta AHORA
+            // (no un cap de +12h, que recortaba aperturas largas o de un día para otro).
             $fechaInicio = $apertura->fecha_apertura;
-            $fechaFin = $apertura->fecha_cierre ?? \Carbon\Carbon::parse($apertura->fecha_apertura)->addHours(12);
+            $fechaFin = $apertura->fecha_cierre ?? now();
         }
 
         $userId = $apertura->user_id;

@@ -44,8 +44,8 @@ class CierreCajaService implements CierreCajaServiceInterface
             throw new AperturaNoEncontradaException();
         }
 
-        // Pasar $soloDiaActual = true para filtrar solo movimientos de HOY
-        $resumen = $this->calculadorResumen->calcular($apertura, true);
+        // La consulta de caja activa es DESDE la apertura HASTA el cierre (no por día).
+        $resumen = $this->calculadorResumen->calcular($apertura, false);
 
         return new CajaActivaDTO($apertura, $resumen);
     }

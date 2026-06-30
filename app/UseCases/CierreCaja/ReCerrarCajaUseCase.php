@@ -56,8 +56,8 @@ class ReCerrarCajaUseCase
             // 2. Actualizar monto de cierre primero
             $apertura->monto_cierre = $dto->montoCierre;
 
-            // 3. Calcular resumen con el monto actualizado (FILTRO: Solo hoy)
-            $resumen = $this->calculadorResumen->calcular($apertura, true);
+            // 3. Calcular resumen DESDE la apertura HASTA el cierre (no por día)
+            $resumen = $this->calculadorResumen->calcular($apertura, false);
 
             // 4. Validar supervisor si es necesario
             $supervisorValidado = false;
