@@ -44,6 +44,8 @@ class AperturaCajaController extends Controller
                 $vendedores = $request->validated('vendedores', []); // Array de vendedores
                 $enviarTicket = $request->validated('enviar_ticket', true); // Por defecto true
                 $emailDestino = $request->validated('email_destino'); // Email opcional
+                // Parte del monto que proviene de efectivo asignado de otro cierre.
+                $montoAsignado = (float) $request->validated('monto_asignado', 0);
 
                 // 1. Verificar que la caja principal existe
                 $cajaPrincipal = CajaPrincipal::find($cajaPrincipalId);
@@ -111,6 +113,7 @@ class AperturaCajaController extends Controller
                     'sub_caja_id' => $cajaChica->id,
                     'user_id' => $userId,
                     'monto_apertura' => $montoTotal,
+                    'monto_apertura_asignado' => $montoAsignado,
                     'conteo_apertura_billetes_monedas' => $conteoBilletes,
                     'fecha_apertura' => now(),
                     'estado' => 'abierta',
@@ -505,6 +508,10 @@ class AperturaCajaController extends Controller
                 'email' => $apertura->user->email,
             ] : null),
             'monto_apertura' => $distribucion ? number_format($distribucion->monto, 2, '.', '') : number_format($apertura->monto_apertura, 2, '.', ''), // Monto de este vendedor
+            // Desglose: parte asignada (de otro cierre) y parte manual de ESTA apertura
+            'monto_apertura_total' => number_format($apertura->monto_apertura, 2, '.', ''),
+            'monto_apertura_asignado' => number_format((float) ($apertura->monto_apertura_asignado ?? 0), 2, '.', ''),
+            'monto_apertura_manual' => number_format(((float) $apertura->monto_apertura) - ((float) ($apertura->monto_apertura_asignado ?? 0)), 2, '.', ''),
             'monto_cierre' => $apertura->monto_cierre ? number_format($apertura->monto_cierre, 2, '.', '') : null,
             'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
             'fecha_cierre' => $apertura->fecha_cierre?->toIso8601String(),
