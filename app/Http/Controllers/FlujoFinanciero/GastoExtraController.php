@@ -89,49 +89,67 @@ class GastoExtraController extends Controller
     /**
      * Resumen de gastos extras para las tarjetas
      */
-    public function resumen()
+    public function resumen(Request $request)
     {
-        // Gastos extras registrados manualmente (excluir anulados)
-        $totalGastosExtras = GastoExtra::where('estado', '!=', 'anulado')->sum('monto');
-        $totalTransaccionesExtras = GastoExtra::where('estado', '!=', 'anulado')->count();
+        $gastoQuery = GastoExtra::query();
 
-        $gastosExtrasHoy = GastoExtra::where('estado', '!=', 'anulado')->whereDate('created_at', now()->toDateString())->sum('monto');
-        $transaccionesExtrasHoy = GastoExtra::where('estado', '!=', 'anulado')->whereDate('created_at', now()->toDateString())->count();
+        if ($request->has('estado') && $request->estado) {
+            $gastoQuery->where('estado', $request->estado);
+        } else {
+            $gastoQuery->where('estado', '!=', 'anulado');
+        }
+
+        if ($request->has('fechaDesde')) {
+            $gastoQuery->where('created_at', '>=', $request->fechaDesde);
+        }
+
+        if ($request->has('fechaHasta')) {
+            $gastoQuery->where('created_at', '<=', $request->fechaHasta);
+        }
+
+        // Gastos extras registrados manualmente
+        $totalGastosExtras = (clone $gastoQuery)->sum('monto');
+        $totalTransaccionesExtras = (clone $gastoQuery)->count();
+
+        $gastosExtrasHoy = (clone $gastoQuery)->whereDate('created_at', now()->toDateString())->sum('monto');
+        $transaccionesExtrasHoy = (clone $gastoQuery)->whereDate('created_at', now()->toDateString())->count();
+
+        // Query base para pérdidas por salidas
+        $perdidasQuery = DB::table('ingresosalida as i')
+            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
+            ->join('productoalmaceningresosalida as pa', 'i.id', '=', 'pa.ingreso_id')
+            ->join('unidadderivadainmutableingresosalida as ud', 'pa.id', '=', 'ud.producto_almacen_ingreso_salida_id')
+            ->where('t.tipo', 'salida')
+            ->where('i.estado', true);
+
+        $transaccionesQuery = DB::table('ingresosalida as i')
+            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
+            ->where('t.tipo', 'salida')
+            ->where('i.estado', true);
+
+        if ($request->has('fechaDesde')) {
+            $perdidasQuery->where('i.created_at', '>=', $request->fechaDesde);
+            $transaccionesQuery->where('i.created_at', '>=', $request->fechaDesde);
+        }
+
+        if ($request->has('fechaHasta')) {
+            $perdidasQuery->where('i.created_at', '<=', $request->fechaHasta);
+            $transaccionesQuery->where('i.created_at', '<=', $request->fechaHasta);
+        }
 
         // Calcular pérdidas por salidas de productos (malogrados, vencidos, robados)
         // Solo considerar salidas (tipo = 'salida')
-        // La cantidad está en unidadderivadainmutableingresosalida, multiplicada por el factor para obtener la cantidad en fracción
-        $perdidasSalidas = DB::table('ingresosalida as i')
-            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
-            ->join('productoalmaceningresosalida as pa', 'i.id', '=', 'pa.ingreso_id')
-            ->join('unidadderivadainmutableingresosalida as ud', 'pa.id', '=', 'ud.producto_almacen_ingreso_salida_id')
-            ->where('t.tipo', 'salida')
-            ->where('i.estado', true)
+        $perdidasQueryTotal = clone $perdidasQuery;
+        $perdidasSalidas = $perdidasQueryTotal->select(DB::raw('SUM(ud.cantidad * ud.factor * pa.costo) as total_perdidas'))->value('total_perdidas') ?? 0;
+
+        $perdidasQueryHoy = clone $perdidasQuery;
+        $perdidasSalidasHoy = $perdidasQueryHoy->whereDate('i.created_at', now()->toDateString())
             ->select(DB::raw('SUM(ud.cantidad * ud.factor * pa.costo) as total_perdidas'))
             ->value('total_perdidas') ?? 0;
 
-        $perdidasSalidasHoy = DB::table('ingresosalida as i')
-            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
-            ->join('productoalmaceningresosalida as pa', 'i.id', '=', 'pa.ingreso_id')
-            ->join('unidadderivadainmutableingresosalida as ud', 'pa.id', '=', 'ud.producto_almacen_ingreso_salida_id')
-            ->where('t.tipo', 'salida')
-            ->where('i.estado', true)
-            ->whereDate('i.created_at', now()->toDateString())
-            ->select(DB::raw('SUM(ud.cantidad * ud.factor * pa.costo) as total_perdidas'))
-            ->value('total_perdidas') ?? 0;
+        $transaccionesSalidas = (clone $transaccionesQuery)->count();
 
-        $transaccionesSalidas = DB::table('ingresosalida as i')
-            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
-            ->where('t.tipo', 'salida')
-            ->where('i.estado', true)
-            ->count();
-
-        $transaccionesSalidasHoy = DB::table('ingresosalida as i')
-            ->join('tipoingresosalida as t', 'i.tipo_ingreso_id', '=', 't.id')
-            ->where('t.tipo', 'salida')
-            ->where('i.estado', true)
-            ->whereDate('i.created_at', now()->toDateString())
-            ->count();
+        $transaccionesSalidasHoy = (clone $transaccionesQuery)->whereDate('i.created_at', now()->toDateString())->count();
 
         // Totales combinados (gastos extras + pérdidas por salidas)
         $totalGastos = $totalGastosExtras + $perdidasSalidas;
