@@ -42,7 +42,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/cobros', [VentaController::class, 'storeCobro']); // Registrar un cobro
         Route::put('/{ventaId}/cobros/{cobroId}/anular', [VentaController::class, 'anularCobro']); // Anular un cobro
     });
-    Route::apiResource('ventas', VentaController::class)->middleware(['caja.abierta', 'broadcast:ventas']);
+    // Consultar ventas (mis-ventas) es solo lectura y no debe exigir caja abierta.
+    Route::apiResource('ventas', VentaController::class)
+        ->only(['index', 'show'])
+        ->middleware('broadcast:ventas');
+
+    Route::apiResource('ventas', VentaController::class)
+        ->except(['index', 'show'])
+        ->middleware(['caja.abierta', 'broadcast:ventas']);
 
     // ============================================
     // COMPRAS

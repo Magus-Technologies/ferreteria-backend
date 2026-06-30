@@ -97,7 +97,7 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                 'monto' => $data['monto'],
                 'saldo_anterior' => $subCaja->saldo_actual,
                 'saldo_nuevo' => $subCaja->saldo_actual, // No descontamos de la responsabilidad total
-                'descripcion' => "Traslado a bóveda: {$data['justificacion']}",
+                'descripcion' => "Traslado a bóveda: " . ($data['justificacion'] ?? ''),
                 'referencia_tipo' => 'traslado_boveda',
                 'referencia_id' => $traslado->id,
                 'fecha' => now(),
@@ -113,7 +113,7 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                 'despliegue_pago_id' => $data['despliegue_pago_id'],
                 'fecha_hora' => now(),
                 'tipo_movimiento' => 'transferencia',
-                'concepto' => "Traslado a bóveda: {$data['justificacion']}",
+                'concepto' => "Traslado a bóveda: " . ($data['justificacion'] ?? ''),
                 'saldo_inicial' => $subCaja->saldo_actual,
                 'ingreso' => 0,
                 'salida' => $data['monto'],

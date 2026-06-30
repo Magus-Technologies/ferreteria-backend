@@ -49,6 +49,5 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [\App\Http\Controllers\FlujoFinanciero\IngresoExtraController::class, 'store']);
         Route::put('/{id}', [\App\Http\Controllers\FlujoFinanciero\IngresoExtraController::class, 'update']);
         Route::post('/{id}/anular', [\App\Http\Controllers\FlujoFinanciero\IngresoExtraController::class, 'anular']);
-        Route::post('/{id}/aprobar', [\App\Http\Controllers\FlujoFinanciero\IngresoExtraController::class, 'aprobar']);
     });
 });

@@ -26,6 +26,9 @@ class AperturarCajaRequest extends FormRequest
             'vendedores.*.user_id' => 'required|string|exists:user,id',
             'vendedores.*.monto' => 'required|numeric|min:0.01',
             'vendedores.*.conteo_billetes_monedas' => 'nullable|array',
+
+            // Parte del monto que viene de efectivo asignado de otro cierre (opcional)
+            'monto_asignado' => 'nullable|numeric|min:0',
             
             // Conteo de billetes y monedas (opcional)
             'conteo_billetes_monedas' => 'nullable|array',

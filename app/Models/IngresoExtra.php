@@ -18,7 +18,6 @@ class IngresoExtra extends Model
         'concepto',
         'estado',
         'user_id',
-        'supervisor_id',
         'despliegue_pago_id',
     ];
 

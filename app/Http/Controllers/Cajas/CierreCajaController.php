@@ -64,12 +64,12 @@ class CierreCajaController extends Controller
             } catch (AperturaNoEncontradaException $e) {
                 // No es encargado, intentar como vendedor
 
-                // Buscar distribuciones activas del vendedor (SOLO HOY para forzar nueva distribución diaria)
-                $hoy = now()->startOfDay();
+                // Buscar distribuciones del vendedor cuya apertura siga ABIERTA (sin cerrar),
+                // sin importar el día: la caja activa va desde la apertura hasta el cierre.
                 $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('user_id', $userId)
-                    ->where('created_at', '>=', $hoy)
                     ->whereHas('aperturaCierreCaja', function ($query) {
-                        $query->whereNull('fecha_cierre');
+                        $query->whereNull('fecha_cierre')
+                              ->where('estado', 'abierta');
                     })
                     ->with('aperturaCierreCaja')
                     ->get();
@@ -482,6 +482,161 @@ class CierreCajaController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener cierre: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener cajas cerradas con monto_cierre_efectivo disponible
+     */
+    public function efectivoDisponible(): JsonResponse
+    {
+        try {
+            $cajas = \App\Models\AperturaCierreCaja::with('user:id,name')
+                ->where('estado', 'cerrada')
+                ->whereNotNull('monto_dejar_apertura')
+                ->where('monto_dejar_apertura', '>', 0)
+                ->whereNull('dejar_apertura_asignado_a')
+                ->orderBy('fecha_cierre', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $cajas->map(function ($caja) {
+                    return [
+                        'id' => $caja->id,
+                        'monto_efectivo' => (float) $caja->monto_dejar_apertura,
+                        'fecha_cierre' => $caja->fecha_cierre?->toIso8601String(),
+                        'fecha_apertura' => $caja->fecha_apertura->toIso8601String(),
+                        'usuario' => $caja->user ? [
+                            'id' => $caja->user->id,
+                            'name' => $caja->user->name,
+                        ] : null,
+                    ];
+                }),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener efectivo disponible: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Asignar efectivo de apertura a un vendedor
+     */
+    public function asignarEfectivoApertura(string $id, Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'user_id' => 'required|string|exists:user,id',
+            ]);
+
+            $caja = \App\Models\AperturaCierreCaja::findOrFail($id);
+
+            if (!$caja->monto_dejar_apertura || $caja->monto_dejar_apertura <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Esta caja no tiene efectivo disponible para asignar',
+                ], 400);
+            }
+
+            if ($caja->dejar_apertura_asignado_a) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este efectivo ya fue asignado a otro usuario',
+                ], 400);
+            }
+
+            $caja->update([
+                'dejar_apertura_asignado_a' => $request->user_id,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Efectivo asignado correctamente',
+                'data' => [
+                    'id' => $caja->id,
+                    'monto' => (float) $caja->monto_dejar_apertura,
+                    'asignado_a' => $request->user_id,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al asignar efectivo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener efectivo de apertura asignado al usuario autenticado
+     */
+    public function efectivoAsignadoParaMi(): JsonResponse
+    {
+        try {
+            $userId = auth()->id();
+
+            $cajas = \App\Models\AperturaCierreCaja::with('user:id,name')
+                ->where('estado', 'cerrada')
+                ->where('dejar_apertura_asignado_a', $userId)
+                ->where('dejar_apertura_consumido', false)
+                ->whereNotNull('monto_dejar_apertura')
+                ->where('monto_dejar_apertura', '>', 0)
+                ->get();
+
+            $totalAsignado = $cajas->sum('monto_dejar_apertura');
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'total_asignado' => (float) $totalAsignado,
+                    'detalles' => $cajas->map(function ($caja) {
+                        return [
+                            'id' => $caja->id,
+                            'monto' => (float) $caja->monto_dejar_apertura,
+                            'fecha_cierre' => $caja->fecha_cierre?->toIso8601String(),
+                            'dejado_por' => $caja->user ? [
+                                'id' => $caja->user->id,
+                                'name' => $caja->user->name,
+                            ] : null,
+                        ];
+                    }),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener efectivo asignado: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Marcar como CONSUMIDO el efectivo de apertura asignado al usuario autenticado.
+     * Se llama después de aperturar usando ese efectivo, para que no vuelva a figurar
+     * como disponible.
+     */
+    public function consumirEfectivoAsignado(): JsonResponse
+    {
+        try {
+            $userId = auth()->id();
+
+            $afectadas = \App\Models\AperturaCierreCaja::where('dejar_apertura_asignado_a', $userId)
+                ->where('dejar_apertura_consumido', false)
+                ->where('monto_dejar_apertura', '>', 0)
+                ->update(['dejar_apertura_consumido' => true]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Efectivo asignado marcado como usado',
+                'data' => ['consumidas' => $afectadas],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al consumir efectivo asignado: ' . $e->getMessage(),
             ], 500);
         }
     }

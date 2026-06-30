@@ -16,6 +16,7 @@ class CierreCajaDTO
         public ?string $supervisorPassword = null,
         public ?string $emailReporte = null,
         public ?string $whatsappReporte = null,
-        public ?string $observaciones = null
+        public ?string $observaciones = null,
+        public ?float $montoDejarApertura = null
     ) {}
 }

@@ -39,6 +39,7 @@ class CerrarCajaRequest extends FormRequest
             'email_reporte' => ['nullable', 'email'],
             'whatsapp_reporte' => ['nullable', 'string'],
             'forzar_cierre' => ['nullable', 'boolean'],
+            'monto_dejar_apertura' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 

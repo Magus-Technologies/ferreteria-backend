@@ -44,6 +44,8 @@ class AperturaCajaController extends Controller
                 $vendedores = $request->validated('vendedores', []); // Array de vendedores
                 $enviarTicket = $request->validated('enviar_ticket', true); // Por defecto true
                 $emailDestino = $request->validated('email_destino'); // Email opcional
+                // Parte del monto que proviene de efectivo asignado de otro cierre.
+                $montoAsignado = (float) $request->validated('monto_asignado', 0);
 
                 // 1. Verificar que la caja principal existe
                 $cajaPrincipal = CajaPrincipal::find($cajaPrincipalId);
@@ -80,182 +82,29 @@ class AperturaCajaController extends Controller
                     ], 422);
                 }
 
-                // 4. Verificar si ya hay una apertura activa DEL DÍA ACTUAL
-                $hoy = now()->startOfDay();
+                // 4. Bloquear si la caja ya tiene una apertura ABIERTA (sin cerrar).
+                //    Regla de negocio (estricta): mientras exista una apertura abierta
+                //    NO se puede aperturar otra; primero hay que cerrarla (o deshacerla
+                //    si fue un error). En el día se apertura y cierra varias veces, pero
+                //    siempre en secuencia apertura -> cierre -> apertura (cola). No se
+                //    filtra por fecha: una apertura olvidada también bloquea hasta que
+                //    se cierre (el comando `cajas:cerrar-olvidadas` cierra las de días
+                //    anteriores).
                 $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
                     ->where('estado', 'abierta')
-                    ->whereDate('fecha_apertura', $hoy)
+                    ->whereNull('fecha_cierre')
                     ->first();
 
                 if ($aperturaActiva) {
                     /** @var AperturaCierreCaja $aperturaActiva */
-                    // ✅ Si ya hay apertura, solo agregar el monto a la caja chica
-                    $saldoAnterior = $cajaChica->saldo_actual;
-                    $cajaChica->saldo_actual += $montoTotal;
-                    $cajaChica->save();
-
-                    // Actualizar el monto de apertura acumulado
-                    $aperturaActiva->monto_apertura += $montoTotal;
-                    $aperturaActiva->save();
-
-                    // Registrar distribución a vendedores
-                    if (!empty($vendedores)) {
-                        foreach ($vendedores as $vendedor) {
-                            // Verificar si ya existe una distribución para este vendedor en esta apertura
-                            $distribucionExistente = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                                ->where('user_id', $vendedor['user_id'])
-                                ->first();
-
-                            if ($distribucionExistente) {
-                                // Actualizar distribución existente
-                                $distribucionExistente->monto += $vendedor['monto'];
-                                // Actualizar conteo si se proporciona (reemplazo simple por ahora)
-                                if (isset($vendedor['conteo_billetes_monedas'])) {
-                                    $distribucionExistente->conteo_billetes_monedas = $vendedor['conteo_billetes_monedas'];
-                                }
-                                $distribucionExistente->save();
-                            } else {
-                                // Crear nueva distribución
-                                \App\Models\DistribucionEfectivoVendedor::create([
-                                    'apertura_cierre_caja_id' => $aperturaActiva->id,
-                                    'user_id' => $vendedor['user_id'],
-                                    'monto' => $vendedor['monto'],
-                                    'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
-                                ]);
-                            }
-                        }
-                    }
-
-                    // Buscar el despliegue de pago "Efectivo"
-                    $desplieguePagoEfectivo = \App\Models\DespliegueDePago::where('name', 'Efectivo')
-                        ->where('activo', true)
-                        ->first();
-
-                    // Registrar transacción
-                    TransaccionCaja::create([
-                        'id' => (string) Str::ulid(),
-                        'sub_caja_id' => $cajaChica->id,
-                        'despliegue_pago_id' => $desplieguePagoEfectivo?->id,
-                        'tipo_transaccion' => 'ingreso',
-                        'monto' => $montoTotal,
-                        'saldo_anterior' => $saldoAnterior,
-                        'saldo_nuevo' => $cajaChica->saldo_actual,
-                        'descripcion' => 'Distribución de efectivo a vendedores',
-                        'referencia_id' => $aperturaActiva->id,
-                        'referencia_tipo' => 'apertura',
-                        'user_id' => $userId,
-                        'fecha' => now(),
-                    ]);
-
-                    // Registrar movimiento
-                    MovimientoCaja::create([
-                        'id' => (string) Str::ulid(),
-                        'apertura_cierre_id' => $aperturaActiva->id,
-                        'caja_principal_id' => $cajaPrincipalId,
-                        'sub_caja_id' => $cajaChica->id,
-                        'cajero_id' => $userId,
-                        'fecha_hora' => now(),
-                        'tipo_movimiento' => 'ingreso',
-                        'concepto' => "Distribución de efectivo a " . count($vendedores) . " vendedor(es): S/. {$montoTotal}",
-                        'saldo_inicial' => $saldoAnterior,
-                        'ingreso' => $montoTotal,
-                        'salida' => 0,
-                        'saldo_final' => $cajaChica->saldo_actual,
-                        'estado_caja' => 'abierta',
-                    ]);
-
-                    $aperturaActiva->load(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);
-
-                    // ✅ Enviar email automáticamente si está habilitado (IGUAL QUE EN NUEVA APERTURA)
-                    if ($enviarTicket && $emailDestino) {
-                        try {
-                            $ticketService = app(\App\Services\TicketAperturaService::class);
-                            $subject = 'Ticket de Apertura de Caja - ' . Carbon::parse($aperturaActiva->fecha_apertura)->format('d/m/Y H:i');
-
-                            // Obtener solo las distribuciones recién creadas/actualizadas
-                            $distribucionesRecientes = [];
-                            foreach ($vendedores as $vendedor) {
-                                $dist = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                                    ->where('user_id', $vendedor['user_id'])
-                                    ->with('vendedor')
-                                    ->first();
-
-                                if ($dist) {
-                                    $distribucionesRecientes[] = [
-                                        'vendedor' => $dist->vendedor->name,
-                                        'monto' => $vendedor['monto'], // Usar el monto de esta operación, no el acumulado
-                                        'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
-                                    ];
-                                }
-                            }
-
-                            // Generar HTML para el cuerpo del email con distribuciones específicas
-                            $htmlContent = $ticketService->generarTicketHTMLConDistribuciones(
-                                $aperturaActiva,
-                                collect($distribucionesRecientes),
-                                $montoTotal
-                            );
-
-                            // Generar PDF con distribuciones específicas
-                            $pdf = $ticketService->generarTicketPDFConDistribuciones(
-                                $aperturaActiva,
-                                collect($distribucionesRecientes),
-                                $montoTotal
-                            );
-                            $pdfContent = $pdf->output();
-                            $pdfName = 'ticket-apertura-' . $aperturaActiva->id . '.pdf';
-
-                            // Enviar email con PDF adjunto
-                            Mail::html($htmlContent, function ($message) use ($emailDestino, $subject, $pdfContent, $pdfName) {
-                                $message->to($emailDestino)
-                                    ->subject($subject)
-                                    ->attachData($pdfContent, $pdfName, [
-                                        'mime' => 'application/pdf',
-                                    ]);
-                            });
-
-                        } catch (\Exception $emailError) {
-                            // No fallar la apertura si el email falla
-                        }
-                    }
-
                     return response()->json([
-                        'success' => true,
-                        'message' => "Efectivo distribuido exitosamente. Nuevo saldo: S/. {$cajaChica->saldo_actual}",
+                        'success' => false,
+                        'message' => 'Esta caja ya tiene una apertura abierta. Debe cerrarla antes de aperturar nuevamente.',
                         'data' => [
-                            'id' => $aperturaActiva->id,
                             'apertura_id' => $aperturaActiva->id,
-                            'monto_agregado' => number_format($montoTotal, 2, '.', ''),
-                            'monto_apertura' => number_format($montoTotal, 2, '.', ''), // Monto de ESTA operación
-                            'monto_apertura_total' => number_format($aperturaActiva->monto_apertura, 2, '.', ''), // Monto acumulado total
-                            'conteo_apertura_billetes_monedas' => $aperturaActiva->conteo_apertura_billetes_monedas,
                             'fecha_apertura' => $aperturaActiva->fecha_apertura->toIso8601String(),
-                            'estado' => $aperturaActiva->estado,
-                            'saldo_anterior' => number_format($saldoAnterior, 2, '.', ''),
-                            'saldo_nuevo' => number_format($cajaChica->saldo_actual, 2, '.', ''),
-                            'vendedores_count' => count($vendedores),
-                            // SOLO las distribuciones de esta operación
-                            'distribuciones' => collect($vendedores)->map(function ($vendedor) use ($aperturaActiva) {
-                                $dist = $aperturaActiva->distribucionesVendedores->firstWhere('user_id', $vendedor['user_id']);
-                                return [
-                                    'vendedor_id' => $vendedor['user_id'],
-                                    'vendedor' => $dist ? $dist->vendedor->name : 'N/A',
-                                    'monto' => number_format($vendedor['monto'], 2, '.', ''), // Monto de ESTA operación
-                                    'conteo_billetes_monedas' => $vendedor['conteo_billetes_monedas'] ?? null,
-                                ];
-                            })->values(),
-                            'caja_principal' => [
-                                'id' => $aperturaActiva->cajaPrincipal->id,
-                                'codigo' => $aperturaActiva->cajaPrincipal->codigo,
-                                'nombre' => $aperturaActiva->cajaPrincipal->nombre,
-                            ],
-                            'user' => [
-                                'id' => $aperturaActiva->user->id,
-                                'name' => $aperturaActiva->user->name,
-                                'email' => $aperturaActiva->user->email,
-                            ],
                         ],
-                    ], 200);
+                    ], 422);
                 }
 
                 // 5. Si no hay apertura, crear una nueva
@@ -264,6 +113,7 @@ class AperturaCajaController extends Controller
                     'sub_caja_id' => $cajaChica->id,
                     'user_id' => $userId,
                     'monto_apertura' => $montoTotal,
+                    'monto_apertura_asignado' => $montoAsignado,
                     'conteo_apertura_billetes_monedas' => $conteoBilletes,
                     'fecha_apertura' => now(),
                     'estado' => 'abierta',
@@ -386,6 +236,70 @@ class AperturaCajaController extends Controller
                 return response()->json([
                     'success' => false,
                     'message' => 'Error al aperturar la caja: ' . $e->getMessage(),
+                ], 500);
+            }
+        });
+    }
+
+    /**
+     * Anular / deshacer una apertura ABIERTA (cuando se aperturó por error).
+     *
+     * Revierte el efectivo agregado a la caja chica y elimina las distribuciones,
+     * dejando la caja libre para una nueva apertura. Solo se permite si la apertura
+     * está abierta y NO tiene actividad posterior (ventas/movimientos o traslados).
+     */
+    public function anular(string $id): JsonResponse
+    {
+        return DB::transaction(function () use ($id) {
+            try {
+                $apertura = AperturaCierreCaja::find($id);
+
+                if (!$apertura) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Apertura no encontrada',
+                    ], 404);
+                }
+
+                // Solo se puede deshacer una apertura que sigue abierta
+                if ($apertura->estado !== 'abierta') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Solo se puede deshacer una apertura que está abierta.',
+                    ], 422);
+                }
+
+                // Guardia: no permitir deshacer si ya hubo actividad en la caja
+                $tieneMovimientos = MovimientoCaja::where('apertura_cierre_id', $apertura->id)->exists();
+                $tieneTraslados = \App\Models\TrasladoBoveda::where('apertura_cierre_caja_id', $apertura->id)->exists();
+
+                if ($tieneMovimientos || $tieneTraslados) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No se puede deshacer: la caja ya tiene movimientos registrados. Realice el cierre normal.',
+                    ], 422);
+                }
+
+                // Revertir el efectivo que la apertura sumó a la caja chica
+                $cajaChica = SubCaja::find($apertura->sub_caja_id);
+                if ($cajaChica) {
+                    $cajaChica->saldo_actual = max(0, (float) $cajaChica->saldo_actual - (float) $apertura->monto_apertura);
+                    $cajaChica->save();
+                }
+
+                // Eliminar distribuciones de efectivo y la apertura
+                \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)->delete();
+                $apertura->delete();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Apertura anulada exitosamente. La caja quedó disponible para una nueva apertura.',
+                ], 200);
+            } catch (Exception $e) {
+                Log::error('Error al anular apertura: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al anular la apertura: ' . $e->getMessage(),
                 ], 500);
             }
         });
@@ -594,6 +508,10 @@ class AperturaCajaController extends Controller
                 'email' => $apertura->user->email,
             ] : null),
             'monto_apertura' => $distribucion ? number_format($distribucion->monto, 2, '.', '') : number_format($apertura->monto_apertura, 2, '.', ''), // Monto de este vendedor
+            // Desglose: parte asignada (de otro cierre) y parte manual de ESTA apertura
+            'monto_apertura_total' => number_format($apertura->monto_apertura, 2, '.', ''),
+            'monto_apertura_asignado' => number_format((float) ($apertura->monto_apertura_asignado ?? 0), 2, '.', ''),
+            'monto_apertura_manual' => number_format(((float) $apertura->monto_apertura) - ((float) ($apertura->monto_apertura_asignado ?? 0)), 2, '.', ''),
             'monto_cierre' => $apertura->monto_cierre ? number_format($apertura->monto_cierre, 2, '.', '') : null,
             'fecha_apertura' => $apertura->fecha_apertura->toIso8601String(),
             'fecha_cierre' => $apertura->fecha_cierre?->toIso8601String(),

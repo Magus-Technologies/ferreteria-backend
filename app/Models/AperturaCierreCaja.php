@@ -18,6 +18,7 @@ class AperturaCierreCaja extends Model
         'sub_caja_id',
         'user_id',
         'monto_apertura',
+        'monto_apertura_asignado',
         'conteo_apertura_billetes_monedas',
         'fecha_apertura',
         'monto_cierre',
@@ -39,10 +40,14 @@ class AperturaCierreCaja extends Model
         'supervisor_validado',
         'observaciones_cierre',
         'estado_cierre',
+        'monto_dejar_apertura',
+        'dejar_apertura_asignado_a',
+        'dejar_apertura_consumido',
     ];
 
     protected $casts = [
         'monto_apertura' => 'decimal:2',
+        'monto_apertura_asignado' => 'decimal:2',
         'monto_cierre' => 'decimal:2',
         'monto_cierre_efectivo' => 'decimal:2',
         'monto_cierre_cuentas' => 'decimal:2',
@@ -53,6 +58,8 @@ class AperturaCierreCaja extends Model
         'conteo_apertura_billetes_monedas' => 'array',
         'conteo_billetes_monedas' => 'array',
         'conceptos_adicionales' => 'array',
+        'monto_dejar_apertura' => 'decimal:2',
+        'dejar_apertura_consumido' => 'boolean',
         'forzar_cierre' => 'boolean',
         'reporte_enviado' => 'boolean',
         'supervisor_validado' => 'boolean',
@@ -95,6 +102,11 @@ class AperturaCierreCaja extends Model
     public function supervisorValidador()
     {
         return $this->belongsTo(User::class, 'supervisor_id_validador');
+    }
+
+    public function asignadoAperturaA()
+    {
+        return $this->belongsTo(User::class, 'dejar_apertura_asignado_a');
     }
 
     public function distribucionesVendedores()

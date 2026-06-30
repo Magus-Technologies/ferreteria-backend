@@ -343,6 +343,135 @@ class SubCajaController extends Controller
     }
 
     /**
+     * Listar el efectivo disponible SEPARADO por vendedor + caja + método de efectivo.
+     *
+     * Cada fila representa el efectivo (apertura + ventas en efectivo − egresos) de un
+     * vendedor en una Caja Chica para un método de pago de efectivo. Sirve para el
+     * traslado a bóveda, donde debe figurar el efectivo de cada usuario por separado.
+     *
+     * Acepta ?apertura_cierre_caja_id= para limitar a la caja principal de esa apertura.
+     */
+    public function getEfectivoPorVendedor(): JsonResponse
+    {
+        try {
+            // El efectivo que figura es el del USUARIO ACTUAL (no el de otros vendedores).
+            $userId = auth()->id();
+            $vendedor = \App\Models\User::find($userId);
+
+            $aperturaCierreId = request()->query('apertura_cierre_caja_id');
+
+            // Si se indica la apertura, limitar a su caja principal y acotar el efectivo
+            // a lo ocurrido DESDE esa apertura.
+            $apertura = $aperturaCierreId
+                ? \App\Models\AperturaCierreCaja::find($aperturaCierreId)
+                : null;
+            $cajaPrincipalId = $apertura?->caja_principal_id;
+
+            // TODAS las sub-cajas de efectivo del usuario (Caja Chica + las demás), no solo CC.
+            $subCajas = \App\Models\SubCaja::where('estado', true)
+                ->when($cajaPrincipalId, fn ($q) => $q->where('caja_principal_id', $cajaPrincipalId))
+                ->get();
+
+            $filas = [];
+
+            foreach ($subCajas as $subCaja) {
+                // Despliegues de pago de EFECTIVO de esta caja
+                $desplieguesEfectivo = collect($subCaja->getDesplieguePagos())->filter(function ($despliegue) {
+                    $metodo = $despliegue->metodoDePago;
+                    if (!$metodo) {
+                        return false;
+                    }
+                    $cuenta = $metodo->cuenta_bancaria;
+                    $sinCuenta = empty($cuenta) || $cuenta === 'SIN-CUENTA' || $cuenta === '-';
+                    // Es efectivo si el método o el despliegue se llaman "efectivo".
+                    $esEfectivo = stripos($metodo->name, 'efectivo') !== false
+                        || stripos($despliegue->name, 'efectivo') !== false;
+                    return $sinCuenta && $esEfectivo;
+                });
+
+                if ($desplieguesEfectivo->isEmpty()) {
+                    continue;
+                }
+
+                foreach ($desplieguesEfectivo as $despliegue) {
+                    // Efectivo del usuario actual DESDE la apertura (distribución + ventas − egresos)
+                    $saldo = $this->calcularEfectivoDesdeApertura(
+                        $subCaja,
+                        $userId,
+                        $despliegue->id,
+                        $apertura
+                    );
+
+                    // Solo mostrar lo que tenga efectivo disponible
+                    if ($saldo <= 0) {
+                        continue;
+                    }
+
+                    $filas[] = [
+                        'vendedor_id' => $userId,
+                        'vendedor_nombre' => $vendedor?->name ?? '',
+                        'sub_caja_id' => $subCaja->id,
+                        'sub_caja_nombre' => $subCaja->nombre,
+                        'despliegue_pago_id' => $despliegue->id,
+                        'metodo_nombre' => $despliegue->name,
+                        'efectivo_disponible' => number_format($saldo, 2, '.', ''),
+                    ];
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $filas,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('❌ Error en getEfectivoPorVendedor', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener efectivo por vendedor: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Efectivo de un usuario en una sub-caja/método ACOTADO a una apertura:
+     * distribución de esa apertura (si es Caja Chica) + ingresos − egresos de efectivo
+     * registrados DESDE la fecha de apertura. Así solo cuenta "lo que tengo desde que aperturé".
+     */
+    private function calcularEfectivoDesdeApertura($subCaja, string|int $userId, string $desplieguePagoId, $apertura): float
+    {
+        // Monto distribuido en ESTA apertura (solo Caja Chica)
+        $montoInicial = 0.0;
+        if ($apertura && $subCaja->esCajaChica()) {
+            $montoInicial = (float) \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
+                ->where('user_id', $userId)
+                ->sum('monto');
+        }
+
+        // Transacciones del método, excluyendo las de tipo "apertura" (ya contadas arriba)
+        $query = \App\Models\TransaccionCaja::where('sub_caja_id', $subCaja->id)
+            ->where('user_id', $userId)
+            ->where('despliegue_pago_id', $desplieguePagoId)
+            ->where(function ($q) {
+                $q->whereNull('referencia_tipo')
+                  ->orWhere('referencia_tipo', '!=', 'apertura');
+            });
+
+        // Solo desde que se aperturó
+        if ($apertura && $apertura->fecha_apertura) {
+            $query->where('created_at', '>=', $apertura->fecha_apertura);
+        }
+
+        $transacciones = $query->get();
+        $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        $egresos = (float) $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+
+        return $montoInicial + $ingresos - $egresos;
+    }
+
+    /**
      * Obtener todos los vendedores con efectivo disponible
      * Los vendedores NO tienen cajas asignadas, solo tienen transacciones en las sub-cajas
      */

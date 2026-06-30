@@ -55,6 +55,11 @@ class GastoExtraController extends Controller
             });
         }
 
+        // Filtro por estado
+        if ($request->has('estado') && $request->estado) {
+            $query->where('estado', $request->estado);
+        }
+
         $gastos = $query->orderBy('created_at', 'desc')->get();
 
         $subCajas = SubCaja::all();
@@ -86,12 +91,12 @@ class GastoExtraController extends Controller
      */
     public function resumen()
     {
-        // Gastos extras registrados manualmente
-        $totalGastosExtras = GastoExtra::sum('monto');
-        $totalTransaccionesExtras = GastoExtra::count();
+        // Gastos extras registrados manualmente (excluir anulados)
+        $totalGastosExtras = GastoExtra::where('estado', '!=', 'anulado')->sum('monto');
+        $totalTransaccionesExtras = GastoExtra::where('estado', '!=', 'anulado')->count();
 
-        $gastosExtrasHoy = GastoExtra::whereDate('created_at', now()->toDateString())->sum('monto');
-        $transaccionesExtrasHoy = GastoExtra::whereDate('created_at', now()->toDateString())->count();
+        $gastosExtrasHoy = GastoExtra::where('estado', '!=', 'anulado')->whereDate('created_at', now()->toDateString())->sum('monto');
+        $transaccionesExtrasHoy = GastoExtra::where('estado', '!=', 'anulado')->whereDate('created_at', now()->toDateString())->count();
 
         // Calcular pérdidas por salidas de productos (malogrados, vencidos, robados)
         // Solo considerar salidas (tipo = 'salida')
@@ -174,6 +179,7 @@ class GastoExtraController extends Controller
                 $gasto = GastoExtra::create([
                     'monto' => $request->monto,
                     'concepto' => $request->concepto,
+                    'estado' => 'aprobado',
                     'user_id' => Auth::id() ?? User::first()?->id,
                     'despliegue_pago_id' => $request->despliegue_pago_id,
                 ]);
@@ -258,25 +264,31 @@ class GastoExtraController extends Controller
                 if ($gasto->compra) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'No se puede eliminar un gasto ya asociado a una compra.'
+                        'message' => 'No se puede anular un gasto asociado a una compra.'
                     ], 422);
                 }
 
-                $gastoId = $gasto->id;
-                $concepto = $gasto->concepto;
-                
-                $gasto->delete();
+                if ($gasto->estado === 'anulado') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'El gasto ya está anulado.'
+                    ], 422);
+                }
+
+                $gasto->estado = 'anulado';
+                $gasto->save();
 
                 // Reversar el dinero en caja
                 $this->reversarEnCajaActiva(
-                    $gastoId,
+                    $gasto->id,
                     'gasto_extra',
-                    'Anulación de gasto: ' . $concepto
+                    'Anulación de gasto: ' . $gasto->concepto
                 );
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Gasto eliminado correctamente y monto devuelto a caja',
+                    'message' => 'Gasto anulado correctamente y monto devuelto a caja',
+                    'data' => $gasto
                 ]);
             });
         } catch (\Exception $e) {
@@ -297,6 +309,7 @@ class GastoExtraController extends Controller
         $excluirCompraId = $request->get('excluir_compra_id');
 
         $gastos = GastoExtra::with(['user', 'desplieguePago.metodoDePago'])
+            ->where('estado', '!=', 'anulado')
             ->whereDoesntHave('compra', function ($query) use ($excluirCompraId) {
                 if ($excluirCompraId) {
                     $query->where('id', '!=', $excluirCompraId);

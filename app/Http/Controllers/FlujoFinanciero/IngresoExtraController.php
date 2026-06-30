@@ -5,9 +5,7 @@ namespace App\Http\Controllers\FlujoFinanciero;
 use App\Http\Controllers\Controller;
 use App\Models\IngresoExtra;
 use App\Models\User;
-use App\Models\AperturaCierreCaja;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
@@ -20,11 +18,16 @@ class IngresoExtraController extends Controller
     /**
      * Listar todos los ingresos extras
      */
-    public function index()
+    public function index(Request $request)
     {
-        $ingresos = IngresoExtra::with(['user', 'supervisor', 'desplieguePago.metodoDePago'])
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $query = IngresoExtra::with(['user', 'desplieguePago.metodoDePago'])
+            ->orderBy('created_at', 'desc');
+
+        if ($request->has('estado') && $request->estado) {
+            $query->where('estado', $request->estado);
+        }
+
+        $ingresos = $query->get();
 
         $subCajas = \App\Models\SubCaja::all();
 
@@ -55,13 +58,11 @@ class IngresoExtraController extends Controller
      */
     public function resumen()
     {
-        $query = IngresoExtra::where('estado', 'aprobado');
+        $totalIngresos = IngresoExtra::where('estado', '!=', 'anulado')->sum('monto');
+        $totalTransacciones = IngresoExtra::where('estado', '!=', 'anulado')->count();
 
-        $totalIngresos = $query->sum('monto');
-        $totalTransacciones = $query->count();
-
-        $ingresosHoy = (clone $query)->whereDate('created_at', now()->toDateString())->sum('monto');
-        $transaccionesHoy = (clone $query)->whereDate('created_at', now()->toDateString())->count();
+        $ingresosHoy = IngresoExtra::where('estado', '!=', 'anulado')->whereDate('created_at', now()->toDateString())->sum('monto');
+        $transaccionesHoy = IngresoExtra::where('estado', '!=', 'anulado')->whereDate('created_at', now()->toDateString())->count();
 
         $promedioIngreso = $totalTransacciones > 0 ? $totalIngresos / $totalTransacciones : 0;
 
@@ -85,65 +86,33 @@ class IngresoExtraController extends Controller
         $request->validate([
             'monto' => 'required|numeric|min:0.01',
             'concepto' => 'required|string|max:1000',
-            'supervisor_id' => 'nullable|string',
-            'supervisor_password' => 'nullable|string',
             'despliegue_pago_id' => 'nullable|string',
         ]);
 
         try {
             return DB::transaction(function () use ($request) {
-                $estado = 'pendiente';
-                $supervisorValidadoId = null;
-
-                // Validar supervisor si se envía
-                if ($request->supervisor_id && $request->supervisor_password) {
-                    $supervisor = $this->validarSupervisor($request->supervisor_id, $request->supervisor_password);
-
-                    if (!$supervisor) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Credenciales de supervisor inválidas'
-                        ], 403);
-                    }
-
-                    // Validar que exista apertura de hoy antes de aprobar
-                    $aperturaDiaria = $this->validarAperturaDiaria();
-                    if (!$aperturaDiaria) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'No hay apertura de caja para hoy. No se puede aprobar el ingreso.'
-                        ], 422);
-                    }
-
-                    $estado = 'aprobado';
-                    $supervisorValidadoId = $supervisor->id;
-                }
-
                 $ingresoId = Str::ulid()->toString();
 
                 $ingreso = IngresoExtra::create([
                     'id' => $ingresoId,
                     'monto' => $request->monto,
                     'concepto' => $request->concepto,
-                    'estado' => $estado,
-                    'user_id' => Auth::id() ?? User::first()?->id, // FIXME: remove fallback in prod
-                    'supervisor_id' => $supervisorValidadoId,
+                    'estado' => 'aprobado',
+                    'user_id' => Auth::id() ?? User::first()?->id,
                     'despliegue_pago_id' => $request->despliegue_pago_id,
                 ]);
 
-                if ($estado === 'aprobado') {
-                    $subCajaId = $this->obtenerSubCajaIdFromPago($request->despliegue_pago_id);
-                    
-                    $this->registrarEnCajaActiva(
-                        $ingresoId,
-                        'ingreso_extra',
-                        'ingreso',
-                        (float) $request->monto,
-                        $request->despliegue_pago_id,
-                        'Ingreso Extra Automático: ' . $request->concepto,
-                        $subCajaId
-                    );
-                }
+                $subCajaId = $this->obtenerSubCajaIdFromPago($request->despliegue_pago_id);
+
+                $this->registrarEnCajaActiva(
+                    $ingresoId,
+                    'ingreso_extra',
+                    'ingreso',
+                    (float) $request->monto,
+                    $request->despliegue_pago_id,
+                    'Ingreso Extra: ' . $request->concepto,
+                    $subCajaId
+                );
 
                 return response()->json([
                     'success' => true,
@@ -154,13 +123,13 @@ class IngresoExtraController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error al registrar el ingreso: ' . $e->getMessage()
-            ], 500);
+                'message' => $e->getMessage()
+            ], 422);
         }
     }
 
     /**
-     * Actualizar un ingreso extra (solo si está pendiente)
+     * Actualizar un ingreso extra
      */
     public function update(Request $request, $id)
     {
@@ -211,23 +180,22 @@ class IngresoExtraController extends Controller
                     return response()->json(['success' => false, 'message' => 'Ingreso no encontrado'], 404);
                 }
 
-                $estadoAnterior = $ingreso->estado;
+                if ($ingreso->estado === 'anulado') {
+                    return response()->json(['success' => false, 'message' => 'El ingreso ya está anulado'], 422);
+                }
 
                 $ingreso->estado = 'anulado';
                 $ingreso->save();
 
-                // Solo revertimos dinero en caja si había sido aprobado previamente
-                if ($estadoAnterior === 'aprobado') {
-                    $this->reversarEnCajaActiva(
-                        $ingreso->id,
-                        'ingreso_extra',
-                        'Anulación manual de ingreso extra'
-                    );
-                }
+                $this->reversarEnCajaActiva(
+                    $ingreso->id,
+                    'ingreso_extra',
+                    'Anulación de ingreso: ' . $ingreso->concepto
+                );
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Ingreso anulado correctamente',
+                    'message' => 'Ingreso anulado correctamente y monto devuelto a caja',
                     'data' => $ingreso
                 ]);
             });
@@ -237,105 +205,6 @@ class IngresoExtraController extends Controller
                 'message' => 'Error al anular el ingreso: ' . $e->getMessage()
             ], 500);
         }
-    }
-
-    /**
-     * Aprobar un ingreso pendiente
-     */
-    public function aprobar(Request $request, $id)
-    {
-        $request->validate([
-            'supervisor_id' => 'required|string',
-            'supervisor_password' => 'required|string',
-        ]);
-
-        try {
-            return DB::transaction(function () use ($request, $id) {
-                $ingreso = IngresoExtra::find($id);
-
-                if (!$ingreso) {
-                    return response()->json(['success' => false, 'message' => 'Ingreso no encontrado'], 404);
-                }
-
-                // Validar que exista apertura de hoy antes de aprobar
-                $aperturaDiaria = $this->validarAperturaDiaria();
-                if (!$aperturaDiaria) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No hay apertura de caja para hoy. No se puede aprobar el ingreso.'
-                    ], 422);
-                }
-
-                // Validar supervisor
-                $supervisor = $this->validarSupervisor($request->supervisor_id, $request->supervisor_password);
-
-                if (!$supervisor) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Credenciales de supervisor inválidas'
-                    ], 403);
-                }
-
-                $ingreso->estado = 'aprobado';
-                $ingreso->supervisor_id = $supervisor->id;
-                $ingreso->save();
-
-                // Como recien se aprueba, lo impactamos en caja
-                $subCajaId = $this->obtenerSubCajaIdFromPago($ingreso->despliegue_pago_id);
-
-                $this->registrarEnCajaActiva(
-                    $ingreso->id,
-                    'ingreso_extra',
-                    'ingreso',
-                    (float) $ingreso->monto,
-                    $ingreso->despliegue_pago_id,
-                    'Aprobación de Ingreso Extra: ' . $ingreso->concepto,
-                    $subCajaId
-                );
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Ingreso aprobado correctamente y cargado en caja',
-                    'data' => $ingreso
-                ]);
-            });
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error al aprobar el ingreso: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Lógica compartida para validar un supervisor
-     */
-    private function validarSupervisor(string $supervisorId, string $password): ?User
-    {
-        $supervisor = User::find($supervisorId);
-        if (!$supervisor || !$supervisor->es_supervisor || !$supervisor->supervisor_password) {
-            return null;
-        }
-
-        if (!Hash::check($password, $supervisor->supervisor_password)) {
-            return null;
-        }
-
-        return $supervisor;
-    }
-
-    /**
-     * Validar que exista apertura de caja para hoy
-     */
-    private function validarAperturaDiaria(): ?AperturaCierreCaja
-    {
-        $hoy = now()->toDateString();
-
-        $apertura = AperturaCierreCaja::where('estado', 'abierta')
-            ->whereDate('fecha_apertura', $hoy)
-            ->first();
-
-        return $apertura;
     }
 
     /**
