@@ -119,7 +119,7 @@ class CerrarCajaUseCase
                 ]);
             }
 
-            // 8. Actualizar apertura con datos mínimos (referencia al último arqueo)
+            // 8. Actualizar apertura con datos minimos (referencia al ultimo arqueo)
             $apertura->update([
                 'monto_cierre' => $dto->montoCierre,
                 'monto_cierre_efectivo' => $dto->montoCierreEfectivo,
@@ -130,10 +130,11 @@ class CerrarCajaUseCase
                 'supervisor_validado' => $supervisorValidado,
                 'estado_cierre' => $supervisorValidado ? 'aprobado' : 'pendiente',
                 'fecha_ultimo_arqueo' => now(),
-                'fecha_cierre' => now(), // NUEVO: Setear fecha de cierre real
-                'estado' => 'cerrada',   // NUEVO: Cambiar estado a cerrada
+                'fecha_cierre' => now(),
+                'estado' => 'cerrada',
                 'diferencia_efectivo' => $diferencia,
                 'diferencia_total' => $diferencia,
+                'monto_dejar_apertura' => $dto->montoDejarApertura,
             ]);
 
             // 9. Crear DTO de resultado
@@ -189,3 +190,7 @@ class CerrarCajaUseCase
         }
     }
 }
+
+
+
+

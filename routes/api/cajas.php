@@ -113,6 +113,10 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/validar-supervisor', [CierreCajaController::class, 'validarSupervisor']);
             Route::post('/{id}/enviar-email', [CierreCajaController::class, 'enviarTicketEmail']); // Enviar ticket por correo
             Route::post('/{id}/aprobar', [CierreCajaController::class, 'aprobarCierre']); // Aprobar cierre pendiente
+            Route::get('/efectivo-disponible', [CierreCajaController::class, 'efectivoDisponible']);
+            Route::post('/{id}/asignar-efectivo-apertura', [CierreCajaController::class, 'asignarEfectivoApertura']);
+            Route::get('/efectivo-asignado-para-mi', [CierreCajaController::class, 'efectivoAsignadoParaMi']); // Efectivo de cierres para apertura
+            Route::post('/consumir-efectivo-asignado', [CierreCajaController::class, 'consumirEfectivoAsignado']); // Marcar usado al aperturar
             Route::get('/{id}', [CierreCajaController::class, 'obtenerCierre']); // Nuevo endpoint
             Route::get('/{id}/cierre', [CierreCajaController::class, 'obtenerCierre']); // Alias legacy
         });

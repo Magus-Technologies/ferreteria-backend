@@ -70,7 +70,8 @@ class CierreCajaService implements CierreCajaServiceInterface
             supervisorPassword: $data['supervisor_password'] ?? null,
             emailReporte: $data['email_reporte'] ?? null,
             whatsappReporte: $data['whatsapp_reporte'] ?? null,
-            observaciones: $data['comentarios'] ?? null
+            observaciones: $data['comentarios'] ?? null,
+            montoDejarApertura: isset($data['monto_dejar_apertura']) ? (float) $data['monto_dejar_apertura'] : null
         );
 
         return $this->cerrarCajaUseCase->ejecutar($dto);
@@ -96,7 +97,8 @@ class CierreCajaService implements CierreCajaServiceInterface
             supervisorPassword: $data['supervisor_password'] ?? null,
             emailReporte: $data['email_reporte'] ?? null,
             whatsappReporte: $data['whatsapp_reporte'] ?? null,
-            observaciones: $data['comentarios'] ?? null
+            observaciones: $data['comentarios'] ?? null,
+            montoDejarApertura: isset($data['monto_dejar_apertura']) ? (float) $data['monto_dejar_apertura'] : null
         );
 
         // Pasar el aperturaId al UseCase para que use findById en lugar de obtenerAperturaActiva
