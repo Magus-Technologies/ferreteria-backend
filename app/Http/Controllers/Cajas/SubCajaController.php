@@ -633,34 +633,31 @@ class SubCajaController extends Controller
             return '0.00';
         }
         
+        // Apertura activa de la caja principal: acota el saldo DESDE la apertura HASTA el cierre.
+        $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->whereNull('fecha_cierre')
+            ->first();
+
         $montoInicial = 0;
-        
-        // Solo si es Caja Chica, considerar la distribución inicial de efectivo
-        if ($subCaja->esCajaChica()) {
-            // Obtener la apertura activa de la caja principal
-            $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-                ->whereNull('fecha_cierre')
-                ->first();
-            
-            if ($aperturaActiva) {
-                // Sumar solo las distribuciones de efectivo del vendedor
-                $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                    ->where('user_id', $userId)
-                    ->get();
-                
-                $montoInicial = $distribuciones->sum('monto');
-            }
+
+        // Solo si es Caja Chica, considerar la distribución inicial de efectivo de esta apertura
+        if ($subCaja->esCajaChica() && $aperturaActiva) {
+            $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                ->where('user_id', $userId)
+                ->get();
+
+            $montoInicial = $distribuciones->sum('monto');
         }
-        
+
         // Obtener IDs de despliegues de pago de esta sub-caja
         $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
-        
+
         // Si no hay métodos de pago en esta sub-caja, retornar solo el monto inicial
         if (empty($desplieguePagoIds)) {
             return number_format($montoInicial, 2, '.', '');
         }
-        
-        // Calcular TODAS las transacciones del vendedor en esta sub-caja
+
+        // Calcular las transacciones del vendedor en esta sub-caja, DESDE la apertura.
         // EXCLUIR transacciones de tipo "apertura" para evitar duplicar las distribuciones
         $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $userId)
@@ -669,6 +666,7 @@ class SubCajaController extends Controller
                 $query->whereNull('referencia_tipo')
                       ->orWhere('referencia_tipo', '!=', 'apertura');
             })
+            ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
             ->get();
         
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
@@ -768,37 +766,32 @@ class SubCajaController extends Controller
             return '0.00';
         }
         
+        // Apertura activa de la caja principal: acota el saldo DESDE la apertura HASTA el cierre.
+        $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->whereNull('fecha_cierre')
+            ->first();
+
         $montoInicial = 0;
-        
+
         // Solo si es Caja Chica Y el método es efectivo, considerar la distribución inicial
-        if ($subCaja->esCajaChica()) {
-            // Verificar si este despliegue es efectivo
+        if ($subCaja->esCajaChica() && $aperturaActiva) {
             $despliegue = \App\Models\DespliegueDePago::find($desplieguePagoId);
             if ($despliegue && $despliegue->metodoDePago) {
-                $esEfectivo = (empty($despliegue->metodoDePago->cuenta_bancaria) || 
+                $esEfectivo = (empty($despliegue->metodoDePago->cuenta_bancaria) ||
                               $despliegue->metodoDePago->cuenta_bancaria === 'SIN-CUENTA') &&
                              (stripos($despliegue->metodoDePago->name, 'efectivo') !== false);
-                
+
                 if ($esEfectivo) {
-                    // Obtener la apertura activa de la caja principal
-                    $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-                        ->whereNull('fecha_cierre')
-                        ->first();
-                    
-                    if ($aperturaActiva) {
-                        // Sumar solo las distribuciones de efectivo del vendedor
-                        $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                            ->where('user_id', $userId)
-                            ->get();
-                        
-                        $montoInicial = $distribuciones->sum('monto');
-                    }
+                    $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                        ->where('user_id', $userId)
+                        ->get();
+
+                    $montoInicial = $distribuciones->sum('monto');
                 }
             }
         }
-        
-        // Calcular transacciones para este método de pago específico
-        // EXCLUIR transacciones de tipo "apertura" para evitar duplicar las distribuciones
+
+        // Transacciones de este método, DESDE la apertura. EXCLUIR las de tipo "apertura".
         $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $userId)
             ->where('despliegue_pago_id', $desplieguePagoId)
@@ -806,6 +799,7 @@ class SubCajaController extends Controller
                 $query->whereNull('referencia_tipo')
                       ->orWhere('referencia_tipo', '!=', 'apertura');
             })
+            ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
             ->get();
         
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
