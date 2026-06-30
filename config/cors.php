@@ -23,6 +23,7 @@ return [
         'http://localhost:3000',
         'http://localhost:3001',
         'http://127.0.0.1:3000',
+        'http://192.168.18.153:3000',
         'http://ferreteria2.test',
         'http://ferreteria-backend.test',
         'https://ferreteriamiredentor.com',
