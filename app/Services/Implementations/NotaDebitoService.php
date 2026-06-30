@@ -463,16 +463,15 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             ];
         }
 
-        // ✅ VALIDACIÓN CORREGIDA: Aceptar ventas en estado 'cr' (Creado) o 'pr' (Procesado)
         // Obtener el valor del enum como string
-        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum 
-            ? $venta->estado_de_venta->value 
+        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum
+            ? $venta->estado_de_venta->value
             : $venta->estado_de_venta;
 
-        if (!in_array($estadoVenta, ['cr', 'pr'])) {
+        if ($estadoVenta !== 'cr') {
             return [
                 'valido' => false,
-                'mensaje' => 'La venta debe estar en estado Creado o Procesado',
+                'mensaje' => 'La venta debe estar en estado Creado',
             ];
         }
 
@@ -517,10 +516,9 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             ? $venta->estado_de_venta->value 
             : $venta->estado_de_venta;
 
-        // ✅ VALIDACIÓN CORREGIDA: Aceptar ventas en estado 'cr' (Creado) o 'pr' (Procesado)
-        if (!in_array($estadoVenta, ['cr', 'pr'])) {
+        if ($estadoVenta !== 'cr') {
             throw NotaDebitoException::ventaNoValida(
-                'La venta debe estar en estado Creado o Procesado. Estado actual: ' . $estadoVenta
+                'La venta debe estar en estado Creado. Estado actual: ' . $estadoVenta
             );
         }
 
