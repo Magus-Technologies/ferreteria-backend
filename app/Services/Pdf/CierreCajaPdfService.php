@@ -70,11 +70,33 @@ class CierreCajaPdfService
 
     private function obtenerCierre(string $id): AperturaCierreCaja
     {
-        return AperturaCierreCaja::with([
+        $conRelaciones = fn () => AperturaCierreCaja::with([
             'user.empresa',
             'cajaPrincipal',
             'supervisor',
-        ])->findOrFail($id);
+        ]);
+
+        // Búsqueda CASE-INSENSITIVE: los ULID se guardan en MAYÚSCULAS, pero el front a
+        // veces manda el id en minúsculas. En local la collation suele ser case-insensitive
+        // (matchea igual), pero en producción puede ser case-sensitive → daba 404.
+        $idUpper = strtoupper($id);
+        $cierre = $conRelaciones()->whereRaw('UPPER(id) = ?', [$idUpper])->first();
+
+        // Si no es una apertura, puede ser el id de un ARQUEO → resolver su apertura.
+        if (!$cierre) {
+            $arqueo = \App\Models\ArqueoDiario::whereRaw('UPPER(id) = ?', [$idUpper])->first();
+            if ($arqueo) {
+                $cierre = $conRelaciones()
+                    ->whereRaw('UPPER(id) = ?', [strtoupper((string) $arqueo->apertura_cierre_caja_id)])
+                    ->first();
+            }
+        }
+
+        if (!$cierre) {
+            abort(404, 'Cierre de caja no encontrado');
+        }
+
+        return $cierre;
     }
 
     private function prepararResumen(AperturaCierreCaja $cierre): array
