@@ -1471,10 +1471,15 @@ class CompraController extends Controller
                 ? ((float) $validated['monto']) / $tcPago
                 : (float) $validated['monto'];
 
-            // Validar que el monto no exceda el saldo (tolerancia por redondeo)
+            // Validar que el monto no exceda el saldo (tolerancia por redondeo).
+            // abort(422) devuelve un JSON {"message": ...} legible (antes un \Exception
+            // genérico se veía como "Server Error" 500 en producción).
             if ($montoEnMoneda > $saldoPendiente + 0.01) {
                 $simbolo = $esDolares ? '$ ' : 'S/ ';
-                throw new \Exception('El monto del pago no puede exceder el saldo pendiente de ' . $simbolo . number_format($saldoPendiente, 2));
+                $saldoFmt = $saldoPendiente <= 0.01
+                    ? 'Esta compra ya está pagada.'
+                    : 'No puedes pagar más de lo que se debe. Saldo pendiente: ' . $simbolo . number_format($saldoPendiente, 2);
+                abort(422, $saldoFmt);
             }
 
             // Crear el pago
