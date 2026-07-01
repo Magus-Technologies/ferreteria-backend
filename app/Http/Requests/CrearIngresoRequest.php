@@ -23,7 +23,7 @@ class CrearIngresoRequest extends FormRequest
     {
         return [
             'monto' => 'required|numeric|min:0.01|max:999999.99',
-            'concepto' => 'required|string|max:255',
+            'concepto' => 'sometimes|nullable|string|max:255',
             'comentario' => 'sometimes|nullable|string|max:500',
             'despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
             'autoriza' => 'sometimes|nullable|string|max:255',

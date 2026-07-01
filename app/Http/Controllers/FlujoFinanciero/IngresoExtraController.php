@@ -30,7 +30,7 @@ class IngresoExtraController extends Controller
 
         // Filtro por fecha hasta
         if ($request->has('fechaHasta')) {
-            $query->where('created_at', '<=', $request->fechaHasta);
+            $query->where('created_at', '<=', $request->fechaHasta . ' 23:59:59');
         }
 
         // Filtro por motivo/concepto
@@ -106,7 +106,7 @@ class IngresoExtraController extends Controller
         }
 
         if ($request->has('fechaHasta')) {
-            $query->where('created_at', '<=', $request->fechaHasta);
+            $query->where('created_at', '<=', $request->fechaHasta . ' 23:59:59');
         }
 
         $totalIngresos = (clone $query)->sum('monto');
@@ -136,7 +136,7 @@ class IngresoExtraController extends Controller
     {
         $request->validate([
             'monto' => 'required|numeric|min:0.01',
-            'concepto' => 'required|string|max:1000',
+            'concepto' => 'sometimes|nullable|string|max:1000',
             'despliegue_pago_id' => 'nullable|string',
         ]);
 
@@ -147,7 +147,7 @@ class IngresoExtraController extends Controller
                 $ingreso = IngresoExtra::create([
                     'id' => $ingresoId,
                     'monto' => $request->monto,
-                    'concepto' => $request->concepto,
+                    'concepto' => $request->concepto ?? '',
                     'estado' => 'aprobado',
                     'user_id' => Auth::id() ?? User::first()?->id,
                     'despliegue_pago_id' => $request->despliegue_pago_id,
@@ -186,7 +186,7 @@ class IngresoExtraController extends Controller
     {
         $request->validate([
             'monto' => 'required|numeric|min:0.01',
-            'concepto' => 'required|string|max:1000',
+            'concepto' => 'sometimes|nullable|string|max:1000',
             'despliegue_pago_id' => 'nullable|string',
         ]);
 
@@ -200,7 +200,7 @@ class IngresoExtraController extends Controller
 
                 $ingreso->update([
                     'monto' => $request->monto,
-                    'concepto' => $request->concepto,
+                    'concepto' => $request->concepto ?? '',
                     'despliegue_pago_id' => $request->despliegue_pago_id,
                 ]);
 

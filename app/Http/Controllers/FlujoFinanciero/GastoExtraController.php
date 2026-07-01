@@ -28,7 +28,7 @@ class GastoExtraController extends Controller
 
         // Filtro por fecha hasta
         if ($request->has('fechaHasta')) {
-            $query->where('created_at', '<=', $request->fechaHasta);
+            $query->where('created_at', '<=', $request->fechaHasta . ' 23:59:59');
         }
 
         // Filtro por motivo/concepto
@@ -104,7 +104,7 @@ class GastoExtraController extends Controller
         }
 
         if ($request->has('fechaHasta')) {
-            $gastoQuery->where('created_at', '<=', $request->fechaHasta);
+            $gastoQuery->where('created_at', '<=', $request->fechaHasta . ' 23:59:59');
         }
 
         // Gastos extras registrados manualmente
@@ -133,8 +133,8 @@ class GastoExtraController extends Controller
         }
 
         if ($request->has('fechaHasta')) {
-            $perdidasQuery->where('i.created_at', '<=', $request->fechaHasta);
-            $transaccionesQuery->where('i.created_at', '<=', $request->fechaHasta);
+            $perdidasQuery->where('i.created_at', '<=', $request->fechaHasta . ' 23:59:59');
+            $transaccionesQuery->where('i.created_at', '<=', $request->fechaHasta . ' 23:59:59');
         }
 
         // Calcular pérdidas por salidas de productos (malogrados, vencidos, robados)
