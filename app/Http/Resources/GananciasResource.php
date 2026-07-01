@@ -38,6 +38,9 @@ class GananciasResource extends JsonResource
             // Indicador de desglose por lote PEPS (ej. "Lote 1/2"); null si la
             // fila no proviene de un desglose por costos distintos.
             'desglose_lote' => $this->desglose_lote ?? null,
+            // Serie-número de la compra de origen del costo (PEPS). "N compras" si
+            // el lote se surtió de varias; null si no hay registro de consumo.
+            'documento_pagado' => $this->documento_pagado ?? null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

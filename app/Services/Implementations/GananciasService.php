@@ -159,6 +159,33 @@ class GananciasService implements GananciasServiceInterface
             ->get()
             ->groupBy(fn($c) => $c->origen_id . '|' . $c->producto_almacen_id);
 
+        // Serie-número de la compra de origen de cada lote (para la columna "Documento pagado")
+        $loteIds = $consumosPorClave->flatten(1)->pluck('lote_id')->filter()->unique()->values()->all();
+        $compraPorLote = empty($loteIds) ? collect() : DB::table('productoalmacen_lote as pl')
+            ->join('compra as c', 'pl.compra_id', '=', 'c.id')
+            ->whereIn('pl.id', $loteIds)
+            ->select('pl.id as lote_id', DB::raw("CONCAT(c.serie, '-', c.numero) as serie_numero"))
+            ->get()
+            ->keyBy('lote_id');
+
+        // Dado un grupo de consumos, resuelve el documento de la(s) compra(s) de origen:
+        // una sola compra → su serie-número; varias → "N compras".
+        $resolverDocumentoPagado = function ($consumos) use ($compraPorLote) {
+            if (!$consumos || $consumos->isEmpty()) {
+                return null;
+            }
+            $seriesUnicas = $consumos->pluck('lote_id')
+                ->unique()
+                ->map(fn($loteId) => $compraPorLote->get($loteId)?->serie_numero)
+                ->filter()
+                ->unique()
+                ->values();
+            if ($seriesUnicas->isEmpty()) {
+                return null;
+            }
+            return $seriesUnicas->count() === 1 ? $seriesUnicas->first() : $seriesUnicas->count() . ' compras';
+        };
+
         $resultado = collect();
 
         foreach ($datos as $row) {
@@ -177,6 +204,7 @@ class GananciasService implements GananciasServiceInterface
                 && abs($sumCant - $cant) < 0.01; // fila = toda la línea (factor 1)
 
             if (! $puedeDesglosar) {
+                $row->documento_pagado = $resolverDocumentoPagado($consumos);
                 $resultado->push($row);
                 continue;
             }
@@ -195,6 +223,7 @@ class GananciasService implements GananciasServiceInterface
                 $fila->subtot = (float) $row->p_unit * $cl;
                 $fila->ganancia = $fila->subtot - $fila->costo_total;
                 $fila->desglose_lote = "Lote {$i}/{$n}";
+                $fila->documento_pagado = $compraPorLote->get($c->lote_id)?->serie_numero;
                 $resultado->push($fila);
             }
         }
