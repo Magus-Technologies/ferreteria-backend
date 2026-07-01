@@ -195,6 +195,8 @@ class PepsAnalisisService
             ->select(
                 'v.id as venta_id',
                 'v.fecha as venta_fecha',
+                'v.serie as venta_serie',
+                'v.numero as venta_numero',
                 DB::raw('CAST(udiv.cantidad AS DECIMAL(10,4)) as cantidad'),
                 DB::raw('CAST(udiv.precio AS DECIMAL(10,4)) as precio'),
                 'pa.producto_id'
@@ -328,6 +330,7 @@ class PepsAnalisisService
 
                 $resultadoVenta = [
                     'venta_id'               => $venta->venta_id,
+                    'serie_numero'           => ($venta->venta_serie ?? '') . '-' . ($venta->venta_numero ?? ''),
                     'fecha'                  => $venta->venta_fecha,
                     'cantidad'               => (float) $venta->cantidad,
                     'precio'                 => (float) $venta->precio,
