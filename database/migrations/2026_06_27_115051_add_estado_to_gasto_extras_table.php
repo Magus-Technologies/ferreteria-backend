@@ -11,15 +11,19 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('gastos_extras', function (Blueprint $table) {
-            $table->enum('estado', ['pendiente', 'aprobado', 'anulado'])->default('aprobado')->after('concepto');
-        });
+        if (!Schema::hasColumn('gastos_extras', 'estado')) {
+            Schema::table('gastos_extras', function (Blueprint $table) {
+                $table->enum('estado', ['pendiente', 'aprobado', 'anulado'])->default('aprobado')->after('concepto');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('gastos_extras', function (Blueprint $table) {
-            $table->dropColumn('estado');
-        });
+        if (Schema::hasColumn('gastos_extras', 'estado')) {
+            Schema::table('gastos_extras', function (Blueprint $table) {
+                $table->dropColumn('estado');
+            });
+        }
     }
 };
