@@ -64,6 +64,10 @@ class CompraResource extends JsonResource
             'recepciones_almacen_count' => $this->recepciones_almacen_count ?? 0,
             'pagos_de_compras_count' => $this->pagos_de_compras_count ?? 0,
             'total_pagado' => $this->total_pagado ?? 0,
+            // Saldo en la moneda de la compra (dólares si tipo_moneda = Dólares) y estado de cuenta.
+            // esta_pagado: true = pagado, false = por pagar, null = no aplica (anulada/no calculado)
+            'saldo_pendiente' => $this->saldo_pendiente ?? null,
+            'esta_pagado' => $this->esta_pagado,
         ];
     }
 }

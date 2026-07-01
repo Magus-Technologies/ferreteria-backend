@@ -151,6 +151,10 @@ class CompraController extends Controller
                 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                 'user:id,name',
                 'ordenCompra:id,codigo,estado',
+                // Necesario para calcular el saldo en dólares (cada pago con su propio TC)
+                'pagosDeCompras' => function ($query) {
+                    $query->where('estado', true);
+                },
             ])
             ->withCount([
                 'recepcionesAlmacen as recepciones_almacen_count' => function ($query) {
@@ -246,6 +250,17 @@ class CompraController extends Controller
         // Get all results first (we need to filter by estado_de_cuenta which requires calculation)
         $allCompras = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->get();
 
+        // Adjuntar saldo pendiente y estado de cuenta (en la moneda de la compra) para el
+        // listado. Así el frontend puede mostrar la columna "Estado" sin recalcular.
+        $allCompras->each(function ($compra) {
+            $saldo = $this->calcularSaldoPendiente($compra);
+            $esCredito = $compra->forma_de_pago === FormaDePago::Credito;
+            $anulada = $compra->estado_de_compra === EstadoDeCompraDefinitiva::Anulado;
+            $compra->saldo_pendiente = round($saldo, 2);
+            // Anuladas: sin estado de cuenta. Contado: siempre pagado. Crédito: pagado si saldo <= 0.01
+            $compra->esta_pagado = $anulada ? null : (!$esCredito || $saldo <= 0.01);
+        });
+
         // Filter by estado_de_cuenta if provided
         if ($request->has('estado_de_cuenta')) {
             $estadoDeCuenta = $request->input('estado_de_cuenta');
@@ -256,10 +271,9 @@ class CompraController extends Controller
                     return false;
                 }
 
-                $totalCompra = $this->getTotalCompra($compra);
-                $totalPagado = (float) ($compra->total_pagado ?? 0);
-                $saldo = $totalCompra - $totalPagado;
-                
+                // Saldo en la moneda de la compra (dólares si tipo_moneda = Dólares)
+                $saldo = $this->calcularSaldoPendiente($compra);
+
                 $esContado = $compra->forma_de_pago === FormaDePago::Contado;
                 $esCredito = $compra->forma_de_pago === FormaDePago::Credito;
 
@@ -986,6 +1000,40 @@ class CompraController extends Controller
     }
 
     /**
+     * Calcula el saldo pendiente de una compra EN SU PROPIA MONEDA.
+     *
+     * - Soles:   saldo = total_soles − Σ(pagos.monto)
+     * - Dólares: saldo = (total_soles / tc_compra) − Σ(pago.monto / pago.tc)
+     *   Cada pago se convierte a dólares con el TC con el que se pagó, así que
+     *   pagar el total en USD a un TC distinto al de la compra la deja cancelada
+     *   (antes quedaba un residual en soles y aparecía como deuda).
+     */
+    private function calcularSaldoPendiente(Compra $compra): float
+    {
+        $totalSoles = $this->getTotalCompra($compra);
+
+        $pagos = $compra->relationLoaded('pagosDeCompras')
+            ? $compra->pagosDeCompras->where('estado', true)
+            : $compra->pagosDeCompras()->where('estado', true)->get();
+
+        $esDolares = $compra->tipo_moneda === TipoMoneda::Dolares;
+        $tcCompra = (float) ($compra->tipo_de_cambio ?? 0);
+
+        if ($esDolares && $tcCompra > 0) {
+            $totalDolares = $totalSoles / $tcCompra;
+            $pagadoDolares = 0.0;
+            foreach ($pagos as $p) {
+                $tc = (float) ($p->tipo_de_cambio ?? 0);
+                $pagadoDolares += $tc > 0 ? ((float) $p->monto) / $tc : 0.0;
+            }
+            return $totalDolares - $pagadoDolares;
+        }
+
+        $pagadoSoles = (float) $pagos->sum('monto');
+        return $totalSoles - $pagadoSoles;
+    }
+
+    /**
      * Validar nueva compra
      */
     private function validarNuevaCompra($compra)
@@ -1273,6 +1321,10 @@ class CompraController extends Controller
                 'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
                 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                 'user:id,name',
+                // Necesario para calcular el saldo en dólares (cada pago con su propio TC)
+                'pagosDeCompras' => function ($query) {
+                    $query->where('estado', true);
+                },
             ])
             ->withSum([
                 'pagosDeCompras as total_pagado' => function ($query) {
@@ -1337,14 +1389,18 @@ class CompraController extends Controller
         // "todas" = sin filtrar. Antes esto estaba fijo en "solo con saldo", por
         // eso las compras ya pagadas nunca se podían ver.
         $filtrarPorEstadoPago = function ($compra) use ($estadoPago) {
-            $total = $this->getTotalCompra($compra);
-            $totalPagado = (float) ($compra->total_pagado ?? 0);
-            $saldo = round($total - $totalPagado, 2);
+            // Saldo en la moneda de la compra (dólares si tipo_moneda='d'), así una compra
+            // en dólares pagada al TC del pago no queda como deuda fantasma en soles.
+            $saldo = round($this->calcularSaldoPendiente($compra), 2);
+
+            // Adjuntar para que el frontend muestre la columna "Estado" sin recalcular.
+            $compra->saldo_pendiente = $saldo;
+            $compra->esta_pagado = $saldo <= 0.01;
 
             if ($estadoPago === 'pendientes') {
-                return $saldo > 0; // Cualquier saldo pendiente (aunque sea 1 centavo)
+                return $saldo > 0.01; // Aún debe algo (con tolerancia por redondeo)
             } elseif ($estadoPago === 'pagadas') {
-                return $saldo <= 0; // Solo pagadas completamente
+                return $saldo <= 0.01; // Pagada completamente
             }
             return true; // Todas
         };
@@ -1403,18 +1459,22 @@ class CompraController extends Controller
                 },
             ])->findOrFail($id);
 
-            // Calcular total de la compra
-            $totalCompra = $this->getTotalCompra($compra);
+            // Calcular saldo pendiente EN LA MONEDA DE LA COMPRA (dólares si aplica)
+            $saldoPendiente = $this->calcularSaldoPendiente($compra);
 
-            // Calcular total pagado hasta ahora
-            $totalPagado = $compra->pagosDeCompras->sum('monto');
+            // Convertir el monto del nuevo pago a la moneda de la compra para comparar.
+            // El monto siempre llega en soles; para una compra en dólares se divide por
+            // el TC con el que se está pagando.
+            $esDolares = $compra->tipo_moneda === TipoMoneda::Dolares;
+            $tcPago = (float) ($validated['tipo_de_cambio'] ?? 0);
+            $montoEnMoneda = ($esDolares && $tcPago > 0)
+                ? ((float) $validated['monto']) / $tcPago
+                : (float) $validated['monto'];
 
-            // Calcular saldo pendiente
-            $saldoPendiente = $totalCompra - $totalPagado;
-
-            // Validar que el monto no exceda el saldo
-            if ($validated['monto'] > $saldoPendiente) {
-                throw new \Exception('El monto del pago no puede exceder el saldo pendiente de S/ ' . number_format($saldoPendiente, 2));
+            // Validar que el monto no exceda el saldo (tolerancia por redondeo)
+            if ($montoEnMoneda > $saldoPendiente + 0.01) {
+                $simbolo = $esDolares ? '$ ' : 'S/ ';
+                throw new \Exception('El monto del pago no puede exceder el saldo pendiente de ' . $simbolo . number_format($saldoPendiente, 2));
             }
 
             // Crear el pago
