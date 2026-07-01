@@ -159,31 +159,78 @@ class GananciasService implements GananciasServiceInterface
             ->get()
             ->groupBy(fn($c) => $c->origen_id . '|' . $c->producto_almacen_id);
 
-        // Serie-número de la compra de origen de cada lote (para la columna "Documento pagado")
+        // Origen de cada lote (para la columna "Documento pagado"). Un lote NO siempre
+        // viene de una compra: puede venir de una recepción, una transferencia entre
+        // almacenes o un ingreso/salida manual. Antes solo se resolvía compra_id, así que
+        // el stock de transferencias/ingresos mostraba "Sin registro" aunque sí había
+        // trazabilidad — solo que no era una compra.
         $loteIds = $consumosPorClave->flatten(1)->pluck('lote_id')->filter()->unique()->values()->all();
-        $compraPorLote = empty($loteIds) ? collect() : DB::table('productoalmacen_lote as pl')
-            ->join('compra as c', 'pl.compra_id', '=', 'c.id')
-            ->whereIn('pl.id', $loteIds)
-            ->select('pl.id as lote_id', DB::raw("CONCAT(c.serie, '-', c.numero) as serie_numero"))
-            ->get()
-            ->keyBy('lote_id');
+        $documentoPorLote = collect();
 
-        // Dado un grupo de consumos, resuelve el documento de la(s) compra(s) de origen:
-        // una sola compra → su serie-número; varias → "N compras".
-        $resolverDocumentoPagado = function ($consumos) use ($compraPorLote) {
+        if (!empty($loteIds)) {
+            $lotesInfo = DB::table('productoalmacen_lote')
+                ->whereIn('id', $loteIds)
+                ->select('id', 'compra_id', 'transferencia_stock_id', 'ingreso_salida_id', 'recepcion_id')
+                ->get();
+
+            $recepcionIds = $lotesInfo->pluck('recepcion_id')->filter()->unique()->values();
+            $recepcionesMap = $recepcionIds->isEmpty() ? collect() : DB::table('recepcionalmacen')
+                ->whereIn('id', $recepcionIds)->select('id', 'numero', 'compra_id')->get()->keyBy('id');
+
+            $compraIds = $lotesInfo->pluck('compra_id')
+                ->merge($recepcionesMap->pluck('compra_id'))
+                ->filter()->unique()->values();
+            $comprasMap = $compraIds->isEmpty() ? collect() : DB::table('compra')
+                ->whereIn('id', $compraIds)->select('id', 'serie', 'numero')->get()->keyBy('id');
+
+            $transferenciaIds = $lotesInfo->pluck('transferencia_stock_id')->filter()->unique()->values();
+            $transferenciasMap = $transferenciaIds->isEmpty() ? collect() : DB::table('transferencia_stock')
+                ->whereIn('id', $transferenciaIds)->select('id', 'serie', 'numero')->get()->keyBy('id');
+
+            $ingresoIds = $lotesInfo->pluck('ingreso_salida_id')->filter()->unique()->values();
+            $ingresosMap = $ingresoIds->isEmpty() ? collect() : DB::table('ingresosalida')
+                ->whereIn('id', $ingresoIds)->select('id', 'serie', 'numero')->get()->keyBy('id');
+
+            foreach ($lotesInfo as $lote) {
+                $etiqueta = null;
+                if ($lote->compra_id && $comprasMap->has($lote->compra_id)) {
+                    $c = $comprasMap->get($lote->compra_id);
+                    $etiqueta = ($c->serie ?? '') . '-' . ($c->numero ?? '');
+                } elseif ($lote->recepcion_id && $recepcionesMap->has($lote->recepcion_id)) {
+                    $r = $recepcionesMap->get($lote->recepcion_id);
+                    if ($r->compra_id && $comprasMap->has($r->compra_id)) {
+                        $c = $comprasMap->get($r->compra_id);
+                        $etiqueta = ($c->serie ?? '') . '-' . ($c->numero ?? '');
+                    } else {
+                        $etiqueta = 'Recepción #' . $r->numero;
+                    }
+                } elseif ($lote->transferencia_stock_id && $transferenciasMap->has($lote->transferencia_stock_id)) {
+                    $t = $transferenciasMap->get($lote->transferencia_stock_id);
+                    $etiqueta = 'Transferencia ' . (($t->serie ?? null) ? $t->serie . '-' . $t->numero : '#' . $t->id);
+                } elseif ($lote->ingreso_salida_id && $ingresosMap->has($lote->ingreso_salida_id)) {
+                    $i = $ingresosMap->get($lote->ingreso_salida_id);
+                    $etiqueta = 'Ingreso/Salida ' . (($i->serie ?? null) ? $i->serie . '-' . $i->numero : '#' . $i->id);
+                }
+                $documentoPorLote->put($lote->id, $etiqueta);
+            }
+        }
+
+        // Dado un grupo de consumos, resuelve el origen del stock: uno solo → su
+        // referencia; varios distintos → "N orígenes".
+        $resolverDocumentoPagado = function ($consumos) use ($documentoPorLote) {
             if (!$consumos || $consumos->isEmpty()) {
                 return null;
             }
-            $seriesUnicas = $consumos->pluck('lote_id')
+            $etiquetasUnicas = $consumos->pluck('lote_id')
                 ->unique()
-                ->map(fn($loteId) => $compraPorLote->get($loteId)?->serie_numero)
+                ->map(fn($loteId) => $documentoPorLote->get($loteId))
                 ->filter()
                 ->unique()
                 ->values();
-            if ($seriesUnicas->isEmpty()) {
+            if ($etiquetasUnicas->isEmpty()) {
                 return null;
             }
-            return $seriesUnicas->count() === 1 ? $seriesUnicas->first() : $seriesUnicas->count() . ' compras';
+            return $etiquetasUnicas->count() === 1 ? $etiquetasUnicas->first() : $etiquetasUnicas->count() . ' orígenes';
         };
 
         $resultado = collect();
@@ -223,7 +270,7 @@ class GananciasService implements GananciasServiceInterface
                 $fila->subtot = (float) $row->p_unit * $cl;
                 $fila->ganancia = $fila->subtot - $fila->costo_total;
                 $fila->desglose_lote = "Lote {$i}/{$n}";
-                $fila->documento_pagado = $compraPorLote->get($c->lote_id)?->serie_numero;
+                $fila->documento_pagado = $documentoPorLote->get($c->lote_id);
                 $resultado->push($fila);
             }
         }
