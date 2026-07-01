@@ -101,7 +101,7 @@ class ProductoService implements ProductoServiceInterface
             Log::warning("Cache listado ligero no guardado: " . $e->getMessage());
         }
 
-        \Log::info("Listado ligero calculado: {$productos->count()} productos en {$duration}ms (cache miss)");
+        // \Log::info("Listado ligero calculado: {$productos->count()} productos en {$duration}ms (cache miss)");
 
         return JsonResponse::fromJsonString($json);
     }
@@ -135,7 +135,7 @@ class ProductoService implements ProductoServiceInterface
             Log::warning("Cache listado completo no guardado: " . $e->getMessage());
         }
 
-        \Log::info("Listado completo calculado: " . count($productos) . " productos en {$duration}ms (cache miss)");
+        // \Log::info("Listado completo calculado: " . count($productos) . " productos en {$duration}ms (cache miss)");
 
         return JsonResponse::fromJsonString($json);
     }
@@ -694,11 +694,11 @@ class ProductoService implements ProductoServiceInterface
         $almacenId = $filters["almacen_id"];
         $dias = $filters["dias"] ?? 30;
 
-        Log::info("API Vencimientos Call", ['almacen_id' => $almacenId, 'dias' => $dias]);
+        // Log::info("API Vencimientos Call", ['almacen_id' => $almacenId, 'dias' => $dias]);
 
         $vencimientos = $this->productoRepository->getVencimientos((int) $almacenId, (int) $dias);
 
-        Log::info("API Vencimientos Results", ['count' => count($vencimientos)]);
+        // Log::info("API Vencimientos Results", ['count' => count($vencimientos)]);
 
         return response()->json([
             "data" => $vencimientos
