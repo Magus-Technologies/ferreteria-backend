@@ -319,7 +319,9 @@ class PepsAnalisisService
                 $ingreso       = (float) $venta->cantidad * (float) $venta->precio;
                 $gananciaC     = $ingreso - $totalCostoC;
                 $gananciaP     = $hayPagoReal ? ($ingreso - $totalCostoP) : null;
-                $diffCambio    = $hayPagoReal ? ($gananciaC - $gananciaP) : null;
+                // Convención: pago − compra → positivo = ganaste más (TC pago más barato),
+                // negativo = perdiste (TC pago más caro).
+                $diffCambio    = $hayPagoReal ? ($gananciaP - $gananciaC) : null;
 
                 $totalIngresoGlobal   += $ingreso;
                 $totalGananciaCGlobal += $gananciaC;
@@ -364,7 +366,7 @@ class PepsAnalisisService
 
             if ($hayPagoRealEnProducto) {
                 $resumenProducto['ganancia_tc_pago']   = round($totP, 4);
-                $resumenProducto['diferencia_cambio']  = round($totC - $totP, 4);
+                $resumenProducto['diferencia_cambio']  = round($totP - $totC, 4);
             }
 
             $resultadosPorProducto[] = [
@@ -378,7 +380,7 @@ class PepsAnalisisService
             ];
         }
 
-        $totalDiferencia = $totalGananciaCConPago - $totalGananciaPGlobal;
+        $totalDiferencia = $totalGananciaPGlobal - $totalGananciaCConPago;
         $hayPagoRealGlobal = !empty($tcPagoMap);
 
         // Calcular recomendaciones globales
@@ -422,7 +424,8 @@ class PepsAnalisisService
         if ($hayPagoRealGlobal) {
             $resumenGlobal['ganancia_tc_pago']    = round($totalGananciaPGlobal, 4);
             $resumenGlobal['diferencia_total']    = round($totalDiferencia, 4);
-            $resumenGlobal['perdida_por_cambio']  = $totalDiferencia > 0;
+            // Pérdida cuando la diferencia (pago − compra) es negativa
+            $resumenGlobal['perdida_por_cambio']  = $totalDiferencia < 0;
         }
 
         // Obtener compras pendientes de pago (a crédito sin pagos)
@@ -596,7 +599,8 @@ class PepsAnalisisService
             $ingreso      = (float) $venta['cantidad'] * (float) $venta['precio'];
             $gananciaC    = $ingreso - $totalCostoTcCompra;
             $gananciaP    = $ingreso - $totalCostoTcPago;
-            $diffCambio   = $gananciaC - $gananciaP;
+            // pago − compra: positivo = ganancia, negativo = pérdida
+            $diffCambio   = $gananciaP - $gananciaC;
 
             $totIngreso   += $ingreso;
             $totGananciaC += $gananciaC;
@@ -618,7 +622,7 @@ class PepsAnalisisService
             ];
         }
 
-        $totalDiferencia = $totGananciaC - $totGananciaP;
+        $totalDiferencia = $totGananciaP - $totGananciaC;
 
         return [
             'ventas'         => $resultadosPorVenta,
