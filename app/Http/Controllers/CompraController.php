@@ -1182,7 +1182,7 @@ class CompraController extends Controller
                         $pagoCreado = $compraModel->pagosDeCompras()->create([
                             'despliegue_de_pago_id' => $desplieguePagoId,
                             'monto'                 => $metodo['monto'],
-                            'fecha'                 => now()->format('Y-m-d'),
+                            'fecha'                 => now()->format('Y-m-d H:i:s'),
                             'numero_operacion'      => $metodo['numero_operacion'] ?? null,
                             'estado'                => true,
                         ]);
@@ -1482,12 +1482,13 @@ class CompraController extends Controller
                 abort(422, $saldoFmt);
             }
 
-            // Crear el pago
+            // Crear el pago. La fecha la elige el usuario (puede registrar un pago
+            // atrasado), pero la hora es siempre la del momento real del registro.
             $pago = $compra->pagosDeCompras()->create([
                 'despliegue_de_pago_id' => $validated['despliegue_de_pago_id'],
                 'monto' => $validated['monto'],
                 'tipo_de_cambio' => $validated['tipo_de_cambio'] ?? null,
-                'fecha' => \Carbon\Carbon::parse($validated['fecha'])->format('Y-m-d'),
+                'fecha' => \Carbon\Carbon::parse($validated['fecha'])->setTimeFrom(now())->format('Y-m-d H:i:s'),
                 'observacion' => $validated['observacion'] ?? null,
                 'numero_letra' => $validated['numero_letra'] ?? null,
                 'numero_operacion' => $validated['numero_operacion'] ?? null,
