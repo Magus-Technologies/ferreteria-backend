@@ -111,7 +111,11 @@ class DeudaPersonalController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Abono registrado exitosamente',
-                'data' => $abono
+                'data' => $abono,
+                // La deuda YA quedó actualizada (monto_abonado/saldo_pendiente/estado) en
+                // la misma transacción del servicio; se envía fresca para que el frontend
+                // pueda refrescar los cards de resumen sin depender de un prop obsoleto.
+                'deuda' => $abono->deudaPersonal,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -159,7 +163,8 @@ class DeudaPersonalController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Abono actualizado exitosamente',
-                'data' => $abono
+                'data' => $abono,
+                'deuda' => $abono->deudaPersonal,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -175,11 +180,16 @@ class DeudaPersonalController extends Controller
     public function eliminarAbono(int $abonoId): JsonResponse
     {
         try {
+            // Capturar la deuda ANTES de borrar el abono (después ya no hay cómo
+            // navegar la relación abono→deuda) para devolverla actualizada.
+            $deudaId = \App\Models\AbonoDeudaPersonal::find($abonoId)?->deuda_personal_id;
+
             $this->abonoService->eliminarAbono($abonoId);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Abono eliminado exitosamente'
+                'message' => 'Abono eliminado exitosamente',
+                'deuda' => $deudaId ? \App\Models\DeudaPersonal::find($deudaId) : null,
             ]);
         } catch (\Exception $e) {
             return response()->json([
