@@ -45,4 +45,11 @@ interface SubCajaRepositoryInterface
     public function existeConfiguracionDuplicada(int $cajaPrincipalId, array $desplieguePagoIds, array $tiposComprobante, ?string $excludeId = null): bool;
 
     public function buscarSubCajaParaVenta(int $cajaPrincipalId, string $tipoComprobante, string $desplieguePagoId): ?SubCaja;
+
+    /**
+     * Igual que buscarSubCajaParaVenta pero sin filtrar por tipo de comprobante — para
+     * flujos que no son una venta (ingresos/gastos extra, préstamos, etc.), donde solo
+     * importa qué sub-caja tiene habilitado ese método de pago.
+     */
+    public function buscarSubCajaParaDespliegue(int $cajaPrincipalId, string $desplieguePagoId): ?SubCaja;
 }

@@ -34,7 +34,23 @@ trait ManejaFlujoCajaExtra
                 throw new \Exception('No tiene una caja abierta para procesar este movimiento contable.');
             }
 
-            $subCajaId = $apertura->sub_caja_id;
+            // Si se indicó un despliegue de pago, usar la sub-caja que lo tenga habilitado
+            // (ej. "efectivo negro" pertenece a la sub-caja "Caja Negra", no a la Caja
+            // Chica de la apertura). Antes siempre se guardaba en la sub-caja de la
+            // apertura sin importar el método elegido, así que el dinero quedaba en la
+            // sub-caja equivocada y desaparecía del cálculo de efectivo de la sub-caja
+            // real (ej. Traslado a Bóveda nunca lo veía).
+            if ($desplieguePagoId) {
+                $subCajaResuelta = app(\App\Repositories\Interfaces\SubCajaRepositoryInterface::class)
+                    ->buscarSubCajaParaDespliegue($apertura->caja_principal_id, $desplieguePagoId);
+                if ($subCajaResuelta) {
+                    $subCajaId = $subCajaResuelta->id;
+                }
+            }
+
+            if (!$subCajaId) {
+                $subCajaId = $apertura->sub_caja_id;
+            }
 
             // Si la apertura es en la caja principal, requiere que tenga un sub_caja_id asignada
             if (!$subCajaId) {

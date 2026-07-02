@@ -277,4 +277,29 @@ class SubCajaRepository implements SubCajaRepositoryInterface
 
         return $mejorCoincidencia;
     }
+
+    public function buscarSubCajaParaDespliegue(int $cajaPrincipalId, string $desplieguePagoId): ?SubCaja
+    {
+        $subCajas = SubCaja::where('caja_principal_id', $cajaPrincipalId)
+            ->where('estado', 1)
+            ->get();
+
+        $mejorCoincidencia = null;
+        $mejorEspecificidad = -1;
+
+        foreach ($subCajas as $subCaja) {
+            if (!$subCaja->aceptaMetodoPago($desplieguePagoId)) {
+                continue;
+            }
+
+            $especificidad = $subCaja->calcularEspecificidad();
+
+            if ($especificidad > $mejorEspecificidad) {
+                $mejorEspecificidad = $especificidad;
+                $mejorCoincidencia = $subCaja;
+            }
+        }
+
+        return $mejorCoincidencia;
+    }
 }
