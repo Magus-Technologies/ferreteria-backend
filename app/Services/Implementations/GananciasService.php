@@ -73,10 +73,17 @@ class GananciasService implements GananciasServiceInterface
 
         $totalPerdida = ($resumen->total_perdida ?? 0) + $totalPerdidaSalidas;
 
+        // Impacto TC a favor/en contra (costo a TC compra vs. TC realmente pagado)
+        // de las compras en dólares del período; se suma a la ganancia porque es
+        // dinero real ganado (o perdido) por la diferencia de cambio al pagar.
+        $totalImpactoTc = $this->expandirPorLotes(
+            $this->construirQueryGanancias($filtros)->get()
+        )->sum('impacto_tc');
+
         return ResumenHelper::buildResumenGanancias(
             $resumen->total_ventas ?? 0,
             $resumen->total_costo ?? 0,
-            $resumen->total_ganancia ?? 0,
+            ($resumen->total_ganancia ?? 0) + $totalImpactoTc,
             $gastosU,
             $totalPerdida,
             $resumen->total_transacciones ?? 0
