@@ -170,6 +170,9 @@ class GananciasService implements GananciasServiceInterface
         // por lote — solo aplica a lotes de compras en dólares con al menos un pago activo.
         $impactoUnitPorLote = collect();
         $fechaPagoPorLote = collect();
+        // compra_id resuelta por lote (null si el origen no es una compra) — para poder
+        // exponer F.Vence/Tipo/Forma de pago/Proveedor/Registrador en la fila de subtotal.
+        $compraIdPorLote = collect();
 
         if (!empty($loteIds)) {
             $lotesInfo = DB::table('productoalmacen_lote')
@@ -185,7 +188,19 @@ class GananciasService implements GananciasServiceInterface
                 ->merge($recepcionesMap->pluck('compra_id'))
                 ->filter()->unique()->values();
             $comprasMap = $compraIds->isEmpty() ? collect() : DB::table('compra')
-                ->whereIn('id', $compraIds)->select('id', 'serie', 'numero', 'tipo_moneda', 'tipo_de_cambio')->get()->keyBy('id');
+                ->whereIn('id', $compraIds)
+                ->select('id', 'serie', 'numero', 'tipo_moneda', 'tipo_de_cambio', 'tipo_documento', 'forma_de_pago', 'fecha_vencimiento', 'proveedor_id', 'user_id')
+                ->get()->keyBy('id');
+
+            // Proveedor y registrador de cada compra involucrada (para las columnas
+            // F.VENCE / TIPO / FORMA PAGO / PROVEEDOR / VENDEDOR de la fila de subtotal).
+            $proveedorIdsCompras = $comprasMap->pluck('proveedor_id')->filter()->unique()->values();
+            $proveedoresMap = $proveedorIdsCompras->isEmpty() ? collect() : DB::table('proveedor')
+                ->whereIn('id', $proveedorIdsCompras)->select('id', 'razon_social')->get()->keyBy('id');
+
+            $userIdsCompras = $comprasMap->pluck('user_id')->filter()->unique()->values();
+            $usuariosCompraMap = $userIdsCompras->isEmpty() ? collect() : DB::table('user')
+                ->whereIn('id', $userIdsCompras)->select('id', 'name')->get()->keyBy('id');
 
             $transferenciaIds = $lotesInfo->pluck('transferencia_stock_id')->filter()->unique()->values();
             $transferenciasMap = $transferenciaIds->isEmpty() ? collect() : DB::table('transferencia_stock')
@@ -241,6 +256,7 @@ class GananciasService implements GananciasServiceInterface
                     $etiqueta = 'Ingreso/Salida ' . (($i->serie ?? null) ? $i->serie . '-' . $i->numero : '#' . $i->id);
                 }
                 $documentoPorLote->put($lote->id, $etiqueta);
+                $compraIdPorLote->put($lote->id, $compraIdResuelta);
 
                 if ($compraIdResuelta && $comprasMap->has($compraIdResuelta)) {
                     $c = $comprasMap->get($compraIdResuelta);
@@ -271,6 +287,38 @@ class GananciasService implements GananciasServiceInterface
                 }
             }
             return [$impacto, $fecha];
+        };
+
+        // Datos de la compra de origen (F.Vence, Tipo, Forma de pago, Proveedor,
+        // Registrador) — solo se exponen cuando TODO el grupo de consumos viene de la
+        // MISMA compra (si son varias compras distintas, no hay un solo proveedor/fecha
+        // que mostrar, así que se deja null).
+        $resolverInfoCompra = function ($consumos) use ($compraIdPorLote, $comprasMap, $proveedoresMap, $usuariosCompraMap) {
+            if (!$consumos || $consumos->isEmpty()) {
+                return [null, null, null, null, null];
+            }
+            $compraIds = $consumos->pluck('lote_id')
+                ->unique()
+                ->map(fn($loteId) => $compraIdPorLote->get($loteId))
+                ->filter()
+                ->unique()
+                ->values();
+            if ($compraIds->count() !== 1) {
+                return [null, null, null, null, null];
+            }
+            $compra = $comprasMap->get($compraIds->first());
+            if (!$compra) {
+                return [null, null, null, null, null];
+            }
+            $proveedor = $compra->proveedor_id ? $proveedoresMap->get($compra->proveedor_id) : null;
+            $registrador = $compra->user_id ? $usuariosCompraMap->get($compra->user_id) : null;
+            return [
+                $compra->fecha_vencimiento,
+                $compra->tipo_documento,
+                $compra->forma_de_pago,
+                $proveedor->razon_social ?? null,
+                $registrador->name ?? null,
+            ];
         };
 
         // Dado un grupo de consumos, resuelve el origen del stock: uno solo → su
@@ -311,6 +359,13 @@ class GananciasService implements GananciasServiceInterface
             if (! $puedeDesglosar) {
                 $row->documento_pagado = $resolverDocumentoPagado($consumos);
                 [$row->impacto_tc, $row->fecha_pago_compra] = $calcularImpactoYFecha($consumos);
+                [
+                    $row->compra_fecha_vencimiento,
+                    $row->compra_tipo_documento,
+                    $row->compra_forma_pago,
+                    $row->compra_proveedor,
+                    $row->compra_registrado_por,
+                ] = $resolverInfoCompra($consumos);
                 $resultado->push($row);
                 continue;
             }
@@ -332,6 +387,14 @@ class GananciasService implements GananciasServiceInterface
                 $fila->documento_pagado = $documentoPorLote->get($c->lote_id);
                 $fila->impacto_tc = $impactoUnitPorLote->has($c->lote_id) ? $cl * $impactoUnitPorLote->get($c->lote_id) : null;
                 $fila->fecha_pago_compra = $fechaPagoPorLote->get($c->lote_id);
+                $consumoUnico = collect([$c]);
+                [
+                    $fila->compra_fecha_vencimiento,
+                    $fila->compra_tipo_documento,
+                    $fila->compra_forma_pago,
+                    $fila->compra_proveedor,
+                    $fila->compra_registrado_por,
+                ] = $resolverInfoCompra($consumoUnico);
                 $resultado->push($fila);
             }
         }

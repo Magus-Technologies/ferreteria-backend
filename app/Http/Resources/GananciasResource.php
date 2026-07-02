@@ -46,6 +46,13 @@ class GananciasResource extends JsonResource
             // registrado. null si no aplica (soles, sin pago, u origen no es compra).
             'impacto_tc' => isset($this->impacto_tc) ? (float) $this->impacto_tc : null,
             'fecha_pago_compra' => $this->fecha_pago_compra ?? null,
+            // Datos de la compra de origen (solo si TODO el grupo de consumos viene de
+            // una única compra); útiles para la fila de subtotal en el frontend.
+            'compra_fecha_vencimiento' => $this->compra_fecha_vencimiento ?? null,
+            'compra_tipo_documento' => isset($this->compra_tipo_documento) ? $this->mapearTipoDocumento($this->compra_tipo_documento) : null,
+            'compra_forma_pago' => isset($this->compra_forma_pago) ? $this->mapearFormaPago($this->compra_forma_pago) : null,
+            'compra_proveedor' => $this->compra_proveedor ?? null,
+            'compra_registrado_por' => $this->compra_registrado_por ?? null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
