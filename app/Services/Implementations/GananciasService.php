@@ -166,11 +166,15 @@ class GananciasService implements GananciasServiceInterface
         // trazabilidad — solo que no era una compra.
         $loteIds = $consumosPorClave->flatten(1)->pluck('lote_id')->filter()->unique()->values()->all();
         $documentoPorLote = collect();
+        // Impacto TC (costo a TC compra − costo al TC realmente pagado) y fecha del pago,
+        // por lote — solo aplica a lotes de compras en dólares con al menos un pago activo.
+        $impactoUnitPorLote = collect();
+        $fechaPagoPorLote = collect();
 
         if (!empty($loteIds)) {
             $lotesInfo = DB::table('productoalmacen_lote')
                 ->whereIn('id', $loteIds)
-                ->select('id', 'compra_id', 'transferencia_stock_id', 'ingreso_salida_id', 'recepcion_id')
+                ->select('id', 'compra_id', 'transferencia_stock_id', 'ingreso_salida_id', 'recepcion_id', 'costo')
                 ->get();
 
             $recepcionIds = $lotesInfo->pluck('recepcion_id')->filter()->unique()->values();
@@ -181,7 +185,7 @@ class GananciasService implements GananciasServiceInterface
                 ->merge($recepcionesMap->pluck('compra_id'))
                 ->filter()->unique()->values();
             $comprasMap = $compraIds->isEmpty() ? collect() : DB::table('compra')
-                ->whereIn('id', $compraIds)->select('id', 'serie', 'numero')->get()->keyBy('id');
+                ->whereIn('id', $compraIds)->select('id', 'serie', 'numero', 'tipo_moneda', 'tipo_de_cambio')->get()->keyBy('id');
 
             $transferenciaIds = $lotesInfo->pluck('transferencia_stock_id')->filter()->unique()->values();
             $transferenciasMap = $transferenciaIds->isEmpty() ? collect() : DB::table('transferencia_stock')
@@ -191,16 +195,41 @@ class GananciasService implements GananciasServiceInterface
             $ingresosMap = $ingresoIds->isEmpty() ? collect() : DB::table('ingresosalida')
                 ->whereIn('id', $ingresoIds)->select('id', 'serie', 'numero')->get()->keyBy('id');
 
+            // Pagos activos de las compras en dólares involucradas: TC promedio ponderado
+            // (total soles pagados / total dólares pagados) y fecha del último pago.
+            $comprasDolaresIds = $comprasMap->filter(fn($c) => $c->tipo_moneda === 'd')->pluck('id');
+            $pagosPorCompra = $comprasDolaresIds->isEmpty() ? collect() : DB::table('pagodecompra')
+                ->whereIn('compra_id', $comprasDolaresIds)
+                ->where('estado', true)
+                ->select('compra_id', 'monto', 'tipo_de_cambio', 'fecha')
+                ->get()
+                ->groupBy('compra_id');
+
+            $tcPagoPromedioPorCompra = collect();
+            $fechaPagoPorCompra = collect();
+            foreach ($pagosPorCompra as $compraId => $pagos) {
+                $totalSoles = $pagos->sum(fn($p) => (float) $p->monto);
+                $totalDolares = $pagos->sum(fn($p) => ((float) $p->tipo_de_cambio) > 0 ? ((float) $p->monto) / ((float) $p->tipo_de_cambio) : 0);
+                if ($totalDolares > 0) {
+                    $tcPagoPromedioPorCompra->put($compraId, $totalSoles / $totalDolares);
+                }
+                $fechaPagoPorCompra->put($compraId, $pagos->max('fecha'));
+            }
+
             foreach ($lotesInfo as $lote) {
                 $etiqueta = null;
+                $compraIdResuelta = null;
+
                 if ($lote->compra_id && $comprasMap->has($lote->compra_id)) {
                     $c = $comprasMap->get($lote->compra_id);
                     $etiqueta = ($c->serie ?? '') . '-' . ($c->numero ?? '');
+                    $compraIdResuelta = $lote->compra_id;
                 } elseif ($lote->recepcion_id && $recepcionesMap->has($lote->recepcion_id)) {
                     $r = $recepcionesMap->get($lote->recepcion_id);
                     if ($r->compra_id && $comprasMap->has($r->compra_id)) {
                         $c = $comprasMap->get($r->compra_id);
                         $etiqueta = ($c->serie ?? '') . '-' . ($c->numero ?? '');
+                        $compraIdResuelta = $r->compra_id;
                     } else {
                         $etiqueta = 'Recepción #' . $r->numero;
                     }
@@ -212,8 +241,37 @@ class GananciasService implements GananciasServiceInterface
                     $etiqueta = 'Ingreso/Salida ' . (($i->serie ?? null) ? $i->serie . '-' . $i->numero : '#' . $i->id);
                 }
                 $documentoPorLote->put($lote->id, $etiqueta);
+
+                if ($compraIdResuelta && $comprasMap->has($compraIdResuelta)) {
+                    $c = $comprasMap->get($compraIdResuelta);
+                    $tcCompra = (float) ($c->tipo_de_cambio ?? 0);
+                    if ($c->tipo_moneda === 'd' && $tcCompra > 0 && $tcPagoPromedioPorCompra->has($compraIdResuelta)) {
+                        $tcPago = $tcPagoPromedioPorCompra->get($compraIdResuelta);
+                        // Impacto por unidad: costo_actual × (1 − tcPago/tcCompra).
+                        // Positivo = ganaste (TC pago más barato); negativo = perdiste.
+                        $impactoUnitPorLote->put($lote->id, (float) $lote->costo * (1 - $tcPago / $tcCompra));
+                        $fechaPagoPorLote->put($lote->id, $fechaPagoPorCompra->get($compraIdResuelta));
+                    }
+                }
             }
         }
+
+        // Impacto TC total y fecha de pago de un grupo de consumos (misma lógica que el
+        // costo: se suma cantidad × impacto-unitario de cada lote consumido).
+        $calcularImpactoYFecha = function ($consumos) use ($impactoUnitPorLote, $fechaPagoPorLote) {
+            if (!$consumos || $consumos->isEmpty()) {
+                return [null, null];
+            }
+            $impacto = null;
+            $fecha = null;
+            foreach ($consumos as $c) {
+                if ($impactoUnitPorLote->has($c->lote_id)) {
+                    $impacto = ($impacto ?? 0) + ((float) $c->cantidad) * $impactoUnitPorLote->get($c->lote_id);
+                    $fecha = $fecha ?? $fechaPagoPorLote->get($c->lote_id);
+                }
+            }
+            return [$impacto, $fecha];
+        };
 
         // Dado un grupo de consumos, resuelve el origen del stock: uno solo → su
         // referencia; varios distintos → "N orígenes".
@@ -252,6 +310,7 @@ class GananciasService implements GananciasServiceInterface
 
             if (! $puedeDesglosar) {
                 $row->documento_pagado = $resolverDocumentoPagado($consumos);
+                [$row->impacto_tc, $row->fecha_pago_compra] = $calcularImpactoYFecha($consumos);
                 $resultado->push($row);
                 continue;
             }
@@ -271,6 +330,8 @@ class GananciasService implements GananciasServiceInterface
                 $fila->ganancia = $fila->subtot - $fila->costo_total;
                 $fila->desglose_lote = "Lote {$i}/{$n}";
                 $fila->documento_pagado = $documentoPorLote->get($c->lote_id);
+                $fila->impacto_tc = $impactoUnitPorLote->has($c->lote_id) ? $cl * $impactoUnitPorLote->get($c->lote_id) : null;
+                $fila->fecha_pago_compra = $fechaPagoPorLote->get($c->lote_id);
                 $resultado->push($fila);
             }
         }

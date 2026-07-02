@@ -41,6 +41,11 @@ class GananciasResource extends JsonResource
             // Serie-número de la compra de origen del costo (PEPS). "N compras" si
             // el lote se surtió de varias; null si no hay registro de consumo.
             'documento_pagado' => $this->documento_pagado ?? null,
+            // Impacto de tipo de cambio (costo a TC compra − costo al TC realmente
+            // pagado) y fecha del pago; solo para lotes de compras en dólares con pago
+            // registrado. null si no aplica (soles, sin pago, u origen no es compra).
+            'impacto_tc' => isset($this->impacto_tc) ? (float) $this->impacto_tc : null,
+            'fecha_pago_compra' => $this->fecha_pago_compra ?? null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
