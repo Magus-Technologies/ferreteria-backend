@@ -142,7 +142,7 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
     public function obtenerTrasladosPorCaja(string $aperturaCierreId): Collection
     {
         return TrasladoBoveda::where('apertura_cierre_caja_id', $aperturaCierreId)
-            ->with(['vendedor', 'supervisor', 'subCaja'])
+            ->with(['vendedor', 'supervisor', 'subCaja', 'desplieguePago.metodoDePago'])
             ->orderBy('fecha_traslado', 'desc')
             ->get();
     }
