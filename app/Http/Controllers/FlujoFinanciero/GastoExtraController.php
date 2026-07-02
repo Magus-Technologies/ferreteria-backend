@@ -246,11 +246,31 @@ class GastoExtraController extends Controller
                     return response()->json(['success' => false, 'message' => 'Gasto no encontrado'], 404);
                 }
 
+                if ($gasto->estado === 'anulado') {
+                    return response()->json(['success' => false, 'message' => 'No se puede editar un gasto anulado'], 422);
+                }
+
                 $gasto->update([
                     'monto' => $request->monto,
                     'concepto' => $request->concepto,
                     'despliegue_pago_id' => $request->despliegue_pago_id,
                 ]);
+
+                // Revertir el efecto en caja de la transacción anterior (monto/método
+                // viejos) y registrar el nuevo — si no, el dinero se queda en la sub-caja
+                // y con el monto originales aunque el registro ya muestre otros valores.
+                // Si el nuevo monto/método excede el saldo disponible, registrarEnCajaActiva
+                // lanza excepción y el rollback de la transacción deshace todo (incluida
+                // la reversión), dejando la caja intacta.
+                $this->reversarEnCajaActiva($gasto->id, 'gasto_extra', 'Edición de gasto: ' . $gasto->concepto);
+                $this->registrarEnCajaActiva(
+                    $gasto->id,
+                    'gasto_extra',
+                    'egreso',
+                    (float) $request->monto,
+                    $request->despliegue_pago_id,
+                    'Gasto Extra (editado): ' . $gasto->concepto
+                );
 
                 return response()->json([
                     'success' => true,

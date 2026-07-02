@@ -198,11 +198,28 @@ class IngresoExtraController extends Controller
                     return response()->json(['success' => false, 'message' => 'Ingreso no encontrado'], 404);
                 }
 
+                if ($ingreso->estado === 'anulado') {
+                    return response()->json(['success' => false, 'message' => 'No se puede editar un ingreso anulado'], 422);
+                }
+
                 $ingreso->update([
                     'monto' => $request->monto,
                     'concepto' => $request->concepto ?? '',
                     'despliegue_pago_id' => $request->despliegue_pago_id,
                 ]);
+
+                // Revertir el efecto en caja de la transacción anterior (monto/método
+                // viejos) y registrar el nuevo — si no, el dinero se queda en la sub-caja
+                // y con el monto originales aunque el registro ya muestre otros valores.
+                $this->reversarEnCajaActiva($ingreso->id, 'ingreso_extra', 'Edición de ingreso: ' . $ingreso->concepto);
+                $this->registrarEnCajaActiva(
+                    $ingreso->id,
+                    'ingreso_extra',
+                    'ingreso',
+                    (float) $request->monto,
+                    $request->despliegue_pago_id,
+                    'Ingreso Extra (editado): ' . $ingreso->concepto
+                );
 
                 return response()->json([
                     'success' => true,

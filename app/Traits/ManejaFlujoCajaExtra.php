@@ -110,9 +110,12 @@ trait ManejaFlujoCajaExtra
      */
     protected function reversarEnCajaActiva(string $referenciaId, string $referenciaTipoOriginal, string $motivoBase): void
     {
-        // Buscar la transacción original
+        // Buscar la transacción original vigente. Si el ingreso/gasto ya fue editado
+        // antes, puede haber más de una fila con este referencia_tipo+referencia_id (una
+        // por cada edición) — se toma la más reciente para no reversar una ya reemplazada.
         $transaccionOriginal = TransaccionCaja::where('referencia_tipo', $referenciaTipoOriginal)
             ->where('referencia_id', $referenciaId)
+            ->orderByDesc('created_at')
             ->first();
 
         if ($transaccionOriginal) {
