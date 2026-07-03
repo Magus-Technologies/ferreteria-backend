@@ -40,14 +40,26 @@ class MtcConsultaService
         }
 
         // v2: cache key con versión — el shape cambió al agregar estado/detalle.
-        return Cache::remember("mtc_registro_v2_{$ruc}", self::CACHE_TTL, function () use ($ruc) {
-            try {
-                return $this->scrape($ruc);
-            } catch (\Throwable $e) {
-                Log::warning("Consulta MTC falló para RUC {$ruc}: {$e->getMessage()}");
-                return [];
-            }
-        });
+        $key = "mtc_registro_v2_{$ruc}";
+        $cached = Cache::get($key);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        try {
+            $registros = $this->scrape($ruc);
+        } catch (\Throwable $e) {
+            Log::warning("Consulta MTC falló para RUC {$ruc}: {$e->getMessage()}");
+            $registros = [];
+        }
+
+        // Un resultado vacío puede ser el portal MTC caído o la red del
+        // hosting bloqueando la salida — cachearlo 24h dejaría el autofill
+        // muerto un día entero. Vacío se cachea solo 5 min (reintento pronto);
+        // con datos, 24h.
+        Cache::put($key, $registros, count($registros) > 0 ? self::CACHE_TTL : 300);
+
+        return $registros;
     }
 
     private function scrape(string $ruc): array
@@ -144,9 +156,20 @@ class MtcConsultaService
             curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post));
         }
         $body = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
 
-        return is_string($body) ? $body : '';
+        // Lanzar con el motivo real (timeout, DNS, bloqueo, HTTP 403...) para
+        // que el log del servidor diga POR QUÉ falló y no solo que falló.
+        if ($body === false || $body === '') {
+            throw new \RuntimeException("MTC request a {$url} falló: curl='{$curlError}' http={$httpCode}");
+        }
+        if ($httpCode >= 400) {
+            throw new \RuntimeException("MTC request a {$url} devolvió HTTP {$httpCode}");
+        }
+
+        return $body;
     }
 
     private function hidden(string $html, string $name): string
