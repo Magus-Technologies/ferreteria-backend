@@ -210,6 +210,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('transportistas', [TransportistaController::class, 'index']);
     Route::post('transportistas', [TransportistaController::class, 'store']);
+    // Consulta del registro MTC por RUC (scraping del portal MTC, cacheado 24h).
+    // Va ANTES de la ruta {id} para que 'consulta-mtc' no matchee como id.
+    Route::get('transportistas/consulta-mtc/{ruc}', [TransportistaController::class, 'consultaMtc']);
+    Route::put('transportistas/{id}', [TransportistaController::class, 'update']);
 
     // ============================================
     // NOTAS DE DÉBITO (Facturación Electrónica)

@@ -75,7 +75,10 @@ class GuiaRemisionService
             ]);
 
             // Auto-registrar/actualizar en el catálogo de transportistas
-            // (razon_social es NOT NULL en el catálogo, así que exigimos ambos datos)
+            // (razon_social es NOT NULL en el catálogo, así que exigimos ambos datos).
+            // OJO: no se envía 'estado' acá a propósito, así el upsert nunca
+            // reactiva ni desactiva un transportista existente por el solo
+            // hecho de usarse en una guía; el estado se administra aparte.
             if (!empty($data['transportista_ruc']) && !empty($data['transportista_razon_social'])) {
                 Transportista::updateOrCreate(
                     ['ruc' => $data['transportista_ruc']],

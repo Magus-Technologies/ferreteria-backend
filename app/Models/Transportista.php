@@ -18,5 +18,13 @@ class Transportista extends Model
         'ruc',
         'razon_social',
         'nro_mtc',
+        'estado',
+    ];
+
+    /**
+     * Casts de atributos
+     */
+    protected $casts = [
+        'estado' => 'boolean',
     ];
 }
