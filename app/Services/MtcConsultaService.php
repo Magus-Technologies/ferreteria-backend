@@ -151,6 +151,15 @@ class MtcConsultaService
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
         ]);
+
+        // El portal MTC bloquea IPs de datacenters extranjeros (ej. Contabo).
+        // En producción configurar MTC_PROXY en .env con un proxy de IP
+        // peruana: MTC_PROXY="http://user:pass@host:puerto". Sin proxy en
+        // local (la IP peruana del ISP llega directo).
+        $proxy = config('services.mtc.proxy');
+        if ($proxy) {
+            curl_setopt($ch, CURLOPT_PROXY, $proxy);
+        }
         if ($post !== null) {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post));
