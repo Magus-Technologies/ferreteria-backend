@@ -54,6 +54,34 @@ class StoreGuiaRemisionRequest extends FormRequest
             'remitente_id' => 'nullable|integer|exists:cliente,id',
             'motivo_traslado_id' => 'required|integer|exists:motivos_traslado,id',
             'modalidad_transporte' => 'required|string|in:PRIVADO,PUBLICO',
+            // transportista_*: datos de la empresa de transporte TERCERA
+            // (Catálogo N° 18 SUNAT). Solo se exige cuando la modalidad es
+            // PUBLICO y NO es GRE-Transportista (ahí la empresa emisora YA
+            // es el transportista, ver GuiaRemisionService::prepararDatosParaGreenter).
+            'transportista_ruc' => [
+                'nullable',
+                'digits:11',
+                function ($attribute, $value, $fail) {
+                    $esPublico = $this->input('modalidad_transporte') === 'PUBLICO';
+                    $esTransportista = $this->input('tipo_guia') === 'ELECTRONICA_TRANSPORTISTA';
+                    if ($esPublico && !$esTransportista && empty($value)) {
+                        $fail('El RUC del transportista es obligatorio en transporte público');
+                    }
+                },
+            ],
+            'transportista_razon_social' => [
+                'nullable',
+                'string',
+                'max:255',
+                function ($attribute, $value, $fail) {
+                    $esPublico = $this->input('modalidad_transporte') === 'PUBLICO';
+                    $esTransportista = $this->input('tipo_guia') === 'ELECTRONICA_TRANSPORTISTA';
+                    if ($esPublico && !$esTransportista && empty($value)) {
+                        $fail('La razón social del transportista es obligatoria en transporte público');
+                    }
+                },
+            ],
+            'transportista_nro_mtc' => 'nullable|string|max:255',
             'vehiculo_placa' => 'nullable|string|max:20',
             'chofer_id' => 'nullable|integer|exists:chofer,id',
             // user_chofer_id: USER (despachador interno) que cumple rol de
@@ -87,6 +115,8 @@ class StoreGuiaRemisionRequest extends FormRequest
     {
         return [
             'fecha_traslado.after_or_equal' => 'La fecha de traslado debe ser igual o posterior a la fecha de emisión',
+            'transportista_ruc.digits' => 'El RUC del transportista debe tener 11 dígitos',
+            'transportista_razon_social.max' => 'La razón social del transportista no debe superar los 255 caracteres',
             'detalles.required' => 'Debe incluir al menos un producto en la guía',
             'detalles.min' => 'Debe incluir al menos un producto en la guía',
             'detalles.*.cantidad.min' => 'La cantidad debe ser mayor a 0',

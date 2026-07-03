@@ -15,6 +15,7 @@ use App\Http\Controllers\EntregaProductoController;
 use App\Http\Controllers\PaqueteController;
 use App\Http\Controllers\SerieDocumentoController;
 use App\Http\Controllers\ChoferController;
+use App\Http\Controllers\TransportistaController;
 use App\Http\Controllers\RecepcionAlmacenController;
 use Illuminate\Support\Facades\Route;
 
@@ -203,6 +204,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::get('choferes/buscar-dni/{dni}', [ChoferController::class, 'buscarPorDni']);
     Route::apiResource('choferes', ChoferController::class)->middleware('broadcast:choferes');
+
+    // ============================================
+    // TRANSPORTISTAS (empresas de transporte terceras, GRE-Remitente PÚBLICO)
+    // ============================================
+    Route::get('transportistas', [TransportistaController::class, 'index']);
+    Route::post('transportistas', [TransportistaController::class, 'store']);
 
     // ============================================
     // NOTAS DE DÉBITO (Facturación Electrónica)

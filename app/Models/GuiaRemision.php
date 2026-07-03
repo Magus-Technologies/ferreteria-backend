@@ -30,6 +30,10 @@ class GuiaRemision extends Model
         'remitente_id',
         'motivo_traslado_id',
         'modalidad_transporte',
+        // Transportista tercero — solo aplica a modalidad_transporte = PUBLICO.
+        'transportista_ruc',
+        'transportista_razon_social',
+        'transportista_nro_mtc',
         'vehiculo_placa',
         'chofer_id',
         'user_chofer_id',

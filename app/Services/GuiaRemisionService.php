@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\GuiaRemision;
 use App\Models\DetalleGuiaRemision;
 use App\Models\ProductoAlmacen;
+use App\Models\Transportista;
 use App\Services\Interfaces\SunatApiServiceInterface;
 use App\Services\Interfaces\XmlStorageServiceInterface;
 use Endroid\QrCode\Builder\Builder;
@@ -58,6 +59,9 @@ class GuiaRemisionService
                 'comprador_id' => $data['comprador_id'] ?? null,
                 'motivo_traslado_id' => $data['motivo_traslado_id'],
                 'modalidad_transporte' => $data['modalidad_transporte'],
+                'transportista_ruc' => $data['transportista_ruc'] ?? null,
+                'transportista_razon_social' => $data['transportista_razon_social'] ?? null,
+                'transportista_nro_mtc' => $data['transportista_nro_mtc'] ?? null,
                 'vehiculo_placa' => $data['vehiculo_placa'] ?? null,
                 'chofer_id' => $data['chofer_id'] ?? null,
                 'punto_partida' => $data['punto_partida'],
@@ -69,6 +73,18 @@ class GuiaRemisionService
                 'estado' => 'BORRADOR',
                 'user_id' => $data['user_id'],
             ]);
+
+            // Auto-registrar/actualizar en el catálogo de transportistas
+            // (razon_social es NOT NULL en el catálogo, así que exigimos ambos datos)
+            if (!empty($data['transportista_ruc']) && !empty($data['transportista_razon_social'])) {
+                Transportista::updateOrCreate(
+                    ['ruc' => $data['transportista_ruc']],
+                    [
+                        'razon_social' => $data['transportista_razon_social'] ?? null,
+                        'nro_mtc' => $data['transportista_nro_mtc'] ?? null,
+                    ]
+                );
+            }
 
             // Crear detalles de la guía
             $this->crearDetalles($guiaId, $data['detalles'], $data['entrega_id'] ?? null);
@@ -343,7 +359,11 @@ class GuiaRemisionService
         // Determinar si es GRE-Transportista
         $esTransportista = $guia->tipo_guia === 'ELECTRONICA_TRANSPORTISTA';
 
-        // Para GRE-Transportista: la empresa emisora actúa como transportista
+        // Para GRE-Transportista: la empresa emisora actúa como transportista.
+        // Para transporte PÚBLICO (tercerizado) en GRE-Remitente: el
+        // transportista es la empresa tercera guardada en la guía
+        // (Catálogo N° 18 SUNAT exige su RUC y razón social).
+        $esPublico = $guia->modalidad_transporte === 'PUBLICO';
         $transportista = null;
         if ($esTransportista) {
             $transportista = [
@@ -351,6 +371,13 @@ class GuiaRemisionService
                 'num_doc' => \App\Models\Empresa::getRucEmisor(),
                 'razon_social' => config('sunat-api.razon_social'),
                 'nro_mtc' => config('sunat-api.nro_mtc', null),
+            ];
+        } elseif ($esPublico && $guia->transportista_ruc) {
+            $transportista = [
+                'tipo_doc' => '6', // RUC
+                'num_doc' => $guia->transportista_ruc,
+                'razon_social' => $guia->transportista_razon_social,
+                'nro_mtc' => $guia->transportista_nro_mtc,
             ];
         }
 
