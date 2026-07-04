@@ -40,4 +40,10 @@ return [
         'credentials_path' => env('FIREBASE_CREDENTIALS_PATH', storage_path('firebase-credentials.json')),
     ],
 
+    'mtc' => [
+        // Proxy con IP peruana para el scraping del portal MTC (bloquea IPs
+        // de datacenters extranjeros). Formato: http://user:pass@host:puerto
+        'proxy' => env('MTC_PROXY'),
+    ],
+
 ];
