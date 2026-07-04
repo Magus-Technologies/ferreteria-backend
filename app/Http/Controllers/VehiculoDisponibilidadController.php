@@ -18,11 +18,18 @@ class VehiculoDisponibilidadController extends Controller
 
         // Si se proporciona una fecha específica, verificar disponibilidad
         if ($fecha) {
+            // IMPORTANTE: comparar el instante exacto (fecha Y hora), no solo el día.
+            // whereDate() ignoraba la hora y por eso un mantenimiento de solo unas
+            // horas (ej. 08:00-16:00) bloqueaba el día COMPLETO en vez de solo esas
+            // horas. Los rangos guardados ya son correctos (BloqueMantenimientoCalculator
+            // deja el día entero 00:00-23:59 para "dias", y solo las horas puntuales
+            // para "horas"/"minutos"), así que basta con comparar el instante real.
+            $instante = \Carbon\Carbon::parse($fecha);
             $mantenimiento = VehiculoMantenimiento::with('requerimiento')
                 ->where('vehiculo_id', $id)
                 ->where('estado', 'aprobado')
-                ->whereDate('fecha_inicio', '<=', $fecha)
-                ->whereDate('fecha_fin', '>=', $fecha)
+                ->where('fecha_inicio', '<=', $instante)
+                ->where('fecha_fin', '>=', $instante)
                 ->first();
 
             if ($mantenimiento) {
