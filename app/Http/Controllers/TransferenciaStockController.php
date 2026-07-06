@@ -8,6 +8,7 @@ use App\Models\ProductoAlmacen;
 use App\Models\Ubicacion;
 use App\Models\UnidadDerivadaInmutable;
 use App\Services\Cache\ProductoCacheService;
+use App\Services\Kardex\KardexInventarioService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,51 @@ use Illuminate\Support\Facades\Auth;
 
 class TransferenciaStockController extends Controller
 {
+    protected KardexInventarioService $kardexService;
+
+    public function __construct(KardexInventarioService $kardexService)
+    {
+        $this->kardexService = $kardexService;
+    }
+
+    private function registrarMovimientoKardex(
+        string $documento,
+        string $tipo,
+        string $movimiento,
+        float $entrada,
+        float $salida,
+        $productoAlmacen,
+        string $unidadNombre,
+        float $cantidad,
+        float $cantidadFraccion,
+        float $factor,
+        float $costo,
+        int $referenciaId,
+        int $almacenId,
+        int $orden = 5
+    ): void {
+        $data = [
+            'tipo' => $tipo,
+            'movimiento' => $movimiento,
+            'fecha' => now(),
+            'documento' => $documento,
+            'unidad' => $unidadNombre,
+            'cantidad' => $cantidad,
+            'cantidad_fraccion' => $cantidadFraccion,
+            'factor' => $factor,
+            'precio' => 0,
+            'costo' => $costo,
+            'entrada' => $entrada,
+            'salida' => $salida,
+            'referencia_id' => $referenciaId,
+            'producto_id' => $productoAlmacen->producto_id,
+            'producto_nombre' => $productoAlmacen->producto->name,
+            'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'almacen_id' => $almacenId,
+            'orden' => $orden,
+        ];
+        $this->kardexService->registrar($data);
+    }
     /**
      * Resumen para el dashboard: "Préstamos" (stock que SALE del almacén = origen)
      * vs "Prestés" (stock que ENTRA al almacén = destino), valorizado (cantidad*costo).
@@ -250,6 +296,32 @@ class TransferenciaStockController extends Controller
                     'stock_anterior_destino' => $stockAnteriorDestino,
                     'stock_nuevo_destino' => $stockNuevoDestino,
                 ]);
+
+                $doc = "Transferencia TS-{$transferencia->serie}-{$transferencia->numero}";
+
+                // Kardex: salida del almacén origen
+                $this->registrarMovimientoKardex(
+                    $doc, 'transferencia', 'SALIDA POR TRANSFERENCIA',
+                    entrada: 0, salida: $cantidadFraccion,
+                    productoAlmacen: $productoAlmacenOrigen,
+                    unidadNombre: $unidadDerivadaInmutable->name,
+                    cantidad: $cantidad, cantidadFraccion: $cantidadFraccion,
+                    factor: $factor, costo: $resConsumo['costo_promedio'],
+                    referenciaId: $transferencia->id,
+                    almacenId: $almacenOrigenId
+                );
+
+                // Kardex: entrada al almacén destino
+                $this->registrarMovimientoKardex(
+                    $doc, 'transferencia', 'ENTRADA POR TRANSFERENCIA',
+                    entrada: $cantidadFraccion, salida: 0,
+                    productoAlmacen: $productoAlmacenDestino,
+                    unidadNombre: $unidadDerivadaInmutable->name,
+                    cantidad: $cantidad, cantidadFraccion: $cantidadFraccion,
+                    factor: $factor, costo: $resConsumo['costo_promedio'],
+                    referenciaId: $transferencia->id,
+                    almacenId: $almacenDestinoId
+                );
             }
 
             // Invalidar cache de ambos almacenes
@@ -346,8 +418,12 @@ class TransferenciaStockController extends Controller
                     }
                 }
 
-                // 2. Borrar detalles anteriores
+                // 2. Borrar detalles anteriores y sus registros kardex
                 $transferencia->productos()->delete();
+                DB::table('kardex_inventarios')
+                    ->where('referencia_id', $id)
+                    ->where('tipo', 'transferencia')
+                    ->delete();
 
                 // 3. Ubicación destino compartida
                 $almacenDestinoId = $validated['almacen_destino_id'];
@@ -442,6 +518,32 @@ class TransferenciaStockController extends Controller
                         'stock_anterior_destino'      => $stockAnteriorDestino,
                         'stock_nuevo_destino'         => $stockNuevoDestino,
                     ]);
+
+                    $doc = "Transferencia TS-{$transferencia->serie}-{$transferencia->numero}";
+
+                    // Kardex: salida del almacén origen
+                    $this->registrarMovimientoKardex(
+                        $doc, 'transferencia', 'SALIDA POR TRANSFERENCIA',
+                        entrada: 0, salida: $cantidadFraccion,
+                        productoAlmacen: $productoAlmacenOrigen,
+                        unidadNombre: $unidadDerivadaInmutable->name,
+                        cantidad: $cantidad, cantidadFraccion: $cantidadFraccion,
+                        factor: $factor, costo: $resConsumo['costo_promedio'],
+                        referenciaId: $transferencia->id,
+                        almacenId: $almacenOrigenId
+                    );
+
+                    // Kardex: entrada al almacén destino
+                    $this->registrarMovimientoKardex(
+                        $doc, 'transferencia', 'ENTRADA POR TRANSFERENCIA',
+                        entrada: $cantidadFraccion, salida: 0,
+                        productoAlmacen: $productoAlmacenDestino,
+                        unidadNombre: $unidadDerivadaInmutable->name,
+                        cantidad: $cantidad, cantidadFraccion: $cantidadFraccion,
+                        factor: $factor, costo: $resConsumo['costo_promedio'],
+                        referenciaId: $transferencia->id,
+                        almacenId: $almacenDestinoId
+                    );
                 }
 
                 // 5. Actualizar cabecera
@@ -518,6 +620,48 @@ class TransferenciaStockController extends Controller
                 $paDestino = ProductoAlmacen::find($paDestinoId);
                 if ($paDestino) {
                     $loteService->revertirLotesPorTransferencia($paDestino, $transferencia->id, (float) $totalFr);
+                }
+            }
+
+            // Registrar reversión en kardex por cada producto
+            foreach ($transferencia->productos as $detalle) {
+                $paOrigen = ProductoAlmacen::find($detalle->producto_almacen_origen_id);
+                $paDestino = ProductoAlmacen::find($detalle->producto_almacen_destino_id);
+                $cantidadFraccionDetalle = (float) $detalle->factor * (float) $detalle->cantidad;
+                $inmutable = UnidadDerivadaInmutable::find($detalle->unidad_derivada_inmutable_id);
+                $unidadNombre = $inmutable?->name ?? 'UND';
+                $doc = "Transferencia TS-{$transferencia->serie}-{$transferencia->numero} (Anulada)";
+
+                if ($paOrigen) {
+                    $this->registrarMovimientoKardex(
+                        $doc, 'transferencia', 'ENTRADA POR TRANSFERENCIA ANULADO',
+                        entrada: $cantidadFraccionDetalle, salida: 0,
+                        productoAlmacen: $paOrigen,
+                        unidadNombre: $unidadNombre,
+                        cantidad: (float) $detalle->cantidad,
+                        cantidadFraccion: $cantidadFraccionDetalle,
+                        factor: (float) $detalle->factor,
+                        costo: (float) $detalle->costo,
+                        referenciaId: $transferencia->id,
+                        almacenId: $transferencia->almacen_origen_id,
+                        orden: 6
+                    );
+                }
+
+                if ($paDestino) {
+                    $this->registrarMovimientoKardex(
+                        $doc, 'transferencia', 'SALIDA POR TRANSFERENCIA ANULADO',
+                        entrada: 0, salida: $cantidadFraccionDetalle,
+                        productoAlmacen: $paDestino,
+                        unidadNombre: $unidadNombre,
+                        cantidad: (float) $detalle->cantidad,
+                        cantidadFraccion: $cantidadFraccionDetalle,
+                        factor: (float) $detalle->factor,
+                        costo: (float) $detalle->costo,
+                        referenciaId: $transferencia->id,
+                        almacenId: $transferencia->almacen_destino_id,
+                        orden: 6
+                    );
                 }
             }
 
