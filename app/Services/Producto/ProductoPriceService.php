@@ -62,6 +62,8 @@ class ProductoPriceService implements ProductoPriceServiceInterface
                     'producto_almacen' => [
                         'id' => $productoAlmacen->id,
                         'costo' => (float) $productoAlmacen->costo,
+                        'costo_actual' => $productoAlmacen->costo_actual ? (float) $productoAlmacen->costo_actual : null,
+                        'costo_anterior' => $productoAlmacen->costo_anterior ? (float) $productoAlmacen->costo_anterior : null,
                         'stock_fraccion' => (float) $productoAlmacen->stock_fraccion,
                         'almacen' => $productoAlmacen->almacen,
                         'ubicacion' => $productoAlmacen->ubicacion,
