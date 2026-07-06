@@ -294,6 +294,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                 'ud.producto_almacen_id',
                 'ud.unidad_derivada_id',
                 'ud.factor',
+                'ud.peso',
                 'ud.precio_publico',
                 'ud.comision_publico',
                 'ud.precio_especial',
@@ -305,9 +306,14 @@ class ProductoRepository implements ProductoRepositoryInterface
                 'ud.precio_ultimo',
                 'ud.comision_ultimo',
                 'ud.activador_ultimo',
+                'ud.producto_complementario_id',
+                'ud.producto_complementario_cantidad',
+                'compl_producto.name as producto_complementario_name',
+                'compl_producto.cod_producto as producto_complementario_cod_producto',
                 'unidadderivada.name as unidad_derivada_name',
             ])
             ->leftJoin('unidadderivada', 'unidadderivada.id', '=', 'ud.unidad_derivada_id')
+            ->leftJoin('producto as compl_producto', 'compl_producto.id', '=', 'ud.producto_complementario_id')
             ->whereIn('ud.producto_almacen_id', $productoAlmacenIds)
             ->orderBy('ud.orden', 'asc')
             ->orderBy('ud.factor', 'desc')
@@ -321,6 +327,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                 'producto_almacen_id' => (int) $ud->producto_almacen_id,
                 'unidad_derivada_id' => (int) $ud->unidad_derivada_id,
                 'factor' => $ud->factor,
+                'peso' => $ud->peso,
                 'precio_publico' => $ud->precio_publico,
                 'comision_publico' => $ud->comision_publico,
                 'precio_especial' => $ud->precio_especial,
@@ -332,6 +339,13 @@ class ProductoRepository implements ProductoRepositoryInterface
                 'precio_ultimo' => $ud->precio_ultimo,
                 'comision_ultimo' => $ud->comision_ultimo,
                 'activador_ultimo' => $ud->activador_ultimo,
+                'producto_complementario_id' => $ud->producto_complementario_id === null ? null : (int) $ud->producto_complementario_id,
+                'producto_complementario_cantidad' => $ud->producto_complementario_cantidad,
+                'producto_complementario' => $ud->producto_complementario_id === null ? null : [
+                    'id' => (int) $ud->producto_complementario_id,
+                    'name' => $ud->producto_complementario_name,
+                    'cod_producto' => $ud->producto_complementario_cod_producto,
+                ],
                 'unidad_derivada' => $ud->unidad_derivada_id === null ? null : [
                     'id' => (int) $ud->unidad_derivada_id,
                     'name' => $ud->unidad_derivada_name,
@@ -467,7 +481,7 @@ class ProductoRepository implements ProductoRepositoryInterface
                                     ->where('cantidad_restante', '!=', 0);
                             },
                             'unidadesDerivadas' => function ($udq) {
-                                $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'precio_publico', 'comision_publico', 'precio_especial', 'comision_especial', 'activador_especial', 'precio_minimo', 'comision_minimo', 'activador_minimo', 'precio_ultimo', 'comision_ultimo', 'activador_ultimo', 'producto_complementario_id', 'producto_complementario_cantidad')
+                                $udq->select('id', 'producto_almacen_id', 'unidad_derivada_id', 'factor', 'peso', 'precio_publico', 'comision_publico', 'precio_especial', 'comision_especial', 'activador_especial', 'precio_minimo', 'comision_minimo', 'activador_minimo', 'precio_ultimo', 'comision_ultimo', 'activador_ultimo', 'producto_complementario_id', 'producto_complementario_cantidad')
                                     ->with([
                                         'unidadDerivada:id,name',
                                         'productoComplementario:id,name,cod_producto',
