@@ -155,6 +155,10 @@ class DetallePreciosController extends Controller
                                     'stock_fraccion' => (float) $productoAlmacen->stock_fraccion,
                                     'costo' => $productoAlmacen->costo,
                                     'almacen_id' => $productoAlmacen->almacen_id,
+                                    // Lote/vencimiento opcionales: solo llegan en la fila de la
+                                    // unidad base (mismo criterio que ProductoService::createInitialStock).
+                                    'lote' => $item['lote'] ?? null,
+                                    'vencimiento' => $item['vencimiento'] ?? null,
                                 ];
                             }
                             $itemsProcesados++;
@@ -200,6 +204,10 @@ class DetallePreciosController extends Controller
                     // 2. Procesar IngresoSalida (solo si hay unidades por defecto)
                     if (!empty($batchIngresoSalida)) {
                         $ingresoSalidaBatch = [];
+                        // Datos necesarios para completar la cadena PEPS (paso 2.1-2.3),
+                        // indexados por 'numero' (único por serie+tipo_documento en este batch).
+                        $datosPorNumero = [];
+
                         foreach ($batchIngresoSalida as $ingresoData) {
                             // Cache de UnidadDerivadaInmutable
                             if (!isset($unidadesDerivadaInmutableCache[$ingresoData['unidad_derivada_name']])) {
@@ -226,10 +234,127 @@ class DetallePreciosController extends Controller
                                 'created_at' => $now,
                                 'updated_at' => $now,
                             ];
+
+                            $datosPorNumero[$nuevoNumero] = [
+                                'producto_almacen_id' => $ingresoData['producto_almacen_id'],
+                                'unidad_derivada_inmutable_id' => $unidadDerivadaInmutable->id,
+                                'factor' => $ingresoData['factor'],
+                                'stock_fraccion' => $ingresoData['stock_fraccion'],
+                                'costo' => $ingresoData['costo'],
+                                'lote' => $ingresoData['lote'] ?? null,
+                                'vencimiento' => $ingresoData['vencimiento'] ?? null,
+                            ];
                         }
 
                         if (!empty($ingresoSalidaBatch)) {
                             DB::table('ingresosalida')->insert($ingresoSalidaBatch);
+
+                            // IMPORTANTE: la cadena PEPS completa (ProductoAlmacenIngresoSalida +
+                            // UnidadDerivadaInmutableIngresoSalida + Historial) solo se arma para
+                            // los ingresos que traen lote y/o vencimiento. Si ninguno de los dos
+                            // vino en la fila, se conserva el comportamiento previo (solo el
+                            // IngresoSalida "pelado") para no alterar imports existentes que no
+                            // usan lote/vencimiento.
+                            $numerosConLoteOVencimiento = array_keys(array_filter(
+                                $datosPorNumero,
+                                fn($d) => !empty($d['lote']) || !empty($d['vencimiento'])
+                            ));
+
+                            if (!empty($numerosConLoteOVencimiento)) {
+                                // Re-consultar los IDs recién insertados. 'numero' es único junto
+                                // a serie+tipo_documento, así que este mapeo es seguro.
+                                $idsPorNumero = IngresoSalida::where('serie', $empresa->serie_ingreso)
+                                    ->where('tipo_documento', 'in')
+                                    ->whereIn('numero', $numerosConLoteOVencimiento)
+                                    ->pluck('id', 'numero');
+
+                                // 2.1 Batch insert ProductoAlmacenIngresoSalida
+                                $productoAlmacenIngresoSalidaBatch = [];
+                                foreach ($numerosConLoteOVencimiento as $numero) {
+                                    $ingresoId = $idsPorNumero[$numero] ?? null;
+                                    if (!$ingresoId) {
+                                        continue;
+                                    }
+                                    $datos = $datosPorNumero[$numero];
+                                    $productoAlmacenIngresoSalidaBatch[] = [
+                                        'ingreso_id' => $ingresoId,
+                                        'costo' => $datos['costo'],
+                                        'producto_almacen_id' => $datos['producto_almacen_id'],
+                                        // NOTA: esta tabla NO tiene timestamps (created_at, updated_at)
+                                    ];
+                                }
+
+                                if (!empty($productoAlmacenIngresoSalidaBatch)) {
+                                    DB::table('productoalmaceningresosalida')->insert($productoAlmacenIngresoSalidaBatch);
+
+                                    // 'ingreso_id' es único por fila en este batch (1 IngresoSalida
+                                    // recién creado <-> 1 ProductoAlmacenIngresoSalida), así que este
+                                    // mapeo solo puede resolver a las filas que acabamos de insertar.
+                                    $ingresoIdsInsertados = array_column($productoAlmacenIngresoSalidaBatch, 'ingreso_id');
+                                    $paIngresoSalidaIdsPorIngresoId = ProductoAlmacenIngresoSalida::whereIn('ingreso_id', $ingresoIdsInsertados)
+                                        ->pluck('id', 'ingreso_id');
+
+                                    // 2.2 Batch insert UnidadDerivadaInmutableIngresoSalida (aquí vive lote/vencimiento)
+                                    $unidadDerivadaInmutableIngresoSalidaBatch = [];
+                                    foreach ($numerosConLoteOVencimiento as $numero) {
+                                        $ingresoId = $idsPorNumero[$numero] ?? null;
+                                        if (!$ingresoId) {
+                                            continue;
+                                        }
+                                        $paIngresoSalidaId = $paIngresoSalidaIdsPorIngresoId[$ingresoId] ?? null;
+                                        if (!$paIngresoSalidaId) {
+                                            continue;
+                                        }
+
+                                        $datos = $datosPorNumero[$numero];
+                                        $factor = (float) $datos['factor'];
+                                        $cantidad = $factor > 0 ? $datos['stock_fraccion'] / $factor : 0;
+
+                                        $unidadDerivadaInmutableIngresoSalidaBatch[] = [
+                                            'unidad_derivada_inmutable_id' => $datos['unidad_derivada_inmutable_id'],
+                                            'producto_almacen_ingreso_salida_id' => $paIngresoSalidaId,
+                                            'factor' => $factor,
+                                            'cantidad' => $cantidad,
+                                            'cantidad_restante' => $cantidad,
+                                            'lote' => $datos['lote'],
+                                            'vencimiento' => $datos['vencimiento'],
+                                            // NOTA: esta tabla NO tiene timestamps (created_at, updated_at)
+                                        ];
+                                    }
+
+                                    if (!empty($unidadDerivadaInmutableIngresoSalidaBatch)) {
+                                        DB::table('unidadderivadainmutableingresosalida')->insert($unidadDerivadaInmutableIngresoSalidaBatch);
+
+                                        // 'producto_almacen_ingreso_salida_id' es único por fila en
+                                        // este batch (1 a 1 con lo que acabamos de insertar arriba).
+                                        $paIngresoSalidaIdsInsertados = array_column($unidadDerivadaInmutableIngresoSalidaBatch, 'producto_almacen_ingreso_salida_id');
+                                        $udiIngresoSalidaIdsPorPaId = UnidadDerivadaInmutableIngresoSalida::whereIn('producto_almacen_ingreso_salida_id', $paIngresoSalidaIdsInsertados)
+                                            ->pluck('id', 'producto_almacen_ingreso_salida_id');
+
+                                        // 2.3 Batch insert Historial
+                                        $historialBatch = [];
+                                        foreach ($unidadDerivadaInmutableIngresoSalidaBatch as $row) {
+                                            $udiIngresoSalidaId = $udiIngresoSalidaIdsPorPaId[$row['producto_almacen_ingreso_salida_id']] ?? null;
+                                            if (!$udiIngresoSalidaId) {
+                                                continue;
+                                            }
+                                            $historialBatch[] = [
+                                                'unidad_derivada_inmutable_ingreso_salida_id' => $udiIngresoSalidaId,
+                                                'stock_anterior' => 0,
+                                                // stock_nuevo = cantidad TOTAL en fracciones (como compraCantidad
+                                                // en ProductoService::createInitialStock), NO la cantidad/factor.
+                                                // cantidad = stock_fraccion / factor  →  cantidad * factor = stock_fraccion.
+                                                'stock_nuevo' => $row['cantidad'] * $row['factor'],
+                                                // NOTA: esta tabla NO tiene timestamps (created_at, updated_at)
+                                            ];
+                                        }
+
+                                        if (!empty($historialBatch)) {
+                                            DB::table('historialunidadderivadainmutableingresosalida')->insert($historialBatch);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
