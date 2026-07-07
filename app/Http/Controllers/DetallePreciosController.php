@@ -346,9 +346,12 @@ class DetallePreciosController extends Controller
             if (isset($productosAlmacenesExistentes[$key])) {
                 $productoAlmacen = $productosAlmacenesExistentes[$key];
 
-                // Actualizar ubicación si es diferente
+                // Actualizar ubicación si es diferente.
+                // updateQuietly: guarda SIN disparar el observer de ProductoAlmacen
+                // (que invalida caché por fila → miles de queries en imports grandes).
+                // La caché se invalida una sola vez al final del import de detalle.
                 if ($productoAlmacen->ubicacion_id !== $ubicacion->id) {
-                    $productoAlmacen->update(['ubicacion_id' => $ubicacion->id]);
+                    $productoAlmacen->updateQuietly(['ubicacion_id' => $ubicacion->id]);
                 }
             } else {
                 // Marcar para crear después
