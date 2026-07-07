@@ -259,6 +259,12 @@ class DetallePreciosController extends Controller
         $cacheService = app(ProductoCacheService::class);
         foreach ($almacenIds as $almacenId) {
             $cacheService->invalidateProductosAlmacen($almacenId);
+            // invalidateProductosAlmacen solo borra `productos_almacen_{id}_%`.
+            // Las tablas de productos / detalle de precios leen del listado
+            // completo/ligero, que NO tiene ese prefijo → hay que borrarlo aparte,
+            // si no el detalle recién importado no se ve hasta que la cache expire.
+            \Illuminate\Support\Facades\Cache::forget("productos_listado_ligero_{$almacenId}");
+            \Illuminate\Support\Facades\Cache::forget("productos_listado_completo_{$almacenId}");
         }
 
         return response()->json([
