@@ -639,46 +639,72 @@ class ProductoImportService implements ProductoImportServiceInterface
             $totalProducts = count($data);
             $batchSize = 250; // Aumentado de 100 a 250 (2.5x más rápido)
             $batches = array_chunk($data, $batchSize);
-            
+
             $imported = 0;
             $duplicates = 0;
             $errors = 0;
-            
-            // Procesar cada batch dentro de una transacción separada
-            foreach ($batches as $batchIndex => $batch) {
-                try {
-                    DB::transaction(function () use ($batch, $catalogCache, &$imported, &$duplicates, &$errors) {
-                        foreach ($batch as $item) {
-                            try {
-                                $result = $this->importSingleProduct($item, $catalogCache);
-                                
-                                if ($result['success']) {
-                                    $imported++;
-                                } else {
-                                    if ($result['is_duplicate']) {
-                                        $duplicates++;
+
+            // OPTIMIZACIÓN: recolectar los almacenes afectados para invalidar su
+            // cache UNA sola vez al final. Antes cada fila disparaba ~3 DELETEs
+            // en la tabla `cache` vía los observers de Producto/ProductoAlmacen
+            // (miles de queries desperdiciadas invalidando siempre lo mismo).
+            $almacenesAfectados = collect($data)
+                ->map(fn ($item) => $item['producto_en_almacenes']['create']['almacen_id'] ?? null)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            // Silenciar los eventos de modelo durante la importación masiva: los
+            // observers de Producto/ProductoAlmacen SOLO invalidan cache (y eso
+            // lo hacemos una vez al final). Los IDs son auto_increment y no
+            // dependen de eventos, así que es seguro. Reduce ~90% de las queries.
+            Producto::withoutEvents(function () use ($batches, $catalogCache, &$imported, &$duplicates, &$errors) {
+                // Procesar cada batch dentro de una transacción separada
+                foreach ($batches as $batchIndex => $batch) {
+                    try {
+                        DB::transaction(function () use ($batch, $catalogCache, &$imported, &$duplicates, &$errors) {
+                            foreach ($batch as $item) {
+                                try {
+                                    $result = $this->importSingleProduct($item, $catalogCache);
+
+                                    if ($result['success']) {
+                                        $imported++;
                                     } else {
-                                        $errors++;
+                                        if ($result['is_duplicate']) {
+                                            $duplicates++;
+                                        } else {
+                                            $errors++;
+                                        }
                                     }
+                                } catch (\Exception $e) {
+                                    $errors++;
                                 }
-                            } catch (\Exception $e) {
-                                $errors++;
                             }
-                        }
-                    }, 2); // 2 intentos en caso de deadlock
-                    
-                } catch (\Exception $e) {
-                    // Si falla todo el batch, contar todos como errores
-                    $errors += count($batch);
-                    Log::error("Batch import failed", [
-                        'batch_index' => $batchIndex,
-                        'batch_size' => count($batch),
-                        'error' => $e->getMessage()
-                    ]);
+                        }, 2); // 2 intentos en caso de deadlock
+
+                    } catch (\Exception $e) {
+                        // Si falla todo el batch, contar todos como errores
+                        $errors += count($batch);
+                        Log::error("Batch import failed", [
+                            'batch_index' => $batchIndex,
+                            'batch_size' => count($batch),
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+
+                    // Liberar memoria después de cada batch
+                    gc_collect_cycles();
                 }
-                
-                // Liberar memoria después de cada batch
-                gc_collect_cycles();
+            });
+
+            // Invalidar la cache de los almacenes afectados UNA sola vez (en vez
+            // de por cada fila) — esto es lo que reemplaza a los observers.
+            $cacheService = app(\App\Services\Cache\ProductoCacheService::class);
+            foreach ($almacenesAfectados as $almacenId) {
+                $cacheService->invalidateProductosAlmacen($almacenId);
+                Cache::forget("productos_listado_ligero_{$almacenId}");
+                Cache::forget("productos_listado_completo_{$almacenId}");
             }
             
             $duration = now()->diffInSeconds($startTime);
