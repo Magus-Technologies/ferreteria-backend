@@ -893,9 +893,11 @@ class CompraController extends Controller
     /**
      * Remove the specified resource from storage (anular).
      */
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
-        return DB::transaction(function () use ($id) {
+        $skipRefund = filter_var($request->query('skip_refund', false), FILTER_VALIDATE_BOOLEAN);
+
+        return DB::transaction(function () use ($id, $skipRefund) {
             $compra = Compra::with([
                 'productosPorAlmacen.unidadesDerivadas',
             ])
@@ -927,7 +929,7 @@ class CompraController extends Controller
             // 1. Devolver dinero de pagos específicos (créditos/modal pagos)
             $pagos = $compra->pagosDeCompras()->where('estado', true)->with('despliegueDePago')->get();
             foreach ($pagos as $pago) {
-                if ($pago->despliegueDePago) {
+                if ($pago->despliegueDePago && !$skipRefund) {
                     MetodoDePago::where('id', $pago->despliegueDePago->metodo_de_pago_id)
                         ->increment('monto', (float) $pago->monto);
                 }
@@ -935,12 +937,14 @@ class CompraController extends Controller
             }
 
             // 2. Devolver dinero de pago inicial (Contado/Egreso)
-            $this->devolverDineroDeCompra($compra);
+            if (!$skipRefund) {
+                $this->devolverDineroDeCompra($compra);
 
-            // Update egreso_dinero if exists
-            if ($compra->egreso_dinero_id) {
-                EgresoDinero::where('id', $compra->egreso_dinero_id)
-                    ->update(['estado' => false]);
+                // Update egreso_dinero if exists
+                if ($compra->egreso_dinero_id) {
+                    EgresoDinero::where('id', $compra->egreso_dinero_id)
+                        ->update(['estado' => false]);
+                }
             }
 
             // Update compra to Anulado
