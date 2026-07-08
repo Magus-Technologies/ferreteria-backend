@@ -933,9 +933,13 @@ class CompraController extends Controller
             // 1. Devolver dinero de pagos específicos (créditos/modal pagos)
             $pagos = $compra->pagosDeCompras()->where('estado', true)->with('despliegueDePago')->get();
             foreach ($pagos as $pago) {
-                if ($pago->despliegueDePago && !$skipRefund) {
-                    MetodoDePago::where('id', $pago->despliegueDePago->metodo_de_pago_id)
-                        ->increment('monto', (float) $pago->monto);
+                if (!$skipRefund) {
+                    if ($pago->despliegueDePago) {
+                        MetodoDePago::where('id', $pago->despliegueDePago->metodo_de_pago_id)
+                            ->increment('monto', (float) $pago->monto);
+                    }
+                    // Revertir la transacción de caja (ingreso para devolver el dinero)
+                    $this->revertirTransaccionCajaParaPagoCompra($pago, $compra);
                 }
                 $pago->update(['estado' => false, 'observacion' => 'Anulado por anulación de compra']);
             }
