@@ -48,6 +48,8 @@ class CrearRequerimientoInternoRequest extends FormRequest
             'servicios.*.tipo_servicio' => ['nullable', 'string', 'max:100'],
             'servicios.*.lugar_ejecucion' => ['nullable', 'string', 'max:255'],
             'servicios.*.fecha_inicio_estimada' => ['nullable', 'date'],
+            'servicios.*.hora_inicio' => ['nullable', 'date_format:H:i'],
+            'servicios.*.hora_fin' => ['nullable', 'date_format:H:i'],
             'servicios.*.presupuesto_referencial' => ['nullable', 'numeric', 'min:0'],
             'servicios.*.detalles' => ['nullable', 'string'],
             'servicios.*.duracion_cantidad' => ['nullable', 'integer', 'min:1'],
