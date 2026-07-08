@@ -18,6 +18,10 @@ use App\Models\ProductoAlmacenUnidadDerivada;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableCompra;
 use App\Models\PagoDeCompra;
+use App\Models\TransaccionCaja;
+use App\Models\SubCaja;
+use App\Models\AperturaCierreCaja;
+use App\Models\MovimientoCaja;
 use App\Http\Resources\CompraResource;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -1190,6 +1194,9 @@ class CompraController extends Controller
                             'numero_operacion'      => $metodo['numero_operacion'] ?? null,
                             'estado'                => true,
                         ]);
+
+                        // Registrar transacción en caja si el pago se hizo desde el POS
+                        $this->registrarTransaccionCajaParaPagoCompra($pagoCreado, $compraModel);
                         
                     } catch (\Exception $e) {
                         \Log::error('Error al crear pago de compra:', [
@@ -1499,10 +1506,9 @@ class CompraController extends Controller
                 'estado' => true,
             ]);
 
-            // Si afecta caja, registrar el egreso
+            // Si afecta caja, registrar el egreso en transacciones_caja
             if ($validated['afecta_caja']) {
-                // TODO: Implementar lógica de afectación a caja
-                // Esto dependerá de cómo manejes los movimientos de caja
+                $this->registrarTransaccionCajaParaPagoCompra($pago, $compra);
             }
 
             // Cargar relaciones para la respuesta
@@ -1546,6 +1552,9 @@ class CompraController extends Controller
                 'observacion' => ($pago->observacion ? $pago->observacion . ' | ' : '') .
                                  'ANULADO: ' . ($validated['motivo'] ?? 'Sin motivo especificado'),
             ]);
+
+            // Revertir la transacción de caja asociada
+            $this->revertirTransaccionCajaParaPagoCompra($pago, $compra);
 
             $totalCompra = $this->getTotalCompra($compra);
             $totalPagadoActivo = $compra->pagosDeCompras()->where('estado', true)->sum('monto');
@@ -1625,5 +1634,130 @@ class CompraController extends Controller
                 'message' => 'Lotes y vencimientos actualizados correctamente',
             ]);
         });
+    }
+
+    /**
+     * Registrar la transacción de caja para un pago de compra
+     */
+    private function registrarTransaccionCajaParaPagoCompra(PagoDeCompra $pago, Compra $compra): void
+    {
+        $despliegue = DespliegueDePago::with('metodoDePago')->find($pago->despliegue_de_pago_id);
+        if (!$despliegue) {
+            \Log::warning('PagoCompra sin despliegue de pago válido', ['pago_id' => $pago->id]);
+            return;
+        }
+
+        // Buscar sub-caja que acepta este método de pago
+        $subCaja = SubCaja::where('estado', true)
+            ->where(function ($query) use ($pago) {
+                $query->whereJsonContains('despliegues_pago_ids', $pago->despliegue_de_pago_id)
+                    ->orWhereJsonContains('despliegues_pago_ids', '*');
+            })
+            ->first();
+
+        if (!$subCaja) {
+            \Log::warning('No se encontró sub-caja para el pago de compra', [
+                'despliegue_pago_id' => $pago->despliegue_de_pago_id,
+            ]);
+            return;
+        }
+
+        $monto = (float) $pago->monto;
+        $saldoAnterior = (float) $subCaja->saldo_actual;
+
+        // Actualizar saldo de la sub-caja
+        $subCaja->saldo_actual = $saldoAnterior - $monto;
+        $subCaja->save();
+
+        // Registrar transacción en transacciones_caja
+        TransaccionCaja::create([
+            'sub_caja_id' => $subCaja->id,
+            'tipo_transaccion' => 'egreso',
+            'monto' => $monto,
+            'saldo_anterior' => $saldoAnterior,
+            'saldo_nuevo' => $subCaja->saldo_actual,
+            'descripcion' => 'Pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
+            'referencia_id' => $compra->id,
+            'referencia_tipo' => 'pago_compra',
+            'user_id' => $compra->user_id,
+            'despliegue_pago_id' => $pago->despliegue_de_pago_id,
+            'fecha' => $pago->fecha ?? now(),
+        ]);
+
+        // Registrar en MovimientoCaja si hay apertura activa
+        $apertura = AperturaCierreCaja::where('estado', 'abierta')
+            ->where('user_id', $compra->user_id)
+            ->orderBy('fecha_apertura', 'desc')
+            ->first();
+
+        if ($apertura) {
+            try {
+                MovimientoCaja::create([
+                    'apertura_cierre_id' => $apertura->id,
+                    'caja_principal_id' => $apertura->caja_principal_id,
+                    'sub_caja_id' => $subCaja->id,
+                    'cajero_id' => $compra->user_id,
+                    'fecha_hora' => now(),
+                    'tipo_movimiento' => 'compra',
+                    'concepto' => 'Pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
+                    'saldo_inicial' => $saldoAnterior,
+                    'ingreso' => 0,
+                    'salida' => $monto,
+                    'saldo_final' => $subCaja->saldo_actual,
+                    'estado_caja' => 'abierta',
+                    'metodo_pago_id' => $despliegue->metodo_de_pago_id,
+                    'referencia_id' => $compra->id,
+                    'referencia_tipo' => 'pago_compra',
+                ]);
+            } catch (\Exception $e) {
+                \Log::warning('Error al registrar MovimientoCaja para pago de compra', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Revertir la transacción de caja al anular un pago de compra
+     */
+    private function revertirTransaccionCajaParaPagoCompra(PagoDeCompra $pago, Compra $compra): void
+    {
+        // Buscar la transacción original de este pago
+        $transaccionOriginal = TransaccionCaja::where('referencia_tipo', 'pago_compra')
+            ->where('referencia_id', $compra->id)
+            ->where('despliegue_pago_id', $pago->despliegue_de_pago_id)
+            ->where('monto', (float) $pago->monto)
+            ->first();
+
+        if (!$transaccionOriginal) {
+            return;
+        }
+
+        $subCaja = SubCaja::find($transaccionOriginal->sub_caja_id);
+        if (!$subCaja) {
+            return;
+        }
+
+        $monto = (float) $pago->monto;
+        $saldoAnterior = (float) $subCaja->saldo_actual;
+
+        // Revertir el saldo de la sub-caja
+        $subCaja->saldo_actual = $saldoAnterior + $monto;
+        $subCaja->save();
+
+        // Registrar transacción de reversión (ingreso para devolver el dinero)
+        TransaccionCaja::create([
+            'sub_caja_id' => $subCaja->id,
+            'tipo_transaccion' => 'ingreso',
+            'monto' => $monto,
+            'saldo_anterior' => $saldoAnterior,
+            'saldo_nuevo' => $subCaja->saldo_actual,
+            'descripcion' => 'Anulación de pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
+            'referencia_id' => $compra->id,
+            'referencia_tipo' => 'anulacion_pago_compra',
+            'user_id' => $compra->user_id,
+            'despliegue_pago_id' => $pago->despliegue_de_pago_id,
+            'fecha' => now(),
+        ]);
     }
 }
