@@ -462,6 +462,184 @@ class ProductoImportService implements ProductoImportServiceInterface
      * @param string $catalog Catalog type (categoria, marca, unidad_medida)
      * @return string|null
      */
+    /**
+     * Importa un LOTE de productos con INSERT masivo (en vez de create() por
+     * fila). Estrategia:
+     *   1. Resolver IDs de catálogo desde cache (sin tocar la DB).
+     *   2. Detectar duplicados de forma set-based (1 query) contra las columnas
+     *      únicas cod_producto / name / cod_barra. También descarta duplicados
+     *      DENTRO del mismo lote (mismo Excel repetido).
+     *   3. INSERT masivo de los productos nuevos (chunks de 500).
+     *   4. Re-mapear name -> id en 1 query (name es único y requerido).
+     *   5. INSERT masivo de productoalmacen.
+     *
+     * Preserva la semántica actual: los duplicados se OMITEN (no se actualizan).
+     *
+     * @return array{imported:int, duplicates:int, errors:int}
+     */
+    private function importBatch(array $batch, array $catalogCache): array
+    {
+        $imported = 0;
+        $duplicates = 0;
+        $errors = 0;
+
+        // 1) Construir candidatos con IDs de catálogo ya resueltos (sin DB).
+        $candidatos = [];
+        foreach ($batch as $item) {
+            $almacenCreate = $item["producto_en_almacenes"]["create"] ?? null;
+            if (!$almacenCreate) {
+                $errors++;
+                continue;
+            }
+
+            $categoriaId = $this->resolveCatalogId(
+                $this->extractCatalogName($item, "categoria"),
+                $catalogCache["categorias"],
+            );
+            $marcaId = $this->resolveCatalogId(
+                $this->extractCatalogName($item, "marca"),
+                $catalogCache["marcas"],
+            );
+            $unidadMedidaId = $this->resolveCatalogId(
+                $this->extractCatalogName($item, "unidad_medida"),
+                $catalogCache["unidades_medida"],
+            );
+
+            $name = $item["name"] ?? null;
+            if (!$categoriaId || !$marcaId || !$unidadMedidaId || !$name) {
+                $errors++;
+                continue;
+            }
+
+            $unidadesContenidas = $item["unidades_contenidas"] ?? 1;
+            $divisor = $unidadesContenidas && $unidadesContenidas != 0
+                ? $unidadesContenidas
+                : 1;
+            $costoAjustado = ($almacenCreate["costo"] ?? 0) / $divisor;
+
+            $candidatos[] = [
+                "producto" => [
+                    "cod_producto" => $item["cod_producto"] ?? null,
+                    "cod_barra" => $item["cod_barra"] ?? null,
+                    "name" => $name,
+                    "name_ticket" => $item["name_ticket"] ?? null,
+                    "categoria_id" => $categoriaId,
+                    "marca_id" => $marcaId,
+                    "unidad_medida_id" => $unidadMedidaId,
+                    "accion_tecnica" => $item["accion_tecnica"] ?? null,
+                    "stock_min" => $item["stock_min"] ?? 0,
+                    "stock_max" => $item["stock_max"] ?? null,
+                    "unidades_contenidas" => $unidadesContenidas,
+                    "permitido" => ($item["permitido"] ?? true) ? 1 : 0,
+                    "estado" => 1,
+                ],
+                "almacen" => [
+                    "almacen_id" => $almacenCreate["almacen_id"],
+                    "stock_fraccion" => $almacenCreate["stock_fraccion"] ?? 0,
+                    "costo" => $costoAjustado,
+                    "ubicacion_id" => $almacenCreate["ubicacion_id"] ?? null,
+                ],
+            ];
+        }
+
+        if (empty($candidatos)) {
+            return compact("imported", "duplicates", "errors");
+        }
+
+        // 2) Detección set-based de duplicados (1 sola query).
+        $cods = collect($candidatos)->pluck("producto.cod_producto")->filter()->unique()->values()->all();
+        $names = collect($candidatos)->pluck("producto.name")->filter()->unique()->values()->all();
+        $barras = collect($candidatos)->pluck("producto.cod_barra")->filter()->unique()->values()->all();
+
+        $existentes = Producto::query()
+            ->where(function ($q) use ($cods, $names, $barras) {
+                if ($cods) $q->orWhereIn("cod_producto", $cods);
+                if ($names) $q->orWhereIn("name", $names);
+                if ($barras) $q->orWhereIn("cod_barra", $barras);
+            })
+            ->get(["cod_producto", "name", "cod_barra"]);
+
+        $existingCods = $existentes->pluck("cod_producto")->filter()->flip();
+        $existingNames = $existentes->pluck("name")->filter()->flip();
+        $existingBarras = $existentes->pluck("cod_barra")->filter()->flip();
+
+        // Sets para descartar duplicados dentro del propio lote.
+        $seenCods = [];
+        $seenNames = [];
+        $seenBarras = [];
+
+        $now = now()->format("Y-m-d H:i:s.v"); // datetime(3)
+        $nuevos = [];            // filas de producto para insert
+        $nuevosAlmacen = [];     // name => datos de almacén (para linkear)
+
+        foreach ($candidatos as $c) {
+            $p = $c["producto"];
+            $cod = $p["cod_producto"];
+            $nm = $p["name"];
+            $barra = $p["cod_barra"];
+
+            $esDup =
+                ($cod !== null && (isset($existingCods[$cod]) || isset($seenCods[$cod]))) ||
+                (isset($existingNames[$nm]) || isset($seenNames[$nm])) ||
+                ($barra !== null && (isset($existingBarras[$barra]) || isset($seenBarras[$barra])));
+
+            if ($esDup) {
+                $duplicates++;
+                continue;
+            }
+
+            if ($cod !== null) $seenCods[$cod] = true;
+            $seenNames[$nm] = true;
+            if ($barra !== null) $seenBarras[$barra] = true;
+
+            $nuevos[] = array_merge($p, [
+                "created_at" => $now,
+                "updated_at" => $now,
+            ]);
+            $nuevosAlmacen[$nm] = $c["almacen"]; // name único → key segura
+        }
+
+        if (empty($nuevos)) {
+            return compact("imported", "duplicates", "errors");
+        }
+
+        // 3) INSERT masivo de productos.
+        foreach (array_chunk($nuevos, 500) as $chunk) {
+            Producto::insert($chunk);
+        }
+
+        // 4) Re-mapear name -> id (name es único y requerido).
+        $mapa = Producto::query()
+            ->whereIn("name", array_keys($nuevosAlmacen))
+            ->pluck("id", "name"); // [name => id]
+
+        // 5) INSERT masivo de productoalmacen.
+        $almacenRows = [];
+        foreach ($nuevosAlmacen as $nm => $a) {
+            $productoId = $mapa[$nm] ?? null;
+            if (!$productoId) {
+                $errors++;
+                continue;
+            }
+            $almacenRows[] = [
+                "producto_id" => $productoId,
+                "almacen_id" => $a["almacen_id"],
+                "stock_fraccion" => $a["stock_fraccion"],
+                "costo" => $a["costo"],
+                "ubicacion_id" => $a["ubicacion_id"],
+                "created_at" => $now,
+                "updated_at" => $now,
+            ];
+            $imported++;
+        }
+
+        foreach (array_chunk($almacenRows, 500) as $chunk) {
+            ProductoAlmacen::insert($chunk);
+        }
+
+        return compact("imported", "duplicates", "errors");
+    }
+
     private function extractCatalogName(array $item, string $catalog): ?string
     {
         if (isset($item[$catalog]["connectOrCreate"]["where"]["name"])) {
@@ -639,46 +817,62 @@ class ProductoImportService implements ProductoImportServiceInterface
             $totalProducts = count($data);
             $batchSize = 250; // Aumentado de 100 a 250 (2.5x más rápido)
             $batches = array_chunk($data, $batchSize);
-            
+
             $imported = 0;
             $duplicates = 0;
             $errors = 0;
-            
-            // Procesar cada batch dentro de una transacción separada
-            foreach ($batches as $batchIndex => $batch) {
-                try {
-                    DB::transaction(function () use ($batch, $catalogCache, &$imported, &$duplicates, &$errors) {
-                        foreach ($batch as $item) {
-                            try {
-                                $result = $this->importSingleProduct($item, $catalogCache);
-                                
-                                if ($result['success']) {
-                                    $imported++;
-                                } else {
-                                    if ($result['is_duplicate']) {
-                                        $duplicates++;
-                                    } else {
-                                        $errors++;
-                                    }
-                                }
-                            } catch (\Exception $e) {
-                                $errors++;
-                            }
-                        }
-                    }, 2); // 2 intentos en caso de deadlock
-                    
-                } catch (\Exception $e) {
-                    // Si falla todo el batch, contar todos como errores
-                    $errors += count($batch);
-                    Log::error("Batch import failed", [
-                        'batch_index' => $batchIndex,
-                        'batch_size' => count($batch),
-                        'error' => $e->getMessage()
-                    ]);
+
+            // OPTIMIZACIÓN: recolectar los almacenes afectados para invalidar su
+            // cache UNA sola vez al final. Antes cada fila disparaba ~3 DELETEs
+            // en la tabla `cache` vía los observers de Producto/ProductoAlmacen
+            // (miles de queries desperdiciadas invalidando siempre lo mismo).
+            $almacenesAfectados = collect($data)
+                ->map(fn ($item) => $item['producto_en_almacenes']['create']['almacen_id'] ?? null)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            // Silenciar los eventos de modelo durante la importación masiva: los
+            // observers de Producto/ProductoAlmacen SOLO invalidan cache (y eso
+            // lo hacemos una vez al final). Los IDs son auto_increment y no
+            // dependen de eventos, así que es seguro. Reduce ~90% de las queries.
+            Producto::withoutEvents(function () use ($batches, $catalogCache, &$imported, &$duplicates, &$errors) {
+                // Procesar cada batch dentro de una transacción separada
+                foreach ($batches as $batchIndex => $batch) {
+                    try {
+                        DB::transaction(function () use ($batch, $catalogCache, &$imported, &$duplicates, &$errors) {
+                            // INSERT masivo del lote (ver importBatch): reemplaza
+                            // el create() fila por fila (2 INSERT/fila) por unos
+                            // pocos INSERT multi-fila. Mucho más rápido.
+                            $res = $this->importBatch($batch, $catalogCache);
+                            $imported += $res['imported'];
+                            $duplicates += $res['duplicates'];
+                            $errors += $res['errors'];
+                        }, 2); // 2 intentos en caso de deadlock
+
+                    } catch (\Exception $e) {
+                        // Si falla todo el batch, contar todos como errores
+                        $errors += count($batch);
+                        Log::error("Batch import failed", [
+                            'batch_index' => $batchIndex,
+                            'batch_size' => count($batch),
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+
+                    // Liberar memoria después de cada batch
+                    gc_collect_cycles();
                 }
-                
-                // Liberar memoria después de cada batch
-                gc_collect_cycles();
+            });
+
+            // Invalidar la cache de los almacenes afectados UNA sola vez (en vez
+            // de por cada fila) — esto es lo que reemplaza a los observers.
+            $cacheService = app(\App\Services\Cache\ProductoCacheService::class);
+            foreach ($almacenesAfectados as $almacenId) {
+                $cacheService->invalidateProductosAlmacen($almacenId);
+                Cache::forget("productos_listado_ligero_{$almacenId}");
+                Cache::forget("productos_listado_completo_{$almacenId}");
             }
             
             $duration = now()->diffInSeconds($startTime);
