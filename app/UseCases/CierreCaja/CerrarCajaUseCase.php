@@ -34,16 +34,20 @@ class CerrarCajaUseCase
      * 
      * Permite generar reportes de las transacciones realizadas durante la sesión.
      */
-    public function ejecutar(CierreCajaDTO $dto): CierreCajaResultadoDTO
+    public function ejecutar(CierreCajaDTO $dto, ?string $aperturaId = null): CierreCajaResultadoDTO
     {
-        return DB::transaction(function () use ($dto) {
-            // 1. Obtener apertura activa
-            $apertura = $this->aperturaRepository->obtenerAperturaActiva(
-                $dto->cajaId,
-                $dto->subCajaId
-            );
+        return DB::transaction(function () use ($dto, $aperturaId) {
+            // 1. Obtener la apertura a cerrar. Puede haber VARIAS aperturas abiertas
+            //    de la misma caja (una por usuario), así que cuando llega el id
+            //    explícito se cierra exactamente esa y no "la primera de la caja".
+            $apertura = $aperturaId
+                ? $this->aperturaRepository->findById($aperturaId)
+                : $this->aperturaRepository->obtenerAperturaActiva(
+                    $dto->cajaId,
+                    $dto->subCajaId
+                );
 
-            if (!$apertura) {
+            if (!$apertura || $apertura->estado !== 'abierta') {
                 throw new CajaYaCerradaException();
             }
 

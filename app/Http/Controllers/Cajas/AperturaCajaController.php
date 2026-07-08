@@ -82,15 +82,15 @@ class AperturaCajaController extends Controller
                     ], 422);
                 }
 
-                // 4. Bloquear si la caja ya tiene una apertura ABIERTA (sin cerrar).
-                //    Regla de negocio (estricta): mientras exista una apertura abierta
-                //    NO se puede aperturar otra; primero hay que cerrarla (o deshacerla
-                //    si fue un error). En el día se apertura y cierra varias veces, pero
-                //    siempre en secuencia apertura -> cierre -> apertura (cola). No se
-                //    filtra por fecha: una apertura olvidada también bloquea hasta que
-                //    se cierre (el comando `cajas:cerrar-olvidadas` cierra las de días
-                //    anteriores).
-                $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
+                // 4. Bloquear solo si ESTE usuario ya tiene una apertura ABIERTA (sin cerrar).
+                //    Aperturar no "abre" la caja físicamente: solo registra la apertura del
+                //    usuario en apertura_cierre_cajas. Varios usuarios pueden aperturar la
+                //    misma caja/subcaja a la vez, cada uno con su propio registro, y cada
+                //    quien cierra el suyo (la secuencia apertura -> cierre -> apertura es
+                //    POR USUARIO, no por caja). No se filtra por fecha: una apertura olvidada
+                //    del usuario también bloquea hasta que se cierre (el comando
+                //    `cajas:cerrar-olvidadas` cierra las de días anteriores).
+                $aperturaActiva = AperturaCierreCaja::where('user_id', $userId)
                     ->where('estado', 'abierta')
                     ->whereNull('fecha_cierre')
                     ->first();
@@ -99,7 +99,7 @@ class AperturaCajaController extends Controller
                     /** @var AperturaCierreCaja $aperturaActiva */
                     return response()->json([
                         'success' => false,
-                        'message' => 'Esta caja ya tiene una apertura abierta. Debe cerrarla antes de aperturar nuevamente.',
+                        'message' => 'Ya tienes una apertura abierta. Debes cerrarla antes de aperturar nuevamente.',
                         'data' => [
                             'apertura_id' => $aperturaActiva->id,
                             'fecha_apertura' => $aperturaActiva->fecha_apertura->toIso8601String(),
