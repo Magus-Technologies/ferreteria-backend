@@ -254,8 +254,7 @@ class CompraController extends Controller
         // Get all results first (we need to filter by estado_de_cuenta which requires calculation)
         $allCompras = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->get();
 
-        // Adjuntar saldo pendiente y estado de cuenta (en la moneda de la compra) para el
-        // listado. Así el frontend puede mostrar la columna "Estado" sin recalcular.
+        // Adjuntar saldo pendiente, estado de cuenta y última fecha de pago referencial
         $allCompras->each(function ($compra) {
             $saldo = $this->calcularSaldoPendiente($compra);
             $esCredito = $compra->forma_de_pago === FormaDePago::Credito;
@@ -263,6 +262,11 @@ class CompraController extends Controller
             $compra->saldo_pendiente = round($saldo, 2);
             // Anuladas: sin estado de cuenta. Contado: siempre pagado. Crédito: pagado si saldo <= 0.01
             $compra->esta_pagado = $anulada ? null : (!$esCredito || $saldo <= 0.01);
+            // Última fecha de pago referencial de los pagos activos
+            $compra->ultima_fecha_pago_referencial = $compra->pagosDeCompras
+                ->pluck('fecha_pago_referencial')
+                ->filter()
+                ->max();
         });
 
         // Filter by estado_de_cuenta if provided
@@ -368,6 +372,7 @@ class CompraController extends Controller
                 'metodos_de_pago.*.despliegue_de_pago_id' => 'required_with:metodos_de_pago|string',
                 'metodos_de_pago.*.monto' => 'required_with:metodos_de_pago|numeric|min:0.01',
                 'metodos_de_pago.*.numero_operacion' => 'nullable|string',
+                'metodos_de_pago.*.fecha_pago_referencial' => 'nullable|string|date',
                 'user_id' => 'required|string',
                 'almacen_id' => 'required|integer',
                 'proveedor_id' => $esEnEspera ? 'nullable|integer' : 'required|integer',
@@ -681,6 +686,7 @@ class CompraController extends Controller
             'metodos_de_pago.*.despliegue_de_pago_id' => 'required_with:metodos_de_pago|string',
             'metodos_de_pago.*.monto' => 'required_with:metodos_de_pago|numeric|min:0.01',
             'metodos_de_pago.*.numero_operacion' => 'nullable|string',
+            'metodos_de_pago.*.fecha_pago_referencial' => 'nullable|string|date',
             'user_id' => 'sometimes|string',
             'almacen_id' => 'sometimes|integer',
             'proveedor_id' => 'sometimes|integer',
@@ -1192,11 +1198,12 @@ class CompraController extends Controller
 
                     try {
                         $pagoCreado = $compraModel->pagosDeCompras()->create([
-                            'despliegue_de_pago_id' => $desplieguePagoId,
-                            'monto'                 => $metodo['monto'],
-                            'fecha'                 => now()->format('Y-m-d H:i:s'),
-                            'numero_operacion'      => $metodo['numero_operacion'] ?? null,
-                            'estado'                => true,
+                            'despliegue_de_pago_id'   => $desplieguePagoId,
+                            'monto'                   => $metodo['monto'],
+                            'fecha'                   => now()->format('Y-m-d H:i:s'),
+                            'numero_operacion'        => $metodo['numero_operacion'] ?? null,
+                            'fecha_pago_referencial'  => $metodo['fecha_pago_referencial'] ?? null,
+                            'estado'                  => true,
                         ]);
 
                         // Registrar transacción en caja si el pago se hizo desde el POS

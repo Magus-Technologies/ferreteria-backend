@@ -68,6 +68,7 @@ class CompraResource extends JsonResource
             // esta_pagado: true = pagado, false = por pagar, null = no aplica (anulada/no calculado)
             'saldo_pendiente' => $this->saldo_pendiente ?? null,
             'esta_pagado' => $this->esta_pagado,
+            'ultima_fecha_pago_referencial' => $this->ultima_fecha_pago_referencial ?? null,
         ];
     }
 }

@@ -37,6 +37,7 @@ class PagoDeCompra extends Model
         'fecha',
         'fecha_anulacion',
         'observacion',
+        'fecha_pago_referencial',
     ];
 
     /**
