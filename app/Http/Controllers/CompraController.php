@@ -750,6 +750,11 @@ class CompraController extends Controller
                 'egreso_dinero_id' => $compra->egreso_dinero_id,
                 'gasto_extra_id' => $compra->gasto_extra_id,
                 'despliegue_de_pago_id' => $compra->despliegue_de_pago_id,
+                // Una compra contado ya pagada (p.ej. recepcionada que solo
+                // edita información) no debe exigir un nuevo método de pago
+                'tiene_pagos_activos' => $compra->pagosDeCompras()
+                    ->where('estado', true)
+                    ->exists(),
             ], $validated);
 
             // Validar nueva compra
@@ -765,7 +770,8 @@ class CompraController extends Controller
             // se tocan.
             if (
                 $compra->estado_de_compra === EstadoDeCompraDefinitiva::Creado &&
-                $compra->forma_de_pago === FormaDePago::Contado
+                $compra->forma_de_pago === FormaDePago::Contado &&
+                !empty($validated['metodos_de_pago'])
             ) {
                 $pagosAnteriores = $compra->pagosDeCompras()
                     ->where('estado', true)
@@ -1110,12 +1116,15 @@ class CompraController extends Controller
         $tieneEgreso = !empty($compra['egreso_dinero_id']) || !empty($compra['gasto_extra_id']);
         $tieneMetodosPago = !empty($compra['metodos_de_pago']);
         $tieneDespliegue = !empty($compra['despliegue_de_pago_id']) || $tieneMetodosPago;
+        // En ediciones, los pagos ya registrados cuentan como pago del contado
+        $tienePagosActivos = !empty($compra['tiene_pagos_activos']);
 
         if (
             $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             $formaDePagoEnum === FormaDePago::Contado &&
             !$tieneEgreso &&
-            !$tieneDespliegue
+            !$tieneDespliegue &&
+            !$tienePagosActivos
         ) {
             throw new \Exception('En compras al contado debes seleccionar Egreso asociado o Despliegue de Pago');
         }
