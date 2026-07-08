@@ -720,6 +720,17 @@ class CompraController extends Controller
                 'productosPorAlmacen.unidadesDerivadas',
             ])->findOrFail($id);
 
+            // Con recepciones de almacén activas los productos ya no son editables:
+            // borrar/recrear los detalles resetearía cantidad_pendiente y perdería
+            // el avance de recepción. Solo se actualiza la información de la compra.
+            $tieneRecepcionesActivas = $compra->recepcionesAlmacen()
+                ->where('estado', true)
+                ->exists();
+
+            if ($tieneRecepcionesActivas) {
+                unset($validated['productos_por_almacen']);
+            }
+
             // Add id to validated data for validation
             $validated['id'] = $id;
 
@@ -746,6 +757,33 @@ class CompraController extends Controller
 
             // Devolver dinero de compra anterior
             $this->devolverDineroDeCompra($compra);
+
+            // En compras al contado los pagos activos provienen de metodos_de_pago
+            // y procesoPostCompra los vuelve a crear con los montos nuevos: hay que
+            // anular los anteriores y devolver su dinero, o cada edición duplica
+            // el total pagado. Los pagos de compras a crédito (amortizaciones) no
+            // se tocan.
+            if (
+                $compra->estado_de_compra === EstadoDeCompraDefinitiva::Creado &&
+                $compra->forma_de_pago === FormaDePago::Contado
+            ) {
+                $pagosAnteriores = $compra->pagosDeCompras()
+                    ->where('estado', true)
+                    ->with('despliegueDePago')
+                    ->get();
+
+                foreach ($pagosAnteriores as $pago) {
+                    if ($pago->despliegueDePago) {
+                        MetodoDePago::where('id', $pago->despliegueDePago->metodo_de_pago_id)
+                            ->increment('monto', (float) $pago->monto);
+                    }
+                    $this->revertirTransaccionCajaParaPagoCompra($pago, $compra);
+                    $pago->update([
+                        'estado' => false,
+                        'observacion' => 'Anulado por edición de compra',
+                    ]);
+                }
+            }
 
             // Mapear tipo_documento del frontend al valor del enum PHP
             if (isset($validated['tipo_documento'])) {
