@@ -16,6 +16,8 @@ class RequerimientoInternoServicio extends Model
         'descripcion_servicio',
         'lugar_ejecucion',
         'fecha_inicio_estimada',
+        'hora_inicio',
+        'hora_fin',
         'presupuesto_referencial',
         'detalles',
         'duracion_cantidad',

@@ -116,6 +116,8 @@ class RequerimientoInternoService implements RequerimientoInternoServiceInterfac
                         'descripcion_servicio' => $srv['descripcion_servicio'],
                         'lugar_ejecucion' => $srv['lugar_ejecucion'] ?? null,
                         'fecha_inicio_estimada' => $srv['fecha_inicio_estimada'] ?? null,
+                        'hora_inicio' => $srv['hora_inicio'] ?? null,
+                        'hora_fin' => $srv['hora_fin'] ?? null,
                         'presupuesto_referencial' => $srv['presupuesto_referencial'] ?? null,
                         'detalles' => $srv['detalles'] ?? null,
                         'duracion_cantidad' => $srv['duracion_cantidad'] ?? null,

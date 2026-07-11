@@ -18,6 +18,10 @@ use App\Models\ProductoAlmacenUnidadDerivada;
 use App\Models\UnidadDerivadaInmutable;
 use App\Models\UnidadDerivadaInmutableCompra;
 use App\Models\PagoDeCompra;
+use App\Models\TransaccionCaja;
+use App\Models\SubCaja;
+use App\Models\AperturaCierreCaja;
+use App\Models\MovimientoCaja;
 use App\Http\Resources\CompraResource;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -250,8 +254,7 @@ class CompraController extends Controller
         // Get all results first (we need to filter by estado_de_cuenta which requires calculation)
         $allCompras = $query->orderBy('fecha', 'desc')->orderBy('created_at', 'desc')->get();
 
-        // Adjuntar saldo pendiente y estado de cuenta (en la moneda de la compra) para el
-        // listado. Así el frontend puede mostrar la columna "Estado" sin recalcular.
+        // Adjuntar saldo pendiente, estado de cuenta y última fecha de pago referencial
         $allCompras->each(function ($compra) {
             $saldo = $this->calcularSaldoPendiente($compra);
             $esCredito = $compra->forma_de_pago === FormaDePago::Credito;
@@ -259,6 +262,11 @@ class CompraController extends Controller
             $compra->saldo_pendiente = round($saldo, 2);
             // Anuladas: sin estado de cuenta. Contado: siempre pagado. Crédito: pagado si saldo <= 0.01
             $compra->esta_pagado = $anulada ? null : (!$esCredito || $saldo <= 0.01);
+            // Última fecha de pago referencial de los pagos activos
+            $compra->ultima_fecha_pago_referencial = $compra->pagosDeCompras
+                ->pluck('fecha_pago_referencial')
+                ->filter()
+                ->max();
         });
 
         // Filter by estado_de_cuenta if provided
@@ -364,6 +372,7 @@ class CompraController extends Controller
                 'metodos_de_pago.*.despliegue_de_pago_id' => 'required_with:metodos_de_pago|string',
                 'metodos_de_pago.*.monto' => 'required_with:metodos_de_pago|numeric|min:0.01',
                 'metodos_de_pago.*.numero_operacion' => 'nullable|string',
+                'metodos_de_pago.*.fecha_pago_referencial' => 'nullable|string|date',
                 'user_id' => 'required|string',
                 'almacen_id' => 'required|integer',
                 'proveedor_id' => $esEnEspera ? 'nullable|integer' : 'required|integer',
@@ -677,6 +686,7 @@ class CompraController extends Controller
             'metodos_de_pago.*.despliegue_de_pago_id' => 'required_with:metodos_de_pago|string',
             'metodos_de_pago.*.monto' => 'required_with:metodos_de_pago|numeric|min:0.01',
             'metodos_de_pago.*.numero_operacion' => 'nullable|string',
+            'metodos_de_pago.*.fecha_pago_referencial' => 'nullable|string|date',
             'user_id' => 'sometimes|string',
             'almacen_id' => 'sometimes|integer',
             'proveedor_id' => 'sometimes|integer',
@@ -710,6 +720,17 @@ class CompraController extends Controller
                 'productosPorAlmacen.unidadesDerivadas',
             ])->findOrFail($id);
 
+            // Con recepciones de almacén activas los productos ya no son editables:
+            // borrar/recrear los detalles resetearía cantidad_pendiente y perdería
+            // el avance de recepción. Solo se actualiza la información de la compra.
+            $tieneRecepcionesActivas = $compra->recepcionesAlmacen()
+                ->where('estado', true)
+                ->exists();
+
+            if ($tieneRecepcionesActivas) {
+                unset($validated['productos_por_almacen']);
+            }
+
             // Add id to validated data for validation
             $validated['id'] = $id;
 
@@ -729,6 +750,11 @@ class CompraController extends Controller
                 'egreso_dinero_id' => $compra->egreso_dinero_id,
                 'gasto_extra_id' => $compra->gasto_extra_id,
                 'despliegue_de_pago_id' => $compra->despliegue_de_pago_id,
+                // Una compra contado ya pagada (p.ej. recepcionada que solo
+                // edita información) no debe exigir un nuevo método de pago
+                'tiene_pagos_activos' => $compra->pagosDeCompras()
+                    ->where('estado', true)
+                    ->exists(),
             ], $validated);
 
             // Validar nueva compra
@@ -736,6 +762,34 @@ class CompraController extends Controller
 
             // Devolver dinero de compra anterior
             $this->devolverDineroDeCompra($compra);
+
+            // En compras al contado los pagos activos provienen de metodos_de_pago
+            // y procesoPostCompra los vuelve a crear con los montos nuevos: hay que
+            // anular los anteriores y devolver su dinero, o cada edición duplica
+            // el total pagado. Los pagos de compras a crédito (amortizaciones) no
+            // se tocan.
+            if (
+                $compra->estado_de_compra === EstadoDeCompraDefinitiva::Creado &&
+                $compra->forma_de_pago === FormaDePago::Contado &&
+                !empty($validated['metodos_de_pago'])
+            ) {
+                $pagosAnteriores = $compra->pagosDeCompras()
+                    ->where('estado', true)
+                    ->with('despliegueDePago')
+                    ->get();
+
+                foreach ($pagosAnteriores as $pago) {
+                    if ($pago->despliegueDePago) {
+                        MetodoDePago::where('id', $pago->despliegueDePago->metodo_de_pago_id)
+                            ->increment('monto', (float) $pago->monto);
+                    }
+                    $this->revertirTransaccionCajaParaPagoCompra($pago, $compra);
+                    $pago->update([
+                        'estado' => false,
+                        'observacion' => 'Anulado por edición de compra',
+                    ]);
+                }
+            }
 
             // Mapear tipo_documento del frontend al valor del enum PHP
             if (isset($validated['tipo_documento'])) {
@@ -893,9 +947,11 @@ class CompraController extends Controller
     /**
      * Remove the specified resource from storage (anular).
      */
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
-        return DB::transaction(function () use ($id) {
+        $skipRefund = filter_var($request->query('skip_refund', false), FILTER_VALIDATE_BOOLEAN);
+
+        return DB::transaction(function () use ($id, $skipRefund) {
             $compra = Compra::with([
                 'productosPorAlmacen.unidadesDerivadas',
             ])
@@ -927,20 +983,26 @@ class CompraController extends Controller
             // 1. Devolver dinero de pagos específicos (créditos/modal pagos)
             $pagos = $compra->pagosDeCompras()->where('estado', true)->with('despliegueDePago')->get();
             foreach ($pagos as $pago) {
-                if ($pago->despliegueDePago) {
-                    MetodoDePago::where('id', $pago->despliegueDePago->metodo_de_pago_id)
-                        ->increment('monto', (float) $pago->monto);
+                if (!$skipRefund) {
+                    if ($pago->despliegueDePago) {
+                        MetodoDePago::where('id', $pago->despliegueDePago->metodo_de_pago_id)
+                            ->increment('monto', (float) $pago->monto);
+                    }
+                    // Revertir la transacción de caja (ingreso para devolver el dinero)
+                    $this->revertirTransaccionCajaParaPagoCompra($pago, $compra);
                 }
                 $pago->update(['estado' => false, 'observacion' => 'Anulado por anulación de compra']);
             }
 
             // 2. Devolver dinero de pago inicial (Contado/Egreso)
-            $this->devolverDineroDeCompra($compra);
+            if (!$skipRefund) {
+                $this->devolverDineroDeCompra($compra);
 
-            // Update egreso_dinero if exists
-            if ($compra->egreso_dinero_id) {
-                EgresoDinero::where('id', $compra->egreso_dinero_id)
-                    ->update(['estado' => false]);
+                // Update egreso_dinero if exists
+                if ($compra->egreso_dinero_id) {
+                    EgresoDinero::where('id', $compra->egreso_dinero_id)
+                        ->update(['estado' => false]);
+                }
             }
 
             // Update compra to Anulado
@@ -1054,12 +1116,15 @@ class CompraController extends Controller
         $tieneEgreso = !empty($compra['egreso_dinero_id']) || !empty($compra['gasto_extra_id']);
         $tieneMetodosPago = !empty($compra['metodos_de_pago']);
         $tieneDespliegue = !empty($compra['despliegue_de_pago_id']) || $tieneMetodosPago;
+        // En ediciones, los pagos ya registrados cuentan como pago del contado
+        $tienePagosActivos = !empty($compra['tiene_pagos_activos']);
 
         if (
             $estadoEnum === EstadoDeCompraDefinitiva::Creado &&
             $formaDePagoEnum === FormaDePago::Contado &&
             !$tieneEgreso &&
-            !$tieneDespliegue
+            !$tieneDespliegue &&
+            !$tienePagosActivos
         ) {
             throw new \Exception('En compras al contado debes seleccionar Egreso asociado o Despliegue de Pago');
         }
@@ -1180,12 +1245,16 @@ class CompraController extends Controller
 
                     try {
                         $pagoCreado = $compraModel->pagosDeCompras()->create([
-                            'despliegue_de_pago_id' => $desplieguePagoId,
-                            'monto'                 => $metodo['monto'],
-                            'fecha'                 => now()->format('Y-m-d H:i:s'),
-                            'numero_operacion'      => $metodo['numero_operacion'] ?? null,
-                            'estado'                => true,
+                            'despliegue_de_pago_id'   => $desplieguePagoId,
+                            'monto'                   => $metodo['monto'],
+                            'fecha'                   => now()->format('Y-m-d H:i:s'),
+                            'numero_operacion'        => $metodo['numero_operacion'] ?? null,
+                            'fecha_pago_referencial'  => $metodo['fecha_pago_referencial'] ?? null,
+                            'estado'                  => true,
                         ]);
+
+                        // Registrar transacción en caja si el pago se hizo desde el POS
+                        $this->registrarTransaccionCajaParaPagoCompra($pagoCreado, $compraModel);
                         
                     } catch (\Exception $e) {
                         \Log::error('Error al crear pago de compra:', [
@@ -1495,10 +1564,9 @@ class CompraController extends Controller
                 'estado' => true,
             ]);
 
-            // Si afecta caja, registrar el egreso
+            // Si afecta caja, registrar el egreso en transacciones_caja
             if ($validated['afecta_caja']) {
-                // TODO: Implementar lógica de afectación a caja
-                // Esto dependerá de cómo manejes los movimientos de caja
+                $this->registrarTransaccionCajaParaPagoCompra($pago, $compra);
             }
 
             // Cargar relaciones para la respuesta
@@ -1542,6 +1610,9 @@ class CompraController extends Controller
                 'observacion' => ($pago->observacion ? $pago->observacion . ' | ' : '') .
                                  'ANULADO: ' . ($validated['motivo'] ?? 'Sin motivo especificado'),
             ]);
+
+            // Revertir la transacción de caja asociada
+            $this->revertirTransaccionCajaParaPagoCompra($pago, $compra);
 
             $totalCompra = $this->getTotalCompra($compra);
             $totalPagadoActivo = $compra->pagosDeCompras()->where('estado', true)->sum('monto');
@@ -1621,5 +1692,130 @@ class CompraController extends Controller
                 'message' => 'Lotes y vencimientos actualizados correctamente',
             ]);
         });
+    }
+
+    /**
+     * Registrar la transacción de caja para un pago de compra
+     */
+    private function registrarTransaccionCajaParaPagoCompra(PagoDeCompra $pago, Compra $compra): void
+    {
+        $despliegue = DespliegueDePago::with('metodoDePago')->find($pago->despliegue_de_pago_id);
+        if (!$despliegue) {
+            \Log::warning('PagoCompra sin despliegue de pago válido', ['pago_id' => $pago->id]);
+            return;
+        }
+
+        // Buscar sub-caja que acepta este método de pago
+        $subCaja = SubCaja::where('estado', true)
+            ->where(function ($query) use ($pago) {
+                $query->whereJsonContains('despliegues_pago_ids', $pago->despliegue_de_pago_id)
+                    ->orWhereJsonContains('despliegues_pago_ids', '*');
+            })
+            ->first();
+
+        if (!$subCaja) {
+            \Log::warning('No se encontró sub-caja para el pago de compra', [
+                'despliegue_pago_id' => $pago->despliegue_de_pago_id,
+            ]);
+            return;
+        }
+
+        $monto = (float) $pago->monto;
+        $saldoAnterior = (float) $subCaja->saldo_actual;
+
+        // Actualizar saldo de la sub-caja
+        $subCaja->saldo_actual = $saldoAnterior - $monto;
+        $subCaja->save();
+
+        // Registrar transacción en transacciones_caja
+        TransaccionCaja::create([
+            'sub_caja_id' => $subCaja->id,
+            'tipo_transaccion' => 'egreso',
+            'monto' => $monto,
+            'saldo_anterior' => $saldoAnterior,
+            'saldo_nuevo' => $subCaja->saldo_actual,
+            'descripcion' => 'Pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
+            'referencia_id' => $compra->id,
+            'referencia_tipo' => 'pago_compra',
+            'user_id' => $compra->user_id,
+            'despliegue_pago_id' => $pago->despliegue_de_pago_id,
+            'fecha' => $pago->fecha ?? now(),
+        ]);
+
+        // Registrar en MovimientoCaja si hay apertura activa
+        $apertura = AperturaCierreCaja::where('estado', 'abierta')
+            ->where('user_id', $compra->user_id)
+            ->orderBy('fecha_apertura', 'desc')
+            ->first();
+
+        if ($apertura) {
+            try {
+                MovimientoCaja::create([
+                    'apertura_cierre_id' => $apertura->id,
+                    'caja_principal_id' => $apertura->caja_principal_id,
+                    'sub_caja_id' => $subCaja->id,
+                    'cajero_id' => $compra->user_id,
+                    'fecha_hora' => now(),
+                    'tipo_movimiento' => 'compra',
+                    'concepto' => 'Pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
+                    'saldo_inicial' => $saldoAnterior,
+                    'ingreso' => 0,
+                    'salida' => $monto,
+                    'saldo_final' => $subCaja->saldo_actual,
+                    'estado_caja' => 'abierta',
+                    'metodo_pago_id' => $despliegue->metodo_de_pago_id,
+                    'referencia_id' => $compra->id,
+                    'referencia_tipo' => 'pago_compra',
+                ]);
+            } catch (\Exception $e) {
+                \Log::warning('Error al registrar MovimientoCaja para pago de compra', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Revertir la transacción de caja al anular un pago de compra
+     */
+    private function revertirTransaccionCajaParaPagoCompra(PagoDeCompra $pago, Compra $compra): void
+    {
+        // Buscar la transacción original de este pago
+        $transaccionOriginal = TransaccionCaja::where('referencia_tipo', 'pago_compra')
+            ->where('referencia_id', $compra->id)
+            ->where('despliegue_pago_id', $pago->despliegue_de_pago_id)
+            ->where('monto', (float) $pago->monto)
+            ->first();
+
+        if (!$transaccionOriginal) {
+            return;
+        }
+
+        $subCaja = SubCaja::find($transaccionOriginal->sub_caja_id);
+        if (!$subCaja) {
+            return;
+        }
+
+        $monto = (float) $pago->monto;
+        $saldoAnterior = (float) $subCaja->saldo_actual;
+
+        // Revertir el saldo de la sub-caja
+        $subCaja->saldo_actual = $saldoAnterior + $monto;
+        $subCaja->save();
+
+        // Registrar transacción de reversión (ingreso para devolver el dinero)
+        TransaccionCaja::create([
+            'sub_caja_id' => $subCaja->id,
+            'tipo_transaccion' => 'ingreso',
+            'monto' => $monto,
+            'saldo_anterior' => $saldoAnterior,
+            'saldo_nuevo' => $subCaja->saldo_actual,
+            'descripcion' => 'Anulación de pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
+            'referencia_id' => $compra->id,
+            'referencia_tipo' => 'anulacion_pago_compra',
+            'user_id' => $compra->user_id,
+            'despliegue_pago_id' => $pago->despliegue_de_pago_id,
+            'fecha' => now(),
+        ]);
     }
 }

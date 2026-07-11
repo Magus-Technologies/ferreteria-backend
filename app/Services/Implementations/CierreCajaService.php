@@ -74,7 +74,10 @@ class CierreCajaService implements CierreCajaServiceInterface
             montoDejarApertura: isset($data['monto_dejar_apertura']) ? (float) $data['monto_dejar_apertura'] : null
         );
 
-        return $this->cerrarCajaUseCase->ejecutar($dto);
+        // Pasar el aperturaId para cerrar exactamente esa apertura: con varias
+        // aperturas abiertas de la misma caja (una por usuario) no se puede
+        // resolver por caja/subcaja sin riesgo de cerrar la de otro usuario.
+        return $this->cerrarCajaUseCase->ejecutar($dto, $aperturaId);
     }
 
     public function reCerrarCajaConResumen(string $aperturaId, array $data): CierreCajaResultadoDTO

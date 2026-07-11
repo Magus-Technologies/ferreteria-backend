@@ -122,11 +122,11 @@ class RequerimientoInternoPdfService
     {
         if ($requerimiento->tipo_solicitud === 'OS' && $requerimiento->servicios->isNotEmpty()) {
             return $requerimiento->servicios->map(function ($srv) {
-                $horario = '';
+                $horario = '—';
                 if ($srv->hora_inicio && $srv->hora_fin) {
                     $horario = "{$srv->hora_inicio} - {$srv->hora_fin}";
-                } elseif ($srv->duracion_cantidad && $srv->duracion_unidad) {
-                    $horario = "{$srv->duracion_cantidad} {$srv->duracion_unidad}";
+                } elseif ($srv->hora_inicio) {
+                    $horario = $srv->hora_inicio;
                 }
 
                 $presupuesto = '—';
@@ -139,14 +139,41 @@ class RequerimientoInternoPdfService
                     'descripcion' => $srv->descripcion_servicio ?? '—',
                     'lugar' => $srv->lugar_ejecucion ?? '—',
                     'horario' => $horario,
-                    'duracion' => $srv->duracion_cantidad
-                        ? "{$srv->duracion_cantidad} {$srv->duracion_unidad}"
-                        : '—',
+                    'duracion' => $this->formatearDuracion($srv->duracion_cantidad, $srv->duracion_unidad),
                     'presupuesto' => $presupuesto,
                 ];
             })->toArray();
         }
 
         return [];
+    }
+
+    /**
+     * Duración legible: en horas si es 1 hora o más, en minutos si es menos.
+     * Ej.: 60 min → "1 hora", 150 min → "2 h 30 min", 45 min → "45 minutos".
+     */
+    private function formatearDuracion($cantidad, ?string $unidad): string
+    {
+        if (!$cantidad) {
+            return '—';
+        }
+
+        $cantidad = (int) $cantidad;
+
+        if ($unidad === 'dias') {
+            return $cantidad . ($cantidad === 1 ? ' día' : ' días');
+        }
+
+        $minutos = $unidad === 'horas' ? $cantidad * 60 : $cantidad;
+
+        if ($minutos < 60) {
+            return $minutos . ($minutos === 1 ? ' minuto' : ' minutos');
+        }
+
+        $horas = intdiv($minutos, 60);
+        $resto = $minutos % 60;
+        $texto = $horas . ($horas === 1 ? ' hora' : ' horas');
+
+        return $resto > 0 ? "{$horas} h {$resto} min" : $texto;
     }
 }
