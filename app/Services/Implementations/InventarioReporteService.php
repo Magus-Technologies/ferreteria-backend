@@ -103,6 +103,15 @@ class InventarioReporteService implements InventarioReporteServiceInterface
                   ->orWhere('p.cod_producto', 'like', "%{$search}%");
             });
         }
+        // Filtro de stock: misma semántica que la lista (ProductoRepository::applyStockFilter).
+        // con_stock => stock_fraccion > 0; sin_stock => stock_fraccion <= 0; all/omitido => sin filtro.
+        if (!empty($filtros['cs_stock']) && $filtros['cs_stock'] !== 'all') {
+            if ($filtros['cs_stock'] === 'con_stock') {
+                $query->where('pa.stock_fraccion', '>', 0);
+            } elseif ($filtros['cs_stock'] === 'sin_stock') {
+                $query->where('pa.stock_fraccion', '<=', 0);
+            }
+        }
 
         $resumen = $query->selectRaw("
             COUNT(DISTINCT p.id) as total_productos,
