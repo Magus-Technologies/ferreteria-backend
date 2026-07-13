@@ -577,24 +577,64 @@ class RecepcionAlmacenController extends Controller
                         ]);
 
                         // DECREMENTAR cantidad_pendiente
+                        // La recepción puede usar una unidad distinta a la de la compra/OC
+                        // (ej. compra en Millar, recepción en UNIDAD). Convertimos la cantidad
+                        // recibida a la unidad del documento original antes de decrementar.
+                        $baseUnits = $cantidad * $factor;
+
                         if ($request->compra_id && $refProductoDoc) {
-                            \App\Models\UnidadDerivadaInmutableCompra::where('producto_almacen_compra_id', $refProductoDoc->id)
+                            // Buscar la UD de la compra que coincida con la unidad de recepción
+                            $compraUD = \App\Models\UnidadDerivadaInmutableCompra::where('producto_almacen_compra_id', $refProductoDoc->id)
                                 ->where('unidad_derivada_inmutable_id', $unidadInmutable->id)
                                 ->where('bonificacion', $bonificacion)
-                                ->decrement('cantidad_pendiente', $cantidad);
+                                ->first();
+
+                            if ($compraUD) {
+                                // Misma unidad: decrementar directamente
+                                $compraUD->decrement('cantidad_pendiente', $cantidad);
+                            } else {
+                                // Unidad diferente: buscar cualquier UD de la compra con pendiente y convertir
+                                $compraUD = \App\Models\UnidadDerivadaInmutableCompra::where('producto_almacen_compra_id', $refProductoDoc->id)
+                                    ->where('bonificacion', $bonificacion)
+                                    ->where('cantidad_pendiente', '>', 0)
+                                    ->first();
+
+                                if ($compraUD) {
+                                    $compraFactor = (float) $compraUD->factor;
+                                    $decrementAmount = $compraFactor > 0 ? $baseUnits / $compraFactor : $cantidad;
+                                    $compraUD->decrement('cantidad_pendiente', $decrementAmount);
+                                }
+                            }
 
                             // Si la compra viene de una OC, buscar el producto de la OC y actualizar su pendiente
                             $compraActual = DB::table('compra')->where('id', $request->compra_id)->first();
                             if ($compraActual && $compraActual->orden_compra_id) {
-                                \App\Models\OrdenCompraProducto::where('orden_compra_id', $compraActual->orden_compra_id)
+                                $ocProducto = \App\Models\OrdenCompraProducto::where('orden_compra_id', $compraActual->orden_compra_id)
                                     ->where('producto_id', $productoId)
-                                    ->decrement('cantidad_pendiente', $cantidad);
+                                    ->first();
+
+                                if ($ocProducto) {
+                                    // Si la OC no tiene factor, usar unidades_contenidas del producto como referencia
+                                    if ($ocProducto->unidad === $udData['unidad_derivada_name']) {
+                                        $ocProducto->decrement('cantidad_pendiente', $cantidad);
+                                    } else {
+                                        $producto = \App\Models\Producto::find($productoId);
+                                        $unidadesContenidas = $producto ? (float) $producto->unidades_contenidas : 1;
+                                        $ocDecrement = $unidadesContenidas > 0 ? $baseUnits / $unidadesContenidas : $baseUnits;
+                                        $ocProducto->decrement('cantidad_pendiente', $ocDecrement);
+                                    }
+                                }
                             }
                         } else if ($request->orden_compra_id && $refProductoDoc) {
                             // En OrdenCompraProducto, cantidad_pendiente está en la misma tabla del producto
-                            // Validar que la unidad coincida (Orden de Compra simplificada asume una unidad principal)
                             if ($refProductoDoc->unidad === $udData['unidad_derivada_name']) {
                                 $refProductoDoc->decrement('cantidad_pendiente', $cantidad);
+                            } else {
+                                // Unidad diferente: convertir usando unidades_contenidas del producto
+                                $producto = \App\Models\Producto::find($productoId);
+                                $unidadesContenidas = $producto ? (float) $producto->unidades_contenidas : 1;
+                                $ocDecrement = $unidadesContenidas > 0 ? $baseUnits / $unidadesContenidas : $baseUnits;
+                                $refProductoDoc->decrement('cantidad_pendiente', $ocDecrement);
                             }
                         }
 
