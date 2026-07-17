@@ -443,8 +443,12 @@ class CierreCajaController extends Controller
                 // Usar el resumen_snapshot guardado
                 $apertura = $arqueo->aperturaCierreCaja;
                 $data = (new \App\Http\Resources\Cajas\AperturaCierreCajaResource($apertura))->toArray(request());
-                // Sobrescribir con datos del arqueo específico
-                $data['id'] = $arqueo->id;
+                // Sobrescribir con datos del arqueo específico.
+                // IMPORTANTE: el 'id' principal se mantiene como el de la APERTURA:
+                // es estable, mientras que los arqueos se BORRAN y recrean en cada
+                // re-cierre (un id de arqueo guardado en la URL o en el modal del
+                // ticket quedaría huérfano → 404 al pedir el PDF o al re-cerrar).
+                $data['arqueo_id'] = $arqueo->id;
                 $data['fecha_cierre'] = $arqueo->created_at;
                 $data['monto_cierre'] = $arqueo->monto_cierre;
                 $data['estado_cierre'] = $arqueo->estado_cierre;
