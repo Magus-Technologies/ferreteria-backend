@@ -413,14 +413,31 @@ class CierreCajaController extends Controller
     public function obtenerCierre(string $id): JsonResponse
     {
         try {
-            // Primero buscar en arqueos_diarios por apertura_cierre_caja_id
-            $arqueo = \App\Models\ArqueoDiario::with([
+            // Búsqueda CASE-INSENSITIVE: los ULID se guardan en MAYÚSCULAS, pero el
+            // front a veces manda el id en minúsculas. En producción la collation
+            // puede ser case-sensitive → daba 404 "No tienes una caja abierta".
+            $idUpper = strtoupper($id);
+
+            $arqueoConRelaciones = fn () => \App\Models\ArqueoDiario::with([
                 'aperturaCierreCaja.cajaPrincipal',
                 'aperturaCierreCaja.subCaja',
                 'aperturaCierreCaja.distribucionesVendedores.vendedor',
                 'user',
                 'supervisorValidador',
-            ])->where('apertura_cierre_caja_id', $id)->latest()->first();
+            ]);
+
+            // Primero buscar en arqueos_diarios por apertura_cierre_caja_id
+            $arqueo = $arqueoConRelaciones()
+                ->whereRaw('UPPER(apertura_cierre_caja_id) = ?', [$idUpper])
+                ->latest()
+                ->first();
+
+            // El id también puede ser el de un ARQUEO específico (filas del historial)
+            if (!$arqueo) {
+                $arqueo = $arqueoConRelaciones()
+                    ->whereRaw('UPPER(id) = ?', [$idUpper])
+                    ->first();
+            }
 
             if ($arqueo) {
                 // Usar el resumen_snapshot guardado
@@ -448,10 +465,16 @@ class CierreCajaController extends Controller
                 'user',
                 'supervisorValidador',
                 'distribucionesVendedores.vendedor'
-            ])->find($id);
+            ])->whereRaw('UPPER(id) = ?', [$idUpper])->first();
 
             if (!$apertura) {
-                throw new AperturaNoEncontradaException();
+                // NO usar AperturaNoEncontradaException aquí: su mensaje "No tienes
+                // una caja abierta" no aplica a una consulta por id (el cierre puede
+                // estar cerrado hace tiempo y aun así debe poder consultarse).
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cierre no encontrado',
+                ], 404);
             }
 
             $calculador = app(\App\Services\CierreCaja\CalculadorResumenCaja::class);
