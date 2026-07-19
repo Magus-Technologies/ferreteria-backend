@@ -6,6 +6,7 @@ use App\Services\Pdf\AperturaCajaPdfService;
 use App\Services\Pdf\CierreCajaPdfService;
 use App\Services\Pdf\CompraPdfService;
 use App\Services\Pdf\CotizacionPdfService;
+use App\Services\Pdf\DevolucionPrestamoPdfService;
 use App\Services\Pdf\GuiaPdfService;
 use App\Services\Pdf\IngresoSalidaPdfService;
 use App\Services\Pdf\NotaCreditoPdfService;
@@ -52,6 +53,12 @@ class PdfController extends Controller
         $formato = $request->query('formato', 'a4');
         $columnas = $request->input('columnas');
         return $service->generar($id, $formato, is_array($columnas) ? $columnas : null);
+    }
+
+    public function prestamoDevolucion(string $id, string $numeroDevolucion, Request $request, DevolucionPrestamoPdfService $service): Response
+    {
+        $formato = $request->query('formato', 'a4');
+        return $service->generar($id, $numeroDevolucion, $formato);
     }
 
     public function guia(string $id, Request $request, GuiaPdfService $service): Response

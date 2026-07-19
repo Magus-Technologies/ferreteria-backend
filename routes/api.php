@@ -112,6 +112,7 @@ Route::prefix('pdf')->group(function () {
     Route::get('/compra/{id}', [PdfController::class, 'compra']);
     Route::get('/cotizacion/{id}', [PdfController::class, 'cotizacion']);
     Route::get('/prestamo/{id}', [PdfController::class, 'prestamo']);
+    Route::get('/prestamo/{id}/devolucion/{numeroDevolucion}', [PdfController::class, 'prestamoDevolucion']);
     Route::get('/guia/{id}', [PdfController::class, 'guia']);
     Route::get('/vale/{id}', [PdfController::class, 'vale']);
     Route::get('/nota-credito/{id}', [PdfController::class, 'notaCredito']);
