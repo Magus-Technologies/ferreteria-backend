@@ -1184,10 +1184,14 @@ class VentaController extends Controller
                     ->update(['estado_entrega_id' => \App\Models\EstadoEntrega::where('codigo', 'pe')->value('id')]);
             }
 
-            // Si la venta sale de "En Espera", actualizar la fecha a HOY (la venta
-            // se concreta en la fecha actual, no en la fecha original del borrador).
+            // Si la venta sale de "En Espera", actualizar la fecha al momento de
+            // concreción (la venta se concreta ahora, no en la fecha del borrador).
+            // IMPORTANTE: usar now() COMPLETO (con hora), no toDateString(). Con
+            // medianoche (00:00), la fecha cae ANTES de la hora de apertura de caja
+            // y VentaRepository::obtenerPorApertura (whereBetween por 'fecha') deja
+            // la venta FUERA del arqueo → descuadre real de caja.
             if ($estadoAnterior === 'ee' && $estadoNuevo !== 'ee') {
-                $venta->update(['fecha' => now()->toDateString()]);
+                $venta->update(['fecha' => now()]);
             }
 
             // Si transición En Espera → Creado y la venta aún no tiene serie/numero,
