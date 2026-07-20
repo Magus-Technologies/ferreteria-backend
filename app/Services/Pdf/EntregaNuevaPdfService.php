@@ -246,10 +246,21 @@ class EntregaNuevaPdfService
             $detalleQty  = (float) ($detalle->cantidad ?? 0);
 
             $key             = strtolower(trim($codigo)) . '|' . strtolower(trim($unidad));
+            // Producto AGREGADO en la edición: no existía al momento de la entrega,
+            // así que no fue entregado físicamente. Sin esto, el fallback
+            // `?? $udvCantidad` fabrica una cantidad anterior igual a la actual y el
+            // min() lo hace pasar por entregado.
+            $esProductoNuevo  = $ultimaEdicion && ! array_key_exists($key, $prevQuantities);
             $cantidadAnterior = $prevQuantities[$key] ?? $udvCantidad;
             $recibido        = max($cantidadAnterior - $udvCantidad, 0);
 
-            if ($ultimaEdicion && $recibido > 0) {
+            if ($esProductoNuevo) {
+                // Agregado después de la entrega → todo pendiente, nada entregado.
+                $cantidad  = $udvCantidad;
+                $entregado = 0.0;
+                $pendiente = $udvCantidad;
+                $recibido  = 0.0;
+            } elseif ($ultimaEdicion && $recibido > 0) {
                 // Decrease: units were returned — show original delivery, net delivered, recibido.
                 $cantidad  = $detalleQty;
                 $entregado = $udvCantidad;
