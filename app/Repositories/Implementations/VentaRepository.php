@@ -23,10 +23,11 @@ class VentaRepository implements VentaRepositoryInterface
         // Usar la hora exacta de apertura (no inicio del día)
         $fechaApertura = \Carbon\Carbon::parse($apertura->fecha_apertura);
         $inicioDia = $fechaApertura;
-        // Si hay fecha de cierre, usar esa; si no, usar 24 horas desde la apertura
+        // Si hay fecha de cierre, usar esa; si no, usar la fecha/hora actual
+        // (la apertura puede durar varios días según la operación del cliente)
         $finDia = $apertura->fecha_cierre 
             ? \Carbon\Carbon::parse($apertura->fecha_cierre)
-            : $fechaApertura->copy()->addHours(24);
+            : now();
 
         // Obtener ventas de dos formas:
         // 1. Ventas con transacciones de caja en esta sub caja (método original)

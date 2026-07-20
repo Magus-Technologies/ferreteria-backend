@@ -1597,13 +1597,16 @@ class VentaController extends Controller
                         'recibe_efectivo' => $desplieguePago['recibe_efectivo'] ?? null,
                     ]);
                 }
-            } elseif ($venta->forma_de_pago === FormaDePago::Credito) {
-                // La venta quedó a CRÉDITO: el dinero no ingresa al crear (queda como
-                // cuenta por cobrar), así que no debe sobrevivir ningún método de pago
-                // de una edición previa al contado. El payload no trae el array porque
-                // el front no envía métodos en crédito, por eso el bloque anterior no
-                // los limpiaría. devolverDineroDeVenta() ya revirtió los montos en caja;
-                // aquí eliminamos las filas huérfanas para no dejar la venta inconsistente.
+            } elseif ($venta->forma_de_pago === FormaDePago::Credito || $estadoNuevo === 'ee') {
+                // CRÉDITO: el dinero no ingresa al crear (queda como cuenta por cobrar),
+                // así que no debe sobrevivir ningún método de pago de una edición previa
+                // al contado. devolverDineroDeVenta() ya revirtió los montos en caja;
+                // aquí eliminamos las filas huérfanas.
+                //
+                // EN ESPERA (ee): la venta no está confirmada, por lo que los métodos de
+                // pago registrados deben limpiarse para no afectar traslado a bóveda ni
+                // cierre de caja. El frontend ya no envía métodos al poner en espera,
+                // pero si quedaron de una edición previa se eliminan aquí.
                 DespliegueDePagoVenta::where('venta_id', $id)->delete();
             }
 
@@ -1621,6 +1624,12 @@ class VentaController extends Controller
                         'referencia' => $srv['referencia'] ?? null,
                     ]);
                 }
+            }
+
+            // Si la venta pasó a "en espera", revertir registros de caja
+            // para que la venta no afecte traslado a bóveda ni cierre de caja.
+            if ($estadoNuevo === 'ee' && $estadoAnterior === 'cr') {
+                $this->revertirCajaDeVenta($venta);
             }
 
             // Proceso post venta
@@ -2308,6 +2317,46 @@ class VentaController extends Controller
                 MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
                     ->decrement('monto', (float) $ingreso->monto);
             }
+        }
+    }
+
+    /**
+     * Revertir registros de caja de una venta (transacciones_caja,
+     * movimiento_caja, sub_caja.saldo_actual).
+     * Se usa al poner una venta en espera para que no afecte
+     * traslado a bóveda ni cierre de caja.
+     */
+    private function revertirCajaDeVenta($venta)
+    {
+        try {
+            if (! $venta->despliegueDePagoVentas || $venta->despliegueDePagoVentas->count() === 0) {
+                return;
+            }
+
+            foreach ($venta->despliegueDePagoVentas as $desplieguePagoVenta) {
+                $transacciones = TransaccionCaja::where('referencia_id', $venta->id)
+                    ->where('referencia_tipo', 'venta')
+                    ->where('despliegue_pago_id', $desplieguePagoVenta->despliegue_de_pago_id)
+                    ->get();
+
+                foreach ($transacciones as $transaccion) {
+                    $subCaja = SubCaja::find($transaccion->sub_caja_id);
+                    if ($subCaja) {
+                        $subCaja->saldo_actual -= (float) $transaccion->monto;
+                        $subCaja->save();
+                    }
+                    $transaccion->delete();
+                }
+            }
+
+            MovimientoCaja::where('referencia_id', $venta->id)
+                ->where('referencia_tipo', 'venta')
+                ->delete();
+        } catch (\Exception $e) {
+            \Log::error('Error al revertir caja de venta en espera: ' . $e->getMessage(), [
+                'venta_id' => $venta->id,
+                'trace' => $e->getTraceAsString(),
+            ]);
         }
     }
 
