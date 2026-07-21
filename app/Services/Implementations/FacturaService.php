@@ -429,7 +429,10 @@ class FacturaService implements FacturaServiceInterface
             'almacen',
             'user',
             'productosAlmacenVenta.productoAlmacen.producto.unidadMedida', // ✅ Cargar unidad de medida
-            'productosAlmacenVenta.unidadesDerivadas'
+            'productosAlmacenVenta.unidadesDerivadas',
+            // Servicios de la venta: también son líneas del comprobante. Sin esto
+            // se emitía el XML SIN los servicios y el total quedaba incompleto.
+            'serviciosVenta.servicio',
         ])->find($ventaId);
 
         if (!$venta) {
@@ -551,6 +554,43 @@ class FacturaService implements FacturaServiceInterface
                 'valor_venta' => round($valorVenta, 2),
                 'valor_unitario' => round($valorUnitario, 2),
                 'precio_unitario' => round($precioUnitarioPromedio, 2),
+            ];
+        }
+
+        // Servicios de la venta como líneas del comprobante. Mismo tratamiento
+        // que los productos (precio unitario CON IGV → se descompone /1.18), así
+        // suman a mto_oper_gravadas, al IGV y al total. Unidad SUNAT "ZZ"
+        // (catálogo 03 = unidad de servicio).
+        foreach ($venta->serviciosVenta as $sIndex => $sv) {
+            $cantidadServicio = (float) $sv->cantidad;
+            $precioUnitarioServicio = (float) $sv->precio_unitario;
+
+            if ($cantidadServicio <= 0 || $precioUnitarioServicio <= 0) {
+                continue;
+            }
+
+            $valorUnitarioServicio = $precioUnitarioServicio / 1.18;
+            $valorVentaServicio = $valorUnitarioServicio * $cantidadServicio;
+            $igvServicio = $valorVentaServicio * 0.18;
+
+            $subtotal += $valorVentaServicio;
+            $igv += $igvServicio;
+
+            $nombreServicio = $sv->servicio->nombre ?? 'SERVICIO';
+            $referenciaServicio = trim((string) ($sv->referencia ?? ''));
+
+            $items[] = [
+                'codigo' => 'SERV' . ($sv->servicio_id ?? ($sIndex + 1)),
+                'unidad' => 'ZZ',
+                'cantidad' => $cantidadServicio,
+                'descripcion' => $referenciaServicio !== ''
+                    ? "{$nombreServicio} ({$referenciaServicio})"
+                    : $nombreServicio,
+                'mto_base_igv' => round($valorVentaServicio, 2),
+                'igv' => round($igvServicio, 2),
+                'valor_venta' => round($valorVentaServicio, 2),
+                'valor_unitario' => round($valorUnitarioServicio, 2),
+                'precio_unitario' => round($precioUnitarioServicio, 2),
             ];
         }
 

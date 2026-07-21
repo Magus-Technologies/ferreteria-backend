@@ -424,6 +424,8 @@ class VentaPdfService
             'productosPorAlmacen.productoAlmacen.producto.marca',
             'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+            // Servicios de la venta: se listan en el documento y suman al total.
+            'serviciosVenta.servicio',
             'despliegueDePagoVentas.despliegueDePago',
             'valesAplicados.valeCompra.productos',
             'valesAplicados.valeCompra.categorias',
@@ -480,6 +482,34 @@ class VentaPdfService
             if ($aPaq !== 0 && $bPaq === 0) return 1;
             return $aPaq <=> $bPaq;
         });
+
+        // Servicios de la venta: van DESPUÉS de los productos (se agregan tras el
+        // usort para que no se mezclen con los paquetes). Se suman a esta misma
+        // lista a propósito: calcularTotales() saca el subtotal de acá, así que
+        // sin esto el importe del documento quedaba SIN los servicios.
+        // producto_id/categoria_id van en null para que los vales con alcance por
+        // PRODUCTO o CATEGORÍA no los tomen como base de descuento.
+        foreach ($venta->serviciosVenta as $sv) {
+            $nombre = $sv->servicio->nombre ?? 'SERVICIO';
+            $referencia = trim((string) ($sv->referencia ?? ''));
+
+            $productos[] = [
+                'producto_id' => null,
+                'categoria_id' => null,
+                'codigo' => '',
+                'nombre' => $referencia !== '' ? "{$nombre} ({$referencia})" : $nombre,
+                'marca' => '',
+                'unidad' => 'SERV',
+                'cantidad' => (float) $sv->cantidad,
+                'precio' => (float) $sv->precio_unitario,
+                'descuento' => 0,
+                'subtotal' => (float) $sv->subtotal,
+                'sobrecargo_porcentaje' => 0,
+                'sobrecargo_valor' => 0,
+                'paquete_id' => null,
+                'paquete_nombre' => null,
+            ];
+        }
 
         return $productos;
     }
