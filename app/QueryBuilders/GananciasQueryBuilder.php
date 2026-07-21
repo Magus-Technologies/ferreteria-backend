@@ -77,6 +77,13 @@ class GananciasQueryBuilder
                 DB::raw(self::COSTO_UNIT_EXPR . " * udiv.cantidad as costo_total"),
                 DB::raw("(udiv.precio - (" . self::COSTO_UNIT_EXPR . ")) * udiv.cantidad as ganancia"),
                 DB::raw("COALESCE(dp.id, 'SIN_METODO') as cc"),
+                // Cobranza — usados por el reporte de VENTAS AL CRÉDITO.
+                // "Por cobrar" NO se calcula acá: el total del comprobante se arma
+                // sumando sus líneas, así que el front hace (total − total_pagado).
+                DB::raw("CASE v.tipo_moneda WHEN 'd' THEN 'USD' ELSE 'PEN' END as moneda"),
+                DB::raw("(SELECT COALESCE(SUM(cv.monto), 0)
+                          FROM cobroventa cv
+                          WHERE cv.venta_id = v.id AND cv.estado = 1) as total_pagado"),
                 // Campos auxiliares para desglosar por lote (no se muestran tal cual):
                 'v.id as venta_id',
                 'pav.producto_almacen_id as producto_almacen_id',

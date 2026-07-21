@@ -35,6 +35,10 @@ class GananciasResource extends JsonResource
             'costo_total' => (float) $this->costo_total,
             'ganancia' => (float) $this->ganancia,
             'cc' => $this->cc,
+            // Cobranza (reporte de ventas al crédito). 'por_cobrar' se calcula en
+            // el front: total del comprobante (suma de sus líneas) − total_pagado.
+            'moneda' => $this->moneda ?? 'PEN',
+            'total_pagado' => isset($this->total_pagado) ? (float) $this->total_pagado : 0.0,
             // Indicador de desglose por lote PEPS (ej. "Lote 1/2"); null si la
             // fila no proviene de un desglose por costos distintos.
             'desglose_lote' => $this->desglose_lote ?? null,
