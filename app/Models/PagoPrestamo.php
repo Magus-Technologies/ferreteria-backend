@@ -36,7 +36,7 @@ class PagoPrestamo extends Model
             'fecha_pago' => 'datetime',
             'estado' => 'boolean',
             'fecha_anulacion' => 'datetime',
-            'user_id' => 'integer',
+            'user_id' => 'string',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
