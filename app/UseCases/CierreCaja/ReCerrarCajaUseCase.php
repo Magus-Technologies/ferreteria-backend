@@ -142,6 +142,9 @@ class ReCerrarCajaUseCase
                 'monto_cierre' => $dto->montoCierre,
                 'monto_cierre_efectivo' => $dto->montoCierreEfectivo,
                 'monto_cierre_cuentas' => $dto->montoCierreCuentas,
+                // Persistir también en re-cierre el efectivo reservado para la
+                // próxima apertura (si no se envía, conservar el valor previo).
+                'monto_dejar_apertura' => $dto->montoDejarApertura ?? $apertura->monto_dejar_apertura,
                 'conteo_billetes_monedas' => $dto->conteoBilletesMonedas ? json_encode($dto->conteoBilletesMonedas) : null,
                 'comentarios' => $dto->observaciones,
                 'supervisor_id_validador' => $dto->supervisorId ?? null,
