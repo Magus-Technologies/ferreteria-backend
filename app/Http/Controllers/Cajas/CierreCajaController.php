@@ -449,7 +449,10 @@ class CierreCajaController extends Controller
                 // re-cierre (un id de arqueo guardado en la URL o en el modal del
                 // ticket quedaría huérfano → 404 al pedir el PDF o al re-cerrar).
                 $data['arqueo_id'] = $arqueo->id;
-                $data['fecha_cierre'] = $arqueo->created_at;
+                // Serializar con offset local (-05:00), igual que fecha_apertura.
+                // El toJSON por defecto convierte a UTC ("Z") y el front mostraba la
+                // hora de cierre +5h (ej. cerrado 21/07 19:05 → salía 22/07 00:05).
+                $data['fecha_cierre'] = $arqueo->created_at?->toIso8601String();
                 $data['monto_cierre'] = $arqueo->monto_cierre;
                 $data['estado_cierre'] = $arqueo->estado_cierre;
                 $data['comentarios'] = $arqueo->comentarios;

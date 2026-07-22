@@ -26,15 +26,24 @@ class CierreCajaPdfService
         $montoCierre = (float) ($cierre->monto_cierre_efectivo ?? 0);
         $totalCuentas = (float) ($cierre->monto_cierre_cuentas ?? 0);
 
-        // Efectivo esperado = inicial + ventas en efectivo
-        $efectivoEsperado = 0;
-        foreach ($resumen['detalle_metodos_pago'] as $metodo) {
-            if (stripos($metodo['label'], 'efectivo') !== false) {
-                $efectivoEsperado += $metodo['total'];
+        // Monto esperado REAL del resumen (incluye ingresos extras, gastos y
+        // traslados a bóveda). Fallback para registros antiguos sin snapshot:
+        // inicial + ventas en efectivo (fórmula anterior, incompleta).
+        if ($resumen['monto_esperado'] > 0) {
+            $montoEsperado = $resumen['monto_esperado'];
+        } else {
+            $efectivoEsperado = 0;
+            foreach ($resumen['detalle_metodos_pago'] as $metodo) {
+                if (stripos($metodo['label'], 'efectivo') !== false) {
+                    $efectivoEsperado += $metodo['total'];
+                }
             }
+            $montoEsperado = $resumen['efectivo_inicial'] + $efectivoEsperado;
         }
-        $montoEsperado = $resumen['efectivo_inicial'] + $efectivoEsperado;
-        $diferencia = $montoCierre - $montoEsperado;
+        // Redondear: el snapshot arrastra residuos de coma flotante (831.1000000000004)
+        // y sin esto una caja cuadrada saldría como "FALTANTE S/ -0.00".
+        $montoEsperado = round($montoEsperado, 2);
+        $diferencia = round($montoCierre - $montoEsperado, 2);
 
         $otrosIngresos = ($resumen['total_ingresos'] - $resumen['total_ventas'] - $resumen['total_prestamos_recibidos']);
         $gastos = ($resumen['total_egresos'] - $resumen['total_prestamos_dados']);
@@ -110,28 +119,41 @@ class CierreCajaPdfService
 
     private function prepararResumen(AperturaCierreCaja $cierre): array
     {
-        // El resumen se calcula de la misma forma que el endpoint de caja activa
-        // Los datos ya vienen pre-calculados en el response del backend
-        // Aquí simulamos la estructura que espera el blade
+        // FUENTE PRINCIPAL: el resumen_snapshot del último arqueo de esta apertura.
+        // Es exactamente lo que la pantalla muestra y lo que cuadró al cerrar.
+        // (Antes se leía conceptos_adicionales, un campo legacy que nadie escribe:
+        // el ticket salía con métodos de pago vacíos y "monto esperado" = solo el
+        // efectivo inicial, inventando faltantes que no existían.)
+        $arqueo = \App\Models\ArqueoDiario::whereRaw('UPPER(apertura_cierre_caja_id) = ?', [strtoupper((string) $cierre->id)])
+            ->latest()
+            ->first();
 
-        $conceptos = $cierre->conceptos_adicionales
-            ? json_decode($cierre->conceptos_adicionales, true)
-            : [];
+        $snapshot = $arqueo?->resumen_snapshot;
+        if (is_string($snapshot)) {
+            $snapshot = json_decode($snapshot, true);
+        }
 
-        // Intentar obtener el resumen del cierre si existe como JSON
-        // Si no, construir uno básico
+        // Fallback legacy para registros antiguos sin arqueo
+        if (!is_array($snapshot) || empty($snapshot)) {
+            $conceptos = $cierre->conceptos_adicionales;
+            if (is_string($conceptos)) {
+                $conceptos = json_decode($conceptos, true);
+            }
+            $snapshot = is_array($conceptos) ? $conceptos : [];
+        }
+
         return [
-            'efectivo_inicial' => (float) ($cierre->monto_apertura ?? 0),
-            'detalle_metodos_pago' => $conceptos['detalle_metodos_pago'] ?? [],
-            'total_ventas' => (float) ($conceptos['total_ventas'] ?? 0),
-            'total_ingresos' => (float) ($conceptos['total_ingresos'] ?? 0),
-            'total_egresos' => (float) ($conceptos['total_egresos'] ?? 0),
-            'total_prestamos_recibidos' => (float) ($conceptos['total_prestamos_recibidos'] ?? 0),
-            'total_prestamos_dados' => (float) ($conceptos['total_prestamos_dados'] ?? 0),
-            'monto_esperado' => (float) ($conceptos['monto_esperado'] ?? 0),
-            'prestamos_recibidos' => $conceptos['prestamos_recibidos'] ?? [],
-            'prestamos_dados' => $conceptos['prestamos_dados'] ?? [],
-            'movimientos_internos' => $conceptos['movimientos_internos'] ?? [],
+            'efectivo_inicial' => (float) ($snapshot['efectivo_inicial'] ?? $cierre->monto_apertura ?? 0),
+            'detalle_metodos_pago' => $snapshot['detalle_metodos_pago'] ?? [],
+            'total_ventas' => (float) ($snapshot['total_ventas'] ?? 0),
+            'total_ingresos' => (float) ($snapshot['total_ingresos'] ?? 0),
+            'total_egresos' => (float) ($snapshot['total_egresos'] ?? 0),
+            'total_prestamos_recibidos' => (float) ($snapshot['total_prestamos_recibidos'] ?? 0),
+            'total_prestamos_dados' => (float) ($snapshot['total_prestamos_dados'] ?? 0),
+            'monto_esperado' => (float) ($snapshot['monto_esperado'] ?? 0),
+            'prestamos_recibidos' => $snapshot['prestamos_recibidos'] ?? [],
+            'prestamos_dados' => $snapshot['prestamos_dados'] ?? [],
+            'movimientos_internos' => $snapshot['movimientos_internos'] ?? [],
         ];
     }
 }
