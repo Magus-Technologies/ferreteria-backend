@@ -16,6 +16,13 @@ class CierreCajaPdfService
         $empresa = $cierre->user->empresa;
         $resumen = $this->prepararResumen($cierre);
 
+        // Traslados a Bóveda de esta caja (informativos: no afectan los totales)
+        $trasladosBoveda = \App\Models\TrasladoBoveda::with(['vendedor', 'supervisor'])
+            ->whereRaw('UPPER(apertura_cierre_caja_id) = ?', [strtoupper((string) $cierre->id)])
+            ->orderBy('fecha_traslado')
+            ->get();
+        $totalTrasladosBoveda = (float) $trasladosBoveda->sum('monto');
+
         $montoCierre = (float) ($cierre->monto_cierre_efectivo ?? 0);
         $totalCuentas = (float) ($cierre->monto_cierre_cuentas ?? 0);
 
@@ -51,6 +58,8 @@ class CierreCajaPdfService
             'otrosIngresos' => max($otrosIngresos, 0),
             'gastos' => max($gastos, 0),
             'conteo' => $cierre->conteo_billetes_monedas ? json_decode($cierre->conteo_billetes_monedas, true) : null,
+            'trasladosBoveda' => $trasladosBoveda,
+            'totalTrasladosBoveda' => $totalTrasladosBoveda,
         ]);
 
         $filename = "{$nroDoc}.pdf";
