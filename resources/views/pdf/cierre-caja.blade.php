@@ -82,6 +82,33 @@
         </table>
     </div>
 
+    {{-- Traslados a Bóveda (informativo: no afecta los totales) --}}
+    <div style="margin-top: 8px;">
+        <div style="font-size: 10pt; font-weight: bold; margin-bottom: 4px; padding: 3px; background-color: #f0f0f0; border-left: 3px solid #333;">
+            TRASLADOS A BÓVEDA <span style="font-weight: normal; font-size: 8pt;">(no afecta total)</span>
+        </div>
+        <table style="width: 100%; font-size: 9pt; border-collapse: collapse;">
+            @forelse($trasladosBoveda ?? [] as $traslado)
+            <tr style="border-bottom: 1px solid #ddd;">
+                <td style="padding: 4px 8px;">{{ \App\Services\Pdf\PdfService::formatFecha($traslado->fecha_traslado, 'd/m/Y H:i') }}</td>
+                <td style="padding: 4px 8px;">{{ $traslado->vendedor->name ?? '-' }}</td>
+                <td style="padding: 4px 8px;">{{ $traslado->justificacion ?: '-' }}</td>
+                <td style="padding: 4px 8px; text-align: right;">S/ {{ number_format($traslado->monto, 2) }}</td>
+            </tr>
+            @empty
+            <tr>
+                <td style="padding: 4px 8px; text-align: center; font-style: italic; color: #666;">Sin traslados a bóveda</td>
+            </tr>
+            @endforelse
+            @if(count($trasladosBoveda ?? []) > 0)
+            <tr style="background-color: #e3f2fd;">
+                <td colspan="3" style="padding: 4px 8px; font-weight: bold;">Total Trasladado a Bóveda:</td>
+                <td style="padding: 4px 8px; text-align: right; font-weight: bold;">S/ {{ number_format($totalTrasladosBoveda ?? 0, 2) }}</td>
+            </tr>
+            @endif
+        </table>
+    </div>
+
     {{-- Métodos de Pago --}}
     @php
         $filasMetodos = [];

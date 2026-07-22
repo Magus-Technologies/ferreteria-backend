@@ -159,6 +159,33 @@
         @endif
     </table>
 
+    {{-- Traslados a Bóveda (informativo: no afecta los totales) --}}
+    <div class="section-title" style="{{ $cssInfoLabel }}">TRASLADOS A BÓVEDA</div>
+    <table>
+        <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
+            <td style="{{ $cssTablaHeader }}">Fecha</td>
+            <td style="{{ $cssTablaHeader }}">Vendedor</td>
+            <td style="{{ $cssTablaHeader }} text-align: right; width: 50px;">Monto</td>
+        </tr>
+        @forelse($trasladosBoveda ?? [] as $i => $traslado)
+        <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
+            <td style="{{ $cssTablaFila }}">{{ \App\Services\Pdf\PdfService::formatFecha($traslado->fecha_traslado, 'd/m H:i') }}</td>
+            <td style="{{ $cssTablaFila }}">{{ $traslado->vendedor->name ?? '-' }}</td>
+            <td style="{{ $cssTablaFila }} text-align: right;">S/ {{ number_format($traslado->monto, 2) }}</td>
+        </tr>
+        @empty
+        <tr>
+            <td colspan="3" style="text-align: center; font-style: italic; color: #666;">Sin traslados a bóveda</td>
+        </tr>
+        @endforelse
+        @if(count($trasladosBoveda ?? []) > 0)
+        <tr class="bg-gray" style="border-top: {{ $borderThin }}px solid {{ $colorBorde }};">
+            <td style="{{ $cssTotalLabel }}" colspan="2">Total Trasladado:</td>
+            <td style="{{ $cssTotalValor }} text-align: right;">S/ {{ number_format($totalTrasladosBoveda ?? 0, 2) }}</td>
+        </tr>
+        @endif
+    </table>
+
     {{-- Totales Generales --}}
     <div class="section-title" style="{{ $cssInfoLabel }}">TOTALES GENERALES</div>
     <table>

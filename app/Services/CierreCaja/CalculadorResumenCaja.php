@@ -25,7 +25,10 @@ class CalculadorResumenCaja
         if ($soloDiaActual) {
             $fechaDia = $fechaFiltro ?? \Carbon\Carbon::today();
             $ventas = $ventas->filter(function ($venta) use ($fechaDia) {
-                return \Carbon\Carbon::parse($venta->created_at)->isSameDay($fechaDia);
+                // Usar la FECHA DE EMISIÓN (fecha), no created_at: una venta "En Espera"
+                // registrada un día antes y confirmada hoy pertenece al arqueo de HOY
+                // (el correlativo y el cobro se generan al confirmarla).
+                return \Carbon\Carbon::parse($venta->fecha ?? $venta->created_at)->isSameDay($fechaDia);
             });
         }
 
@@ -177,7 +180,11 @@ class CalculadorResumenCaja
                 'numero' => $venta->numero,
                 'cliente_nombre' => $venta->cliente->razon_social ?? ($venta->cliente->nombres . ' ' . $venta->cliente->apellidos) ?? 'Sin cliente',
                 'total' => (float) $totalVenta,
-                'created_at' => $venta->created_at,
+                // FECHA DE EMISIÓN de la venta (no created_at): una venta "En Espera"
+                // registrada un día antes y confirmada hoy debe mostrarse con la fecha
+                // en que se emitió la boleta. Se mantiene la clave 'created_at' por
+                // compatibilidad con el front y los snapshots ya guardados.
+                'created_at' => $venta->fecha ?? $venta->created_at,
                 'pagos' => $pagos->map(function ($pago) {
                     $banco = $pago->banco ?? 'Sin Banco';
                     $metodoPagoFormateado = "{$banco}/{$pago->metodo_pago}";
