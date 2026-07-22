@@ -85,16 +85,27 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     // Resumen para dashboard (sin requerir caja abierta, es solo lectura).
     Route::get('prestamos-resumen-dashboard', [PrestamoController::class, 'resumenDashboard']);
-    Route::prefix('prestamos')->middleware(['caja.abierta', 'broadcast:prestamos'])->group(function () {
+
+    // Rutas de SOLO LECTURA - NO requieren caja abierta (index, show, consultas)
+    Route::prefix('prestamos')->middleware('broadcast:prestamos')->group(function () {
         Route::get('/siguiente-numero/preview', [PrestamoController::class, 'siguienteNumero']);
         Route::get('/{id}/pagos', [PrestamoController::class, 'listarPagos']);
+    });
+    Route::apiResource('prestamos', PrestamoController::class)
+        ->only(['index', 'show'])
+        ->middleware('broadcast:prestamos');
+
+    // Rutas de ESCRITURA - SÍ requieren caja abierta
+    Route::prefix('prestamos')->middleware(['caja.abierta', 'broadcast:prestamos'])->group(function () {
         Route::post('/{id}/pagos', [PrestamoController::class, 'registrarPago']);
         Route::delete('/{prestamo_id}/pagos/{pago_id}', [PrestamoController::class, 'eliminarPago']);
         Route::post('/{prestamo_id}/pagos/{pago_id}/anular', [PrestamoController::class, 'anularPago']);
         Route::post('/{id}/devolucion', [PrestamoController::class, 'registrarDevolucion']);
         Route::post('/{id}/anular', [PrestamoController::class, 'anular']);
     });
-    Route::apiResource('prestamos', PrestamoController::class)->middleware(['caja.abierta', 'broadcast:prestamos']);
+    Route::apiResource('prestamos', PrestamoController::class)
+        ->except(['index', 'show'])
+        ->middleware(['caja.abierta', 'broadcast:prestamos']);
 
     // ============================================
     // CLIENTES
