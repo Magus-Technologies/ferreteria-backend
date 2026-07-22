@@ -1723,6 +1723,16 @@ class CompraController extends Controller
         $monto = (float) $pago->monto;
         $saldoAnterior = (float) $subCaja->saldo_actual;
 
+        // Validar saldo suficiente: no se puede pagar una compra con dinero que
+        // la caja no tiene (antes el saldo quedaba en negativo sin aviso). El
+        // abort(422) revierte toda la transacción, incluido el pago ya creado.
+        if ($monto > $saldoAnterior + 0.001) {
+            abort(422, "Saldo insuficiente en la caja \"{$subCaja->nombre}\": saldo S/ "
+                . number_format($saldoAnterior, 2)
+                . " y el pago es de S/ " . number_format($monto, 2)
+                . '. Registre un ingreso o use otro método de pago.');
+        }
+
         // Actualizar saldo de la sub-caja
         $subCaja->saldo_actual = $saldoAnterior - $monto;
         $subCaja->save();

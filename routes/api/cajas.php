@@ -115,6 +115,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/{id}/aprobar', [CierreCajaController::class, 'aprobarCierre']); // Aprobar cierre pendiente
             Route::get('/efectivo-disponible', [CierreCajaController::class, 'efectivoDisponible']);
             Route::post('/{id}/asignar-efectivo-apertura', [CierreCajaController::class, 'asignarEfectivoApertura']);
+            Route::post('/{id}/anular-asignacion-efectivo', [CierreCajaController::class, 'anularAsignacionEfectivo']); // Quitar/corregir asignación
+
             Route::get('/efectivo-asignado-para-mi', [CierreCajaController::class, 'efectivoAsignadoParaMi']); // Efectivo de cierres para apertura
             Route::post('/consumir-efectivo-asignado', [CierreCajaController::class, 'consumirEfectivoAsignado']); // Marcar usado al aperturar
             Route::get('/{id}', [CierreCajaController::class, 'obtenerCierre']); // Nuevo endpoint

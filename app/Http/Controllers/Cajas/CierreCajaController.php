@@ -522,17 +522,30 @@ class CierreCajaController extends Controller
     public function efectivoDisponible(): JsonResponse
     {
         try {
+            // Incluye también los YA ASIGNADOS mientras no se hayan consumido en
+            // una apertura, para poder reasignarlos o anular la asignación desde
+            // el modal (antes desaparecían de la lista y no había forma de
+            // corregir una asignación equivocada).
             $cajas = \App\Models\AperturaCierreCaja::with('user:id,name')
                 ->where('estado', 'cerrada')
                 ->whereNotNull('monto_dejar_apertura')
                 ->where('monto_dejar_apertura', '>', 0)
-                ->whereNull('dejar_apertura_asignado_a')
+                ->where('dejar_apertura_consumido', false)
                 ->orderBy('fecha_cierre', 'desc')
                 ->get();
 
+            $asignados = \App\Models\User::whereIn(
+                'id',
+                $cajas->pluck('dejar_apertura_asignado_a')->filter()->unique()
+            )->get(['id', 'name'])->keyBy('id');
+
             return response()->json([
                 'success' => true,
-                'data' => $cajas->map(function ($caja) {
+                'data' => $cajas->map(function ($caja) use ($asignados) {
+                    $asignadoA = $caja->dejar_apertura_asignado_a
+                        ? $asignados->get($caja->dejar_apertura_asignado_a)
+                        : null;
+
                     return [
                         'id' => $caja->id,
                         'monto_efectivo' => (float) $caja->monto_dejar_apertura,
@@ -541,6 +554,10 @@ class CierreCajaController extends Controller
                         'usuario' => $caja->user ? [
                             'id' => $caja->user->id,
                             'name' => $caja->user->name,
+                        ] : null,
+                        'asignado_a' => $asignadoA ? [
+                            'id' => $asignadoA->id,
+                            'name' => $asignadoA->name,
                         ] : null,
                     ];
                 }),
@@ -572,7 +589,17 @@ class CierreCajaController extends Controller
                 ], 400);
             }
 
-            if ($caja->dejar_apertura_asignado_a) {
+            // Si ya se consumió en una apertura, la asignación es definitiva
+            if ($caja->dejar_apertura_consumido) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este efectivo ya fue usado en una apertura; no se puede modificar',
+                ], 400);
+            }
+
+            // Permitir REASIGNAR (corregir una asignación equivocada) enviando
+            // reasignar=true; sin ese flag se mantiene el bloqueo original.
+            if ($caja->dejar_apertura_asignado_a && !$request->boolean('reasignar')) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Este efectivo ya fue asignado a otro usuario',
@@ -596,6 +623,45 @@ class CierreCajaController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al asignar efectivo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Anular la asignación de efectivo de apertura (mientras no se haya
+     * consumido): el efectivo vuelve a estar disponible para otro usuario.
+     */
+    public function anularAsignacionEfectivo(string $id): JsonResponse
+    {
+        try {
+            $caja = \App\Models\AperturaCierreCaja::findOrFail($id);
+
+            if (!$caja->dejar_apertura_asignado_a) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este efectivo no tiene una asignación activa',
+                ], 400);
+            }
+
+            if ($caja->dejar_apertura_consumido) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Este efectivo ya fue usado en una apertura; no se puede anular la asignación',
+                ], 400);
+            }
+
+            $caja->update([
+                'dejar_apertura_asignado_a' => null,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Asignación anulada; el efectivo vuelve a estar disponible',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al anular la asignación: ' . $e->getMessage(),
             ], 500);
         }
     }
