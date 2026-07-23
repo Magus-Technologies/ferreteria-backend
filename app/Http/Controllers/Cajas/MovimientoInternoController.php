@@ -36,6 +36,24 @@ class MovimientoInternoController extends Controller
     }
 
     /**
+     * Saldos disponibles para movimiento interno (solo dinero de caja CERRADA)
+     */
+    public function saldosDisponibles(): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => $this->movimientoInternoService->saldosDisponibles(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener saldos disponibles: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Listar depósitos de seguridad (Efectivo → Banco)
      */
     public function depositosSeguridad(): JsonResponse

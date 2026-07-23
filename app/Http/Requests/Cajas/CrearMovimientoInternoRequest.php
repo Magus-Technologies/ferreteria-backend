@@ -20,8 +20,11 @@ class CrearMovimientoInternoRequest extends FormRequest
             'sub_caja_origen_id' => ['required', 'integer', 'exists:sub_cajas,id'],
             'sub_caja_destino_id' => ['required', 'integer', 'exists:sub_cajas,id', 'different:sub_caja_origen_id'],
             'monto' => ['required', 'numeric', 'min:0.01'],
-            'despliegue_de_pago_origen_id' => ['required', 'string', 'exists:desplieguedepago,id'],
-            'despliegue_de_pago_destino_id' => ['required', 'string', 'exists:desplieguedepago,id'],
+            // Opcionales: el modal simple de "Movimiento Interno entre Sub-Cajas"
+            // usa un CONCEPTO (etiqueta de solo nombre) en lugar de despliegues.
+            'despliegue_de_pago_origen_id' => ['nullable', 'string', 'exists:desplieguedepago,id'],
+            'despliegue_de_pago_destino_id' => ['nullable', 'string', 'exists:desplieguedepago,id'],
+            'concepto' => ['nullable', 'string', 'max:255'],
             'justificacion' => ['required', 'string', 'max:1000'],
             'comprobante' => ['nullable', 'string', 'max:255'],
             'numero_operacion' => ['nullable', 'string', 'max:100'],

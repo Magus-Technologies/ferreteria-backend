@@ -16,6 +16,7 @@ class MovimientoInterno extends Model
         'monto',
         'despliegue_de_pago_origen_id',
         'despliegue_de_pago_destino_id',
+        'concepto',
         'justificacion',
         'comprobante',
         'numero_operacion',

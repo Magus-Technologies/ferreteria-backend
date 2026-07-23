@@ -136,8 +136,16 @@ Route::middleware('auth:sanctum')->group(function () {
         // Movimientos Internos
         Route::prefix('movimientos-internos')->middleware('caja.abierta')->group(function () {
             Route::get('/', [MovimientoInternoController::class, 'index']);
+            Route::get('/saldos-disponibles', [MovimientoInternoController::class, 'saldosDisponibles']);
             Route::get('/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
+        });
+
+        // Conceptos de movimiento interno (catálogo de solo nombre; NO requiere caja abierta)
+        Route::prefix('conceptos-movimiento')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Cajas\ConceptoMovimientoInternoController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\Cajas\ConceptoMovimientoInternoController::class, 'store']);
+            Route::delete('/{id}', [\App\Http\Controllers\Cajas\ConceptoMovimientoInternoController::class, 'destroy']);
         });
 
         // Préstamos entre Vendedores

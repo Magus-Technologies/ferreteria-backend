@@ -28,11 +28,14 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             $subCajaOrigen = SubCaja::with('cajaPrincipal.user')->findOrFail($dto->subCajaOrigenId);
             $subCajaDestino = SubCaja::with('cajaPrincipal.user')->findOrFail($dto->subCajaDestinoId);
 
-            // Obtener despliegues de pago
-            $desplieguePagoOrigen = DespliegueDePago::with('metodoDePago')
-                ->findOrFail($dto->despliegueDePagoOrigenId);
-            $desplieguePagoDestino = DespliegueDePago::with('metodoDePago')
-                ->findOrFail($dto->despliegueDePagoDestinoId);
+            // Obtener despliegues de pago (OPCIONALES: el modal simple usa un
+            // CONCEPTO de solo nombre en lugar de despliegues reales)
+            $desplieguePagoOrigen = $dto->despliegueDePagoOrigenId
+                ? DespliegueDePago::with('metodoDePago')->findOrFail($dto->despliegueDePagoOrigenId)
+                : null;
+            $desplieguePagoDestino = $dto->despliegueDePagoDestinoId
+                ? DespliegueDePago::with('metodoDePago')->findOrFail($dto->despliegueDePagoDestinoId)
+                : null;
 
             // Obtener usuario actual
             $user = \App\Models\User::find($userId);
@@ -44,28 +47,62 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             // Validar permisos:
             // - Si es admin, puede mover dinero entre cualquier sub-caja
             // - Si no es admin, solo puede mover entre sus propias sub-cajas
-            $esAdmin = $user->hasRole('admin') || $user->hasRole('super-admin');
-            
+            // El admin puede venir por rol de Spatie O por el campo rol_sistema
+            // (así se modela ADMINISTRADOR en esta app; hasRole('admin') daba
+            // false y bloqueaba a los administradores reales).
+            $esAdmin = $user->hasRole('admin')
+                || $user->hasRole('administrador')
+                || $user->hasRole('super-admin')
+                || in_array(mb_strtoupper((string) ($user->rol_sistema ?? '')), ['ADMIN', 'ADMINISTRADOR', 'SUPER-ADMIN', 'SUPERADMIN'], true);
+
             if (!$esAdmin) {
-                if ($subCajaOrigen->cajaPrincipal->user_id !== $userId || 
+                if ($subCajaOrigen->cajaPrincipal->user_id !== $userId ||
                     $subCajaDestino->cajaPrincipal->user_id !== $userId) {
                     throw new \Exception('Solo puedes mover dinero entre tus propias sub-cajas');
                 }
             }
 
-            // Validar saldo suficiente del vendedor en la sub-caja origen
-            $saldoDisponibleVendedor = $this->calcularSaldoVendedorEnSubCaja(
-                $subCajaOrigen->id,
-                $userId,
-                $dto->despliegueDePagoOrigenId
-            );
-            
-            if ($saldoDisponibleVendedor < $dto->monto) {
+            // REGLA: solo se puede mover dinero de sesiones CERRADAS. Lo generado
+            // durante la apertura activa (ventas/ingresos de hoy) recién se puede
+            // mover después de cerrar caja.
+            $saldoMovible = $this->calcularSaldoMovible($subCajaOrigen);
+            if ($dto->monto > $saldoMovible + 0.001) {
                 throw new SaldoInsuficienteException(
-                    $saldoDisponibleVendedor, 
+                    max($saldoMovible, 0),
                     $dto->monto,
-                    "Saldo insuficiente. Tu saldo disponible en {$subCajaOrigen->nombre} - {$desplieguePagoOrigen->name}: S/ {$saldoDisponibleVendedor}"
+                    "Solo puedes mover dinero de caja CERRADA. Disponible en {$subCajaOrigen->nombre}: S/ "
+                        . number_format(max($saldoMovible, 0), 2)
+                        . ' (lo generado en la sesión abierta se podrá mover al cerrar caja)'
                 );
+            }
+
+            // Validar saldo suficiente en la sub-caja origen:
+            // - Con despliegue: saldo del vendedor en ese despliegue (flujo original)
+            // - Sin despliegue (concepto): saldo total de la sub-caja
+            if ($desplieguePagoOrigen) {
+                $saldoDisponibleVendedor = $this->calcularSaldoVendedorEnSubCaja(
+                    $subCajaOrigen->id,
+                    $userId,
+                    $dto->despliegueDePagoOrigenId
+                );
+
+                if ($saldoDisponibleVendedor < $dto->monto) {
+                    throw new SaldoInsuficienteException(
+                        $saldoDisponibleVendedor,
+                        $dto->monto,
+                        "Saldo insuficiente. Tu saldo disponible en {$subCajaOrigen->nombre} - {$desplieguePagoOrigen->name}: S/ {$saldoDisponibleVendedor}"
+                    );
+                }
+            } else {
+                $saldoSubCaja = (float) $subCajaOrigen->saldo_actual;
+
+                if ($saldoSubCaja < $dto->monto) {
+                    throw new SaldoInsuficienteException(
+                        $saldoSubCaja,
+                        $dto->monto,
+                        "Saldo insuficiente en {$subCajaOrigen->nombre}: S/ " . number_format($saldoSubCaja, 2)
+                    );
+                }
             }
 
             // Crear el movimiento interno
@@ -76,6 +113,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 'monto' => $dto->monto,
                 'despliegue_de_pago_origen_id' => $dto->despliegueDePagoOrigenId,
                 'despliegue_de_pago_destino_id' => $dto->despliegueDePagoDestinoId,
+                'concepto' => $dto->concepto,
                 'justificacion' => $dto->justificacion,
                 'comprobante' => $dto->comprobante,
                 'numero_operacion' => $dto->numeroOperacion,
@@ -91,15 +129,17 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 $subCajaOrigen,
                 $subCajaDestino,
                 $dto->monto,
-                $userId
+                $userId,
+                $dto->concepto
             );
 
             return [
                 'id' => $movimiento->id,
                 'sub_caja_origen' => $subCajaOrigen->nombre,
                 'sub_caja_destino' => $subCajaDestino->nombre,
-                'metodo_pago_origen' => $desplieguePagoOrigen->name,
-                'metodo_pago_destino' => $desplieguePagoDestino->name,
+                'metodo_pago_origen' => $desplieguePagoOrigen->name ?? $dto->concepto ?? '-',
+                'metodo_pago_destino' => $desplieguePagoDestino->name ?? $dto->concepto ?? '-',
+                'concepto' => $dto->concepto,
                 'monto' => number_format($dto->monto, 2, '.', ''),
                 'justificacion' => $dto->justificacion,
                 'fecha' => $movimiento->fecha ? $movimiento->fecha->toIso8601String() : now()->toIso8601String(),
@@ -125,10 +165,12 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 'id' => $mov->id,
                 'sub_caja_origen' => $mov->subCajaOrigen->nombre,
                 'sub_caja_destino' => $mov->subCajaDestino->nombre,
-                'metodo_origen' => $mov->desplieguePagoOrigen->name,
-                'banco_origen' => $mov->desplieguePagoOrigen->metodoDePago->name,
-                'metodo_destino' => $mov->desplieguePagoDestino->name,
-                'banco_destino' => $mov->desplieguePagoDestino->metodoDePago->name,
+                // Null-safe: los movimientos con CONCEPTO no tienen despliegues
+                'metodo_origen' => $mov->desplieguePagoOrigen?->name ?? $mov->concepto ?? '-',
+                'banco_origen' => $mov->desplieguePagoOrigen?->metodoDePago?->name ?? '-',
+                'metodo_destino' => $mov->desplieguePagoDestino?->name ?? $mov->concepto ?? '-',
+                'banco_destino' => $mov->desplieguePagoDestino?->metodoDePago?->name ?? '-',
+                'concepto' => $mov->concepto,
                 'monto' => $mov->monto,
                 'justificacion' => $mov->justificacion,
                 'fecha' => $mov->fecha,
@@ -174,6 +216,55 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         })->toArray();
     }
 
+    /**
+     * Saldo MOVIBLE de una sub-caja: solo el dinero de sesiones cerradas.
+     * Si la caja principal tiene una apertura ABIERTA, se descuenta el neto
+     * (ingresos - egresos) generado desde esa apertura; ese dinero recién se
+     * puede mover al cerrar caja. Ej: aperturé con 10, vendí 20 → saldo 30,
+     * movible 10.
+     */
+    private function calcularSaldoMovible(SubCaja $subCaja): float
+    {
+        $saldoActual = (float) $subCaja->saldo_actual;
+
+        $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('estado', 'abierta')
+            ->orderBy('fecha_apertura', 'desc')
+            ->first();
+
+        if (!$apertura) {
+            return $saldoActual;
+        }
+
+        $transacciones = TransaccionCaja::where('sub_caja_id', $subCaja->id)
+            ->where('fecha', '>=', $apertura->fecha_apertura)
+            ->get();
+
+        $neto = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto')
+            - (float) $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+
+        // Solo se descuenta lo GANADO en la sesión abierta; si la sesión gastó
+        // dinero cerrado (neto negativo), el movible es el saldo actual.
+        return $saldoActual - max($neto, 0);
+    }
+
+    public function saldosDisponibles(): array
+    {
+        return SubCaja::with('cajaPrincipal:id,nombre')
+            ->where('estado', true)
+            ->get()
+            ->map(function (SubCaja $subCaja) {
+                return [
+                    'sub_caja_id' => $subCaja->id,
+                    'nombre' => $subCaja->nombre,
+                    'caja_principal_id' => $subCaja->caja_principal_id,
+                    'saldo_actual' => (float) $subCaja->saldo_actual,
+                    'saldo_disponible' => round(max($this->calcularSaldoMovible($subCaja), 0), 2),
+                ];
+            })
+            ->toArray();
+    }
+
     private function obtenerSaldoDespliegue(string $desplieguePagoId): float
     {
         $transacciones = TransaccionCaja::where('despliegue_pago_id', $desplieguePagoId)->get();
@@ -202,13 +293,18 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
 
     private function registrarTransacciones(
         MovimientoInterno $movimiento,
-        DespliegueDePago $desplieguePagoOrigen,
-        DespliegueDePago $desplieguePagoDestino,
+        ?DespliegueDePago $desplieguePagoOrigen,
+        ?DespliegueDePago $desplieguePagoDestino,
         SubCaja $subCajaOrigen,
         SubCaja $subCajaDestino,
         float $monto,
-        string|int $userId
+        string|int $userId,
+        ?string $concepto = null
     ): void {
+        // Etiqueta del movimiento: el CONCEPTO (si se usó el modal simple) o los
+        // nombres de los despliegues (flujo original).
+        $etiqueta = $concepto
+            ?: (($desplieguePagoOrigen?->name ?? '-') . ' → ' . ($desplieguePagoDestino?->name ?? '-'));
         // Obtener apertura activa - primero intentar del usuario, sino de la caja principal
         $apertura = AperturaCierreCaja::where('user_id', $userId)
             ->where('estado', 'abierta')
@@ -225,18 +321,21 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             throw new \Exception('No hay una caja abierta para realizar movimientos');
         }
 
-        // Transacción de EGRESO (origen)
-        $saldoOrigenAnterior = $this->obtenerSaldoDespliegue($desplieguePagoOrigen->id);
-        
+        // Transacción de EGRESO (origen). Sin despliegue, el saldo de referencia
+        // es el de la sub-caja.
+        $saldoOrigenAnterior = $desplieguePagoOrigen
+            ? $this->obtenerSaldoDespliegue($desplieguePagoOrigen->id)
+            : (float) $subCajaOrigen->saldo_actual;
+
         TransaccionCaja::create([
             'id' => (string) Str::ulid(),
             'sub_caja_id' => $subCajaOrigen->id,
-            'despliegue_pago_id' => $desplieguePagoOrigen->id,
+            'despliegue_pago_id' => $desplieguePagoOrigen?->id,
             'tipo_transaccion' => 'egreso',
             'monto' => $monto,
             'saldo_anterior' => $saldoOrigenAnterior,
             'saldo_nuevo' => $saldoOrigenAnterior - $monto,
-            'descripcion' => "Movimiento interno: {$desplieguePagoOrigen->name} → {$desplieguePagoDestino->name} (a {$subCajaDestino->nombre})",
+            'descripcion' => "Movimiento interno: {$etiqueta} (a {$subCajaDestino->nombre})",
             'referencia_id' => $movimiento->id,
             'referencia_tipo' => 'movimiento_interno',
             'user_id' => $userId,
@@ -244,17 +343,19 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         ]);
 
         // Transacción de INGRESO (destino)
-        $saldoDestinoAnterior = $this->obtenerSaldoDespliegue($desplieguePagoDestino->id);
-        
+        $saldoDestinoAnterior = $desplieguePagoDestino
+            ? $this->obtenerSaldoDespliegue($desplieguePagoDestino->id)
+            : (float) $subCajaDestino->saldo_actual;
+
         TransaccionCaja::create([
             'id' => (string) Str::ulid(),
             'sub_caja_id' => $subCajaDestino->id,
-            'despliegue_pago_id' => $desplieguePagoDestino->id,
+            'despliegue_pago_id' => $desplieguePagoDestino?->id,
             'tipo_transaccion' => 'ingreso',
             'monto' => $monto,
             'saldo_anterior' => $saldoDestinoAnterior,
             'saldo_nuevo' => $saldoDestinoAnterior + $monto,
-            'descripcion' => "Movimiento interno: {$desplieguePagoOrigen->name} → {$desplieguePagoDestino->name} (desde {$subCajaOrigen->nombre})",
+            'descripcion' => "Movimiento interno: {$etiqueta} (desde {$subCajaOrigen->nombre})",
             'referencia_id' => $movimiento->id,
             'referencia_tipo' => 'movimiento_interno',
             'user_id' => $userId,
@@ -274,8 +375,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             $subCajaOrigen,
             $subCajaDestino,
             $monto,
-            $desplieguePagoOrigen->name,
-            $desplieguePagoDestino->name,
+            $etiqueta,
             $userId
         );
     }
@@ -285,8 +385,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         SubCaja $subCajaOrigen,
         SubCaja $subCajaDestino,
         float $monto,
-        string $metodoPagoOrigen,
-        string $metodoPagoDestino,
+        string $etiqueta,
         string|int $userId
     ): void {
         // Movimiento de salida (origen) - usar 'transferencia' en lugar de 'salida'
@@ -298,7 +397,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             'cajero_id' => $userId,
             'fecha_hora' => now(),
             'tipo_movimiento' => 'transferencia',
-            'concepto' => "Movimiento interno: {$metodoPagoOrigen} → {$metodoPagoDestino} (a {$subCajaDestino->nombre})",
+            'concepto' => "Movimiento interno: {$etiqueta} (a {$subCajaDestino->nombre})",
             'saldo_inicial' => $subCajaOrigen->saldo_actual + $monto,
             'ingreso' => 0,
             'salida' => $monto,
@@ -315,7 +414,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             'cajero_id' => $userId,
             'fecha_hora' => now(),
             'tipo_movimiento' => 'transferencia',
-            'concepto' => "Movimiento interno: {$metodoPagoOrigen} → {$metodoPagoDestino} (desde {$subCajaOrigen->nombre})",
+            'concepto' => "Movimiento interno: {$etiqueta} (desde {$subCajaOrigen->nombre})",
             'saldo_inicial' => $subCajaDestino->saldo_actual - $monto,
             'ingreso' => $monto,
             'salida' => 0,

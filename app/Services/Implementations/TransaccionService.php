@@ -81,6 +81,8 @@ class TransaccionService implements TransaccionServiceInterface
             // Validar saldo suficiente
             if ($saldoNuevo < 0) {
                 throw new SaldoInsuficienteException(
+                    (float) $saldoAnterior,
+                    (float) $monto,
                     "Saldo insuficiente. Saldo actual: S/ {$saldoAnterior}, Monto a retirar: S/ {$monto}"
                 );
             }
