@@ -266,16 +266,29 @@ class ClasificadorMovimientos
             ->whereIn('tc.sub_caja_id', $subCajasIds)
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'ingreso')
-            // EXCLUIR: ventas, aperturas, transferencias, movimientos internos Y MONTOS INICIALES
+            // EXCLUIR: ventas, aperturas, transferencias Y MONTOS INICIALES.
+            // Los INGRESOS por movimiento_interno (traslados de efectivo recibidos)
+            // SÍ cuentan: ese efectivo llegó físicamente al cajón durante la sesión
+            // y debe figurar en el cierre / monto esperado. Los EGRESOS por
+            // movimiento interno siguen excluidos (por regla salen del dinero de
+            // sesiones cerradas, no del efectivo de la sesión).
             ->where(function ($query) {
                 $query->whereNull('tc.referencia_tipo')
                     ->orWhereNotIn('tc.referencia_tipo', [
                         'venta',
                         'apertura',
                         'transferencia_vendedor',
-                        'movimiento_interno',
                         'monto_inicial' // ✅ EXCLUIR montos iniciales de bancos
                     ]);
+            })
+            // Los ingresos por movimiento interno solo cuentan si entran a la
+            // SUB-CAJA DE LA SESIÓN (ej. traslado de efectivo recibido en Caja
+            // Chica). Los que entran a OTRAS sub-cajas (ej. dinero cerrado
+            // movido a "efectivo negro") no son ingresos de esta sesión.
+            ->where(function ($query) use ($apertura) {
+                $query->whereNull('tc.referencia_tipo')
+                    ->orWhere('tc.referencia_tipo', '!=', 'movimiento_interno')
+                    ->orWhere('tc.sub_caja_id', $apertura->sub_caja_id);
             })
             ->where('tc.fecha', '>=', $fechaInicio)
             ->where('tc.fecha', '<=', $fechaFin)
