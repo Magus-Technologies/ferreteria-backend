@@ -1723,14 +1723,53 @@ class CompraController extends Controller
         $monto = (float) $pago->monto;
         $saldoAnterior = (float) $subCaja->saldo_actual;
 
-        // Validar saldo suficiente: no se puede pagar una compra con dinero que
-        // la caja no tiene (antes el saldo quedaba en negativo sin aviso). El
+        // Disponible para pagar:
+        // - Si la sub-caja tiene una APERTURA ABIERTA, solo se puede pagar con el
+        //   dinero de la SESIÓN (monto de apertura + ingresos − egresos desde que
+        //   se abrió). El dinero de sesiones cerradas se dispone con "Traslado de
+        //   Efectivo" hacia otra sub-caja.
+        // - Sin apertura abierta (ej. sub-caja "efectivo negro" o bancarias), el
+        //   límite es su saldo actual.
+        $disponible = $saldoAnterior;
+        $aperturaAbierta = AperturaCierreCaja::where('sub_caja_id', $subCaja->id)
+            ->where('estado', 'abierta')
+            ->orderBy('fecha_apertura', 'desc')
+            ->first();
+
+        if ($aperturaAbierta) {
+            $transaccionesSesion = TransaccionCaja::where('sub_caja_id', $subCaja->id)
+                ->where('fecha', '>=', $aperturaAbierta->fecha_apertura)
+                ->get();
+
+            // Ingresos de la sesión: cuentan TODOS (ventas, ingresos extras y
+            // también los traslados/movimientos internos RECIBIDOS — ese dinero
+            // llega justamente para poder pagar).
+            $ingresosSesion = (float) $transaccionesSesion
+                ->where('tipo_transaccion', 'ingreso')
+                ->sum('monto');
+
+            // Egresos de la sesión: se EXCLUYEN los movimientos internos, porque
+            // por regla propia solo pueden mover dinero de sesiones CERRADAS
+            // (no consumen el efectivo de la sesión abierta).
+            $egresosSesion = (float) $transaccionesSesion
+                ->where('tipo_transaccion', 'egreso')
+                ->where('referencia_tipo', '!=', 'movimiento_interno')
+                ->sum('monto');
+
+            $disponibleSesion = (float) $aperturaAbierta->monto_apertura + $ingresosSesion - $egresosSesion;
+            $disponible = min($saldoAnterior, $disponibleSesion);
+        }
+
+        // Validar dinero suficiente: no se puede pagar con dinero que no está
+        // disponible (antes el saldo quedaba en negativo sin aviso). El
         // abort(422) revierte toda la transacción, incluido el pago ya creado.
-        if ($monto > $saldoAnterior + 0.001) {
-            abort(422, "Saldo insuficiente en la caja \"{$subCaja->nombre}\": saldo S/ "
-                . number_format($saldoAnterior, 2)
+        if ($monto > $disponible + 0.001) {
+            abort(422, "No tienes dinero suficiente en \"{$subCaja->nombre}\": disponible S/ "
+                . number_format(max($disponible, 0), 2)
                 . " y el pago es de S/ " . number_format($monto, 2)
-                . '. Registre un ingreso o use otro método de pago.');
+                . ($aperturaAbierta
+                    ? '. Solo puedes pagar con el dinero de la sesión abierta; usa "Traslado de Efectivo" para disponer del resto.'
+                    : '. Registre un ingreso o use otro método de pago.'));
         }
 
         // Actualizar saldo de la sub-caja
