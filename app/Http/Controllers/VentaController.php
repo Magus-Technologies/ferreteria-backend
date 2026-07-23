@@ -80,8 +80,12 @@ class VentaController extends Controller
                 // Lectura desde la tabla NUEVA (entrega). El estado viene por FK
                 // al catálogo, así que se carga estadoEntrega:codigo para que el
                 // front lea entregas[].estado_entrega.codigo.
-                'entregas:id,venta_id,estado_entrega_id',
+                'entregas:id,venta_id,estado_entrega_id,tipo_entrega_id',
                 'entregas.estadoEntrega:id,codigo',
+                // tipoEntrega para poder derivar venta.tipo_despacho cuando la
+                // venta quedo sin ese campo (p. ej. entregas creadas via
+                // Configurar Entrega, que no rellenan venta.tipo_despacho).
+                'entregas.tipoEntrega:id,codigo',
                 'valesAplicados:id,venta_id,descuento_aplicado,descuento_tipo',
             ])
             ->withCount('entregas as entregas_productos_count')
@@ -244,13 +248,17 @@ class VentaController extends Controller
 
         if ($perPage === -1) {
             // Return all without pagination
+            $items = $query->orderBy('fecha', 'desc')->orderBy('numero', 'desc')->limit(100)->get();
+            $items->each(fn ($venta) => $this->rellenarTipoDespacho($venta));
+
             return response()->json([
-                'data' => $query->orderBy('fecha', 'desc')->orderBy('numero', 'desc')->limit(100)->get(),
+                'data' => $items,
                 'total' => $query->count(),
             ]);
         }
 
         $ventas = $query->orderBy('fecha', 'desc')->orderBy('numero', 'desc')->paginate($perPage);
+        collect($ventas->items())->each(fn ($venta) => $this->rellenarTipoDespacho($venta));
 
         return response()->json([
             'data' => $ventas->items(),
@@ -259,6 +267,46 @@ class VentaController extends Controller
             'per_page' => $ventas->perPage(),
             'last_page' => $ventas->lastPage(),
         ]);
+    }
+
+    /**
+     * Rellena venta.tipo_despacho cuando quedo NULL, derivandolo de las
+     * entregas cargadas. Solo actua sobre valores vacios: un tipo_despacho
+     * elegido explicitamente en la venta se respeta tal cual.
+     *
+     * Mapeo tipo_entrega (entrega) -> tipo_despacho (venta):
+     *   rt (Recojo en Tienda)     -> et (En Tienda)
+     *   de (Despacho a Domicilio) -> do (Domicilio)
+     *   pa (Despacho Parcial)     -> pa (Parcial)
+     * Si hay entregas de mas de un tipo, se considera Parcial ('pa').
+     */
+    private function rellenarTipoDespacho($venta): void
+    {
+        if (! empty($venta->tipo_despacho)) {
+            return;
+        }
+
+        $codigos = $venta->entregas
+            ->map(fn ($e) => $e->tipoEntrega?->codigo?->value)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($codigos->isEmpty()) {
+            return;
+        }
+
+        if ($codigos->count() > 1) {
+            $venta->tipo_despacho = 'pa';
+            return;
+        }
+
+        $venta->tipo_despacho = match ($codigos->first()) {
+            'rt' => 'et',
+            'de' => 'do',
+            'pa' => 'pa',
+            default => $venta->tipo_despacho,
+        };
     }
 
     /**
