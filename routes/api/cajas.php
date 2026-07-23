@@ -73,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/todas-con-saldo-efectivo', [SubCajaController::class, 'getTodasConSaldoEfectivo']);
             Route::get('/vendedores-con-efectivo', [SubCajaController::class, 'getVendedoresConEfectivo']);
             Route::get('/efectivo-por-vendedor', [SubCajaController::class, 'getEfectivoPorVendedor']);
+            Route::get('/efectivo-todos-usuarios', [SubCajaController::class, 'getEfectivoTodosLosUsuarios']); // Destinos de Traslado de Efectivo
             Route::get('/buscar-por-despliegue/{desplieguePagoId}', [SubCajaController::class, 'buscarPorDesplieguePago']);
             Route::get('/{id}', [SubCajaController::class, 'show']);
             Route::put('/{id}', [SubCajaController::class, 'update']);

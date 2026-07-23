@@ -14,6 +14,7 @@ class CrearMovimientoInternoDTO
         public readonly ?string $comprobante = null,
         public readonly ?string $numeroOperacion = null,
         public readonly ?string $concepto = null,
+        public readonly ?string $destinoUserId = null,
     ) {}
 
     public static function fromRequest(array $data): self
@@ -28,6 +29,7 @@ class CrearMovimientoInternoDTO
             comprobante: $data['comprobante'] ?? null,
             numeroOperacion: $data['numero_operacion'] ?? null,
             concepto: $data['concepto'] ?? null,
+            destinoUserId: $data['destino_user_id'] ?? null,
         );
     }
 }

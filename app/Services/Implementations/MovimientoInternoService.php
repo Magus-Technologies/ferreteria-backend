@@ -151,7 +151,8 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 $subCajaDestino,
                 $dto->monto,
                 $userId,
-                $dto->concepto
+                $dto->concepto,
+                $dto->destinoUserId
             );
 
             return [
@@ -370,7 +371,8 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         SubCaja $subCajaDestino,
         float $monto,
         string|int $userId,
-        ?string $concepto = null
+        ?string $concepto = null,
+        ?string $destinoUserId = null
     ): void {
         // Etiqueta del movimiento: el CONCEPTO (si se usó el modal simple) o los
         // nombres de los despliegues (flujo original).
@@ -429,7 +431,9 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             'descripcion' => "Movimiento interno: {$etiqueta} (desde {$subCajaOrigen->nombre})",
             'referencia_id' => $movimiento->id,
             'referencia_tipo' => 'movimiento_interno',
-            'user_id' => $userId,
+            // El ingreso se ACREDITA al usuario destino (su efectivo por
+            // vendedor sube); si no se indicó, queda a nombre de quien movió.
+            'user_id' => $destinoUserId ?: $userId,
             'fecha' => now(),
         ]);
 

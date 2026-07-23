@@ -436,6 +436,83 @@ class SubCajaController extends Controller
     }
 
     /**
+     * Efectivo por usuario de TODAS las aperturas abiertas: para cada usuario de
+     * la apertura (encargado + vendedores distribuidos), sus despliegues de
+     * EFECTIVO con el saldo acumulado desde que se aperturó. Usado como DESTINO
+     * en "Traslado de Efectivo" (apuntar el dinero al efectivo de un usuario).
+     */
+    public function getEfectivoTodosLosUsuarios(): JsonResponse
+    {
+        try {
+            $aperturas = \App\Models\AperturaCierreCaja::with(['user:id,name', 'distribucionesVendedores.vendedor:id,name'])
+                ->where('estado', 'abierta')
+                ->get();
+
+            $filas = [];
+
+            foreach ($aperturas as $apertura) {
+                // Usuarios de la apertura: el encargado + los vendedores distribuidos
+                $usuarios = collect([$apertura->user])
+                    ->concat($apertura->distribucionesVendedores->map(fn ($d) => $d->vendedor))
+                    ->filter()
+                    ->unique('id');
+
+                $subCajas = \App\Models\SubCaja::where('estado', true)
+                    ->where('caja_principal_id', $apertura->caja_principal_id)
+                    ->get();
+
+                foreach ($usuarios as $usuario) {
+                    foreach ($subCajas as $subCaja) {
+                        $desplieguesEfectivo = collect($subCaja->getDesplieguePagos())->filter(function ($despliegue) {
+                            $metodo = $despliegue->metodoDePago;
+                            if (!$metodo) {
+                                return false;
+                            }
+                            $cuenta = $metodo->cuenta_bancaria;
+                            $sinCuenta = empty($cuenta) || $cuenta === 'SIN-CUENTA' || $cuenta === '-';
+                            $esEfectivo = stripos($metodo->name, 'efectivo') !== false
+                                || stripos($despliegue->name, 'efectivo') !== false;
+                            return $sinCuenta && $esEfectivo;
+                        });
+
+                        foreach ($desplieguesEfectivo as $despliegue) {
+                            $saldo = $this->calcularEfectivoDesdeApertura(
+                                $subCaja,
+                                $usuario->id,
+                                $despliegue->id,
+                                $apertura
+                            );
+
+                            // Incluir aunque el saldo sea 0: como DESTINO se puede
+                            // depositar en un despliegue vacío.
+                            $filas[] = [
+                                'vendedor_id' => $usuario->id,
+                                'vendedor_nombre' => $usuario->name,
+                                'apertura_id' => $apertura->id,
+                                'sub_caja_id' => $subCaja->id,
+                                'sub_caja_nombre' => $subCaja->nombre,
+                                'despliegue_pago_id' => $despliegue->id,
+                                'metodo_nombre' => $despliegue->name,
+                                'efectivo_disponible' => number_format(max($saldo, 0), 2, '.', ''),
+                            ];
+                        }
+                    }
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $filas,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener efectivo de usuarios: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Efectivo de un usuario en una sub-caja/método ACOTADO a una apertura:
      * distribución de esa apertura (si es Caja Chica) + ingresos − egresos de efectivo
      * registrados DESDE la fecha de apertura. Así solo cuenta "lo que tengo desde que aperturé".

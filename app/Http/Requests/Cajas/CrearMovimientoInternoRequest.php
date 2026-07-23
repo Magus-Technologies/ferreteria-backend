@@ -25,6 +25,9 @@ class CrearMovimientoInternoRequest extends FormRequest
             'despliegue_de_pago_origen_id' => ['nullable', 'string', 'exists:desplieguedepago,id'],
             'despliegue_de_pago_destino_id' => ['nullable', 'string', 'exists:desplieguedepago,id'],
             'concepto' => ['nullable', 'string', 'max:255'],
+            // Usuario al que se le ACREDITA el dinero en el destino (Traslado de
+            // Efectivo apuntando al efectivo de un usuario específico)
+            'destino_user_id' => ['nullable', 'string', 'exists:user,id'],
             'justificacion' => ['required', 'string', 'max:1000'],
             'comprobante' => ['nullable', 'string', 'max:255'],
             'numero_operacion' => ['nullable', 'string', 'max:100'],
