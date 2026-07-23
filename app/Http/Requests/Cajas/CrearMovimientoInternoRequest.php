@@ -18,7 +18,10 @@ class CrearMovimientoInternoRequest extends FormRequest
     {
         return [
             'sub_caja_origen_id' => ['required', 'integer', 'exists:sub_cajas,id'],
-            'sub_caja_destino_id' => ['required', 'integer', 'exists:sub_cajas,id', 'different:sub_caja_origen_id'],
+            // Puede ser la MISMA sub-caja cuando el destino es el efectivo de un
+            // usuario (destino_user_id): traslado de dinero cerrado → sesión.
+            // La regla se valida en withValidator.
+            'sub_caja_destino_id' => ['required', 'integer', 'exists:sub_cajas,id'],
             'monto' => ['required', 'numeric', 'min:0.01'],
             // Opcionales: el modal simple de "Movimiento Interno entre Sub-Cajas"
             // usa un CONCEPTO (etiqueta de solo nombre) en lugar de despliegues.
@@ -57,6 +60,16 @@ class CrearMovimientoInternoRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
+            // Misma sub-caja solo se permite cuando se acredita al efectivo de
+            // un usuario específico (destino_user_id)
+            if ($this->input('sub_caja_origen_id') == $this->input('sub_caja_destino_id')
+                && !$this->input('destino_user_id')) {
+                $validator->errors()->add(
+                    'sub_caja_destino_id',
+                    'La sub-caja destino debe ser diferente a la origen (salvo que el destino sea el efectivo de un usuario)'
+                );
+            }
+
             $this->validarCompatibilidadMetodoPago($validator);
         });
     }

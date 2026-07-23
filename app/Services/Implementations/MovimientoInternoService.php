@@ -24,9 +24,14 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 throw new \Exception('Usuario no autenticado');
             }
             
-            // Obtener sub-cajas
+            // Obtener sub-cajas. Si origen y destino son la MISMA sub-caja
+            // (traslado de dinero cerrado al efectivo de sesión de un usuario),
+            // reutilizar la misma instancia para que los ajustes de saldo no se
+            // pisen entre sí.
             $subCajaOrigen = SubCaja::with('cajaPrincipal.user')->findOrFail($dto->subCajaOrigenId);
-            $subCajaDestino = SubCaja::with('cajaPrincipal.user')->findOrFail($dto->subCajaDestinoId);
+            $subCajaDestino = $dto->subCajaDestinoId === $dto->subCajaOrigenId
+                ? $subCajaOrigen
+                : SubCaja::with('cajaPrincipal.user')->findOrFail($dto->subCajaDestinoId);
 
             // Obtener despliegues de pago (OPCIONALES: el modal simple usa un
             // CONCEPTO de solo nombre en lugar de despliegues reales)
@@ -62,45 +67,30 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 }
             }
 
-            // TRASLADO DE EFECTIVO: mover efectivo físico entre sub-cajas (ej. de
-            // Caja Chica a "efectivo negro" para poder pagar una compra). Como es
-            // dinero físicamente presente, se permite mover el TOTAL del saldo
-            // actual y NO aplica la regla de caja cerrada.
+            // TRASLADO DE EFECTIVO: mover efectivo entre despliegues de efectivo
+            // (o al efectivo de sesión de un usuario, incluso en la misma sub-caja).
             $esTrasladoEfectivo = $desplieguePagoOrigen && $desplieguePagoDestino
                 && str_contains(mb_strtoupper((string) ($desplieguePagoOrigen->metodoDePago?->name ?? $desplieguePagoOrigen->name)), 'EFECTIVO')
                 && str_contains(mb_strtoupper((string) ($desplieguePagoDestino->metodoDePago?->name ?? $desplieguePagoDestino->name)), 'EFECTIVO');
 
-            if (!$esTrasladoEfectivo) {
-                // REGLA: solo se puede mover dinero de sesiones CERRADAS. Lo generado
-                // durante la apertura activa (ventas/ingresos de hoy) recién se puede
-                // mover después de cerrar caja.
-                $saldoMovible = $this->calcularSaldoMovible($subCajaOrigen);
-                if ($dto->monto > $saldoMovible + 0.001) {
-                    throw new SaldoInsuficienteException(
-                        max($saldoMovible, 0),
-                        $dto->monto,
-                        "Solo puedes mover dinero de caja CERRADA. Disponible en {$subCajaOrigen->nombre}: S/ "
-                            . number_format(max($saldoMovible, 0), 2)
-                            . ' (lo generado en la sesión abierta se podrá mover al cerrar caja)'
-                    );
-                }
+            // REGLA GENERAL: en el ORIGEN solo se mueve el dinero CERRADO
+            // (acumulado de sesiones cerradas). Lo de la sesión abierta —incluido
+            // el monto con el que se aperturó— NO suma como origen; recién se
+            // podrá mover al cerrar caja.
+            $saldoMovible = $this->calcularSaldoMovible($subCajaOrigen);
+            if ($dto->monto > $saldoMovible + 0.001) {
+                throw new SaldoInsuficienteException(
+                    max($saldoMovible, 0),
+                    $dto->monto,
+                    "Solo puedes mover dinero de caja CERRADA. Disponible en {$subCajaOrigen->nombre}: S/ "
+                        . number_format(max($saldoMovible, 0), 2)
+                        . ' (lo de la sesión abierta se podrá mover al cerrar caja)'
+                );
             }
 
-            // Validar saldo suficiente en la sub-caja origen:
-            // - Traslado de efectivo: contra el saldo ACTUAL de la sub-caja (permite el total)
-            // - Con despliegue: saldo del vendedor en ese despliegue (flujo original)
-            // - Sin despliegue (concepto): saldo total de la sub-caja
-            if ($esTrasladoEfectivo) {
-                $saldoSubCaja = (float) $subCajaOrigen->saldo_actual;
-
-                if ($saldoSubCaja < $dto->monto) {
-                    throw new SaldoInsuficienteException(
-                        $saldoSubCaja,
-                        $dto->monto,
-                        "Saldo insuficiente en {$subCajaOrigen->nombre}: S/ " . number_format($saldoSubCaja, 2)
-                    );
-                }
-            } elseif ($desplieguePagoOrigen) {
+            // Flujo original con despliegues NO-efectivo: además valida el saldo
+            // del vendedor en ese despliegue.
+            if (!$esTrasladoEfectivo && $desplieguePagoOrigen) {
                 $saldoDisponibleVendedor = $this->calcularSaldoVendedorEnSubCaja(
                     $subCajaOrigen->id,
                     $userId,
@@ -112,16 +102,6 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                         $saldoDisponibleVendedor,
                         $dto->monto,
                         "Saldo insuficiente. Tu saldo disponible en {$subCajaOrigen->nombre} - {$desplieguePagoOrigen->name}: S/ {$saldoDisponibleVendedor}"
-                    );
-                }
-            } else {
-                $saldoSubCaja = (float) $subCajaOrigen->saldo_actual;
-
-                if ($saldoSubCaja < $dto->monto) {
-                    throw new SaldoInsuficienteException(
-                        $saldoSubCaja,
-                        $dto->monto,
-                        "Saldo insuficiente en {$subCajaOrigen->nombre}: S/ " . number_format($saldoSubCaja, 2)
                     );
                 }
             }
@@ -262,12 +242,19 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             ->where('fecha', '>=', $apertura->fecha_apertura)
             ->get();
 
-        $neto = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto')
-            - (float) $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+        // Dinero de la SESIÓN presente en la sub-caja: todos los ingresos de la
+        // sesión menos sus egresos, EXCLUYENDO los egresos por movimiento interno
+        // (esos salen del dinero cerrado por regla). Así, un traslado de cerrado
+        // → sesión reduce el movible y no se puede mover dos veces.
+        $ingresosSesion = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        $egresosSesion = (float) $transacciones
+            ->where('tipo_transaccion', 'egreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->sum('monto');
 
-        // Solo se descuenta lo GANADO en la sesión abierta; si la sesión gastó
-        // dinero cerrado (neto negativo), el movible es el saldo actual.
-        return $saldoActual - max($neto, 0);
+        $dineroSesion = $ingresosSesion - $egresosSesion;
+
+        return $saldoActual - max($dineroSesion, 0);
     }
 
     public function saldosDisponibles(): array
