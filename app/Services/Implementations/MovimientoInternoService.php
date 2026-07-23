@@ -263,12 +263,29 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             ->where('estado', true)
             ->get()
             ->map(function (SubCaja $subCaja) {
+                $cerrado = round(max($this->calcularSaldoMovible($subCaja), 0), 2);
+
+                // NO CERRADO = dinero de la sesión abierta presente en la sub-caja
+                // + el monto de APERTURA (si esta sub-caja es la de la apertura
+                // activa): todo lo que recién se consolida al cerrar caja.
+                $noCerrado = round(max((float) $subCaja->saldo_actual - $cerrado, 0), 2);
+
+                $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+                    ->where('estado', 'abierta')
+                    ->orderBy('fecha_apertura', 'desc')
+                    ->first();
+
+                if ($apertura && (int) $apertura->sub_caja_id === (int) $subCaja->id) {
+                    $noCerrado = round($noCerrado + (float) $apertura->monto_apertura, 2);
+                }
+
                 return [
                     'sub_caja_id' => $subCaja->id,
                     'nombre' => $subCaja->nombre,
                     'caja_principal_id' => $subCaja->caja_principal_id,
                     'saldo_actual' => (float) $subCaja->saldo_actual,
-                    'saldo_disponible' => round(max($this->calcularSaldoMovible($subCaja), 0), 2),
+                    'saldo_disponible' => $cerrado,
+                    'saldo_no_cerrado' => $noCerrado,
                 ];
             })
             ->toArray();
