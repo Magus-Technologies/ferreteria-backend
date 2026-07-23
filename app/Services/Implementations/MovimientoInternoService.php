@@ -254,7 +254,14 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
 
         $dineroSesion = $ingresosSesion - $egresosSesion;
 
-        return $saldoActual - max($dineroSesion, 0);
+        // El monto de APERTURA sale físicamente del dinero cerrado del cajón:
+        // también se descuenta del movible (evita aperturar con 80,000 y luego
+        // trasladar "otros" 80,000 cerrados que son el mismo dinero).
+        $montoApertura = ((int) $apertura->sub_caja_id === (int) $subCaja->id)
+            ? (float) $apertura->monto_apertura
+            : 0.0;
+
+        return $saldoActual - max($dineroSesion, 0) - $montoApertura;
     }
 
     public function saldosDisponibles(): array
@@ -265,19 +272,10 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             ->map(function (SubCaja $subCaja) {
                 $cerrado = round(max($this->calcularSaldoMovible($subCaja), 0), 2);
 
-                // NO CERRADO = dinero de la sesión abierta presente en la sub-caja
-                // + el monto de APERTURA (si esta sub-caja es la de la apertura
-                // activa): todo lo que recién se consolida al cerrar caja.
+                // NO CERRADO = todo lo demás del saldo: dinero de la sesión
+                // abierta + monto de apertura (el movible ya los descuenta).
+                // Así siempre se cumple: Cerrado + No Cerrado = Saldo total.
                 $noCerrado = round(max((float) $subCaja->saldo_actual - $cerrado, 0), 2);
-
-                $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-                    ->where('estado', 'abierta')
-                    ->orderBy('fecha_apertura', 'desc')
-                    ->first();
-
-                if ($apertura && (int) $apertura->sub_caja_id === (int) $subCaja->id) {
-                    $noCerrado = round($noCerrado + (float) $apertura->monto_apertura, 2);
-                }
 
                 return [
                     'sub_caja_id' => $subCaja->id,
