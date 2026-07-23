@@ -141,6 +141,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/', [MovimientoInternoController::class, 'store']);
         });
 
+        Route::get('/movimientos-internos/usuarios-con-saldo', [MovimientoInternoController::class, 'usuariosConSaldo']);
+
         // Conceptos de movimiento interno (catálogo de solo nombre; NO requiere caja abierta)
         Route::prefix('conceptos-movimiento')->group(function () {
             Route::get('/', [\App\Http\Controllers\Cajas\ConceptoMovimientoInternoController::class, 'index']);

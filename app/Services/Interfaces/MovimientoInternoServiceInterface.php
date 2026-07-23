@@ -27,4 +27,9 @@ interface MovimientoInternoServiceInterface
      * excluye lo generado durante la apertura activa (si la hay).
      */
     public function saldosDisponibles(): array;
+
+    /**
+     * Usuarios con saldo disponible de cierres cerrados, agrupado por sub-caja.
+     */
+    public function usuariosConSaldoDisponible(): array;
 }

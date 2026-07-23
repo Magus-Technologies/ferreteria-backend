@@ -286,6 +286,56 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             ->toArray();
     }
 
+    public function usuariosConSaldoDisponible(): array
+    {
+        $sesiones = AperturaCierreCaja::with('user')
+            ->get();
+
+        $result = [];
+
+        foreach ($sesiones as $sesion) {
+            $subCaja = SubCaja::find($sesion->sub_caja_id);
+            if (!$subCaja) continue;
+
+            $desplieguesPago = $subCaja->getDesplieguePagos();
+
+            foreach ($desplieguesPago as $despliegue) {
+                $esEfectivo = str_contains(mb_strtolower($despliegue->metodoDePago?->name ?? $despliegue->name), 'efectivo');
+                if (!$esEfectivo) continue;
+
+                $uniqueKey = "{$sesion->user_id}-{$subCaja->id}-{$despliegue->id}";
+
+                if (!isset($result[$uniqueKey])) {
+                    $banco = $despliegue->metodoDePago?->name ?? 'Sin Banco';
+                    $metodo = $despliegue->name;
+                    $titular = $despliegue->metodoDePago?->nombre_titular ?? '';
+                    $label = $titular
+                        ? "{$subCaja->nombre}/{$banco}/{$metodo}/{$titular}"
+                        : "{$subCaja->nombre}/{$banco}/{$metodo}";
+
+                    $result[$uniqueKey] = [
+                        'user_id' => $sesion->user_id,
+                        'user_name' => $sesion->user?->name ?? 'Usuario',
+                        'sub_caja_id' => $subCaja->id,
+                        'sub_caja_nombre' => $subCaja->nombre,
+                        'despliegue_pago_id' => $despliegue->id,
+                        'value' => "{$subCaja->id}-{$despliegue->id}",
+                        'label' => $label,
+                        'monto_disponible' => 0,
+                    ];
+                }
+
+                $monto = ($sesion->estado === 'cerrada')
+                    ? (float) ($sesion->monto_cierre_efectivo ?? 0)
+                    : (float) ($sesion->monto_apertura ?? 0);
+
+                $result[$uniqueKey]['monto_disponible'] += $monto;
+            }
+        }
+
+        return array_values($result);
+    }
+
     private function obtenerSaldoDespliegue(string $desplieguePagoId): float
     {
         $transacciones = TransaccionCaja::where('despliegue_pago_id', $desplieguePagoId)->get();

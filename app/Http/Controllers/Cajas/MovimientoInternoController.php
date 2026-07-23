@@ -54,6 +54,24 @@ class MovimientoInternoController extends Controller
     }
 
     /**
+     * Usuarios con saldo disponible de cierres cerrados
+     */
+    public function usuariosConSaldo(): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => $this->movimientoInternoService->usuariosConSaldoDisponible(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener usuarios con saldo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Listar depósitos de seguridad (Efectivo → Banco)
      */
     public function depositosSeguridad(): JsonResponse
