@@ -21,11 +21,14 @@ class TrasladoBoveda extends Model
         'monto',
         'justificacion',
         'fecha_traslado',
+        'estado',
+        'fecha_anulacion',
     ];
 
     protected $casts = [
         'monto' => 'decimal:2',
         'fecha_traslado' => 'datetime',
+        'fecha_anulacion' => 'datetime',
     ];
 
     /**

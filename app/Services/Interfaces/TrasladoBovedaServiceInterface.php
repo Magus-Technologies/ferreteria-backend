@@ -24,6 +24,8 @@ interface TrasladoBovedaServiceInterface
      */
     public function obtenerTrasladosPorCaja(string $aperturaCierreId): Collection;
 
+    public function obtenerTodosLosTrasladosPorCaja(string $aperturaCierreId): Collection;
+
     /**
      * Obtener el total trasladado de una caja
      *

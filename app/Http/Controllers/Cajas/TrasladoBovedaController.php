@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Cajas;
 
+use App\Events\ModelChanged;
 use App\Http\Controllers\Controller;
 use App\Services\Interfaces\TrasladoBovedaServiceInterface;
 use Illuminate\Http\JsonResponse;
@@ -55,6 +56,26 @@ class TrasladoBovedaController extends Controller
     {
         try {
             $traslados = $this->trasladoService->obtenerTrasladosPorCaja($aperturaCierreId);
+
+            return response()->json([
+                'success' => true,
+                'data' => $traslados
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener traslados: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener todos los traslados (incluyendo anulados) para historial
+     */
+    public function obtenerTodosPorCaja(string $aperturaCierreId): JsonResponse
+    {
+        try {
+            $traslados = $this->trasladoService->obtenerTodosLosTrasladosPorCaja($aperturaCierreId);
 
             return response()->json([
                 'success' => true,
@@ -136,6 +157,8 @@ class TrasladoBovedaController extends Controller
                 $validated['supervisor_id'] ?? null,
                 $validated['supervisor_password'] ?? null
             );
+
+            ModelChanged::dispatch('traslados-boveda', 'anulado', $trasladoId);
 
             return response()->json([
                 'success' => true,

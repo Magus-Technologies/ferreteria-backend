@@ -19,6 +19,7 @@ class CierreCajaPdfService
         // Traslados a Bóveda de esta caja (informativos: no afectan los totales)
         $trasladosBoveda = \App\Models\TrasladoBoveda::with(['vendedor', 'supervisor'])
             ->whereRaw('UPPER(apertura_cierre_caja_id) = ?', [strtoupper((string) $cierre->id)])
+            ->where('estado', 'activo')
             ->orderBy('fecha_traslado')
             ->get();
         $totalTrasladosBoveda = (float) $trasladosBoveda->sum('monto');

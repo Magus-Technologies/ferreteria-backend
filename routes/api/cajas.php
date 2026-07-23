@@ -184,6 +184,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Traslados a Bóveda
         Route::prefix('traslados-boveda')->group(function () {
             Route::get('/caja/{aperturaCierreId}', [TrasladoBovedaController::class, 'obtenerPorCaja']);
+            Route::get('/caja/{aperturaCierreId}/todos', [TrasladoBovedaController::class, 'obtenerTodosPorCaja']);
             Route::get('/{aperturaCierreId}/total', [TrasladoBovedaController::class, 'obtenerTotal']);
             Route::post('/', [TrasladoBovedaController::class, 'registrar']);
             Route::post('/validar-supervisor', [TrasladoBovedaController::class, 'validarSupervisor']);

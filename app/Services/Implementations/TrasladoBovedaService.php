@@ -139,7 +139,22 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
      * @param string $aperturaCierreId
      * @return Collection
      */
+    /**
+     * Obtener traslados activos de una caja (para cierre de caja, excludes anulados)
+     */
     public function obtenerTrasladosPorCaja(string $aperturaCierreId): Collection
+    {
+        return TrasladoBoveda::where('apertura_cierre_caja_id', $aperturaCierreId)
+            ->where('estado', 'activo')
+            ->with(['vendedor', 'supervisor', 'subCaja', 'desplieguePago.metodoDePago'])
+            ->orderBy('fecha_traslado', 'desc')
+            ->get();
+    }
+
+    /**
+     * Obtener todos los traslados (incluyendo anulados) - para historial
+     */
+    public function obtenerTodosLosTrasladosPorCaja(string $aperturaCierreId): Collection
     {
         return TrasladoBoveda::where('apertura_cierre_caja_id', $aperturaCierreId)
             ->with(['vendedor', 'supervisor', 'subCaja', 'desplieguePago.metodoDePago'])
@@ -156,6 +171,7 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
     public function obtenerTotalTrasladado(string $aperturaCierreId): float
     {
         return TrasladoBoveda::where('apertura_cierre_caja_id', $aperturaCierreId)
+            ->where('estado', 'activo')
             ->sum('monto');
     }
 
@@ -254,13 +270,17 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                 throw new Exception('No se puede anular un traslado de una caja cerrada.');
             }
 
+            // Verificar que el traslado no esté ya anulado
+            if ($traslado->estado === 'anulado') {
+                throw new Exception('Este traslado ya fue anulado anteriormente.');
+            }
+
             // 1. Eliminar transacciones de caja asociadas
             \App\Models\TransaccionCaja::where('referencia_id', $trasladoId)
                 ->where('referencia_tipo', 'traslado_boveda')
                 ->delete();
 
             // 2. Eliminar movimientos de caja asociados
-            // Buscamos por concepto similar ya que no hay una referencia_id formal en MovimientoCaja para traslados
             \App\Models\MovimientoCaja::where('apertura_cierre_id', $aperturaCierre->id)
                 ->where('sub_caja_id', $subCaja->id)
                 ->where('salida', $monto)
@@ -272,8 +292,10 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
             $subCaja->saldo_actual += $monto;
             $subCaja->save();
 
-            // 4. Eliminar el traslado
-            $traslado->delete();
+            // 4. Marcar el traslado como anulado (no se elimina)
+            $traslado->estado = 'anulado';
+            $traslado->fecha_anulacion = now();
+            $traslado->save();
 
             DB::commit();
             return true;

@@ -792,6 +792,7 @@ class ClasificadorMovimientos
             ->leftJoin('sub_cajas as sc', 'tb.sub_caja_id', '=', 'sc.id')
             ->leftJoin('user as u_supervisor', 'tb.supervisor_id', '=', 'u_supervisor.id')
             ->where('tb.apertura_cierre_caja_id', $apertura->id)
+            ->where('tb.estado', 'activo')
             ->select([
                 'tb.id',
                 'tb.monto',
