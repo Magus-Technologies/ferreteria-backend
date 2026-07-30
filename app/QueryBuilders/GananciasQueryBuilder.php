@@ -22,6 +22,16 @@ class GananciasQueryBuilder
     private const COSTO_UNIT_EXPR = '(CASE WHEN pav.costo > 0 THEN pav.costo ELSE pa.costo END) * udiv.factor';
 
     /**
+     * Descuento (en soles) aplicado a la LÍNEA de venta. udiv.descuento es un monto
+     * fijo cuando descuento_tipo <> 'porcentaje', o un % del subtotal de la línea
+     * cuando es 'porcentaje'. Se resta de la venta y de la ganancia para reflejar el
+     * neto real (lo que efectivamente cobró el negocio), igual que en "Mis Ventas".
+     */
+    private const DESCUENTO_EXPR = "CASE WHEN udiv.descuento_tipo = 'porcentaje'
+                THEN (udiv.precio * udiv.cantidad * udiv.descuento / 100)
+                ELSE COALESCE(udiv.descuento, 0) END";
+
+    /**
      * Query base para ventas con joins comunes
      */
     public static function baseVentasQuery()
@@ -75,10 +85,12 @@ class GananciasQueryBuilder
                 DB::raw("COALESCE(udi.name, 'UNIDAD') as unidad"),
                 DB::raw("udiv.cantidad as cant"),
                 DB::raw("udiv.precio as p_unit"),
-                DB::raw("udiv.precio * udiv.cantidad as subtot"),
+                // Descuento de la línea (soles); se resta del subtotal y de la ganancia.
+                DB::raw("(" . self::DESCUENTO_EXPR . ") as descuento_monto"),
+                DB::raw("(udiv.precio * udiv.cantidad) - (" . self::DESCUENTO_EXPR . ") as subtot"),
                 DB::raw(self::COSTO_UNIT_EXPR . " as costo"),
                 DB::raw(self::COSTO_UNIT_EXPR . " * udiv.cantidad as costo_total"),
-                DB::raw("(udiv.precio - (" . self::COSTO_UNIT_EXPR . ")) * udiv.cantidad as ganancia"),
+                DB::raw("((udiv.precio - (" . self::COSTO_UNIT_EXPR . ")) * udiv.cantidad) - (" . self::DESCUENTO_EXPR . ") as ganancia"),
                 // Despliegue de pago representativo de la venta. Con pagos mixtos
                 // se toma el de mayor monto (desempate por id) para no duplicar filas.
                 DB::raw("COALESCE((
@@ -111,9 +123,9 @@ class GananciasQueryBuilder
     {
         return self::baseVentasQuery()
             ->selectRaw('
-                SUM(udiv.precio * udiv.cantidad) as total_ventas,
+                SUM(udiv.precio * udiv.cantidad) - SUM(' . self::DESCUENTO_EXPR . ') as total_ventas,
                 SUM(' . self::COSTO_UNIT_EXPR . ' * udiv.cantidad) as total_costo,
-                SUM((udiv.precio - (' . self::COSTO_UNIT_EXPR . ')) * udiv.cantidad) as total_ganancia,
+                SUM((udiv.precio - (' . self::COSTO_UNIT_EXPR . ')) * udiv.cantidad) - SUM(' . self::DESCUENTO_EXPR . ') as total_ganancia,
                 COUNT(DISTINCT v.id) as total_transacciones,
                 SUM(CASE WHEN udiv.precio < (' . self::COSTO_UNIT_EXPR . ') THEN ((' . self::COSTO_UNIT_EXPR . ') - udiv.precio) * udiv.cantidad ELSE 0 END) as total_perdida
             ');
