@@ -614,7 +614,11 @@ class KardexFacturacionService
             $productoId, $almacenId, $desde, $hasta,
             $tipoDocExpr, $clienteNombreExpr
         ) {
-            $fechaCol       = $esAnulada ? 'e.fecha_anulacion' : 'e.fecha_creacion';
+            // `fecha_creacion` es DATE (sin hora → sale 12:00 AM y se desordena en el
+            // kardex). `created_at` tiene la hora real de la entrega (mismo día), así que
+            // se usa esa para la columna Fecha, para mostrar la hora y ordenar bien.
+            // `fecha_anulacion` ya es timestamp (con hora), se deja igual.
+            $fechaCol       = $esAnulada ? 'e.fecha_anulacion' : 'e.created_at';
             $movimientoExpr = $esAnulada ? "'ENTREGA ANULADA'" : "'ENTREGA'";
 
             $q = DB::table('entrega as e')
