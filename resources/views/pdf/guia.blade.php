@@ -27,7 +27,7 @@
                 $i + 1,
                 $d['codigo'],
                 $d['nombre'],
-                number_format($d['cantidad'], 0),
+                \App\Helpers\Formato::cantidad($d['cantidad']),
                 $d['unidad'],
                 $d['peso'] > 0 ? number_format($d['peso'], 2) : '-',
             ];

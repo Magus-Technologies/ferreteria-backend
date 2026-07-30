@@ -157,7 +157,7 @@
                 @foreach($detalles as $i => $d)
                 <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
                     <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['nombre'] }}</td>
-                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ number_format($d['cantidad'], 0) }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ \App\Helpers\Formato::cantidad($d['cantidad']) }}</td>
                     <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['unidad'] }}</td>
                     <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['peso'] > 0 ? number_format($d['peso'], 2) : '-' }}</td>
                 </tr>

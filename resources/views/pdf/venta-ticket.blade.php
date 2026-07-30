@@ -172,7 +172,7 @@
                             <span style="display:inline-block; background:#000; color:#fff; padding:1px 4px; border-radius:2px; font-size:5pt; font-weight:bold; margin-left:2px;">GRATIS</span>
                         @endif
                     </td>
-                    <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['cantidad'], 0) }}</td>
+                    <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
                     <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ $p['unidad'] }}</td>
                     <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ !empty($p['es_gratis']) ? '—' : number_format($p['precio'], 2) }}</td>
                     <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ !empty($p['es_gratis']) ? '0.00' : number_format($p['subtotal'], 2) }}</td>

@@ -159,7 +159,7 @@
             <td style="{{ $bloques['tabla_fila']['css'] ?? '' }}">{{ $p['codigo'] }}</td>
             <td style="{{ $bloques['tabla_fila']['css'] ?? '' }}">{{ $p['nombre'] }}</td>
             <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ $p['unidad'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ number_format($p['cantidad'], 0) }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
             @if($mostrarRecibido)
             <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} text-align: center;">{{ number_format($p['recibido'], 0) }}</td>
             @endif

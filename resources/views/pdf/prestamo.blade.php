@@ -56,7 +56,7 @@
             $fila = [$i + 1];
             if (in_array('ubicacion', $colsSel)) $fila[] = $almacenNombre;
             if (in_array('codigo', $colsSel)) $fila[] = $p['codigo'];
-            if (in_array('cantidad', $colsSel)) $fila[] = number_format($p['cantidad'], 0);
+            if (in_array('cantidad', $colsSel)) $fila[] = \App\Helpers\Formato::cantidad($p['cantidad']);
             if (in_array('unidad', $colsSel)) $fila[] = $p['unidad'];
             if (in_array('producto', $colsSel)) $fila[] = $p['nombre'];
             if (in_array('costo', $colsSel)) $fila[] = number_format($p['costo'], 2);

@@ -30,7 +30,7 @@
                 $i + 1,
                 'A1',
                 $p['codigo'],
-                number_format($p['cantidad'], 0),
+                \App\Helpers\Formato::cantidad($p['cantidad']),
                 $p['unidad'],
                 $p['nombre'],
                 number_format($p['precio'], 2),

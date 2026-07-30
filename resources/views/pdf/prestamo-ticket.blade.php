@@ -157,7 +157,7 @@
                     @foreach($colsActivas as $c)
                     <td style="{{ $cssTablaFila }} padding: 3px 0;">
                         @if($c === 'producto'){{ $p['nombre'] }}
-                        @elseif($c === 'cantidad'){{ number_format($p['cantidad'], 0) }}
+                        @elseif($c === 'cantidad'){{ \App\Helpers\Formato::cantidad($p['cantidad']) }}
                         @elseif($c === 'unidad'){{ $p['unidad'] }}
                         @elseif($c === 'costo'){{ number_format($p['costo'], 2) }}
                         @elseif($c === 'importe'){{ number_format($p['subtotal'], 2) }}
