@@ -23,6 +23,12 @@ class Formato
      */
     public static function cantidad($valor, int $maxDecimales = 3): string
     {
+        // Un string ya formateado ("1,500") se castearia a 1.0 y el documento
+        // imprimiria una cantidad completamente equivocada, en silencio.
+        if (is_string($valor)) {
+            $valor = str_replace(',', '', $valor);
+        }
+
         $numero = round((float) $valor, $maxDecimales);
 
         // Entera: se imprime igual que antes, sin ".00" de relleno.

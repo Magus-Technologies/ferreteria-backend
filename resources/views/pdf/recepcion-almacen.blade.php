@@ -60,7 +60,7 @@
         'moneda' => '',
         'observaciones' => $observaciones,
         'totales' => [
-            ['label' => 'TOTAL ITEMS', 'valor' => number_format($total, 0)],
+            ['label' => 'TOTAL ITEMS', 'valor' => \App\Helpers\Formato::cantidad($total)],
         ],
     ])
 

@@ -168,7 +168,7 @@
     <table style="margin-top: 4px;">
         <tr style="border-top: 2px solid {{ $est['color_borde'] ?? '#000' }}; background-color: #f0f0f0;">
             <td style="{{ $bloques['total_label']['css'] ?? '' }} padding: 4px;">TOTAL ITEMS</td>
-            <td style="{{ $bloques['total_valor']['css'] ?? '' }} padding: 4px;">{{ number_format($total, 0) }}</td>
+            <td style="{{ $bloques['total_valor']['css'] ?? '' }} padding: 4px;">{{ \App\Helpers\Formato::cantidad($total) }}</td>
         </tr>
     </table>
 
