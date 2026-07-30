@@ -25,8 +25,11 @@ class PagoCompraPdfService
         $proveedorNombre = $proveedor?->razon_social ?? 'Sin proveedor';
         $proveedorRuc = $proveedor?->ruc ?? '-';
 
+        // tipo_documento está casteado al enum TipoDocumento; usar ->value para no
+        // pasar el enum como clave de array (provocaba "Illegal offset type" → 500).
+        $tipoDocValue = $compra->tipo_documento?->value ?? '';
         $tipoDocMap = ['01' => 'FACTURA', '03' => 'BOLETA', 'gr' => 'GUÍA REMISIÓN'];
-        $tipoDoc = $tipoDocMap[$compra->tipo_documento ?? ''] ?? ($compra->tipo_documento ?? '');
+        $tipoDoc = $tipoDocMap[$tipoDocValue] ?? $tipoDocValue;
         $nroDocumento = ($compra->serie ?? '') . '-' . str_pad($compra->numero ?? 0, 8, '0', STR_PAD_LEFT);
 
         $totalCompra = $this->calcularTotalCompra($compra);
