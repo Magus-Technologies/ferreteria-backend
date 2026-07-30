@@ -2226,6 +2226,138 @@ class VentaController extends Controller
             // No fallar la venta si hay error al registrar en caja
         }
     }
+
+    /**
+     * Registrar un COBRO de venta al crédito en la caja (igual que una venta al
+     * contado): sube el saldo de la sub-caja y deja rastro en transacciones_caja y
+     * movimiento_caja. Sin esto, el efectivo cobrado no entra a la caja y no aparece
+     * en "efectivo disponible" (traslado a bóveda) ni en el cierre.
+     * Envuelto en try/catch para NO romper el cobro si algo falla en la caja.
+     */
+    private function registrarCobroEnCaja($venta, $cobro, string $desplieguePagoId, float $monto, string $userId): void
+    {
+        try {
+            // 1. Apertura del usuario que cobra; si no tiene, cualquier apertura abierta.
+            $apertura = AperturaCierreCaja::where('user_id', $userId)
+                ->where('estado', 'abierta')
+                ->first();
+            if (! $apertura) {
+                $apertura = AperturaCierreCaja::where('estado', 'abierta')
+                    ->orderBy('fecha_apertura', 'desc')
+                    ->first();
+            }
+
+            $despliegue = DespliegueDePago::with('metodoDePago')->findOrFail($desplieguePagoId);
+            $tipoComprobante = $venta->tipo_documento->value;
+
+            // 2. Resolver sub-caja con la misma prioridad que una venta.
+            $subCaja = null;
+            if ($apertura) {
+                $subCaja = $this->buscarSubCajaParaMetodoPago(
+                    $apertura->caja_principal_id,
+                    $desplieguePagoId,
+                    $tipoComprobante
+                );
+                if (! $subCaja) {
+                    $subCaja = SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
+                        ->where('tipo_caja', 'CC')
+                        ->whereJsonContains('tipos_comprobante', $tipoComprobante)
+                        ->first();
+                }
+            }
+            if (! $subCaja) {
+                $subCaja = $this->buscarSubCajaGlobalParaMetodoPago($desplieguePagoId, $tipoComprobante);
+            }
+            if (! $subCaja || ! $subCaja->aceptaComprobante($tipoComprobante)) {
+                return;
+            }
+
+            // 3. Subir el saldo de la sub-caja.
+            $saldoAnterior = $subCaja->saldo_actual;
+            $subCaja->saldo_actual += $monto;
+            $subCaja->save();
+
+            // 4. Rastro en transacciones_caja (lo que lee "efectivo disponible" y el cierre).
+            TransaccionCaja::create([
+                'id' => (string) Str::ulid(),
+                'sub_caja_id' => $subCaja->id,
+                'tipo_transaccion' => 'ingreso',
+                'monto' => $monto,
+                'saldo_anterior' => $saldoAnterior,
+                'saldo_nuevo' => $subCaja->saldo_actual,
+                'descripcion' => "Cobro venta {$venta->serie}-{$venta->numero}",
+                'referencia_id' => $cobro->id,
+                'referencia_tipo' => 'cobro',
+                'user_id' => $userId,
+                'despliegue_pago_id' => $desplieguePagoId,
+                'fecha' => now(),
+            ]);
+
+            // 5. Movimiento de caja (solo si hay apertura).
+            if ($apertura) {
+                $clienteNombre = $venta->cliente->razon_social ?? $venta->cliente->nombres ?? 'Cliente';
+
+                MovimientoCaja::create([
+                    'id' => (string) Str::ulid(),
+                    'apertura_cierre_id' => $apertura->id,
+                    'caja_principal_id' => $apertura->caja_principal_id,
+                    'sub_caja_id' => $subCaja->id,
+                    'cajero_id' => $userId,
+                    'fecha_hora' => now(),
+                    'tipo_movimiento' => 'cobro',
+                    'concepto' => "Cobro venta {$venta->serie}-{$venta->numero} - Cliente: {$clienteNombre}",
+                    'saldo_inicial' => $saldoAnterior,
+                    'ingreso' => $monto,
+                    'salida' => 0,
+                    'saldo_final' => $subCaja->saldo_actual,
+                    'estado_caja' => 'abierta',
+                    'tipo_comprobante' => $tipoComprobante,
+                    'numero_comprobante' => "{$venta->serie}-{$venta->numero}",
+                    'metodo_pago_id' => $despliegue->metodo_de_pago_id,
+                    'referencia_id' => $cobro->id,
+                    'referencia_tipo' => 'cobro',
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('No se pudo registrar el cobro en caja', [
+                'cobro_id' => $cobro->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Revertir en caja un cobro que se anula: baja el saldo de la sub-caja y elimina
+     * los rastros (transacciones_caja + movimiento_caja) del cobro, de modo que el
+     * efectivo anulado deje de figurar como disponible o como ingreso del cierre.
+     */
+    private function revertirCobroEnCaja($cobro): void
+    {
+        try {
+            $transacciones = TransaccionCaja::where('referencia_id', $cobro->id)
+                ->where('referencia_tipo', 'cobro')
+                ->get();
+
+            foreach ($transacciones as $tc) {
+                $subCaja = SubCaja::find($tc->sub_caja_id);
+                if ($subCaja) {
+                    $subCaja->saldo_actual -= (float) $tc->monto;
+                    $subCaja->save();
+                }
+                $tc->delete();
+            }
+
+            MovimientoCaja::where('referencia_id', $cobro->id)
+                ->where('referencia_tipo', 'cobro')
+                ->delete();
+        } catch (\Throwable $e) {
+            \Log::warning('No se pudo revertir el cobro en caja', [
+                'cobro_id' => $cobro->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
     /**
      * Buscar sub-caja que acepte un método de pago específico
      * Prioriza sub-cajas más específicas sobre las que aceptan "*"
@@ -2900,6 +3032,16 @@ class VentaController extends Controller
                 'user_id'               => $validated['user_id'],
             ]);
 
+            // Registrar el ingreso en la caja (efectivo/otros métodos) para que el
+            // dinero cobrado entre al saldo, aparezca en "efectivo disponible" y en el cierre.
+            $this->registrarCobroEnCaja(
+                $venta,
+                $cobro,
+                $validated['despliegue_de_pago_id'],
+                (float) $validated['monto'],
+                $validated['user_id']
+            );
+
             // El estado de la venta permanece en Creado; el saldo se calcula
             // dinámicamente a partir del total cobrado vs. el total de la venta.
 
@@ -2980,6 +3122,15 @@ class VentaController extends Controller
                     'user_id'               => $validated['user_id'],
                 ]);
 
+                // Registrar el ingreso en la caja, igual que en el cobro individual.
+                $this->registrarCobroEnCaja(
+                    $venta,
+                    $cobro,
+                    $desplieguePagoId,
+                    (float) $item['monto'],
+                    $validated['user_id']
+                );
+
                 // El estado de la venta permanece en Creado; el saldo se calcula
                 // dinámicamente a partir del total cobrado vs. el total de la venta.
 
@@ -3032,9 +3183,12 @@ class VentaController extends Controller
             $cobro->update([
                 'estado' => false,
                 'fecha_anulacion' => now()->toDateString(),
-                'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '') . 
+                'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '') .
                                  'ANULADO: ' . ($validated['motivo'] ?? 'Sin motivo especificado'),
             ]);
+
+            // Revertir el ingreso en caja (baja el saldo y borra los rastros del cobro).
+            $this->revertirCobroEnCaja($cobro);
 
             // Recalcular el total cobrado (solo cobros activos)
             $totalVenta = $this->getTotalVenta($venta);
