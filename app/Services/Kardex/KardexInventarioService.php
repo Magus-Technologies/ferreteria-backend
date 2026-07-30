@@ -529,9 +529,16 @@ class KardexInventarioService
 
         $total = $query->count();
 
-        // Obtener TODAS las filas ordenadas por ID descendente (más recientes primero)
-        // Sin lógica adicional, solo como se registraron
-        $allRows = $query->orderBy('id', 'desc')->get();
+        // Ordenar por la HORA EFECTIVA del movimiento descendente (lo más reciente primero).
+        // Algunos movimientos (ingresos/cuadre ENTRADA) guardan `fecha` solo con fecha
+        // (00:00, sin hora real); en esos casos la hora real está en `created_at`. Por eso
+        // se ordena por `fecha` cuando tiene hora, y por `created_at` cuando es medianoche.
+        // El id desc queda como desempate estable. (Ordenar solo por `fecha` mandaba al
+        // fondo ingresos que en realidad fueron los últimos del día.)
+        $allRows = $query
+            ->orderByRaw("(CASE WHEN TIME(fecha) = '00:00:00' THEN created_at ELSE fecha END) DESC")
+            ->orderBy('id', 'desc')
+            ->get();
 
         // Si proveedor_nombre está vacío pero proveedor_id existe, buscar el nombre
         // También agregar unidades_contenidas del producto

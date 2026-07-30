@@ -27,10 +27,10 @@ class AnalisisPerdidasService
             ? $this->calcularPerdidasDescuentos($filter) 
             : ['detalles' => [], 'total' => 0];
 
-        // 3. Pérdidas por Comisiones
-        $perdidasComisiones = ($tipo === 'todas' || $tipo === 'comisiones') 
-            ? $this->calcularPerdidasComisiones($filter) 
-            : ['detalles' => [], 'total' => 0];
+        // 3. Comisiones: YA NO se consideran pérdida. Son un GASTO OPERATIVO y se
+        // reportan en "Gastos" (card Gastos U + modal de Gastos). Se dejan vacías aquí
+        // para no contarlas doble.
+        $perdidasComisiones = ['detalles' => [], 'total' => 0];
 
         // 4. Pérdidas por Salidas de Almacén
         $perdidasSalidas = ($tipo === 'todas' || $tipo === 'salidas') 
@@ -79,11 +79,6 @@ class AnalisisPerdidasService
                     'categoria' => 'Descuentos Aplicados',
                     'monto' => round($perdidasDescuentos['total'], 2),
                     'cantidad' => count($perdidasDescuentos['detalles']),
-                ],
-                [
-                    'categoria' => 'Comisiones de Vendedor',
-                    'monto' => round($perdidasComisiones['total'], 2),
-                    'cantidad' => count($perdidasComisiones['detalles']),
                 ],
                 [
                     'categoria' => 'Salidas de Almacén',

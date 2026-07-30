@@ -487,23 +487,31 @@ class GananciasService implements GananciasServiceInterface
         $filter->applyGastosCompras($queryGastosCompras);
         $gastosCompras = $queryGastosCompras->get();
 
-        // Comisiones a vendedores (solo pagadas/confirmadas)
-        $queryComisiones = DB::table('comision_pago as cp')
-            ->join('user as u', 'cp.user_id', '=', 'u.id')
+        // Comisiones GENERADAS por ventas del período (mismo criterio que la card
+        // "Gastos U" y el reporte de comisiones por vendedor): SUM(comision * cantidad)
+        // por vendedor. Antes se usaba comision_pago (comisión PAGADA), que quedaba en 0
+        // si aún no se liquidaba, y por eso el modal no mostraba la fila aunque la card sí
+        // la sumaba. Una fila por vendedor con comisión > 0.
+        $queryComisiones = DB::table('venta as v')
+            ->join('productoalmacenventa as pav', 'pav.venta_id', '=', 'v.id')
+            ->join('unidadderivadainmutableventa as udiv', 'udiv.producto_almacen_venta_id', '=', 'pav.id')
+            ->join('user as u', 'u.id', '=', 'v.user_id')
+            ->where('v.estado_de_venta', '!=', 'an')
+            ->when(!empty($filtros['desde']), fn($q) => $q->whereDate('v.fecha', '>=', $filtros['desde']))
+            ->when(!empty($filtros['hasta']), fn($q) => $q->whereDate('v.fecha', '<=', $filtros['hasta']))
+            ->when(!empty($filtros['almacen_id']), fn($q) => $q->where('v.almacen_id', $filtros['almacen_id']))
+            ->groupBy('v.user_id', 'u.name')
+            ->havingRaw('SUM(udiv.comision * udiv.cantidad) > 0')
             ->select([
-                'cp.id',
-                'cp.fecha_pago as fecha',
-                'cp.monto_pagado as monto',
-                DB::raw("CONCAT('Comisión a ', u.name, ' (', DATE_FORMAT(cp.periodo_desde, '%d/%m/%Y'), ' - ', DATE_FORMAT(cp.periodo_hasta, '%d/%m/%Y'), ')') as descripcion"),
+                DB::raw('MIN(v.id) as id'),
+                DB::raw('MAX(v.fecha) as fecha'),
+                DB::raw('SUM(udiv.comision * udiv.cantidad) as monto'),
+                DB::raw("CONCAT('Comisión generada - ', u.name) as descripcion"),
                 DB::raw("'COMISIÓN VENDEDOR' as tipo_gasto"),
                 DB::raw("'comision_vendedor' as tipo"),
                 'u.name as vendedor',
-                'cp.metodo_pago',
-                'cp.observacion'
-            ])
-            ->orderBy('cp.fecha_pago', 'desc');
+            ]);
 
-        $filter->applyComisiones($queryComisiones);
         $comisiones = $queryComisiones->get();
 
         $todosGastos = $gastosExtras->concat($gastosCompras)->concat($comisiones)->sortByDesc('fecha')->values();
