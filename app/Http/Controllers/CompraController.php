@@ -1606,7 +1606,9 @@ class CompraController extends Controller
 
             $pago->update([
                 'estado' => false,
-                'fecha_anulacion' => now()->toDateString(),
+                // Guardar con hora (la columna es datetime) para que el kardex de finanzas
+                // muestre la hora real de la anulación, no 12:00 AM.
+                'fecha_anulacion' => now()->format('Y-m-d H:i:s'),
                 'observacion' => ($pago->observacion ? $pago->observacion . ' | ' : '') .
                                  'ANULADO: ' . ($validated['motivo'] ?? 'Sin motivo especificado'),
             ]);
