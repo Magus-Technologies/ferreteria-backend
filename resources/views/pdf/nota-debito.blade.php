@@ -21,7 +21,7 @@
                 $itemNum++,
                 $p['codigo'],
                 $p['nombre'],
-                number_format($p['cantidad'], 0),
+                \App\Helpers\Formato::cantidad($p['cantidad']),
                 $p['unidad'],
                 number_format($p['precio'], 2),
                 number_format($p['subtotal'], 2),

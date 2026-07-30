@@ -33,7 +33,7 @@
                 $itemNum++,
                 'A1',
                 $p['codigo'],
-                number_format($p['cantidad'], 0),
+                \App\Helpers\Formato::cantidad($p['cantidad']),
                 $p['unidad'],
                 (!empty($p['paquete_id']) ? '  ' : '') . $p['nombre'] . ($esGratis ? '  [GRATIS]' : ''),
                 $esGratis ? '—' : number_format($p['precio'], 2),

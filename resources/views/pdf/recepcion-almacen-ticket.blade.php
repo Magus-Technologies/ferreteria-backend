@@ -159,7 +159,7 @@
             <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding-top: 2px;">{{ $p['codigo'] }}</td>
             <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding-top: 2px;">{{ $p['bonificacion'] ? '* ' : '' }}{{ $p['nombre'] }}</td>
             <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-top: 2px;">{{ $p['unidad'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-top: 2px;">{{ number_format($p['cantidad'], 0) }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-top: 2px;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
         </tr>
         @endforeach
     </table>

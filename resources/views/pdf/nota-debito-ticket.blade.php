@@ -80,7 +80,7 @@
                 @foreach($productos as $p)
                 <tr style="border-bottom: 1px solid #000;">
                     <td style="padding:3px 0; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ $p['nombre'] }}</td>
-                    <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['cantidad'], 0) }}</td>
+                    <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
                     <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['precio'], 2) }}</td>
                     <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['subtotal'], 2) }}</td>
                 </tr>

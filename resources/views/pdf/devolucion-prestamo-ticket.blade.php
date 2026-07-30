@@ -122,7 +122,7 @@
                 <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
                     <td style="{{ $cssTablaFila }} padding: 3px 0;">{{ $p['nombre'] }}</td>
                     <td style="{{ $cssTablaFila }} padding: 3px 0;">{{ $p['unidad'] }}</td>
-                    <td style="{{ $cssTablaFila }} padding: 3px 0; text-align: right;">{{ number_format($p['cantidad'], 0) }}</td>
+                    <td style="{{ $cssTablaFila }} padding: 3px 0; text-align: right;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
                 </tr>
                 @endforeach
             </tbody>

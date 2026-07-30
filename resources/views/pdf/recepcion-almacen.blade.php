@@ -34,7 +34,7 @@
                 $p['codigo'],
                 ($p['bonificacion'] ? '* ' : '') . $p['nombre'],
                 $p['unidad'],
-                number_format($p['cantidad'], 0),
+                \App\Helpers\Formato::cantidad($p['cantidad']),
                 $p['stock_anterior_f'],
                 $p['stock_nuevo_f'],
             ];

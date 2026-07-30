@@ -47,7 +47,7 @@
                 $p['codigo'],
                 $p['nombre'],
                 $p['unidad'],
-                number_format($p['cantidad'], 0),
+                \App\Helpers\Formato::cantidad($p['cantidad']),
             ];
         })->toArray();
     @endphp
