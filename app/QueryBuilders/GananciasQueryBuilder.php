@@ -48,8 +48,11 @@ class GananciasQueryBuilder
     public static function reporteDetalladoQuery()
     {
         return self::baseVentasQuery()
-            ->leftJoin('desplieguedepagoventa as dpv', 'v.id', '=', 'dpv.venta_id')
-            ->leftJoin('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
+            // NO se hace join con desplieguedepagoventa: una venta puede tener
+            // VARIAS filas de despliegue de pago (pagos mixtos, desde que se quitó
+            // el unique venta+despliegue), y el join multiplicaría cada línea de
+            // producto → ganancias duplicadas. El método de pago se resuelve por
+            // subconsulta (columna `cc`) para mantener una fila por línea.
             ->leftJoin('unidadderivadainmutable as udi', 'udiv.unidad_derivada_inmutable_id', '=', 'udi.id')
             ->select([
                 DB::raw("DATE_FORMAT(v.fecha, '%d/%m/%Y') as fecha"),
@@ -76,7 +79,15 @@ class GananciasQueryBuilder
                 DB::raw(self::COSTO_UNIT_EXPR . " as costo"),
                 DB::raw(self::COSTO_UNIT_EXPR . " * udiv.cantidad as costo_total"),
                 DB::raw("(udiv.precio - (" . self::COSTO_UNIT_EXPR . ")) * udiv.cantidad as ganancia"),
-                DB::raw("COALESCE(dp.id, 'SIN_METODO') as cc"),
+                // Despliegue de pago representativo de la venta. Con pagos mixtos
+                // se toma el de mayor monto (desempate por id) para no duplicar filas.
+                DB::raw("COALESCE((
+                    SELECT dpv.despliegue_de_pago_id
+                    FROM desplieguedepagoventa dpv
+                    WHERE dpv.venta_id = v.id
+                    ORDER BY dpv.monto DESC, dpv.despliegue_de_pago_id ASC
+                    LIMIT 1
+                ), 'SIN_METODO') as cc"),
                 // Cobranza — usados por el reporte de VENTAS AL CRÉDITO.
                 // "Por cobrar" NO se calcula acá: el total del comprobante se arma
                 // sumando sus líneas, así que el front hace (total − total_pagado).

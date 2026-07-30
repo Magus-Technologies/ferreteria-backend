@@ -301,7 +301,16 @@ class GananciasQueryFilter
     private function porConfirmarCaja($query): void
     {
         if (!empty($this->filtros['confirmar_caja'])) {
-            $query->where('dp.id', $this->filtros['confirmar_caja']);
+            // Se filtra con whereExists (no join) para no multiplicar filas cuando
+            // la venta tiene varios despliegues de pago. Además funciona tanto en la
+            // query detallada como en la de resumen, que no incluyen el join a `dp`.
+            $desplieguePagoId = $this->filtros['confirmar_caja'];
+            $query->whereExists(function ($sub) use ($desplieguePagoId) {
+                $sub->select(DB::raw(1))
+                    ->from('desplieguedepagoventa as dpv')
+                    ->whereColumn('dpv.venta_id', 'v.id')
+                    ->where('dpv.despliegue_de_pago_id', $desplieguePagoId);
+            });
         }
     }
 
