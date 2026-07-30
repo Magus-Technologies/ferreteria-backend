@@ -136,6 +136,10 @@ class AnalisisPerdidasService
                 DB::raw("COALESCE(u.name, 'SISTEMA') as vendedor"),
                 'udiv.cantidad',
                 'udiv.precio as precio_venta',
+                // Factor de conversión unidad derivada → unidad base. Los costos se
+                // guardan por unidad base y el precio por unidad derivada, así que hay
+                // que llevar el costo a unidad derivada (costo × factor) antes de comparar.
+                'udiv.factor',
                 DB::raw("$costoFallback as costo_fallback"),
                 // Desglose PEPS guardado en la venta (lote anterior / actual).
                 'pav.cant_costo_anterior',
@@ -173,7 +177,11 @@ class AnalisisPerdidasService
             // No contar ventas administrativas ("no descontar stock").
             ->whereRaw('(v.descuenta_stock IS NULL OR v.descuenta_stock = 1)')
             // Traer filas donde AL MENOS un costo (lote anterior/actual o fallback) supera el precio.
-            ->whereRaw("udiv.precio < GREATEST(COALESCE(pav.costo_anterior,0), COALESCE(pav.costo_actual,0), $costoFallback)");
+            // Los costos están por unidad base → se llevan a unidad derivada (× factor) para
+            // compararlos contra udiv.precio (por unidad derivada). Sin esto, productos vendidos
+            // por fracción (factor < 1) salían como "bajo costo" falsamente, y ventas por caja
+            // (factor > 1) realmente bajo costo se escapaban.
+            ->whereRaw("udiv.precio < GREATEST(COALESCE(pav.costo_anterior,0), COALESCE(pav.costo_actual,0), $costoFallback) * COALESCE(NULLIF(udiv.factor,0),1)");
 
         $filter->applyPerdidas($query, 'venta');
         $rows = $query->get();
@@ -207,13 +215,22 @@ class AnalisisPerdidasService
         };
 
         foreach ($rows as $r) {
-            $precio = (float) $r->precio_venta;
-            $cantAnt = (float) ($r->cant_costo_anterior ?? 0);
-            $cantAct = (float) ($r->cant_costo_actual ?? 0);
-            $costoAnt = (float) ($r->costo_anterior ?? 0);
-            $costoAct = (float) ($r->costo_actual ?? 0);
+            $precio = (float) $r->precio_venta;            // por unidad derivada
+            $factor = (float) ($r->factor ?? 1);           // unidad derivada → base
+            if ($factor <= 0) {
+                $factor = 1;
+            }
 
-            $tieneDesglose = ($cantAnt + $cantAct) > 0;
+            // Cantidades del desglose (cant_costo_*) están en unidad BASE; los costos
+            // (costo_*) por unidad BASE. Para comparar contra el precio (por unidad
+            // derivada) se lleva el costo a unidad derivada (× factor) y la cantidad a
+            // unidad derivada (÷ factor).
+            $cantAntBase = (float) ($r->cant_costo_anterior ?? 0);
+            $cantActBase = (float) ($r->cant_costo_actual ?? 0);
+            $costoAntDeriv = (float) ($r->costo_anterior ?? 0) * $factor;
+            $costoActDeriv = (float) ($r->costo_actual ?? 0) * $factor;
+
+            $tieneDesglose = ($cantAntBase + $cantActBase) > 0;
 
             // Evitar duplicar el desglose si el pav aparece en varias filas (varias U.D.).
             if ($tieneDesglose && isset($pavDesgloseProcesado[$r->pav_id])) {
@@ -223,23 +240,26 @@ class AnalisisPerdidasService
             if ($tieneDesglose) {
                 $pavDesgloseProcesado[$r->pav_id] = true;
                 // Fila del lote ANTERIOR (si hubo consumo y está bajo costo).
-                if ($cantAnt > 0 && $costoAnt > $precio) {
-                    $monto = ($costoAnt - $precio) * $cantAnt;
-                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO (lote anterior)', $cantAnt, $costoAnt, $monto);
+                if ($cantAntBase > 0 && $costoAntDeriv > $precio) {
+                    $cantDeriv = $cantAntBase / $factor;
+                    $monto = ($costoAntDeriv - $precio) * $cantDeriv;
+                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO (lote anterior)', $cantDeriv, $costoAntDeriv, $monto);
                     $total += $monto;
                 }
                 // Fila del lote ACTUAL.
-                if ($cantAct > 0 && $costoAct > $precio) {
-                    $monto = ($costoAct - $precio) * $cantAct;
-                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO (lote actual)', $cantAct, $costoAct, $monto);
+                if ($cantActBase > 0 && $costoActDeriv > $precio) {
+                    $cantDeriv = $cantActBase / $factor;
+                    $monto = ($costoActDeriv - $precio) * $cantDeriv;
+                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO (lote actual)', $cantDeriv, $costoActDeriv, $monto);
                     $total += $monto;
                 }
             } else {
-                // Sin desglose (venta previa a esta función): una sola fila con el costo guardado.
-                $costo = (float) $r->costo_fallback;
-                if ($costo > $precio) {
-                    $monto = ($costo - $precio) * (float) $r->cantidad;
-                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO', (float) $r->cantidad, $costo, $monto);
+                // Sin desglose (venta previa a esta función): una sola fila con el costo
+                // guardado, llevado a unidad derivada. udiv.cantidad ya está en derivada.
+                $costoDeriv = (float) $r->costo_fallback * $factor;
+                if ($costoDeriv > $precio) {
+                    $monto = ($costoDeriv - $precio) * (float) $r->cantidad;
+                    $detalles[] = $armarFila($r, 'VENTA BAJO COSTO', (float) $r->cantidad, $costoDeriv, $monto);
                     $total += $monto;
                 }
             }
