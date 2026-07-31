@@ -292,9 +292,19 @@ class GananciasQueryFilter
 
     private function porSerieNumero($query): void
     {
-        if (!empty($this->filtros['serie']) && !empty($this->filtros['numero'])) {
-            $query->where('ce.serie', $this->filtros['serie'])
-                ->where('ce.correlativo', $this->filtros['numero']);
+        // Se filtra por serie y/o número de forma independiente (antes exigía ambos, así
+        // que escribir solo el número no filtraba nada). El número puede ser el correlativo
+        // del comprobante electrónico o el número de la venta (para notas de venta sin CE).
+        if (!empty($this->filtros['serie'])) {
+            $query->where('ce.serie', $this->filtros['serie']);
+        }
+
+        if (!empty($this->filtros['numero'])) {
+            $numero = $this->filtros['numero'];
+            $query->where(function ($q) use ($numero) {
+                $q->where('ce.correlativo', $numero)
+                    ->orWhere('v.numero', $numero);
+            });
         }
     }
 
