@@ -22,6 +22,7 @@ class GananciasQueryFilter
         $this->porBusqueda($query);
         $this->porProductoId($query);
         $this->porProductoServicio($query);
+        $this->porMarcaId($query);
         $this->porMarca($query);
         $this->porFormaPago($query, $prefijo);
         $this->porTipoDocumento($query, $prefijo);
@@ -275,6 +276,14 @@ class GananciasQueryFilter
     {
         if (!empty($this->filtros['producto_servicio'])) {
             $query->where('p.name', 'like', '%' . $this->filtros['producto_servicio'] . '%');
+        }
+    }
+
+    private function porMarcaId($query): void
+    {
+        // Filtro exacto por marca (id), usado por el SelectMarcas del filtro.
+        if (!empty($this->filtros['marca_id'])) {
+            $query->where('p.marca_id', $this->filtros['marca_id']);
         }
     }
 

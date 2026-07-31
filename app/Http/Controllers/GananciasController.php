@@ -28,6 +28,7 @@ class GananciasController extends Controller
             'producto_id' => 'sometimes|integer',
             'producto_servicio' => 'sometimes|string',
             'marca' => 'sometimes|string',
+            'marca_id' => 'sometimes|integer',
             'forma_pago' => 'sometimes|string',
             'tipo_doc' => 'sometimes|string',
             'serie' => 'sometimes|string',
@@ -42,7 +43,7 @@ class GananciasController extends Controller
 
         $filtros = $request->only([
             'almacen_id', 'desde', 'hasta', 'cliente_id', 'search', 'user_id', 'producto_id',
-            'producto_servicio', 'marca', 'forma_pago', 'tipo_doc', 'serie',
+            'producto_servicio', 'marca', 'marca_id', 'forma_pago', 'tipo_doc', 'serie',
             'numero', 'sucursal', 'confirmar_caja', 'mostrar_hora', 'incluir'
         ]);
 
@@ -73,6 +74,7 @@ class GananciasController extends Controller
             'producto_id' => 'sometimes|integer',
             'producto_servicio' => 'sometimes|string',
             'marca' => 'sometimes|string',
+            'marca_id' => 'sometimes|integer',
             'forma_pago' => 'sometimes|string',
             'tipo_doc' => 'sometimes|string',
             'serie' => 'sometimes|string',
@@ -82,7 +84,7 @@ class GananciasController extends Controller
 
         $filtros = $request->only([
             'almacen_id', 'desde', 'hasta', 'cliente_id', 'search', 'user_id', 'producto_id',
-            'producto_servicio', 'marca', 'forma_pago', 'tipo_doc', 'serie',
+            'producto_servicio', 'marca', 'marca_id', 'forma_pago', 'tipo_doc', 'serie',
             'numero', 'sucursal'
         ]);
 
