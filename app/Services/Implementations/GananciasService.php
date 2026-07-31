@@ -31,6 +31,17 @@ class GananciasService implements GananciasServiceInterface
         // se separa en una fila por costo, con su costo y ganancia reales.
         $datos = $this->expandirPorLotes($datos);
 
+        // Si se filtró por Despliegue de Pago, TODAS las filas devueltas tienen ese
+        // despliegue (el filtro usa whereExists). Se muestra el filtrado en la columna CC
+        // para que coincida con el filtro; si no, en pagos mixtos la CC mostraba el
+        // despliegue de mayor monto (que puede ser otro) y parecía inconsistente.
+        if (!empty($filtros['confirmar_caja'])) {
+            $ccFiltrado = $filtros['confirmar_caja'];
+            $datos->each(function ($row) use ($ccFiltrado) {
+                $row->cc = $ccFiltrado;
+            });
+        }
+
         // Calcular resumen de la página actual
         $resumen = $this->calcularResumenDatos($datos);
 
@@ -180,6 +191,12 @@ class GananciasService implements GananciasServiceInterface
         // compra_id resuelta por lote (null si el origen no es una compra) — para poder
         // exponer F.Vence/Tipo/Forma de pago/Proveedor/Registrador en la fila de subtotal.
         $compraIdPorLote = collect();
+        // Maps de compras/proveedores/usuarios: se inicializan aquí (no solo dentro del if)
+        // porque los usan los closures de abajo con `use(...)`. Si no hay lotes ($loteIds
+        // vacío) el if no corre y quedarían indefinidos → "Undefined variable $comprasMap".
+        $comprasMap = collect();
+        $proveedoresMap = collect();
+        $usuariosCompraMap = collect();
 
         if (!empty($loteIds)) {
             $lotesInfo = DB::table('productoalmacen_lote')
