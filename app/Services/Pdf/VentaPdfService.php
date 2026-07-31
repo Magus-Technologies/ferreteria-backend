@@ -452,8 +452,27 @@ class VentaPdfService
                 $cantidad = (float) $ud->cantidad;
                 $precio = (float) $ud->precio;
                 $recargo = (float) ($ud->recargo ?? 0);
-                $descuento = (float) ($ud->descuento ?? 0);
                 $subtotal = ($precio + $recargo) * $cantidad;
+
+                // La linea guarda la CONFIGURACION del descuento, no soles:
+                // con tipo '%' el valor es la TASA (15 = 15%). Antes se tomaba
+                // crudo, asi que un 15% se imprimia como S/ 15.00 y ademas
+                // arrastraba el total del documento (ver calcularTotales).
+                // Formula espejo del front (cards-info-venta.tsx, "Total Descuento").
+                $descuentoTipo = $ud->descuento_tipo ?? 'm';
+                $descuentoConfig = (float) ($ud->descuento ?? 0);
+
+                if ($descuentoTipo === '%') {
+                    $descuento = ($precio + $recargo) * $descuentoConfig * $cantidad / 100;
+                } else {
+                    // Monto fijo: es el total de la linea. Excepcion: en los
+                    // sub-productos de un paquete el monto es POR UNIDAD.
+                    $descuento = $pa->paquete_id
+                        ? $descuentoConfig * $cantidad
+                        : $descuentoConfig;
+                }
+
+                $descuento = round($descuento, 2);
 
                 $productos[] = [
                     'producto_id' => $producto->id,
@@ -465,6 +484,9 @@ class VentaPdfService
                     'cantidad' => $cantidad,
                     'precio' => $precio + $recargo,
                     'descuento' => $descuento,
+                    // Para que el ticket pueda rotular "Dscto. 15%" y no solo el monto.
+                    'descuento_tipo' => $descuentoTipo,
+                    'descuento_tasa' => $descuentoTipo === '%' ? $descuentoConfig : 0,
                     'subtotal' => $subtotal,
                     'sobrecargo_porcentaje' => 0,
                     'sobrecargo_valor' => 0,
@@ -503,6 +525,8 @@ class VentaPdfService
                 'cantidad' => (float) $sv->cantidad,
                 'precio' => (float) $sv->precio_unitario,
                 'descuento' => 0,
+                'descuento_tipo' => 'm',
+                'descuento_tasa' => 0,
                 'subtotal' => (float) $sv->subtotal,
                 'sobrecargo_porcentaje' => 0,
                 'sobrecargo_valor' => 0,
