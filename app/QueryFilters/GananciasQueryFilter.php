@@ -20,6 +20,7 @@ class GananciasQueryFilter
         $this->porCliente($query);
         $this->porUsuario($query);
         $this->porBusqueda($query);
+        $this->porProductoId($query);
         $this->porProductoServicio($query);
         $this->porMarca($query);
         $this->porFormaPago($query, $prefijo);
@@ -259,6 +260,14 @@ class GananciasQueryFilter
                     ->orWhere('c.razon_social', 'like', $search)
                     ->orWhere(DB::raw("CONCAT(c.nombres, ' ', c.apellidos)"), 'like', $search);
             });
+        }
+    }
+
+    private function porProductoId($query): void
+    {
+        // Filtro exacto por producto (id), usado por el SelectProductos del filtro.
+        if (!empty($this->filtros['producto_id'])) {
+            $query->where('pa.producto_id', $this->filtros['producto_id']);
         }
     }
 
