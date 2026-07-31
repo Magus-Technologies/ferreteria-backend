@@ -379,21 +379,16 @@ class GananciasService implements GananciasServiceInterface
 
             $n = $consumos->count();
             $i = 0;
-            // Descuento total de la línea, a repartir entre los lotes en proporción a
-            // la cantidad de cada uno, para no perderlo ni duplicarlo al desglosar.
-            $descuentoLinea = (float) ($row->descuento_monto ?? 0);
             foreach ($consumos as $c) {
                 $i++;
                 $cl = (float) $c->cantidad;
                 $costoUnit = (float) $c->costo;
-                $descuentoLote = $cant > 0 ? $descuentoLinea * ($cl / $cant) : 0;
 
                 $fila = clone $row;
                 $fila->cant = $cl;
                 $fila->costo = $costoUnit;
                 $fila->costo_total = $costoUnit * $cl;
-                $fila->descuento_monto = $descuentoLote;
-                $fila->subtot = (float) $row->p_unit * $cl - $descuentoLote;
+                $fila->subtot = (float) $row->p_unit * $cl;
                 $fila->ganancia = $fila->subtot - $fila->costo_total;
                 $fila->desglose_lote = "Lote {$i}/{$n}";
                 $fila->documento_pagado = $documentoPorLote->get($c->lote_id);
@@ -492,7 +487,9 @@ class GananciasService implements GananciasServiceInterface
         $filter->applyGastosCompras($queryGastosCompras);
         $gastosCompras = $queryGastosCompras->get();
 
-        // Comisiones a vendedores (solo pagadas/confirmadas)
+        // Comisiones: SOLO las PAGADAS (comision_pago). Una comisión generada pero NO
+        // pagada todavía no es un gasto real, así que no debe aparecer ni sumar en Gastos.
+        // Si no hay ninguna pagada en el período, no sale fila de comisión.
         $queryComisiones = DB::table('comision_pago as cp')
             ->join('user as u', 'cp.user_id', '=', 'u.id')
             ->select([
