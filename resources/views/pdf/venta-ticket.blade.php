@@ -165,7 +165,17 @@
                     @if(empty($p['paquete_id']) && $paqueteActual !== null)
                         @php $paqueteActual = null; @endphp
                     @endif
-                <tr style="border-bottom: 1px solid #000;{{ !empty($p['es_gratis']) ? ' background-color: #fff3cd;' : ($i % 2 !== 0 ? ' background-color: #f9f9f9;' : '') }}">
+                @php
+                    // Fondo compartido por la fila del producto y su sub-linea de
+                    // descuento, para que el rayado alterno se lea como un bloque.
+                    $bgFila = !empty($p['es_gratis'])
+                        ? ' background-color: #fff3cd;'
+                        : ($i % 2 !== 0 ? ' background-color: #f9f9f9;' : '');
+                    // El borde inferior baja a la sub-linea cuando existe; si no,
+                    // quedaria una raya separando al producto de su propio descuento.
+                    $tieneDscto = ($p['descuento'] ?? 0) > 0 && empty($p['es_gratis']);
+                @endphp
+                <tr style="{{ $tieneDscto ? '' : 'border-bottom: 1px solid #000;' }}{{ $bgFila }}">
                     <td style="padding:3px 0;{{ !empty($p['paquete_id']) ? ' padding-left:6px;' : '' }} {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">
                         {{ $p['nombre'] }}
                         @if(!empty($p['es_gratis']))
@@ -177,6 +187,14 @@
                     <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ !empty($p['es_gratis']) ? '—' : number_format($p['precio'], 2) }}</td>
                     <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ !empty($p['es_gratis']) ? '0.00' : number_format($p['subtotal'], 2) }}</td>
                 </tr>
+                @if($tieneDscto)
+                <tr style="border-bottom: 1px solid #000;{{ $bgFila }}">
+                    <td colspan="4" style="padding:0 0 3px 6px; color:#666; font-size:5pt;">
+                        Dscto.@if(($p['descuento_tipo'] ?? 'm') === '%') {{ \App\Helpers\Formato::cantidad($p['descuento_tasa'] ?? 0, 2) }}%@endif
+                    </td>
+                    <td style="padding:0 0 3px 0; text-align:right; color:#666; font-size:5pt;">-{{ number_format($p['descuento'], 2) }}</td>
+                </tr>
+                @endif
                 @endforeach
             </tbody>
         </table>
