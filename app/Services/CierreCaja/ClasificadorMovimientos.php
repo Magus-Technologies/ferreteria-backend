@@ -281,15 +281,12 @@ class ClasificadorMovimientos
                         'monto_inicial' // ✅ EXCLUIR montos iniciales de bancos
                     ]);
             })
-            // Los ingresos por movimiento interno solo cuentan si entran a la
-            // SUB-CAJA DE LA SESIÓN (ej. traslado de efectivo recibido en Caja
-            // Chica). Los que entran a OTRAS sub-cajas (ej. dinero cerrado
-            // movido a "efectivo negro") no son ingresos de esta sesión.
-            ->where(function ($query) use ($apertura) {
-                $query->whereNull('tc.referencia_tipo')
-                    ->orWhere('tc.referencia_tipo', '!=', 'movimiento_interno')
-                    ->orWhere('tc.sub_caja_id', $apertura->sub_caja_id);
-            })
+            // Todo traslado de efectivo RECIBIDO por este usuario (movimiento_interno,
+            // ingreso) cuenta como Otros Ingresos del cierre, sin importar a qué sub-caja
+            // entró (Caja Chica, "efectivo negro", etc.) — el traslado SÍ afecta la caja.
+            // Antes se exigía que entrara justo a la sub-caja de la sesión abierta, y los
+            // traslados a otras sub-cajas del usuario quedaban fuera del cierre aunque
+            // fueran dinero real recibido.
             ->where('tc.fecha', '>=', $fechaInicio)
             ->where('tc.fecha', '<=', $fechaFin)
             ->select([

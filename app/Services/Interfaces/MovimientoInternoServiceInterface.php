@@ -17,6 +17,14 @@ interface MovimientoInternoServiceInterface
     public function listarMovimientos(string|int $userId): array;
 
     /**
+     * Listar los movimientos internos de TODAS las sub-cajas de una caja principal
+     * (sin importar qué usuario los hizo). Usado por el tab "Traslado de Efectivo"
+     * del modal de sub-cajas: listarMovimientos() filtra por usuario logueado, así
+     * que un admin viendo la caja de otro vendedor no veía nada aunque sí existieran.
+     */
+    public function listarMovimientosPorCajaPrincipal(int $cajaPrincipalId): array;
+
+    /**
      * Listar depósitos de seguridad (Efectivo → Banco/Billetera)
      */
     public function listarDepositosSeguridad(string|int $userId): array;

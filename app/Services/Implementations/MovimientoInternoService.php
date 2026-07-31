@@ -181,6 +181,45 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         })->toArray();
     }
 
+    public function listarMovimientosPorCajaPrincipal(int $cajaPrincipalId): array
+    {
+        // Un movimiento pertenece a esta caja principal si su sub-caja de origen O de
+        // destino le pertenece (cubre traslados dentro de la misma caja general y los
+        // que mueven dinero hacia/desde otra caja principal).
+        $subCajaIds = SubCaja::where('caja_principal_id', $cajaPrincipalId)->pluck('id');
+
+        $movimientos = MovimientoInterno::with([
+            'subCajaOrigen',
+            'subCajaDestino',
+            'desplieguePagoOrigen.metodoDePago',
+            'desplieguePagoDestino.metodoDePago',
+            'user'
+        ])
+        ->where(function ($q) use ($subCajaIds) {
+            $q->whereIn('sub_caja_origen_id', $subCajaIds)
+                ->orWhereIn('sub_caja_destino_id', $subCajaIds);
+        })
+        ->orderBy('fecha', 'desc')
+        ->get();
+
+        return $movimientos->map(function ($mov) {
+            return [
+                'id' => $mov->id,
+                'sub_caja_origen' => $mov->subCajaOrigen->nombre,
+                'sub_caja_destino' => $mov->subCajaDestino->nombre,
+                'metodo_origen' => $mov->desplieguePagoOrigen?->name ?? $mov->concepto ?? '-',
+                'banco_origen' => $mov->desplieguePagoOrigen?->metodoDePago?->name ?? '-',
+                'metodo_destino' => $mov->desplieguePagoDestino?->name ?? $mov->concepto ?? '-',
+                'banco_destino' => $mov->desplieguePagoDestino?->metodoDePago?->name ?? '-',
+                'concepto' => $mov->concepto,
+                'monto' => $mov->monto,
+                'justificacion' => $mov->justificacion,
+                'fecha' => $mov->fecha,
+                'vendedor' => $mov->user->name,
+            ];
+        })->toArray();
+    }
+
     public function listarDepositosSeguridad(string|int $userId): array
     {
         // Filtrar solo movimientos donde origen es efectivo y destino es banco/billetera

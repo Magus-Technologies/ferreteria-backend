@@ -36,6 +36,28 @@ class MovimientoInternoController extends Controller
     }
 
     /**
+     * Listar movimientos internos (Traslado de Efectivo) de una caja principal
+     * completa, sin importar qué usuario los hizo. Usado por el tab "Traslado de
+     * Efectivo" del modal de sub-cajas.
+     */
+    public function porCajaPrincipal(int $cajaPrincipalId): JsonResponse
+    {
+        try {
+            $movimientos = $this->movimientoInternoService->listarMovimientosPorCajaPrincipal($cajaPrincipalId);
+
+            return response()->json([
+                'success' => true,
+                'data' => $movimientos,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener movimientos: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Saldos disponibles para movimiento interno (solo dinero de caja CERRADA)
      */
     public function saldosDisponibles(): JsonResponse

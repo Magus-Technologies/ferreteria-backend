@@ -143,6 +143,7 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         Route::get('/movimientos-internos/usuarios-con-saldo', [MovimientoInternoController::class, 'usuariosConSaldo']);
+        Route::get('/movimientos-internos/por-caja-principal/{cajaPrincipalId}', [MovimientoInternoController::class, 'porCajaPrincipal']);
 
         // Conceptos de movimiento interno (catálogo de solo nombre; NO requiere caja abierta)
         Route::prefix('conceptos-movimiento')->group(function () {
