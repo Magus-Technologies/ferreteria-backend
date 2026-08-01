@@ -472,7 +472,8 @@ class KardexFacturacionService
         ?string $hasta,
         ?string $tipo,
         int $perPage = 50,
-        int $page = 1
+        int $page = 1,
+        ?int $clienteId = null
     ) {
         $query = DB::table('kardex_facturacions')
             ->leftJoin('producto', 'kardex_facturacions.producto_id', '=', 'producto.id')
@@ -480,6 +481,10 @@ class KardexFacturacionService
 
         if ($productoId) {
             $query->where('producto_id', $productoId);
+        }
+
+        if ($clienteId) {
+            $query->where('kardex_facturacions.cliente_id', $clienteId);
         }
 
         if ($almacenId) {
@@ -502,7 +507,7 @@ class KardexFacturacionService
         $kardexRows = $query->orderBy('fecha', 'asc')->orderBy('orden', 'asc')->get()->toArray();
 
         // Obtener filas de entregas hechas y anuladas
-        $entregaRows = $this->getEntregasParaKardex($productoId, $almacenId, $desde, $hasta);
+        $entregaRows = $this->getEntregasParaKardex($productoId, $almacenId, $desde, $hasta, $clienteId);
 
         // Combinar y ordenar por fecha asc, luego por orden
         $allRows = array_merge($kardexRows, $entregaRows);
@@ -596,7 +601,8 @@ class KardexFacturacionService
         ?int $productoId,
         ?int $almacenId,
         ?string $desde,
-        ?string $hasta
+        ?string $hasta,
+        ?int $clienteId = null
     ): array {
         $tipoDocExpr = "CONCAT(CASE v.tipo_documento
             WHEN '01' THEN 'Factura'
@@ -611,7 +617,7 @@ class KardexFacturacionService
         END";
 
         $buildQuery = function (bool $esAnulada) use (
-            $productoId, $almacenId, $desde, $hasta,
+            $productoId, $almacenId, $desde, $hasta, $clienteId,
             $tipoDocExpr, $clienteNombreExpr
         ) {
             // `fecha_creacion` es DATE (sin hora → sale 12:00 AM y se desordena en el
@@ -682,6 +688,10 @@ class KardexFacturacionService
 
             if ($productoId) {
                 $q->where('pa.producto_id', $productoId);
+            }
+
+            if ($clienteId) {
+                $q->where('v.cliente_id', $clienteId);
             }
 
             return $q->get()->toArray();
