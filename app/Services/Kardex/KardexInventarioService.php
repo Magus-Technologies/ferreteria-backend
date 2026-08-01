@@ -503,12 +503,17 @@ class KardexInventarioService
         ?string $hasta,
         ?string $tipo,
         int $perPage = 50,
-        int $page = 1
+        int $page = 1,
+        ?int $proveedorId = null
     ) {
         $query = DB::table('kardex_inventarios');
 
         if ($productoId) {
             $query->where('producto_id', $productoId);
+        }
+
+        if ($proveedorId) {
+            $query->where('proveedor_id', $proveedorId);
         }
 
         if ($almacenId) {

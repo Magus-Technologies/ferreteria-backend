@@ -13,6 +13,7 @@ class KardexInventarioController extends Controller
     {
         $request->validate([
             'producto_id' => 'nullable|integer',
+            'proveedor_id' => 'nullable|integer',
             'almacen_id' => 'nullable|integer',
             'desde' => 'nullable|date',
             'hasta' => 'nullable|date',
@@ -28,7 +29,8 @@ class KardexInventarioController extends Controller
             $request->hasta,
             $request->tipo,
             $request->per_page ?? 50,
-            $request->page ?? 1
+            $request->page ?? 1,
+            $request->proveedor_id
         );
     }
 }
