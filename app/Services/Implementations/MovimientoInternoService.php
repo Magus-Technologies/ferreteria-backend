@@ -42,29 +42,14 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 ? DespliegueDePago::with('metodoDePago')->findOrFail($dto->despliegueDePagoDestinoId)
                 : null;
 
-            // Obtener usuario actual
-            $user = \App\Models\User::find($userId);
-            
-            if (!$user) {
+            // Validar que el usuario exista. El control de quién puede registrar un
+            // movimiento interno lo maneja el sistema de permisos (guard de la ruta),
+            // no una comparación de dueño de la caja principal: "Caja General" es
+            // compartida entre varios vendedores (por apertura/distribución) y ninguno
+            // de ellos es el "user_id" dueño del registro de caja_principal, así que esa
+            // validación bloqueaba a TODO vendedor no-admin sin importar qué eligiera.
+            if (!\App\Models\User::where('id', $userId)->exists()) {
                 throw new \Exception('Usuario no encontrado');
-            }
-            
-            // Validar permisos:
-            // - Si es admin, puede mover dinero entre cualquier sub-caja
-            // - Si no es admin, solo puede mover entre sus propias sub-cajas
-            // El admin puede venir por rol de Spatie O por el campo rol_sistema
-            // (así se modela ADMINISTRADOR en esta app; hasRole('admin') daba
-            // false y bloqueaba a los administradores reales).
-            $esAdmin = $user->hasRole('admin')
-                || $user->hasRole('administrador')
-                || $user->hasRole('super-admin')
-                || in_array(mb_strtoupper((string) ($user->rol_sistema ?? '')), ['ADMIN', 'ADMINISTRADOR', 'SUPER-ADMIN', 'SUPERADMIN'], true);
-
-            if (!$esAdmin) {
-                if ($subCajaOrigen->cajaPrincipal->user_id !== $userId ||
-                    $subCajaDestino->cajaPrincipal->user_id !== $userId) {
-                    throw new \Exception('Solo puedes mover dinero entre tus propias sub-cajas');
-                }
             }
 
             // TRASLADO DE EFECTIVO: mover efectivo entre despliegues de efectivo
