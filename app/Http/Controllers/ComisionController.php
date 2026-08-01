@@ -7,6 +7,7 @@ use App\Models\ComisionPagoVenta;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ComisionController extends Controller
 {
@@ -33,6 +34,9 @@ class ComisionController extends Controller
             ->join('unidadderivadainmutableventa as udiv', 'udiv.producto_almacen_venta_id', '=', 'pav.id')
             ->join('user as u', 'u.id', '=', 'v.user_id')
             ->where('v.estado_de_venta', '!=', 'an')
+            // Mismo filtro que detalleVendedor: si no se exige comision > 0 el
+            // conteo de ventas del listado no coincide con el detalle.
+            ->where('udiv.comision', '>', 0)
             ->when($desde, fn($q) => $q->whereDate('v.fecha', '>=', $desde))
             ->when($hasta, fn($q) => $q->whereDate('v.fecha', '<=', $hasta))
             ->when($almacenId, fn($q) => $q->where('v.almacen_id', $almacenId))
@@ -48,14 +52,32 @@ class ComisionController extends Controller
             ->get()
             ->keyBy('user_id');
 
-        $pagado = DB::table('comision_pago')
-            ->when($desde, fn($q) => $q->whereDate('fecha_pago', '>=', $desde))
-            ->when($hasta, fn($q) => $q->whereDate('fecha_pago', '<=', $hasta))
-            ->when($userIdFilter, fn($q) => $q->where('user_id', $userIdFilter))
-            ->groupBy('user_id')
+        // Lo pagado se mide sobre LAS MISMAS lineas que lo generado (via
+        // comision_pago_venta), igual que detalleVendedor.
+        //
+        // Antes se sumaba comision_pago.monto_pagado filtrando por `fecha_pago`,
+        // que es un campo DISTINTO de `v.fecha`. Eso producia dos sintomas:
+        //  - Un pago hecho dentro del rango por comisiones generadas FUERA del
+        //    rango se restaba de una comision que no estaba => "pendiente -5"
+        //    con el detalle vacio.
+        //  - Al filtrar por almacen se restaban pagos de TODOS los almacenes
+        //    (comision_pago no tiene almacen_id) contra las ventas de uno solo.
+        // Ademas monto_pagado incluye el excedente que registrarPago no llegaba
+        // a aplicar a ninguna linea. Para la vista de caja ("cuanto se pago en
+        // este periodo") esta historialPagos, que sigue filtrando por fecha_pago.
+        $pagado = DB::table('comision_pago_venta as cpv')
+            ->join('unidadderivadainmutableventa as udiv', 'udiv.id', '=', 'cpv.unidad_derivada_venta_id')
+            ->join('productoalmacenventa as pav', 'pav.id', '=', 'udiv.producto_almacen_venta_id')
+            ->join('venta as v', 'v.id', '=', 'pav.venta_id')
+            ->where('v.estado_de_venta', '!=', 'an')
+            ->when($desde, fn($q) => $q->whereDate('v.fecha', '>=', $desde))
+            ->when($hasta, fn($q) => $q->whereDate('v.fecha', '<=', $hasta))
+            ->when($almacenId, fn($q) => $q->where('v.almacen_id', $almacenId))
+            ->when($userIdFilter, fn($q) => $q->where('v.user_id', $userIdFilter))
+            ->groupBy('v.user_id')
             ->select([
-                'user_id',
-                DB::raw('COALESCE(SUM(monto_pagado), 0) as comision_pagada'),
+                'v.user_id',
+                DB::raw('COALESCE(SUM(cpv.monto_aplicado), 0) as comision_pagada'),
             ])
             ->get()
             ->keyBy('user_id');
@@ -279,6 +301,20 @@ class ComisionController extends Controller
                 ]);
 
                 $disponible = round($disponible - $aplicar, 2);
+            }
+
+            // Si sobra plata es que se intento pagar MAS de lo que el vendedor
+            // tiene pendiente. Antes el excedente se descartaba en silencio: no
+            // quedaba en comision_pago_venta pero SI en comision_pago.monto_pagado,
+            // y el listado terminaba mostrando un pendiente negativo (ej. -5) con
+            // el detalle vacio. Se rechaza; la transaccion revierte el pago.
+            if ($disponible > 0.001) {
+                throw ValidationException::withMessages([
+                    'monto_pagado' => sprintf(
+                        'El monto excede la comisión pendiente del vendedor en S/ %s. Reduzca el monto a pagar.',
+                        number_format($disponible, 2)
+                    ),
+                ]);
             }
 
             $pago->load(['vendedor:id,name,email', 'pagadoPor:id,name']);
