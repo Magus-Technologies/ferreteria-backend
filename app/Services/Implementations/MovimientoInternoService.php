@@ -202,7 +202,21 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         ->orderBy('fecha', 'desc')
         ->get();
 
-        return $movimientos->map(function ($mov) {
+        // El usuario AL QUE se le acreditó el dinero no se guarda en movimientos_internos
+        // (esa tabla solo tiene el user_id de quien REALIZÓ el traslado); se resuelve desde
+        // la transacción de INGRESO que registrarTransacciones() crea en transacciones_caja
+        // (referencia_id = movimiento.id, referencia_tipo = 'movimiento_interno').
+        $movimientoIds = $movimientos->pluck('id');
+        $usuariosDestinoPorMovimiento = $movimientoIds->isEmpty() ? collect() : DB::table('transacciones_caja as tc')
+            ->join('user as u', 'tc.user_id', '=', 'u.id')
+            ->whereIn('tc.referencia_id', $movimientoIds)
+            ->where('tc.referencia_tipo', 'movimiento_interno')
+            ->where('tc.tipo_transaccion', 'ingreso')
+            ->select('tc.referencia_id', 'u.name')
+            ->get()
+            ->keyBy('referencia_id');
+
+        return $movimientos->map(function ($mov) use ($usuariosDestinoPorMovimiento) {
             return [
                 'id' => $mov->id,
                 'sub_caja_origen' => $mov->subCajaOrigen->nombre,
@@ -215,7 +229,10 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 'monto' => $mov->monto,
                 'justificacion' => $mov->justificacion,
                 'fecha' => $mov->fecha,
+                // Quién REALIZÓ el traslado.
                 'vendedor' => $mov->user->name,
+                // A quién se le acreditó el dinero (si no se resolvió, es el mismo usuario).
+                'usuario_destino' => $usuariosDestinoPorMovimiento->get($mov->id)?->name ?? $mov->user->name,
             ];
         })->toArray();
     }
