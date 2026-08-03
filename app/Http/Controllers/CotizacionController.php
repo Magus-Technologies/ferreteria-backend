@@ -625,7 +625,11 @@ class CotizacionController extends Controller
             'almacen_id'       => $cotizacion->almacen_id,
             'descripcion'      => "Convertida desde cotización {$cotizacion->numero}",
             // Si la cotización ya reservó stock, avisar a store para no descontar de nuevo
+            // (fallback; store() prioriza `cotizacion_id` de abajo y verifica en BD).
             'stock_ya_aplicado' => (bool) $cotizacion->reservar_stock,
+            // store() usa esto para verificar reservar_stock directo en la BD y para
+            // liberar la reserva (reservar_stock=false) una vez que la venta la consume.
+            'cotizacion_id'    => $cotizacion->id,
             // En Tienda por defecto; la entrega se auto-crea en store()
             'tipo_despacho'    => 'et',
             'productos_por_almacen' => $productosPorAlmacen,
@@ -732,6 +736,10 @@ class CotizacionController extends Controller
         $cotizacion->update([
             'venta_id' => $request->venta_id,
             'estado_cotizacion' => 'co',
+            // El stock reservado por esta cotización ya es propiedad de la venta
+            // recién vinculada (haya descontado de nuevo o no): la reserva queda
+            // cerrada. Evita que el cron `reservas:liberar-expiradas` la devuelva.
+            'reservar_stock' => false,
         ]);
 
         // Actualizar la descripción de la venta para que muestre el número de cotización

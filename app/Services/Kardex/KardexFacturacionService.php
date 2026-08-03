@@ -63,7 +63,17 @@ class KardexFacturacionService
         $costoNominal = isset($data['costo']) ? (float) $data['costo'] : 0;
 
         // 6. Preparar datos finales para persistencia
-        $nuevoSaldoBase = $saldoAnteriorBase + $cantIngresoBase - $cantSalidaBase;
+        // Si el stock físico ya fue afectado ANTES de este movimiento (ej. venta creada
+        // desde una cotización que reservó el stock: la salida ya ocurrió al reservar, no
+        // ahora), `stock_actual_override` fuerza el saldo a NO volver a descontar aquí —
+        // la fila igual muestra `salida` para reportes de venta, pero el stock resultante
+        // es el mismo que el anterior (no queda negativo por un descuento fantasma).
+        if (isset($data['stock_actual_override'])) {
+            $nuevoSaldoBase = (float) $data['stock_actual_override'];
+            unset($data['stock_actual_override']);
+        } else {
+            $nuevoSaldoBase = $saldoAnteriorBase + $cantIngresoBase - $cantSalidaBase;
+        }
 
         $dataToSave = array_merge($data, [
             'stock_anterior' => $saldoAnteriorBase,
@@ -92,7 +102,7 @@ class KardexFacturacionService
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
      * CORRECCIÓN: Pasar factor explícitamente
      */
-    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null)
+    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, bool $stockYaAplicado = false)
     {
         $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
@@ -146,6 +156,14 @@ class KardexFacturacionService
         // Si se proporciona stock anterior en fracción, usarlo
         if ($stockAnterior !== null) {
             $data['stock_anterior_override'] = $stockAnterior;
+        }
+
+        // stockYaAplicado=true: esta venta viene de una cotización que ya reservó (y por
+        // tanto ya descontó) el stock antes. La fila igual muestra `salida` = lo vendido
+        // (para el reporte de ventas / historial), pero el saldo resultante NO vuelve a
+        // descontar — ya se descontó al reservar, y aquí solo se está documentando la venta.
+        if ($stockYaAplicado && $stockAnterior !== null) {
+            $data['stock_actual_override'] = $stockAnterior;
         }
 
         return $this->registrar($data);

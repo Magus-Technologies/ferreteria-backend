@@ -336,7 +336,12 @@ class VentaController extends Controller
             'descontar_stock' => 'sometimes|string|in:si,no',
             // stock_ya_aplicado=true: la cotización origen ya reservó el stock,
             // no descontar de nuevo pero marcar stock_aplicado=true en la venta.
+            // Se usa como fallback solo si NO viene `cotizacion_id` (ver abajo).
             'stock_ya_aplicado' => 'sometimes|boolean',
+            // Si la venta se está creando a partir de una cotización, se verifica
+            // reservar_stock DIRECTO en la BD (server-side) en vez de confiar en el
+            // flag stock_ya_aplicado que manda el cliente.
+            'cotizacion_id' => 'nullable|string|exists:cotizacion,id',
             'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
@@ -578,7 +583,18 @@ class VentaController extends Controller
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
             $noDescontarStock = ($validated['descontar_stock'] ?? 'si') === 'no';
-            $stockYaAplicado = (bool) ($validated['stock_ya_aplicado'] ?? false);
+            // Si la venta viene de una cotización, la verdad de si el stock ya está
+            // reservado se verifica DIRECTO en la BD (server-side), no confiando en el
+            // flag `stock_ya_aplicado` que manda el cliente: ese flag depende de que se
+            // propague correcto por varias capas del frontend (form → payload), y si se
+            // pierde en el camino, la venta descuenta stock que la cotización ya había
+            // reservado (doble descuento). Si no viene `cotizacion_id`, se mantiene el
+            // flag del cliente como antes (compatibilidad con otros flujos sin cotización).
+            $cotizacionId = $validated['cotizacion_id'] ?? null;
+            $cotizacionOrigen = $cotizacionId ? \App\Models\Cotizacion::find($cotizacionId) : null;
+            $stockYaAplicado = $cotizacionOrigen
+                ? (bool) $cotizacionOrigen->reservar_stock
+                : (bool) ($validated['stock_ya_aplicado'] ?? false);
             $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa', 'oc'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
@@ -648,6 +664,14 @@ class VentaController extends Controller
             // el producto ya salió físicamente → NO cuenta en el reporte de Ganancias.
             $venta->descuenta_stock = ! $noDescontarStock;
             $venta->save();
+
+            // Si la venta consumió la reserva de una cotización (no se volvió a descontar
+            // porque el stock ya estaba reservado), liberar el flag reservar_stock: ese
+            // stock ahora es propiedad de la venta, no de una reserva pendiente. Evita que
+            // el cron `reservas:liberar-expiradas` intente devolver stock que ya se vendió.
+            if ($cotizacionOrigen && $stockYaAplicado) {
+                $cotizacionOrigen->update(['reservar_stock' => false]);
+            }
 
             // Auto-crear entrega para ventas de Recojo en Tienda (tipo_despacho='et').
             //
@@ -881,8 +905,10 @@ class VentaController extends Controller
                                 'precio' => (float) $unidad['precio'],
                             ];
                             
-                            // Pasar el stock anterior capturado
-                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior);
+                            // Pasar el stock anterior capturado. $stockYaAplicado=true
+                            // (venta desde cotización que ya reservó el stock) evita que el
+                            // kardex reste la venta de nuevo sobre un stock ya descontado.
+                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $stockYaAplicado);
                         }
                     }
                 } catch (\Exception $e) {
