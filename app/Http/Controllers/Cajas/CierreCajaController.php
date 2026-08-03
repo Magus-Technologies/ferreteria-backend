@@ -173,6 +173,10 @@ class CierreCajaController extends Controller
             'total_prestamos_dados' => (float) $prestamosDados,
             'total_prestamos_recibidos' => (float) $prestamosRecibidos,
             'monto_esperado' => (float) $montoEsperado,
+            // Resúmenes solo efectivo, redondeados a 0.10 (aquí ingresos/egresos ya son de
+            // cajas chicas = efectivo). Mismo criterio que el resumen principal del cierre.
+            'resumen_ingresos_efectivo' => floor(round($ingresos, 2) * 10 + 1e-6) / 10,
+            'resumen_egresos_efectivo' => floor(round($egresos, 2) * 10 + 1e-6) / 10,
             'monto_cierre' => null,
             'diferencia' => null,
             'detalle_metodos_pago' => [], // TODO: Implementar si es necesario
@@ -216,7 +220,9 @@ class CierreCajaController extends Controller
                 totalPrestamosDados: $resultado->resumen['total_prestamos_dados'] ?? 0,
                 movimientosInternos: collect($resultado->resumen['movimientos_internos'] ?? []),
                 prestamos: collect($resultado->resumen['prestamos'] ?? []),
-                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? [])
+                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? []),
+                resumenIngresosEfectivo: $resultado->resumen['resumen_ingresos_efectivo'] ?? 0,
+                resumenEgresosEfectivo: $resultado->resumen['resumen_egresos_efectivo'] ?? 0
             );
 
             return response()->json([
@@ -270,7 +276,9 @@ class CierreCajaController extends Controller
                 totalPrestamosDados: $resultado->resumen['total_prestamos_dados'] ?? 0,
                 movimientosInternos: collect($resultado->resumen['movimientos_internos'] ?? []),
                 prestamos: collect($resultado->resumen['prestamos'] ?? []),
-                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? [])
+                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? []),
+                resumenIngresosEfectivo: $resultado->resumen['resumen_ingresos_efectivo'] ?? 0,
+                resumenEgresosEfectivo: $resultado->resumen['resumen_egresos_efectivo'] ?? 0
             );
 
             return response()->json([

@@ -32,7 +32,13 @@ class ResumenCajaDTO
         public Collection $detalleIngresosExtras = new Collection(),
         public Collection $detalleGastosExtras = new Collection(),
         public Collection $trasladosBoveda = new Collection(),
-        public float $totalTrasladosBoveda = 0
+        public float $totalTrasladosBoveda = 0,
+        // Resúmenes SOLO EFECTIVO (para el cuadre de caja). A diferencia de
+        // totalIngresos/totalEgresos (que incluyen pagos digitales), estos solo
+        // consideran efectivo y vienen ya redondeados hacia abajo a S/ 0.10, para
+        // que el bloque de efectivo del cierre cuadre con el "Total en Caja".
+        public float $resumenIngresosEfectivo = 0,
+        public float $resumenEgresosEfectivo = 0
     ) {}
 
     public function toArray(): array
@@ -64,6 +70,8 @@ class ResumenCajaDTO
             'detalle_gastos_extras' => $this->detalleGastosExtras,
             'traslados_boveda' => $this->trasladosBoveda,
             'total_traslados_boveda' => (float) $this->totalTrasladosBoveda,
+            'resumen_ingresos_efectivo' => (float) $this->resumenIngresosEfectivo,
+            'resumen_egresos_efectivo' => (float) $this->resumenEgresosEfectivo,
         ];
     }
 }

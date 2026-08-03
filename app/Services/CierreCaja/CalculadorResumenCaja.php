@@ -82,14 +82,28 @@ class CalculadorResumenCaja
             - $gastosEfectivo
             - $clasificacion['total_prestamos_dados'];
 
-        // Redondear el EFECTIVO ESPERADO siempre HACIA ABAJO al múltiplo de S/ 0.10.
-        // En Perú el efectivo físico se cuadra en décimas (no circulan monedas de 0.01/0.05),
-        // así que el sistema no debe esperar céntimos sueltos que el cajero no puede tener
-        // (ej. 100.11 -> 100.10, 100.19 -> 100.10). La diferencia se calcula contra este
-        // valor ya redondeado. La épsilon 1e-6 evita que el ruido de punto flotante baje de
-        // más un valor que ya es exacto (ej. 100.10). Solo se redondea el efectivo esperado,
-        // no los demás totales.
-        $montoEsperado = floor(round($montoEsperado, 2) * 10 + 1e-6) / 10;
+        // Redondeo a la décima SIEMPRE HACIA ABAJO (múltiplo de S/ 0.10). En Perú el
+        // efectivo físico se cuadra en décimas (no circulan monedas de 0.01/0.05), así que
+        // no se deben esperar céntimos sueltos (ej. 100.11 -> 100.10, 100.19 -> 100.10).
+        // La épsilon 1e-6 evita que el ruido de punto flotante baje de más un valor exacto.
+        $redondearDecimaAbajo = fn(float $monto): float => floor(round($monto, 2) * 10 + 1e-6) / 10;
+
+        // Efectivo esperado (Total en Caja) redondeado. La diferencia se calcula contra este
+        // valor ya redondeado.
+        $montoEsperado = $redondearDecimaAbajo($montoEsperado);
+
+        // Resúmenes de ingresos/egresos SOLO EFECTIVO, también redondeados a 0.10, para que
+        // el bloque de efectivo del cierre cuadre con el Total en Caja. Misma composición que
+        // los totales completos pero considerando solo efectivo:
+        //   Ingresos efectivo  = cobros efectivo + otros ingresos efectivo (incl. extras) + préstamos recibidos
+        //   Egresos  efectivo  = gastos efectivo (incl. extras) + préstamos dados
+        // (otrosIngresosEfectivo y gastosEfectivo ya unen los movimientos normales + extras).
+        $resumenIngresosEfectivo = $redondearDecimaAbajo(
+            $cobrosEfectivo + $otrosIngresosEfectivo + $clasificacion['total_prestamos_recibidos']
+        );
+        $resumenEgresosEfectivo = $redondearDecimaAbajo(
+            $gastosEfectivo + $clasificacion['total_prestamos_dados']
+        );
 
         $montoCierre = $apertura->monto_cierre;
         $diferencia = $montoCierre !== null ? ($montoCierre - $montoEsperado) : null;
@@ -146,7 +160,9 @@ class CalculadorResumenCaja
             detalleIngresosExtras: $detalleIngresosExtras,
             detalleGastosExtras: $detalleGastosExtras,
             trasladosBoveda: $clasificacion['traslados_boveda'] ?? collect([]),
-            totalTrasladosBoveda: $clasificacion['total_traslados_boveda'] ?? 0
+            totalTrasladosBoveda: $clasificacion['total_traslados_boveda'] ?? 0,
+            resumenIngresosEfectivo: $resumenIngresosEfectivo,
+            resumenEgresosEfectivo: $resumenEgresosEfectivo
         );
 
 
