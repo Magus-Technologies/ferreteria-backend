@@ -542,8 +542,21 @@ class SubCajaController extends Controller
         }
 
         $transacciones = $query->get();
+        // Ingresos: los de movimiento_interno (traslados de efectivo recibidos) SÍ cuentan
+        // — es efectivo nuevo que entró a la sesión abierta (mismo criterio que
+        // ClasificadorMovimientos::obtenerOtrosIngresosVendedor).
         $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        $egresos = (float) $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+        // Egresos: excluir 'movimiento_interno'. Ese efectivo sale del acumulado de
+        // sesiones CERRADAS (ver "Traslado de Efectivo": mueve efectivo cerrado hacia la
+        // sesión abierta de un usuario), NO de la sesión abierta actual — mismo criterio
+        // que ClasificadorMovimientos::obtenerGastosVendedor, que también lo excluye.
+        // Sin este exclude, un traslado RECIBIDO en la misma sub-caja/despliegue que su
+        // origen (ej. "Caja Chica" hacia "Caja Chica" del mismo usuario) se autocancelaba
+        // (ingreso - egreso = 0) aunque sí fuera efectivo nuevo entrando a la sesión.
+        $egresos = (float) $transacciones
+            ->where('tipo_transaccion', 'egreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->sum('monto');
 
         return $montoInicial + $ingresos - $egresos;
     }
@@ -690,8 +703,14 @@ class SubCajaController extends Controller
         
         
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
-        
+        // Excluir 'movimiento_interno' de los egresos (mismo criterio que
+        // calcularEfectivoDesdeApertura y ClasificadorMovimientos::obtenerGastosVendedor):
+        // ese efectivo sale del acumulado de sesiones cerradas, no de esta sub-caja.
+        $egresos = $transacciones
+            ->where('tipo_transaccion', 'egreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->sum('monto');
+
         $saldoFinal = $montoInicial + $ingresos - $egresos;
         
         
