@@ -252,6 +252,20 @@ class CotizacionController extends Controller
 
             // Si se debe reservar stock, descontarlo
             if ($reservarStock) {
+                // Registrar en kardex de facturación ANTES de descontar, para que capture
+                // el stock_anterior correcto (registrar() lee el stock físico en vivo).
+                app(\App\Services\Kardex\KardexFacturacionService::class)->registrarReservaCotizacion(
+                    $cotizacion,
+                    $productoAlmacen->load('producto'),
+                    [
+                        'unidad_derivada_inmutable_name' => $nombreUnidad,
+                        'cantidad' => $productoData['cantidad'],
+                        'factor' => $productoData['unidad_derivada_factor'],
+                        'precio' => $productoData['precio_venta'] ?? 0,
+                    ],
+                    $productoAlmacen->costo
+                );
+
                 $cantidadEnFraccion = $productoData['cantidad'] * $productoData['unidad_derivada_factor'];
                 $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
 
@@ -378,6 +392,16 @@ class CotizacionController extends Controller
         try {
             $reservarStockAnterior = $cotizacion->reservar_stock;
             $almacenIdAnterior = $cotizacion->almacen_id;
+            $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
+            // Construye el array que esperan registrarReservaCotizacion/
+            // registrarLiberacionReservaCotizacion a partir de un modelo
+            // UnidadDerivadaInmutableCotizacion (los productos ya guardados en la cotización).
+            $unidadArray = fn ($unidad) => [
+                'unidad_derivada_inmutable_name' => $unidad->unidadDerivadaInmutable->name ?? 'UNIDAD',
+                'cantidad' => $unidad->cantidad,
+                'factor' => $unidad->factor,
+                'precio' => $unidad->precio,
+            ];
 
             // Si cambia reservar_stock de true a false, devolver stock
             if ($reservarStockAnterior && isset($validated['reservar_stock']) && !$validated['reservar_stock']) {
@@ -385,6 +409,16 @@ class CotizacionController extends Controller
                     $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
                     if ($productoAlmacen) {
                         foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
+                            // Registrar en kardex ANTES de incrementar, para capturar el
+                            // stock_anterior correcto.
+                            $kardexFacturacionService->registrarLiberacionReservaCotizacion(
+                                $cotizacion,
+                                $productoAlmacen->load('producto'),
+                                $unidadArray($unidad),
+                                $productoAlmacen->costo,
+                                'reserva desactivada'
+                            );
+
                             $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
                             $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
 
@@ -408,6 +442,15 @@ class CotizacionController extends Controller
                     $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
                     if ($productoAlmacen) {
                         foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
+                            // Registrar en kardex ANTES de descontar, para capturar el
+                            // stock_anterior correcto.
+                            $kardexFacturacionService->registrarReservaCotizacion(
+                                $cotizacion,
+                                $productoAlmacen->load('producto'),
+                                $unidadArray($unidad),
+                                $productoAlmacen->costo
+                            );
+
                             $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
                             $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
 
@@ -437,6 +480,16 @@ class CotizacionController extends Controller
                         $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
                         if ($productoAlmacen) {
                             foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
+                                // Registrar en kardex ANTES de incrementar, para capturar el
+                                // stock_anterior correcto.
+                                $kardexFacturacionService->registrarLiberacionReservaCotizacion(
+                                    $cotizacion,
+                                    $productoAlmacen->load('producto'),
+                                    $unidadArray($unidad),
+                                    $productoAlmacen->costo,
+                                    'producto reemplazado'
+                                );
+
                                 $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
                                 $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
                             }
@@ -486,6 +539,20 @@ class CotizacionController extends Controller
 
                         // Reservar stock de nuevos productos si aplica
                         if ($cotizacion->reservar_stock) {
+                            // Registrar en kardex ANTES de descontar, para capturar el
+                            // stock_anterior correcto.
+                            $kardexFacturacionService->registrarReservaCotizacion(
+                                $cotizacion,
+                                $productoAlmacen->load('producto'),
+                                [
+                                    'unidad_derivada_inmutable_name' => $nombreUnidad,
+                                    'cantidad' => $productoData['cantidad'],
+                                    'factor' => $productoData['unidad_derivada_factor'],
+                                    'precio' => $productoData['precio_venta'] ?? 0,
+                                ],
+                                $productoAlmacen->costo
+                            );
+
                             $cantidadEnFraccion = $productoData['cantidad'] * $productoData['unidad_derivada_factor'];
                             $productoAlmacen->decrement('stock_fraccion', $cantidadEnFraccion);
                         }
@@ -536,8 +603,24 @@ class CotizacionController extends Controller
 
             // Si tenía stock reservado, devolverlo
             if ($cotizacion->reservar_stock) {
+                $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
                 foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
                     foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidadDerivada) {
+                        // Registrar en kardex ANTES de incrementar, para capturar el
+                        // stock_anterior correcto.
+                        $kardexFacturacionService->registrarLiberacionReservaCotizacion(
+                            $cotizacion,
+                            $productoAlmacenCotizacion->productoAlmacen->load('producto'),
+                            [
+                                'unidad_derivada_inmutable_name' => $unidadDerivada->unidadDerivadaInmutable->name ?? 'UNIDAD',
+                                'cantidad' => $unidadDerivada->cantidad,
+                                'factor' => $unidadDerivada->factor,
+                                'precio' => $unidadDerivada->precio,
+                            ],
+                            $productoAlmacenCotizacion->productoAlmacen->costo,
+                            'cotización cancelada'
+                        );
+
                         $cantidadEnFraccion = $unidadDerivada->cantidad * $unidadDerivada->factor;
                         $productoAlmacenCotizacion->productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
 
@@ -691,8 +774,24 @@ class CotizacionController extends Controller
 
             // Devolver stock reservado si aplica
             if ($cotizacion->reservar_stock) {
+                $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
                 foreach ($cotizacion->productosPorAlmacen as $pac) {
                     foreach ($pac->unidadesDerivadas as $ud) {
+                        // Registrar en kardex ANTES de incrementar, para capturar el
+                        // stock_anterior correcto.
+                        $kardexFacturacionService->registrarLiberacionReservaCotizacion(
+                            $cotizacion,
+                            $pac->productoAlmacen->load('producto'),
+                            [
+                                'unidad_derivada_inmutable_name' => $ud->unidadDerivadaInmutable->name ?? 'UNIDAD',
+                                'cantidad' => $ud->cantidad,
+                                'factor' => $ud->factor,
+                                'precio' => $ud->precio,
+                            ],
+                            $pac->productoAlmacen->costo,
+                            'cotización eliminada'
+                        );
+
                         $cantidadEnFraccion = $ud->cantidad * $ud->factor;
                         $pac->productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
 

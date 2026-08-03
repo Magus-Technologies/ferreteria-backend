@@ -719,6 +719,86 @@ class KardexFacturacionService
     }
 
     /**
+     * Registra la RESERVA de stock de una cotización en kardex de facturación (SALIDA).
+     * $unidad: array con unidad_derivada_inmutable_name, cantidad, factor, precio.
+     */
+    public function registrarReservaCotizacion($cotizacion, $productoAlmacen, array $unidad, $costo, $orden = 1)
+    {
+        $cantSalida = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+
+        return $this->registrar([
+            'tipo' => 'reserva',
+            'movimiento' => 'RESERVA COTIZACIÓN',
+            'fecha' => now(),
+            'documento' => "Cotización {$cotizacion->numero}",
+            'unidad' => $unidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
+            'cantidad' => $unidad['cantidad'],
+            'cantidad_fraccion' => $cantSalida,
+            'factor' => (float) $unidad['factor'],
+            'precio' => $unidad['precio'] ?? 0,
+            'costo' => $costo,
+            'entrada' => 0,
+            'salida' => $cantSalida,
+            'referencia_id' => $cotizacion->id,
+            'producto_id' => $productoAlmacen->producto_id,
+            'producto_nombre' => $productoAlmacen->producto->name,
+            'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'cliente_id' => $cotizacion->cliente_id,
+            'cliente_nombre' => $this->obtenerNombreClienteDeCotizacion($cotizacion),
+            'almacen_id' => $productoAlmacen->almacen_id,
+            'orden' => $orden,
+        ]);
+    }
+
+    /**
+     * Registra la LIBERACIÓN de una reserva de cotización en kardex de facturación
+     * (ENTRADA). $motivo describe por qué se liberó (cancelada, editada, expirada, etc.)
+     * para que quede claro en el documento del kardex.
+     */
+    public function registrarLiberacionReservaCotizacion($cotizacion, $productoAlmacen, array $unidad, $costo, string $motivo, $orden = 2)
+    {
+        $cantEntrada = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+
+        return $this->registrar([
+            'tipo' => 'reserva',
+            'movimiento' => 'RESERVA LIBERADA',
+            'fecha' => now(),
+            'documento' => "Cotización {$cotizacion->numero} ({$motivo})",
+            'unidad' => $unidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
+            'cantidad' => $unidad['cantidad'],
+            'cantidad_fraccion' => $cantEntrada,
+            'factor' => (float) $unidad['factor'],
+            'precio' => $unidad['precio'] ?? 0,
+            'costo' => $costo,
+            'entrada' => $cantEntrada,
+            'salida' => 0,
+            'referencia_id' => $cotizacion->id,
+            'producto_id' => $productoAlmacen->producto_id,
+            'producto_nombre' => $productoAlmacen->producto->name,
+            'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'cliente_id' => $cotizacion->cliente_id,
+            'cliente_nombre' => $this->obtenerNombreClienteDeCotizacion($cotizacion),
+            'almacen_id' => $productoAlmacen->almacen_id,
+            'orden' => $orden,
+        ]);
+    }
+
+    /**
+     * Resuelve el nombre del cliente de una cotización, cargando la relación si falta.
+     */
+    private function obtenerNombreClienteDeCotizacion($cotizacion): string
+    {
+        if (!$cotizacion->cliente_id) {
+            return 'Sin cliente';
+        }
+        $cliente = $cotizacion->relationLoaded('cliente') && $cotizacion->cliente
+            ? $cotizacion->cliente
+            : \App\Models\Cliente::find($cotizacion->cliente_id);
+
+        return $this->obtenerNombreCliente($cliente);
+    }
+
+    /**
      * Obtiene el nombre completo del cliente según su tipo
      */
     private function obtenerNombreCliente($cliente): string
