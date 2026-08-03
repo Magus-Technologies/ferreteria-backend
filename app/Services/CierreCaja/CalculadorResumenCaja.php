@@ -93,13 +93,18 @@ class CalculadorResumenCaja
         $montoEsperado = $redondearDecimaAbajo($montoEsperado);
 
         // Resúmenes de ingresos/egresos SOLO EFECTIVO, también redondeados a 0.10, para que
-        // el bloque de efectivo del cierre cuadre con el Total en Caja. Misma composición que
-        // los totales completos pero considerando solo efectivo:
-        //   Ingresos efectivo  = cobros efectivo + otros ingresos efectivo (incl. extras) + préstamos recibidos
+        // el bloque de efectivo del cierre cuadre exactamente:
+        //   Ingreso Efectivo − Egreso Efectivo = Total en Caja (monto esperado).
+        // El INGRESO EFECTIVO INCLUYE la apertura (efectivo inicial), porque ese efectivo ya
+        // está físicamente en la caja y forma parte del total. Composición:
+        //   Ingresos efectivo  = efectivo inicial + cobros efectivo + otros ingresos efectivo (incl. extras) + préstamos recibidos
         //   Egresos  efectivo  = gastos efectivo (incl. extras) + préstamos dados
         // (otrosIngresosEfectivo y gastosEfectivo ya unen los movimientos normales + extras).
         $resumenIngresosEfectivo = $redondearDecimaAbajo(
-            $cobrosEfectivo + $otrosIngresosEfectivo + $clasificacion['total_prestamos_recibidos']
+            $clasificacion['efectivo_inicial']
+            + $cobrosEfectivo
+            + $otrosIngresosEfectivo
+            + $clasificacion['total_prestamos_recibidos']
         );
         $resumenEgresosEfectivo = $redondearDecimaAbajo(
             $gastosEfectivo + $clasificacion['total_prestamos_dados']

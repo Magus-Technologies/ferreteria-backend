@@ -174,8 +174,10 @@ class CierreCajaController extends Controller
             'total_prestamos_recibidos' => (float) $prestamosRecibidos,
             'monto_esperado' => (float) $montoEsperado,
             // Resúmenes solo efectivo, redondeados a 0.10 (aquí ingresos/egresos ya son de
-            // cajas chicas = efectivo). Mismo criterio que el resumen principal del cierre.
-            'resumen_ingresos_efectivo' => floor(round($ingresos, 2) * 10 + 1e-6) / 10,
+            // cajas chicas = efectivo). El INGRESO EFECTIVO incluye la apertura, para que
+            // Ingreso Efectivo − Egreso Efectivo = Total en Caja (mismo criterio que el
+            // resumen principal del cierre).
+            'resumen_ingresos_efectivo' => floor(round($montoInicial + $ingresos, 2) * 10 + 1e-6) / 10,
             'resumen_egresos_efectivo' => floor(round($egresos, 2) * 10 + 1e-6) / 10,
             'monto_cierre' => null,
             'diferencia' => null,
