@@ -157,6 +157,10 @@ class CierreCajaController extends Controller
             ->sum('monto');
 
         $montoEsperado = $montoInicial + $ingresos - $egresos;
+        // Mismo redondeo del efectivo esperado que en CalculadorResumenCaja: siempre HACIA
+        // ABAJO al múltiplo de S/ 0.10 (ej. 100.11 -> 100.10) para poder cuadrar el efectivo
+        // físico. La épsilon 1e-6 protege contra el ruido de punto flotante.
+        $montoEsperado = floor(round($montoEsperado, 2) * 10 + 1e-6) / 10;
 
         return [
             'efectivo_inicial' => (float) $montoInicial,

@@ -82,6 +82,15 @@ class CalculadorResumenCaja
             - $gastosEfectivo
             - $clasificacion['total_prestamos_dados'];
 
+        // Redondear el EFECTIVO ESPERADO siempre HACIA ABAJO al múltiplo de S/ 0.10.
+        // En Perú el efectivo físico se cuadra en décimas (no circulan monedas de 0.01/0.05),
+        // así que el sistema no debe esperar céntimos sueltos que el cajero no puede tener
+        // (ej. 100.11 -> 100.10, 100.19 -> 100.10). La diferencia se calcula contra este
+        // valor ya redondeado. La épsilon 1e-6 evita que el ruido de punto flotante baje de
+        // más un valor que ya es exacto (ej. 100.10). Solo se redondea el efectivo esperado,
+        // no los demás totales.
+        $montoEsperado = floor(round($montoEsperado, 2) * 10 + 1e-6) / 10;
+
         $montoCierre = $apertura->monto_cierre;
         $diferencia = $montoCierre !== null ? ($montoCierre - $montoEsperado) : null;
 
