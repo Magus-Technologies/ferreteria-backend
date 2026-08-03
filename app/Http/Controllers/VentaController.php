@@ -386,6 +386,15 @@ class VentaController extends Controller
             'vales_excluidos.*' => 'integer',
         ]);
 
+        // El dueño real de la venta es SIEMPRE el usuario autenticado (auth()->id()),
+        // nunca el `user_id` que manda el cliente en el body. El frontend lo saca de un
+        // cache local (useAuth) que puede quedar desactualizado (sesión vieja, pestaña
+        // compartida, etc.) y atribuir la venta — y por lo tanto el efectivo cobrado —
+        // a otra persona. No hay ningún flujo real donde se elija vender "a nombre de
+        // otro usuario", así que se sobreescribe aquí una sola vez para todos los usos
+        // downstream de $validated['user_id'] en este método.
+        $validated['user_id'] = (string) auth()->id();
+
         return DB::transaction(function () use ($validated) {
 
             // Si no se proporciona cliente_id, usar "CLIENTE VARIOS" (DNI: 99999999)
