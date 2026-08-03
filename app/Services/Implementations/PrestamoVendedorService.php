@@ -346,8 +346,12 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             return 0;
         }
 
-        // Obtener la apertura activa
+        // Obtener la apertura activa DEL VENDEDOR (no cualquiera). "Caja General" es
+        // compartida: puede haber varias aperturas abiertas simultáneamente bajo la misma
+        // caja principal (una por vendedor). Sin filtrar por user_id, ->first() podía
+        // devolver la apertura de OTRO vendedor y calcular el efectivo mal.
         $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
+            ->where('user_id', $vendedorId)
             ->whereNull('fecha_cierre')
             ->first();
 
@@ -378,7 +382,11 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             return $montoInicial;
         }
 
-        // Calcular transacciones de efectivo (excluyendo aperturas)
+        // Calcular transacciones de efectivo (excluyendo aperturas), SOLO desde que se
+        // aperturó esta sesión. Sin este filtro, se sumaban transacciones de sesiones
+        // YA CERRADAS anteriores (ej. saldo_actual acumulado de días previos), inflando
+        // el efectivo "disponible" muy por encima de lo que realmente hay en la sesión
+        // abierta actual.
         $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $cajaChica->id)
             ->where('user_id', $vendedorId)
             ->where(function ($query) use ($desplieguePagoEfectivoIds) {
@@ -392,10 +400,20 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                 $query->whereNull('referencia_tipo')
                       ->orWhere('referencia_tipo', '!=', 'apertura');
             })
+            ->where('created_at', '>=', $aperturaActiva->fecha_apertura)
             ->get();
 
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+        // Excluir 'movimiento_interno' de los egresos: ese efectivo sale del acumulado de
+        // sesiones cerradas (ver "Traslado de Efectivo"), no de la sesión abierta actual —
+        // mismo criterio que SubCajaController::calcularEfectivoDesdeApertura y
+        // ClasificadorMovimientos::obtenerGastosVendedor. Sin este exclude, un traslado
+        // RECIBIDO (ingreso) en la misma sub-caja/despliegue que su origen se autocancelaba
+        // con su propio egreso, aunque sí fuera efectivo nuevo entrando a la sesión.
+        $egresos = $transacciones
+            ->where('tipo_transaccion', 'egreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->sum('monto');
 
         return $montoInicial + $ingresos - $egresos;
     }
@@ -410,8 +428,23 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 
         $cajaPrincipalId = $apertura->caja_principal_id;
 
-        // Verificar que el vendedor tenga distribución
-        $distribucion = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaId)
+        // $vendedorId aquí es el PRESTAMISTA, no el solicitante dueño de $aperturaId.
+        // "Caja General" es compartida: cada vendedor tiene su PROPIA apertura abierta
+        // dentro de la misma caja principal. Antes se buscaba la distribución del
+        // prestamista en la apertura del SOLICITANTE (nunca existe, porque cada quien
+        // tiene la suya) y siempre daba 0 aunque el prestamista sí tuviera efectivo.
+        // Hay que resolver la apertura PROPIA del prestamista primero.
+        $aperturaPrestamista = \App\Models\AperturaCierreCaja::where('caja_principal_id', $cajaPrincipalId)
+            ->where('user_id', $vendedorId)
+            ->whereNull('fecha_cierre')
+            ->first();
+
+        if (!$aperturaPrestamista) {
+            return 0;
+        }
+
+        // Verificar que el vendedor (prestamista) tenga distribución en SU apertura
+        $distribucion = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaPrestamista->id)
             ->where('user_id', $vendedorId)
             ->first();
 
