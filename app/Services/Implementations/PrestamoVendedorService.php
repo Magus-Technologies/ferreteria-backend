@@ -404,15 +404,26 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             ->get();
 
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Excluir 'movimiento_interno' de los egresos: ese efectivo sale del acumulado de
-        // sesiones cerradas (ver "Traslado de Efectivo"), no de la sesión abierta actual —
-        // mismo criterio que SubCajaController::calcularEfectivoDesdeApertura y
-        // ClasificadorMovimientos::obtenerGastosVendedor. Sin este exclude, un traslado
-        // RECIBIDO (ingreso) en la misma sub-caja/despliegue que su origen se autocancelaba
-        // con su propio egreso, aunque sí fuera efectivo nuevo entrando a la sesión.
+        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
+        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
+        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
+        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
+        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión.
         $egresos = $transacciones
             ->where('tipo_transaccion', 'egreso')
-            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->filter(function ($t) use ($transacciones) {
+                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
+                    return true;
+                }
+
+                return !$transacciones->contains(function ($i) use ($t) {
+                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
+                        && $i->tipo_transaccion === 'ingreso'
+                        && $i->referencia_id === $t->referencia_id
+                        && $i->user_id === $t->user_id
+                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
+                });
+            })
             ->sum('monto');
 
         return $montoInicial + $ingresos - $egresos;

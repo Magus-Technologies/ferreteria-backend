@@ -329,8 +329,26 @@ class ClasificadorMovimientos
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'egreso')
             ->where(function ($query) {
+                // Todos los egresos cuentan como gasto EXCEPTO:
+                //  - los préstamos entre vendedores (van por separado como "préstamos dados")
+                //  - el egreso de un traslado "cerrado → sesión" (el mismo usuario recibió el
+                //    traslado de vuelta en la misma sub-caja; el ingreso ya lo suma y restar
+                //    el egreso autocancelaría ese efectivo nuevo entrando a la sesión).
+                // Los egresos por movimiento_interno que SÍ salen del control del vendedor
+                // (traslado a OTRO usuario o a otra sub-caja) restan del efectivo disponible.
                 $query->whereNull('tc.referencia_tipo')
-                    ->orWhereNotIn('tc.referencia_tipo', ['transferencia_vendedor', 'movimiento_interno']);
+                    ->orWhere(function ($q) {
+                        $q->where('tc.referencia_tipo', '!=', 'transferencia_vendedor')
+                          ->whereNotExists(function ($sub) {
+                              $sub->select(DB::raw(1))
+                                  ->from('transacciones_caja as tci')
+                                  ->whereColumn('tci.referencia_id', 'tc.referencia_id')
+                                  ->where('tci.referencia_tipo', 'movimiento_interno')
+                                  ->where('tci.tipo_transaccion', 'ingreso')
+                                  ->whereColumn('tci.user_id', 'tc.user_id')
+                                  ->whereColumn('tci.sub_caja_id', 'tc.sub_caja_id');
+                          });
+                    });
             })
             ->where('tc.fecha', '>=', $fechaInicio)
             ->where('tc.fecha', '<=', $fechaFin)
