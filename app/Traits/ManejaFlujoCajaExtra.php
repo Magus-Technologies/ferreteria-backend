@@ -79,6 +79,68 @@ trait ManejaFlujoCajaExtra
             throw new \Exception("Saldo insuficiente en la sub-caja '{$subCaja->nombre}'. Disponible: S/" . number_format($saldoAnterior, 2));
         }
 
+        // Validar contra el efectivo REAL de la sesión abierta del usuario (desde su
+        // apertura): si tiene una apertura abierta en esta sub-caja, solo puede gastar
+        // el dinero de SU sesión (monto_apertura + sus ingresos − sus egresos desde que
+        // se abrió). El saldo_actual de la sub-caja puede estar inflado con dinero de
+        // sesiones anteriores o de otros vendedores, y permitiría gastar lo que en
+        // realidad no hay en caja (ej. apertura de 150 y gasto de 2500).
+        // Sin apertura abierta del usuario, el límite es el saldo_actual.
+        if ($tipoTransaccion === 'egreso') {
+            $aperturaAbierta = AperturaCierreCaja::where('sub_caja_id', $subCajaId)
+                ->where('user_id', Auth::id())
+                ->where('estado', 'abierta')
+                ->orderByDesc('fecha_apertura')
+                ->first();
+
+            if ($aperturaAbierta) {
+                $transaccionesSesion = TransaccionCaja::where('sub_caja_id', $subCajaId)
+                    ->where('user_id', Auth::id())
+                    ->where('fecha', '>=', $aperturaAbierta->fecha_apertura)
+                    ->get();
+
+                // Ingresos de la sesión: cuentan TODOS (ventas, ingresos extras y
+                // también los traslados/movimientos internos RECIBIDOS — ese dinero
+                // llega justamente para poder gastar).
+                $ingresosSesion = (float) $transaccionesSesion
+                    ->where('tipo_transaccion', 'ingreso')
+                    ->sum('monto');
+
+                // Egresos de la sesión: restan todos, incluidos los movimientos internos
+                // cuando el traslado SALIÓ del control del vendedor (a otro usuario u otra
+                // sub-caja). Excepción: el traslado "cerrado → sesión" (mismo usuario lo
+                // recibió de vuelta en la misma sub-caja) NO debe restar, porque el ingreso
+                // ya lo suma y restarlo autocancelaría ese efectivo nuevo.
+                $egresosSesion = (float) $transaccionesSesion
+                    ->where('tipo_transaccion', 'egreso')
+                    ->filter(function ($t) use ($transaccionesSesion) {
+                        if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
+                            return true;
+                        }
+
+                        return !$transaccionesSesion->contains(function ($i) use ($t) {
+                            return ($i->referencia_tipo ?? null) === 'movimiento_interno'
+                                && $i->tipo_transaccion === 'ingreso'
+                                && $i->referencia_id === $t->referencia_id
+                                && $i->user_id === $t->user_id
+                                && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
+                        });
+                    })
+                    ->sum('monto');
+
+                $disponibleSesion = (float) $aperturaAbierta->monto_apertura + $ingresosSesion - $egresosSesion;
+
+                if ($monto > $disponibleSesion + 0.001) {
+                    throw new \Exception(
+                        "Efectivo insuficiente en tu sesión de la sub-caja '{$subCaja->nombre}'. "
+                        . 'Disponible desde tu apertura: S/' . number_format(max($disponibleSesion, 0), 2)
+                        . ' y el gasto es de S/' . number_format($monto, 2)
+                        . '. Solo puedes gastar el dinero de tu sesión abierta.'
+                    );
+                }
+            }
+        }
+
         // Crear la transacción
         TransaccionCaja::create([
             'sub_caja_id' => $subCaja->id,
