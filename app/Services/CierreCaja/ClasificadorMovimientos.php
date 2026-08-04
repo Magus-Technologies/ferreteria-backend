@@ -371,10 +371,11 @@ class ClasificadorMovimientos
 
             $prestamos = DB::table('transferencias_efectivo_vendedores as tev')
                 ->join('user as u_origen', 'tev.vendedor_origen_id', '=', 'u_origen.id')
+                ->join('apertura_cierre_caja as acc', 'tev.apertura_cierre_caja_id', '=', 'acc.id')
                 ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
                 ->leftJoin('sub_cajas as sc_destino', 'tev.sub_caja_destino_id', '=', 'sc_destino.id')
                 ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
-                ->where('tev.apertura_cierre_caja_id', $apertura->id) // ✅ Filtrar por apertura
+                ->where('acc.caja_principal_id', $apertura->caja_principal_id) // Misma caja principal que la apertura
                 ->where('tev.vendedor_destino_id', $userId) // Recibidos por este vendedor
                 ->where('tev.fecha_transferencia', '>=', $fechaInicio)
                 ->where('tev.fecha_transferencia', '<=', $fechaFin)
@@ -409,10 +410,11 @@ class ClasificadorMovimientos
 
         $prestamos = DB::table('transferencias_efectivo_vendedores as tev')
             ->join('user as u_destino', 'tev.vendedor_destino_id', '=', 'u_destino.id')
+            ->join('apertura_cierre_caja as acc', 'tev.apertura_cierre_caja_id', '=', 'acc.id')
             ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
             ->leftJoin('sub_cajas as sc_destino', 'tev.sub_caja_destino_id', '=', 'sc_destino.id')
             ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
-            ->where('tev.apertura_cierre_caja_id', $apertura->id) // ✅ Filtrar por apertura
+            ->where('acc.caja_principal_id', $apertura->caja_principal_id) // Misma caja principal que la apertura
             ->where('tev.vendedor_origen_id', $userId) // Dados por este vendedor
             ->where('tev.fecha_transferencia', '>=', $fechaInicio)
             ->where('tev.fecha_transferencia', '<=', $fechaFin)
