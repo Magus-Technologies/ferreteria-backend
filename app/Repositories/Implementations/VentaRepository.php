@@ -39,6 +39,9 @@ class VentaRepository implements VentaRepositoryInterface
         // cierre de TODOS los demás que comparten esa sub-caja, duplicando el efectivo
         // esperado en cada uno. Se agrega el filtro por user_id de la transacción (quien
         // realmente procesó la venta) para que cada apertura solo vea lo suyo.
+        // estado_de_venta != 'an' (Anulado) en AMBAS ramas: una venta anulada puede
+        // quedarse sin transacciones_caja (se revierten al anular) y caer igual en la
+        // rama "sin transacciones" de abajo si no se excluye explícitamente por estado.
         $ventasConTransacciones = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
             ->whereIn('id', function($query) use ($apertura) {
                 $query->select('referencia_id')
@@ -48,6 +51,7 @@ class VentaRepository implements VentaRepositoryInterface
                     ->where('user_id', $apertura->user_id);
             })
             ->whereBetween('fecha', [$inicioDia, $finDia])
+            ->where('estado_de_venta', '!=', 'an')
             ->get();
 
         // Ventas sin transacciones de caja pero dentro del rango de fechas
@@ -60,6 +64,7 @@ class VentaRepository implements VentaRepositoryInterface
             })
             ->whereBetween('fecha', [$inicioDia, $finDia])
             ->where('user_id', $apertura->user_id)
+            ->where('estado_de_venta', '!=', 'an')
             ->get();
 
         // Combinar ambas colecciones

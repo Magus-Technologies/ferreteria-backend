@@ -1935,6 +1935,14 @@ class VentaController extends Controller
             // Devolver dinero
             $this->devolverDineroDeVenta($venta);
 
+            // Revertir el registro de caja de la venta (transacciones_caja +
+            // sub_caja.saldo_actual). Sin esto, la venta anulada seguía apareciendo
+            // completa en el cierre de caja / Total en Caja / Traslado a Bóveda, porque
+            // esos cálculos leen las transacciones_caja de la venta (no su
+            // estado_de_venta). Misma función que ya se usa al poner una venta "en
+            // espera" para que no afecte el cierre.
+            $this->revertirCajaDeVenta($venta);
+
             // Update ingreso_dinero if exists
             if ($venta->ingreso_dinero_id) {
                 IngresoDinero::where('id', $venta->ingreso_dinero_id)
