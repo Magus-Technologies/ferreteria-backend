@@ -38,11 +38,17 @@ class IngresoExtraController extends Controller
             $query->where('concepto', 'like', '%' . $request->motivoIngreso . '%');
         }
 
-        // Filtro por cajero/usuario
+        // Filtro por cajero/usuario (legacy: búsqueda parcial por nombre)
         if ($request->has('cajeroRegistra') && $request->cajeroRegistra) {
             $query->whereHas('user', function ($q) use ($request) {
                 $q->where('name', 'like', '%' . $request->cajeroRegistra . '%');
             });
+        }
+
+        // Filtro por Vendedor (mismo criterio que Mis Ventas): coincidencia exacta
+        // por user_id, no por nombre.
+        if ($request->has('user_id') && $request->user_id) {
+            $query->where('user_id', $request->user_id);
         }
 
         // Filtro por búsqueda general
@@ -107,6 +113,10 @@ class IngresoExtraController extends Controller
 
         if ($request->has('fechaHasta')) {
             $query->where('created_at', '<=', $request->fechaHasta . ' 23:59:59');
+        }
+
+        if ($request->has('user_id') && $request->user_id) {
+            $query->where('user_id', $request->user_id);
         }
 
         $totalIngresos = (clone $query)->sum('monto');

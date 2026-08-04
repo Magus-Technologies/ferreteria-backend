@@ -41,11 +41,28 @@ class LiberarReservasExpiradas extends Command
             try {
                 DB::beginTransaction();
 
+                $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
+
                 foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
                     $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
 
                     if ($productoAlmacen) {
                         foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
+                            // Registrar en kardex ANTES de incrementar, para capturar el
+                            // stock_anterior correcto.
+                            $kardexFacturacionService->registrarLiberacionReservaCotizacion(
+                                $cotizacion,
+                                $productoAlmacen->load('producto'),
+                                [
+                                    'unidad_derivada_inmutable_name' => $unidad->unidadDerivadaInmutable->name ?? 'UNIDAD',
+                                    'cantidad' => $unidad->cantidad,
+                                    'factor' => $unidad->factor,
+                                    'precio' => $unidad->precio,
+                                ],
+                                $productoAlmacen->costo,
+                                'reserva expirada'
+                            );
+
                             $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
 
                             $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);

@@ -63,7 +63,17 @@ class KardexFacturacionService
         $costoNominal = isset($data['costo']) ? (float) $data['costo'] : 0;
 
         // 6. Preparar datos finales para persistencia
-        $nuevoSaldoBase = $saldoAnteriorBase + $cantIngresoBase - $cantSalidaBase;
+        // Si el stock físico ya fue afectado ANTES de este movimiento (ej. venta creada
+        // desde una cotización que reservó el stock: la salida ya ocurrió al reservar, no
+        // ahora), `stock_actual_override` fuerza el saldo a NO volver a descontar aquí —
+        // la fila igual muestra `salida` para reportes de venta, pero el stock resultante
+        // es el mismo que el anterior (no queda negativo por un descuento fantasma).
+        if (isset($data['stock_actual_override'])) {
+            $nuevoSaldoBase = (float) $data['stock_actual_override'];
+            unset($data['stock_actual_override']);
+        } else {
+            $nuevoSaldoBase = $saldoAnteriorBase + $cantIngresoBase - $cantSalidaBase;
+        }
 
         $dataToSave = array_merge($data, [
             'stock_anterior' => $saldoAnteriorBase,
@@ -92,7 +102,7 @@ class KardexFacturacionService
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
      * CORRECCIÓN: Pasar factor explícitamente
      */
-    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null)
+    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, bool $stockYaAplicado = false)
     {
         $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
@@ -146,6 +156,14 @@ class KardexFacturacionService
         // Si se proporciona stock anterior en fracción, usarlo
         if ($stockAnterior !== null) {
             $data['stock_anterior_override'] = $stockAnterior;
+        }
+
+        // stockYaAplicado=true: esta venta viene de una cotización que ya reservó (y por
+        // tanto ya descontó) el stock antes. La fila igual muestra `salida` = lo vendido
+        // (para el reporte de ventas / historial), pero el saldo resultante NO vuelve a
+        // descontar — ya se descontó al reservar, y aquí solo se está documentando la venta.
+        if ($stockYaAplicado && $stockAnterior !== null) {
+            $data['stock_actual_override'] = $stockAnterior;
         }
 
         return $this->registrar($data);
@@ -698,6 +716,86 @@ class KardexFacturacionService
         };
 
         return array_merge($buildQuery(false), $buildQuery(true));
+    }
+
+    /**
+     * Registra la RESERVA de stock de una cotización en kardex de facturación (SALIDA).
+     * $unidad: array con unidad_derivada_inmutable_name, cantidad, factor, precio.
+     */
+    public function registrarReservaCotizacion($cotizacion, $productoAlmacen, array $unidad, $costo, $orden = 1)
+    {
+        $cantSalida = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+
+        return $this->registrar([
+            'tipo' => 'reserva',
+            'movimiento' => 'RESERVA COTIZACIÓN',
+            'fecha' => now(),
+            'documento' => "Cotización {$cotizacion->numero}",
+            'unidad' => $unidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
+            'cantidad' => $unidad['cantidad'],
+            'cantidad_fraccion' => $cantSalida,
+            'factor' => (float) $unidad['factor'],
+            'precio' => $unidad['precio'] ?? 0,
+            'costo' => $costo,
+            'entrada' => 0,
+            'salida' => $cantSalida,
+            'referencia_id' => $cotizacion->id,
+            'producto_id' => $productoAlmacen->producto_id,
+            'producto_nombre' => $productoAlmacen->producto->name,
+            'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'cliente_id' => $cotizacion->cliente_id,
+            'cliente_nombre' => $this->obtenerNombreClienteDeCotizacion($cotizacion),
+            'almacen_id' => $productoAlmacen->almacen_id,
+            'orden' => $orden,
+        ]);
+    }
+
+    /**
+     * Registra la LIBERACIÓN de una reserva de cotización en kardex de facturación
+     * (ENTRADA). $motivo describe por qué se liberó (cancelada, editada, expirada, etc.)
+     * para que quede claro en el documento del kardex.
+     */
+    public function registrarLiberacionReservaCotizacion($cotizacion, $productoAlmacen, array $unidad, $costo, string $motivo, $orden = 2)
+    {
+        $cantEntrada = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+
+        return $this->registrar([
+            'tipo' => 'reserva',
+            'movimiento' => 'RESERVA LIBERADA',
+            'fecha' => now(),
+            'documento' => "Cotización {$cotizacion->numero} ({$motivo})",
+            'unidad' => $unidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
+            'cantidad' => $unidad['cantidad'],
+            'cantidad_fraccion' => $cantEntrada,
+            'factor' => (float) $unidad['factor'],
+            'precio' => $unidad['precio'] ?? 0,
+            'costo' => $costo,
+            'entrada' => $cantEntrada,
+            'salida' => 0,
+            'referencia_id' => $cotizacion->id,
+            'producto_id' => $productoAlmacen->producto_id,
+            'producto_nombre' => $productoAlmacen->producto->name,
+            'producto_codigo' => $productoAlmacen->producto->cod_producto,
+            'cliente_id' => $cotizacion->cliente_id,
+            'cliente_nombre' => $this->obtenerNombreClienteDeCotizacion($cotizacion),
+            'almacen_id' => $productoAlmacen->almacen_id,
+            'orden' => $orden,
+        ]);
+    }
+
+    /**
+     * Resuelve el nombre del cliente de una cotización, cargando la relación si falta.
+     */
+    private function obtenerNombreClienteDeCotizacion($cotizacion): string
+    {
+        if (!$cotizacion->cliente_id) {
+            return 'Sin cliente';
+        }
+        $cliente = $cotizacion->relationLoaded('cliente') && $cotizacion->cliente
+            ? $cotizacion->cliente
+            : \App\Models\Cliente::find($cotizacion->cliente_id);
+
+        return $this->obtenerNombreCliente($cliente);
     }
 
     /**

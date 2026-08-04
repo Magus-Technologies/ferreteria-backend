@@ -157,6 +157,10 @@ class CierreCajaController extends Controller
             ->sum('monto');
 
         $montoEsperado = $montoInicial + $ingresos - $egresos;
+        // Mismo redondeo del efectivo esperado que en CalculadorResumenCaja: siempre HACIA
+        // ABAJO al múltiplo de S/ 0.10 (ej. 100.11 -> 100.10) para poder cuadrar el efectivo
+        // físico. La épsilon 1e-6 protege contra el ruido de punto flotante.
+        $montoEsperado = floor(round($montoEsperado, 2) * 10 + 1e-6) / 10;
 
         return [
             'efectivo_inicial' => (float) $montoInicial,
@@ -169,6 +173,12 @@ class CierreCajaController extends Controller
             'total_prestamos_dados' => (float) $prestamosDados,
             'total_prestamos_recibidos' => (float) $prestamosRecibidos,
             'monto_esperado' => (float) $montoEsperado,
+            // Resúmenes solo efectivo, redondeados a 0.10 (aquí ingresos/egresos ya son de
+            // cajas chicas = efectivo). El INGRESO EFECTIVO incluye la apertura, para que
+            // Ingreso Efectivo − Egreso Efectivo = Total en Caja (mismo criterio que el
+            // resumen principal del cierre).
+            'resumen_ingresos_efectivo' => floor(round($montoInicial + $ingresos, 2) * 10 + 1e-6) / 10,
+            'resumen_egresos_efectivo' => floor(round($egresos, 2) * 10 + 1e-6) / 10,
             'monto_cierre' => null,
             'diferencia' => null,
             'detalle_metodos_pago' => [], // TODO: Implementar si es necesario
@@ -212,7 +222,9 @@ class CierreCajaController extends Controller
                 totalPrestamosDados: $resultado->resumen['total_prestamos_dados'] ?? 0,
                 movimientosInternos: collect($resultado->resumen['movimientos_internos'] ?? []),
                 prestamos: collect($resultado->resumen['prestamos'] ?? []),
-                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? [])
+                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? []),
+                resumenIngresosEfectivo: $resultado->resumen['resumen_ingresos_efectivo'] ?? 0,
+                resumenEgresosEfectivo: $resultado->resumen['resumen_egresos_efectivo'] ?? 0
             );
 
             return response()->json([
@@ -266,7 +278,9 @@ class CierreCajaController extends Controller
                 totalPrestamosDados: $resultado->resumen['total_prestamos_dados'] ?? 0,
                 movimientosInternos: collect($resultado->resumen['movimientos_internos'] ?? []),
                 prestamos: collect($resultado->resumen['prestamos'] ?? []),
-                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? [])
+                prestamosVendedores: collect($resultado->resumen['prestamos_vendedores'] ?? []),
+                resumenIngresosEfectivo: $resultado->resumen['resumen_ingresos_efectivo'] ?? 0,
+                resumenEgresosEfectivo: $resultado->resumen['resumen_egresos_efectivo'] ?? 0
             );
 
             return response()->json([

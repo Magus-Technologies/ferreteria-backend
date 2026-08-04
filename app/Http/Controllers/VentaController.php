@@ -336,7 +336,12 @@ class VentaController extends Controller
             'descontar_stock' => 'sometimes|string|in:si,no',
             // stock_ya_aplicado=true: la cotización origen ya reservó el stock,
             // no descontar de nuevo pero marcar stock_aplicado=true en la venta.
+            // Se usa como fallback solo si NO viene `cotizacion_id` (ver abajo).
             'stock_ya_aplicado' => 'sometimes|boolean',
+            // Si la venta se está creando a partir de una cotización, se verifica
+            // reservar_stock DIRECTO en la BD (server-side) en vez de confiar en el
+            // flag stock_ya_aplicado que manda el cliente.
+            'cotizacion_id' => 'nullable|string|exists:cotizacion,id',
             'cliente_id' => 'nullable|integer', // Nullable para boletas y notas de venta
             'direccion_seleccionada' => 'nullable|string|in:D1,D2,D3,D4', // Nueva validación
             'recomendado_por_id' => 'nullable|integer',
@@ -380,6 +385,15 @@ class VentaController extends Controller
             'vales_excluidos' => 'nullable|array',
             'vales_excluidos.*' => 'integer',
         ]);
+
+        // El dueño real de la venta es SIEMPRE el usuario autenticado (auth()->id()),
+        // nunca el `user_id` que manda el cliente en el body. El frontend lo saca de un
+        // cache local (useAuth) que puede quedar desactualizado (sesión vieja, pestaña
+        // compartida, etc.) y atribuir la venta — y por lo tanto el efectivo cobrado —
+        // a otra persona. No hay ningún flujo real donde se elija vender "a nombre de
+        // otro usuario", así que se sobreescribe aquí una sola vez para todos los usos
+        // downstream de $validated['user_id'] en este método.
+        $validated['user_id'] = (string) auth()->id();
 
         return DB::transaction(function () use ($validated) {
 
@@ -582,7 +596,18 @@ class VentaController extends Controller
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
             $noDescontarStock = ($validated['descontar_stock'] ?? 'si') === 'no';
-            $stockYaAplicado = (bool) ($validated['stock_ya_aplicado'] ?? false);
+            // Si la venta viene de una cotización, la verdad de si el stock ya está
+            // reservado se verifica DIRECTO en la BD (server-side), no confiando en el
+            // flag `stock_ya_aplicado` que manda el cliente: ese flag depende de que se
+            // propague correcto por varias capas del frontend (form → payload), y si se
+            // pierde en el camino, la venta descuenta stock que la cotización ya había
+            // reservado (doble descuento). Si no viene `cotizacion_id`, se mantiene el
+            // flag del cliente como antes (compatibilidad con otros flujos sin cotización).
+            $cotizacionId = $validated['cotizacion_id'] ?? null;
+            $cotizacionOrigen = $cotizacionId ? \App\Models\Cotizacion::find($cotizacionId) : null;
+            $stockYaAplicado = $cotizacionOrigen
+                ? (bool) $cotizacionOrigen->reservar_stock
+                : (bool) ($validated['stock_ya_aplicado'] ?? false);
             $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa', 'oc'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
@@ -661,6 +686,14 @@ class VentaController extends Controller
             // el producto ya salió físicamente → NO cuenta en el reporte de Ganancias.
             $venta->descuenta_stock = ! $noDescontarStock;
             $venta->save();
+
+            // Si la venta consumió la reserva de una cotización (no se volvió a descontar
+            // porque el stock ya estaba reservado), liberar el flag reservar_stock: ese
+            // stock ahora es propiedad de la venta, no de una reserva pendiente. Evita que
+            // el cron `reservas:liberar-expiradas` intente devolver stock que ya se vendió.
+            if ($cotizacionOrigen && $stockYaAplicado) {
+                $cotizacionOrigen->update(['reservar_stock' => false]);
+            }
 
             // Auto-crear entrega para ventas de Recojo en Tienda (tipo_despacho='et').
             //
@@ -894,8 +927,10 @@ class VentaController extends Controller
                                 'precio' => (float) $unidad['precio'],
                             ];
                             
-                            // Pasar el stock anterior capturado
-                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior);
+                            // Pasar el stock anterior capturado. $stockYaAplicado=true
+                            // (venta desde cotización que ya reservó el stock) evita que el
+                            // kardex reste la venta de nuevo sobre un stock ya descontado.
+                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $stockYaAplicado);
                         }
                     }
                 } catch (\Exception $e) {
@@ -1826,26 +1861,13 @@ class VentaController extends Controller
                 ], 400);
             }
 
-            // Revertir cobros activos: marcar estado=false y decrementar el monto del
-            // método de pago correspondiente (sale dinero de caja).
-            $cobrosActivos = $venta->cobrosVenta->where('estado', true);
-            foreach ($cobrosActivos as $cobro) {
-                if ($cobro->despliegue_de_pago_id) {
-                    $despliegue = DespliegueDePago::find($cobro->despliegue_de_pago_id);
-                    if ($despliegue && $despliegue->metodo_de_pago_id) {
-                        MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
-                            ->decrement('monto', (float) $cobro->monto);
-                    }
-                }
-                $cobro->update([
-                    'estado' => false,
-                    'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '')
-                        . 'ANULADO POR ANULACIÓN DE VENTA',
-                ]);
-            }
-
-            // Verificar entregas (tabla NUEVA): si hay entregas ya entregadas,
-            // no se puede anular.
+            // Verificar entregas (tabla NUEVA) ANTES de mutar nada: si hay entregas ya
+            // entregadas, no se puede anular. Esta validación estaba DESPUÉS de revertir
+            // los cobros — como Laravel's DB::transaction() solo revierte con excepciones
+            // (no con un `return response()->json(..., 400)` normal), si esta validación
+            // fallaba, los cobros ya revertidos quedaban committeados en la BD aunque la
+            // venta nunca se marcara Anulada (estado inconsistente). Se mueve aquí para
+            // fallar rápido, antes de tocar cobros/caja/stock.
             $entregas = \App\Models\Entrega::with(['detalles', 'estadoEntrega:id,codigo'])
                 ->where('venta_id', $id)
                 ->get();
@@ -1860,6 +1882,42 @@ class VentaController extends Controller
                 return response()->json([
                     'error' => ['message' => 'La venta no se puede anular porque tiene entregas ya completadas. Anule primero las entregas.'],
                 ], 400);
+            }
+
+            // Revertir cobros activos: marcar estado=false, decrementar el monto del
+            // método de pago correspondiente (sale dinero de caja) Y revertir su rastro
+            // en transacciones_caja (cada cobro crea la SUYA propia, con
+            // referencia_tipo='cobro' y referencia_id=cobro->id — NO 'venta' — así que
+            // revertirCajaDeVenta() de abajo, que solo busca referencia_tipo='venta',
+            // nunca las encuentra. Sin esto, un cobro de una venta a crédito anulada
+            // seguía apareciendo en el cierre de caja / Traslado a Bóveda.
+            $cobrosActivos = $venta->cobrosVenta->where('estado', true);
+            foreach ($cobrosActivos as $cobro) {
+                if ($cobro->despliegue_de_pago_id) {
+                    $despliegue = DespliegueDePago::find($cobro->despliegue_de_pago_id);
+                    if ($despliegue && $despliegue->metodo_de_pago_id) {
+                        MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
+                            ->decrement('monto', (float) $cobro->monto);
+                    }
+                }
+
+                $transaccionesCobro = TransaccionCaja::where('referencia_id', $cobro->id)
+                    ->where('referencia_tipo', 'cobro')
+                    ->get();
+                foreach ($transaccionesCobro as $transaccionCobro) {
+                    $subCajaCobro = SubCaja::find($transaccionCobro->sub_caja_id);
+                    if ($subCajaCobro) {
+                        $subCajaCobro->saldo_actual -= (float) $transaccionCobro->monto;
+                        $subCajaCobro->save();
+                    }
+                    $transaccionCobro->delete();
+                }
+
+                $cobro->update([
+                    'estado' => false,
+                    'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '')
+                        . 'ANULADO POR ANULACIÓN DE VENTA',
+                ]);
             }
 
             // Cancelar entregas pendientes/en camino en la tabla nueva. El stock
@@ -1912,6 +1970,14 @@ class VentaController extends Controller
 
             // Devolver dinero
             $this->devolverDineroDeVenta($venta);
+
+            // Revertir el registro de caja de la venta (transacciones_caja +
+            // sub_caja.saldo_actual). Sin esto, la venta anulada seguía apareciendo
+            // completa en el cierre de caja / Total en Caja / Traslado a Bóveda, porque
+            // esos cálculos leen las transacciones_caja de la venta (no su
+            // estado_de_venta). Misma función que ya se usa al poner una venta "en
+            // espera" para que no afecte el cierre.
+            $this->revertirCajaDeVenta($venta);
 
             // Update ingreso_dinero if exists
             if ($venta->ingreso_dinero_id) {
