@@ -36,11 +36,17 @@ class GastoExtraController extends Controller
             $query->where('concepto', 'like', '%' . $request->motivoGasto . '%');
         }
 
-        // Filtro por cajero/usuario
+        // Filtro por cajero/usuario (legacy: búsqueda parcial por nombre)
         if ($request->has('cajeroRegistra') && $request->cajeroRegistra) {
             $query->whereHas('user', function ($q) use ($request) {
                 $q->where('name', 'like', '%' . $request->cajeroRegistra . '%');
             });
+        }
+
+        // Filtro por Vendedor (mismo criterio que Mis Ventas): coincidencia exacta
+        // por user_id, no por nombre.
+        if ($request->has('user_id') && $request->user_id) {
+            $query->where('user_id', $request->user_id);
         }
 
         // Filtro por búsqueda general
@@ -105,6 +111,13 @@ class GastoExtraController extends Controller
 
         if ($request->has('fechaHasta')) {
             $gastoQuery->where('created_at', '<=', $request->fechaHasta . ' 23:59:59');
+        }
+
+        // Filtro por Vendedor. Solo aplica a los gastos extras (GastoExtra tiene
+        // user_id); las "pérdidas por salidas" de abajo vienen de otra tabla
+        // (ingresosalida) sin ese concepto, así que quedan fuera de este filtro.
+        if ($request->has('user_id') && $request->user_id) {
+            $gastoQuery->where('user_id', $request->user_id);
         }
 
         // Gastos extras registrados manualmente
