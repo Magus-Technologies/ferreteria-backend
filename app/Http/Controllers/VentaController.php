@@ -1848,26 +1848,13 @@ class VentaController extends Controller
                 ], 400);
             }
 
-            // Revertir cobros activos: marcar estado=false y decrementar el monto del
-            // método de pago correspondiente (sale dinero de caja).
-            $cobrosActivos = $venta->cobrosVenta->where('estado', true);
-            foreach ($cobrosActivos as $cobro) {
-                if ($cobro->despliegue_de_pago_id) {
-                    $despliegue = DespliegueDePago::find($cobro->despliegue_de_pago_id);
-                    if ($despliegue && $despliegue->metodo_de_pago_id) {
-                        MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
-                            ->decrement('monto', (float) $cobro->monto);
-                    }
-                }
-                $cobro->update([
-                    'estado' => false,
-                    'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '')
-                        . 'ANULADO POR ANULACIÓN DE VENTA',
-                ]);
-            }
-
-            // Verificar entregas (tabla NUEVA): si hay entregas ya entregadas,
-            // no se puede anular.
+            // Verificar entregas (tabla NUEVA) ANTES de mutar nada: si hay entregas ya
+            // entregadas, no se puede anular. Esta validación estaba DESPUÉS de revertir
+            // los cobros — como Laravel's DB::transaction() solo revierte con excepciones
+            // (no con un `return response()->json(..., 400)` normal), si esta validación
+            // fallaba, los cobros ya revertidos quedaban committeados en la BD aunque la
+            // venta nunca se marcara Anulada (estado inconsistente). Se mueve aquí para
+            // fallar rápido, antes de tocar cobros/caja/stock.
             $entregas = \App\Models\Entrega::with(['detalles', 'estadoEntrega:id,codigo'])
                 ->where('venta_id', $id)
                 ->get();
@@ -1882,6 +1869,42 @@ class VentaController extends Controller
                 return response()->json([
                     'error' => ['message' => 'La venta no se puede anular porque tiene entregas ya completadas. Anule primero las entregas.'],
                 ], 400);
+            }
+
+            // Revertir cobros activos: marcar estado=false, decrementar el monto del
+            // método de pago correspondiente (sale dinero de caja) Y revertir su rastro
+            // en transacciones_caja (cada cobro crea la SUYA propia, con
+            // referencia_tipo='cobro' y referencia_id=cobro->id — NO 'venta' — así que
+            // revertirCajaDeVenta() de abajo, que solo busca referencia_tipo='venta',
+            // nunca las encuentra. Sin esto, un cobro de una venta a crédito anulada
+            // seguía apareciendo en el cierre de caja / Traslado a Bóveda.
+            $cobrosActivos = $venta->cobrosVenta->where('estado', true);
+            foreach ($cobrosActivos as $cobro) {
+                if ($cobro->despliegue_de_pago_id) {
+                    $despliegue = DespliegueDePago::find($cobro->despliegue_de_pago_id);
+                    if ($despliegue && $despliegue->metodo_de_pago_id) {
+                        MetodoDePago::where('id', $despliegue->metodo_de_pago_id)
+                            ->decrement('monto', (float) $cobro->monto);
+                    }
+                }
+
+                $transaccionesCobro = TransaccionCaja::where('referencia_id', $cobro->id)
+                    ->where('referencia_tipo', 'cobro')
+                    ->get();
+                foreach ($transaccionesCobro as $transaccionCobro) {
+                    $subCajaCobro = SubCaja::find($transaccionCobro->sub_caja_id);
+                    if ($subCajaCobro) {
+                        $subCajaCobro->saldo_actual -= (float) $transaccionCobro->monto;
+                        $subCajaCobro->save();
+                    }
+                    $transaccionCobro->delete();
+                }
+
+                $cobro->update([
+                    'estado' => false,
+                    'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '')
+                        . 'ANULADO POR ANULACIÓN DE VENTA',
+                ]);
             }
 
             // Cancelar entregas pendientes/en camino en la tabla nueva. El stock
