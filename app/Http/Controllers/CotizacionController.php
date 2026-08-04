@@ -682,6 +682,9 @@ class CotizacionController extends Controller
                         'unidad_derivada_inmutable_id' => $ud->unidad_derivada_inmutable_id,
                         'factor' => $ud->factor,
                         'cantidad' => $ud->cantidad,
+                        // Toda la cantidad ya fue reservada por la cotización:
+                        // store resta esto y no descuenta stock de nuevo.
+                        'cantidad_ya_aplicada' => $ud->cantidad,
                         'cantidad_pendiente' => $ud->cantidad, // Todas pendientes al convertir
                         'precio' => $ud->precio,
                         'recargo' => $ud->recargo ?? 0,

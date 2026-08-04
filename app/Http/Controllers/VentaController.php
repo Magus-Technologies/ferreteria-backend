@@ -588,6 +588,10 @@ class VentaController extends Controller
             // se cree la entrega manualmente desde Mis Ventas.
             // No descontar si descontar_stock='no' (caso: el cliente ya tiene
             // el producto físicamente; solo se registra la venta administrativa).
+            // stock_ya_aplicado=true ya NO desactiva el descuento globalmente:
+            // el stock reservado por la cotización origen se resta POR LÍNEA vía
+            // `cantidad_ya_aplicada`, así las líneas nuevas o el excedente que el
+            // usuario agregó en la venta SÍ se descuentan.
             $tipoDespacho = $validated['tipo_despacho'] ?? null;
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
@@ -607,8 +611,7 @@ class VentaController extends Controller
             $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa', 'oc'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
-                && ! $noDescontarStock
-                && ! $stockYaAplicado;
+                && ! $noDescontarStock;
             
             // CAPTURAR STOCK ANTERIOR ANTES DE DECREMENTAR (para kardex)
             // Capturar SIEMPRE si no está en espera (porque se registrará en kardex)
@@ -649,7 +652,17 @@ class VentaController extends Controller
                     $loteService = app(\App\Services\Producto\ProductoLoteService::class);
 
                     foreach ($producto['unidades_derivadas'] as $unidad) {
-                        $cantidadEnFraccion = (float) $unidad['cantidad'] * (float) $unidad['factor'];
+                        // Si la cotización origen ya reservó parte de esa línea
+                        // (cantidad_ya_aplicada), descontar SOLO el exceso sobre lo
+                        // reservado. Las líneas nuevas o el excedente que el usuario
+                        // agregó en la venta se descuentan completos.
+                        $cantidadYaAplicada = (float) ($unidad['cantidad_ya_aplicada'] ?? 0);
+                        $cantidadNeta = (float) $unidad['cantidad'] - $cantidadYaAplicada;
+                        if ($cantidadNeta <= 0) {
+                            continue;
+                        }
+
+                        $cantidadEnFraccion = $cantidadNeta * (float) $unidad['factor'];
 
                         // Consumir lotes PEPS y registrar el consumo (para anular/reportes)
                         $loteService->consumirLotes($pAlmacen, $cantidadEnFraccion, ['tipo' => 'venta', 'id' => $venta->id]);
@@ -658,7 +671,7 @@ class VentaController extends Controller
                         ComplementarioStockService::procesarComplementarioPorFactor(
                             $pAlmacen->id,
                             (float) $unidad['factor'],
-                            (float) $unidad['cantidad'],
+                            $cantidadNeta,
                             $validated['almacen_id'],
                             false // salida
                         );
