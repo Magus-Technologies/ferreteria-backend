@@ -1091,6 +1091,17 @@ class VentaController extends Controller
             'servicios_venta.*.precio_unitario' => 'required|numeric|min:0',
             'servicios_venta.*.subtotal' => 'required|numeric|min:0',
             'servicios_venta.*.referencia' => 'nullable|string|max:200',
+            // Cobro/devolución de la diferencia (modelo cobro diferencial):
+            // se resuelve DENTRO de esta misma transacción — si el pago no
+            // cuadra con la diferencia real, toda la edición se revierte
+            // (atómico: no queda una edición guardada sin su cobro).
+            'diferencia_pago' => 'sometimes|array',
+            'diferencia_pago.tipo' => 'required_with:diferencia_pago|string|in:diferencia,devolucion',
+            'diferencia_pago.despliegue_de_pago_ventas' => 'required_with:diferencia_pago|array|min:1',
+            'diferencia_pago.despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required_with:diferencia_pago|string',
+            'diferencia_pago.despliegue_de_pago_ventas.*.monto' => 'required_with:diferencia_pago|numeric',
+            'diferencia_pago.despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
+            'diferencia_pago.despliegue_de_pago_ventas.*.recibe_efectivo' => 'nullable|numeric',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
@@ -1827,6 +1838,66 @@ class VentaController extends Controller
                 })->toArray(),
             ];
 
+            // Cobro/devolución de la diferencia — ATÓMICO con la edición: si
+            // esta venta ya tenía cobro previo y la edición deja una
+            // diferencia, se resuelve AQUÍ, dentro de la misma transacción.
+            // Si el pago enviado no cuadra con la diferencia real (monto
+            // incorrecto, tipo incorrecto, método no permitido, o falta por
+            // completo), se hace `throw` — Laravel revierte TODA la
+            // transacción, incluidos los cambios de productos ya aplicados.
+            // Así el usuario nunca se queda con una edición guardada sin su
+            // cobro correspondiente: es todo o nada.
+            if ($yaTienePagoPrevio) {
+                $nuevoTotal = $this->getTotalVenta($ventaFresh);
+                $diferenciaCalculada = round($nuevoTotal - $totalPagadoPrevio, 2);
+
+                if (abs($diferenciaCalculada) > 0.01) {
+                    if (!isset($validated['diferencia_pago'])) {
+                        $accion = $diferenciaCalculada > 0 ? 'cobrar' : 'devolver';
+                        throw new \Exception(
+                            "Esta edición deja una diferencia de S/ " . number_format(abs($diferenciaCalculada), 2)
+                            . " pendiente de {$accion}. Debes indicar el pago junto con la edición."
+                        );
+                    }
+
+                    $tipoPago = $validated['diferencia_pago']['tipo'];
+                    $filasPago = $validated['diferencia_pago']['despliegue_de_pago_ventas'];
+
+                    $tipoEsperado = $diferenciaCalculada > 0 ? 'diferencia' : 'devolucion';
+                    if ($tipoPago !== $tipoEsperado) {
+                        throw new \Exception(
+                            'El pago de la diferencia no coincide con el nuevo total de la venta '
+                            . '(puede que otro usuario haya editado la venta al mismo tiempo). Vuelve a intentar.'
+                        );
+                    }
+
+                    $sumaPayload = round(array_sum(array_column($filasPago, 'monto')), 2);
+                    $montoEsperado = abs($diferenciaCalculada);
+                    if (abs($sumaPayload - $montoEsperado) > 0.01) {
+                        throw new \Exception(
+                            'El monto de la diferencia (S/ ' . number_format($sumaPayload, 2) . ') no coincide con lo '
+                            . 'que corresponde ' . ($tipoPago === 'devolucion' ? 'devolver' : 'cobrar') . ' (S/ '
+                            . number_format($montoEsperado, 2) . '). Puede que otro usuario haya editado la venta al mismo tiempo.'
+                        );
+                    }
+
+                    if ($tipoPago === 'devolucion') {
+                        // Solo se puede devolver por un método YA usado en esta venta.
+                        $metodosUsados = $venta->despliegueDePagoVentas
+                            ->where('monto', '>', 0)
+                            ->pluck('despliegue_de_pago_id')
+                            ->unique();
+                        foreach ($filasPago as $fila) {
+                            if (!$metodosUsados->contains($fila['despliegue_de_pago_id'])) {
+                                throw new \Exception('Solo puedes devolver por un método de pago ya usado en esta venta.');
+                            }
+                        }
+                    }
+
+                    $this->aplicarPagosVenta($ventaFresh, $filasPago, $tipoPago, $validated['user_id'] ?? auth()->id());
+                }
+            }
+
             VentaHistorial::registrar(
                 ventaId: $id,
                 accion: 'edicion',
@@ -2359,8 +2430,19 @@ class VentaController extends Controller
                 }
             }
 
-        } catch (\Exception $e) {
-            // No fallar la venta si hay error al registrar en caja
+        } catch (\Throwable $e) {
+            // No fallar la venta si hay error al registrar en caja — pero SÍ
+            // dejar rastro. Antes este catch era completamente silencioso y
+            // escondió un bug real (MovimientoCaja no se creaba para el
+            // usuario que cobraba la diferencia, sin ningún indicio en logs).
+            \Log::error('Error al registrar venta/diferencia en caja', [
+                'venta_id' => $venta->id ?? null,
+                'tipo_movimiento' => $tipoMovimiento ?? null,
+                'actor_user_id' => $actorUserId ?? null,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
         }
     }
 

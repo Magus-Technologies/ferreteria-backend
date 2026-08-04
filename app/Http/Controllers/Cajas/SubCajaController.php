@@ -645,23 +645,20 @@ class SubCajaController extends Controller
         }
         
         $montoInicial = 0;
-        
+
+        // Obtener la apertura activa de la caja principal (acota el saldo DESDE la apertura)
+        $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->whereNull('fecha_cierre')
+            ->first();
+
         // Solo si es Caja Chica, considerar la distribución inicial de efectivo
-        if ($subCaja->tipo_caja === 'CC') {
-            // Obtener la apertura activa de la caja principal
-            $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-                ->whereNull('fecha_cierre')
-                ->first();
-            
-            if ($aperturaActiva) {
-                // Sumar solo las distribuciones de efectivo del vendedor
-                $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                    ->where('user_id', $vendedorId)
-                    ->get();
-                
-                $montoInicial = $distribuciones->sum('monto');
-                
-            }
+        if ($subCaja->tipo_caja === 'CC' && $aperturaActiva) {
+            // Sumar solo las distribuciones de efectivo del vendedor
+            $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                ->where('user_id', $vendedorId)
+                ->get();
+
+            $montoInicial = $distribuciones->sum('monto');
         }
         
         // Obtener IDs de despliegues de pago tipo EFECTIVO de esta sub-caja
@@ -692,6 +689,7 @@ class SubCajaController extends Controller
         
         // Calcular transacciones de efectivo
         // IMPORTANTE: EXCLUIR transacciones de tipo "apertura" para evitar duplicar las distribuciones
+        // Solo considera transacciones DESDE la apertura activa de la caja
         $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $vendedorId)
             ->whereIn('despliegue_pago_id', $desplieguePagoEfectivoIds)
@@ -699,6 +697,7 @@ class SubCajaController extends Controller
                 $query->whereNull('referencia_tipo')
                       ->orWhere('referencia_tipo', '!=', 'apertura');
             })
+            ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
             ->get();
         
         

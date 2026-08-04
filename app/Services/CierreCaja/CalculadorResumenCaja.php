@@ -113,8 +113,9 @@ class CalculadorResumenCaja
         $montoCierre = $apertura->monto_cierre;
         $diferencia = $montoCierre !== null ? ($montoCierre - $montoEsperado) : null;
 
-        // Formatear detalles de ventas con información de pagos
-        $detalleVentas = $this->formatearDetalleVentas($clasificacion['ventas']);
+        // Formatear detalles de ventas con información de pagos — filtrado
+        // por el usuario de esta apertura (ver formatearDetalleVentas).
+        $detalleVentas = $this->formatearDetalleVentas($clasificacion['ventas'], $apertura->user_id);
 
         // Función auxiliar para formatear movimientos manuales
         $formatearManual = function ($item, $tipoDefault = 'ingreso_manual') use ($esEfectivo) {
@@ -174,9 +175,9 @@ class CalculadorResumenCaja
         return $resultado;
     }
 
-    private function formatearDetalleVentas($ventas)
+    private function formatearDetalleVentas($ventas, string $userId)
     {
-        return $ventas->map(function ($venta) {
+        return $ventas->map(function ($venta) use ($userId) {
             // Sub-caja por método de pago de ESTA venta, colapsada a UNA fila
             // por despliegue_pago_id. Necesario porque el modelo de cobro
             // diferencial puede dejar VARIAS transacciones_caja para el mismo
@@ -202,6 +203,15 @@ class CalculadorResumenCaja
                 })
                 ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
                 ->where('dpv.venta_id', $venta->id)
+                // Solo los pagos que hizo ESTE usuario — con cobro diferencial
+                // una venta puede tener pagos de distintos usuarios (ej.
+                // cobro inicial de uno, diferencia de otro compartiendo la
+                // misma Caja Chica); cada cierre debe ver solo lo suyo.
+                // Filas viejas sin user_id (previas a la migración) se
+                // mantienen visibles para no perder historial.
+                ->where(function ($q) use ($userId) {
+                    $q->where('dpv.user_id', $userId)->orWhereNull('dpv.user_id');
+                })
                 ->select([
                     'sc.nombre as sub_caja',
                     'mp.name as banco',

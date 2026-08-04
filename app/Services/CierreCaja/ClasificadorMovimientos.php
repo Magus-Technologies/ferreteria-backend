@@ -191,7 +191,13 @@ class ClasificadorMovimientos
             return collect([]);
         }
 
-        // Obtener los pagos de las ventas desde despliegue_de_pago_ventas (TODOS los pagos)
+        // Obtener los pagos de las ventas desde despliegue_de_pago_ventas
+        // FILTRADOS POR ESTE USUARIO: con el modelo de cobro diferencial una
+        // misma venta puede tener filas de pago de VARIOS usuarios (cobro
+        // inicial por uno, diferencia por otro, típicamente compartiendo la
+        // misma Caja Chica física) — sin este filtro cada usuario vería en
+        // su cierre el total de la venta completa, no solo lo que él cobró,
+        // duplicando el efectivo esperado entre los cierres de ambos.
         $ventaIds = $ventasVendedor->pluck('id');
 
 
@@ -202,6 +208,11 @@ class ClasificadorMovimientos
             ->leftJoin('sub_cajas as sc', 'mp.subcaja_id', '=', 'sc.id')
             ->leftJoin('numeros_operacion_pago as nop', 'dpv.numero_operacion_id', '=', 'nop.id')
             ->whereIn('dpv.venta_id', $ventaIds)
+            ->where(function ($q) use ($userId) {
+                // Filas viejas (previas a la migración) no tienen user_id —
+                // se mantienen visibles para no perder historial pre-existente.
+                $q->where('dpv.user_id', $userId)->orWhereNull('dpv.user_id');
+            })
             ->select([
                 'mp.id as metodo_pago_id',
                 'mp.name as banco',
