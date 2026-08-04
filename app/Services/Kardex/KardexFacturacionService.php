@@ -102,7 +102,7 @@ class KardexFacturacionService
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
      * CORRECCIÓN: Pasar factor explícitamente
      */
-    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, bool $stockYaAplicado = false)
+    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, bool $stockYaAplicado = false, float $cantidadYaAplicada = 0)
     {
         $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
@@ -159,11 +159,21 @@ class KardexFacturacionService
         }
 
         // stockYaAplicado=true: esta venta viene de una cotización que ya reservó (y por
-        // tanto ya descontó) el stock antes. La fila igual muestra `salida` = lo vendido
-        // (para el reporte de ventas / historial), pero el saldo resultante NO vuelve a
-        // descontar — ya se descontó al reservar, y aquí solo se está documentando la venta.
+        // tanto ya descontó) parte del stock antes. La fila igual muestra `salida` = lo
+        // vendido (para el reporte de ventas / historial), pero el saldo resultante NO
+        // vuelve a descontar la parte YA reservada — ya se descontó al reservar, y aquí
+        // solo se está documentando la venta.
+        //
+        // IMPORTANTE: solo la parte YA reservada (cantidad_ya_aplicada) se conserva. El
+        // EXCEDENTE (cantidad aumentada sobre lo reservado) y las líneas NUEVAS (productos
+        // que no estaban en la cotización, cantidad_ya_aplicada = 0) SÍ deben descontar:
+        //   stock_actual = stock_anterior - (salida - ya_aplicado_en_fracción)
+        // así el kardex queda coherente con el descuento físico por línea (cantidadNeta)
+        // y con producto_almacen.stock_fraccion.
         if ($stockYaAplicado && $stockAnterior !== null) {
-            $data['stock_actual_override'] = $stockAnterior;
+            $yaAplicadoFraccion = (float) ($cantidadYaAplicada * (float) ($unidad['factor'] ?? 1));
+            $excedente = max($cantSalida - $yaAplicadoFraccion, 0);
+            $data['stock_actual_override'] = $stockAnterior - $excedente;
         }
 
         return $this->registrar($data);

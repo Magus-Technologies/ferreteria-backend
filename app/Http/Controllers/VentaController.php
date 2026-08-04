@@ -932,8 +932,11 @@ class VentaController extends Controller
                             
                             // Pasar el stock anterior capturado. $stockYaAplicado=true
                             // (venta desde cotización que ya reservó el stock) evita que el
-                            // kardex reste la venta de nuevo sobre un stock ya descontado.
-                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $stockYaAplicado);
+                            // kardex reste de nuevo la parte YA reservada; la cantidad
+                            // aumentada y las líneas nuevas (cantidad_ya_aplicada=0) sí se
+                            // descuentan (mismo criterio que el descuento físico).
+                            $cantidadYaAplicada = (float) ($unidad['cantidad_ya_aplicada'] ?? 0);
+                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $stockYaAplicado, $cantidadYaAplicada);
                         }
                     }
                 } catch (\Exception $e) {
