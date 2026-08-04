@@ -580,11 +580,18 @@ class SubCajaController extends Controller
                 ->where('user_id', '!=', $userId) // Excluir usuario actual
                 ->distinct()
                 ->pluck('user_id');
-            
-            
+
+            // Vendedores con caja abierta (apertura activa), aunque aún no tengan transacciones
+            $vendedoresConApertura = \App\Models\AperturaCierreCaja::whereNull('fecha_cierre')
+                ->where('user_id', '!=', $userId)
+                ->pluck('user_id');
+
+            $vendedoresIds = $vendedoresConTransacciones->merge($vendedoresConApertura)->unique()->values();
+
+
             $vendedoresConEfectivo = [];
 
-            foreach ($vendedoresConTransacciones as $vendedorId) {
+            foreach ($vendedoresIds as $vendedorId) {
                 $vendedor = \App\Models\User::find($vendedorId);
                 
                 if (!$vendedor) {
@@ -646,8 +653,10 @@ class SubCajaController extends Controller
         
         $montoInicial = 0;
 
-        // Obtener la apertura activa de la caja principal (acota el saldo DESDE la apertura)
+        // Obtener la apertura activa de ESTE VENDEDOR en la caja principal
+        // (acota el saldo DESDE su apertura; cada vendedor tiene su propia apertura)
         $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $vendedorId)
             ->whereNull('fecha_cierre')
             ->first();
 
@@ -728,8 +737,10 @@ class SubCajaController extends Controller
             return '0.00';
         }
         
-        // Apertura activa de la caja principal: acota el saldo DESDE la apertura HASTA el cierre.
+        // Apertura activa de ESTE VENDEDOR en la caja principal:
+        // acota el saldo DESDE su apertura HASTA el cierre.
         $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $userId)
             ->whereNull('fecha_cierre')
             ->first();
 
@@ -861,8 +872,10 @@ class SubCajaController extends Controller
             return '0.00';
         }
         
-        // Apertura activa de la caja principal: acota el saldo DESDE la apertura HASTA el cierre.
+        // Apertura activa de ESTE VENDEDOR en la caja principal:
+        // acota el saldo DESDE su apertura HASTA el cierre.
         $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $userId)
             ->whereNull('fecha_cierre')
             ->first();
 
