@@ -42,6 +42,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{id}/cobros', [VentaController::class, 'getCobros']);   // Listar cobros de una venta
         Route::post('/{id}/cobros', [VentaController::class, 'storeCobro']); // Registrar un cobro
         Route::put('/{ventaId}/cobros/{cobroId}/anular', [VentaController::class, 'anularCobro']); // Anular un cobro
+        // Cobro/devolución de la DIFERENCIA al editar una venta ya cobrada (modelo cobro diferencial).
+        Route::post('/{id}/cobrar-diferencia', [VentaController::class, 'cobrarDiferencia']);
+        Route::post('/{id}/devolver-diferencia', [VentaController::class, 'devolverDiferencia']);
     });
     // Consultar ventas (mis-ventas) es solo lectura y no debe exigir caja abierta.
     Route::apiResource('ventas', VentaController::class)
