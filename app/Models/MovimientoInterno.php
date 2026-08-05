@@ -22,17 +22,25 @@ class MovimientoInterno extends Model
         'numero_operacion',
         'user_id',
         'fecha',
+        'estado',
+        'fecha_anulacion',
     ];
 
     protected $casts = [
         'monto' => 'decimal:2',
         'fecha' => 'datetime',
+        'fecha_anulacion' => 'datetime',
     ];
 
     // Accessor para mantener compatibilidad con código que usa fecha_movimiento
     public function getFechaMovimientoAttribute()
     {
         return $this->fecha;
+    }
+
+    public function estaAnulado(): bool
+    {
+        return $this->estado === 'anulado';
     }
 
     public $incrementing = false;

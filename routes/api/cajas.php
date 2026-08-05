@@ -140,6 +140,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/saldos-disponibles', [MovimientoInternoController::class, 'saldosDisponibles']);
             Route::get('/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
+            Route::post('/{id}/anular', [MovimientoInternoController::class, 'anular']);
         });
 
         Route::get('/movimientos-internos/usuarios-con-saldo', [MovimientoInternoController::class, 'usuariosConSaldo']);

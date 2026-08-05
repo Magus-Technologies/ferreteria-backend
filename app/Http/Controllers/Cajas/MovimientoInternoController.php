@@ -159,10 +159,31 @@ class MovimientoInternoController extends Controller
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al crear movimiento interno: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Anular un movimiento interno (Traslado de Efectivo) ya registrado — revierte
+     * transacciones, movimientos de caja y saldos.
+     */
+    public function anular(string $id): JsonResponse
+    {
+        try {
+            $this->movimientoInternoService->anularMovimiento($id, auth()->id());
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Movimiento anulado',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al anular movimiento: ' . $e->getMessage(),
             ], 500);
         }
     }

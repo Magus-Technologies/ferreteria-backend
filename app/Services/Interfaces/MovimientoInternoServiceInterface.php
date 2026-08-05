@@ -40,4 +40,10 @@ interface MovimientoInternoServiceInterface
      * Usuarios con saldo disponible de cierres cerrados, agrupado por sub-caja.
      */
     public function usuariosConSaldoDisponible(): array;
+
+    /**
+     * Anular un movimiento interno (Traslado de Efectivo) ya aprobado: revierte
+     * las transacciones, movimientos de caja y saldos, y lo marca como anulado.
+     */
+    public function anularMovimiento(string $movimientoId, string|int $userId): void;
 }
