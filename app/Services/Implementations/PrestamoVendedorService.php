@@ -576,23 +576,17 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         \App\Models\SubCaja $subCajaOrigen,
         \App\Models\SubCaja $subCajaDestino
     ): void {
-        // Buscar método de pago de efectivo (intentar varios nombres comunes)
-        $desplieguePagoEfectivo = DespliegueDePago::where('activo', true)
-            ->where(function ($query) {
-                $query->where('name', 'like', '%Efectivo%')
-                      ->orWhere('name', 'like', '%efectivo%')
-                      ->orWhere('name', 'like', '%EFECTIVO%');
-            })
-            ->first();
-
-        // Si no se encuentra, buscar el primer método de pago activo de efectivo
-        if (!$desplieguePagoEfectivo) {
-            $desplieguePagoEfectivo = DespliegueDePago::where('activo', true)
-                ->whereHas('metodoDePago', function ($query) {
-                    $query->whereNull('cuenta_bancaria');
-                })
-                ->first();
-        }
+        // Resolver el método de pago EFECTIVO propio de cada sub-caja (no una búsqueda
+        // genérica por nombre): puede haber varios despliegues "tipo efectivo" activos
+        // en el sistema (ej. "efectivo" y "efectivo negro"), y `calcularEfectivoEnSubCaja`/
+        // `calcularEfectivoEnCajaChica` solo reconocen como válido el que está en
+        // `sub_caja.despliegues_pago_ids` de ESA sub-caja específica. Si acá se usaba
+        // uno "genérico" que no está en esa lista, la transacción del préstamo quedaba
+        // invisible para el cálculo de "efectivo disponible" del vendedor (bug real:
+        // un préstamo aprobado no se reflejaba ni en Traslado a Bóveda ni en el
+        // selector de "Solicitar Préstamo").
+        $desplieguePagoOrigen = $this->resolverDesplieguePagoEfectivo($subCajaOrigen);
+        $desplieguePagoDestino = $this->resolverDesplieguePagoEfectivo($subCajaDestino);
 
         $saldoAnteriorOrigen = $subCajaOrigen->saldo_actual;
         $saldoAnteriorDestino = $subCajaDestino->saldo_actual;
@@ -601,7 +595,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         TransaccionCaja::create([
             'id' => (string) Str::ulid(),
             'sub_caja_id' => $subCajaOrigen->id,
-            'despliegue_pago_id' => $desplieguePagoEfectivo?->id,
+            'despliegue_pago_id' => $desplieguePagoOrigen?->id,
             'tipo_transaccion' => 'egreso',
             'monto' => $transferencia->monto,
             'saldo_anterior' => $saldoAnteriorOrigen,
@@ -617,7 +611,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         TransaccionCaja::create([
             'id' => (string) Str::ulid(),
             'sub_caja_id' => $subCajaDestino->id,
-            'despliegue_pago_id' => $desplieguePagoEfectivo?->id,
+            'despliegue_pago_id' => $desplieguePagoDestino?->id,
             'tipo_transaccion' => 'ingreso',
             'monto' => $transferencia->monto,
             'saldo_anterior' => $saldoAnteriorDestino,
@@ -666,5 +660,45 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             'saldo_final' => $saldoAnteriorDestino + $transferencia->monto,
             'estado_caja' => 'abierta',
         ]);
+    }
+
+    /**
+     * Resuelve el despliegue de pago EFECTIVO válido para una sub-caja específica —
+     * es decir, el que está listado en `sub_caja.despliegues_pago_ids`. Mismo criterio
+     * que usa `calcularEfectivoEnCajaChica()`/`SubCajaController::calcularEfectivoEnSubCaja()`
+     * para decidir qué transacciones cuentan como "efectivo disponible" de esa sub-caja:
+     * una transacción con un despliegue_pago_id que NO esté en esa lista queda invisible
+     * para esos cálculos, aunque el método de pago también se llame "efectivo".
+     */
+    private function resolverDesplieguePagoEfectivo(\App\Models\SubCaja $subCaja): ?DespliegueDePago
+    {
+        $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
+
+        $desplieguePago = DespliegueDePago::whereIn('id', $desplieguePagoIds)
+            ->whereHas('metodoDePago', function ($query) {
+                $query->where(function ($q) {
+                    $q->whereNull('cuenta_bancaria')
+                      ->orWhere('cuenta_bancaria', 'SIN-CUENTA');
+                })
+                ->where(function ($q) {
+                    $q->where('name', 'like', '%efectivo%')
+                      ->orWhere('name', 'like', '%Efectivo%');
+                });
+            })
+            ->first();
+
+        if ($desplieguePago) {
+            return $desplieguePago;
+        }
+
+        // Fallback: si la sub-caja no tiene ningún despliegue de efectivo configurado
+        // (caso legacy/mal configurado), usar el mismo criterio genérico de antes en
+        // vez de dejar la transacción sin método de pago.
+        return DespliegueDePago::where('activo', true)
+            ->where(function ($query) {
+                $query->where('name', 'like', '%Efectivo%')
+                      ->orWhere('name', 'like', '%efectivo%');
+            })
+            ->first();
     }
 }
