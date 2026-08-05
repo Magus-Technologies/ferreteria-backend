@@ -583,19 +583,18 @@ class SubCajaController extends Controller
         try {
             $userId = auth()->id();
 
-            // Vendedores con caja abierta (apertura activa)
-            $vendedoresConApertura = \App\Models\AperturaCierreCaja::whereNull('fecha_cierre')
+            // Solo vendedores con caja ABIERTA en este momento. Si un vendedor ya
+            // cerró su caja, ese efectivo quedó reconciliado/cerrado — no es dinero
+            // "en caja" disponible para prestar desde una sesión activa. Antes se
+            // agregaba además cualquier usuario con transacciones históricas en
+            // cajas chicas (aunque su caja ya estuviera cerrada) y se le calculaba
+            // un "efectivo histórico" que seguía apareciendo en este selector mucho
+            // después de haber cerrado — bug real reportado por el usuario.
+            $vendedoresIds = \App\Models\AperturaCierreCaja::whereNull('fecha_cierre')
                 ->where('user_id', '!=', $userId)
-                ->pluck('user_id');
-
-            // Vendedores con transacciones (por si tienen efectivo sin apertura activa)
-            $cajasChicas = \App\Models\SubCaja::where('tipo_caja', 'CC')->get();
-            $vendedoresConTransacciones = \App\Models\TransaccionCaja::whereIn('sub_caja_id', $cajasChicas->pluck('id'))
-                ->where('user_id', '!=', $userId)
-                ->distinct()
-                ->pluck('user_id');
-
-            $vendedoresIds = $vendedoresConApertura->merge($vendedoresConTransacciones)->unique()->values();
+                ->pluck('user_id')
+                ->unique()
+                ->values();
 
             $calculadorResumen = app(\App\Services\CierreCaja\CalculadorResumenCaja::class);
 
@@ -613,18 +612,15 @@ class SubCajaController extends Controller
                     ->whereNull('fecha_cierre')
                     ->first();
 
-                $efectivoTotal = 0;
-
-                if ($apertura) {
-                    // MISMA lógica que el cierre de caja: efectivo en caja desde su apertura
-                    $resumen = $calculadorResumen->calcular($apertura);
-                    $efectivoTotal = $resumen->montoEsperado;
-                } else {
-                    // Sin apertura activa: sumar el efectivo histórico por cajas chicas
-                    foreach ($cajasChicas as $cajaChica) {
-                        $efectivoTotal += $this->calcularEfectivoEnSubCaja($cajaChica->id, $vendedorId);
-                    }
+                if (!$apertura) {
+                    // Por seguridad: ya venimos filtrados por apertura abierta, pero si
+                    // se cerró entre el pluck() y este punto, no mostrarlo.
+                    continue;
                 }
+
+                // MISMA lógica que el cierre de caja: efectivo en caja desde su apertura
+                $resumen = $calculadorResumen->calcular($apertura);
+                $efectivoTotal = $resumen->montoEsperado;
 
                 // Solo incluir si tiene efectivo > 0
                 if ($efectivoTotal > 0) {

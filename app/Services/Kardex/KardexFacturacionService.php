@@ -528,13 +528,21 @@ class KardexFacturacionService
         // Obtener filas de entregas hechas y anuladas
         $entregaRows = $this->getEntregasParaKardex($productoId, $almacenId, $desde, $hasta, $clienteId);
 
-        // Combinar y ordenar por fecha asc, luego por orden
+        // Combinar y ordenar por fecha asc para acumular el stock cronológicamente.
+        // En caso de empate de fecha (venta + su entrega automática), la VENTA
+        // (orden=1) debe procesarse ANTES que la ENTREGA (orden=0) en esta pasada
+        // ascendente — la entrega no mueve stock por sí sola, solo "hereda" el saldo
+        // que dejó la venta. Si se procesara al revés, la entrega leería el saldo
+        // ANTERIOR a la venta (el de la reserva/movimiento previo) y mostraría un
+        // stock_anterior/stock_actual desactualizado en vez del real posterior a la
+        // venta. Por eso el desempate acá es DESCENDENTE por orden, aunque la fecha
+        // sea ascendente.
         $allRows = array_merge($kardexRows, $entregaRows);
         usort($allRows, function ($a, $b) {
             $fa = strtotime($a->fecha ?? '1970-01-01');
             $fb = strtotime($b->fecha ?? '1970-01-01');
             if ($fa !== $fb) return $fa <=> $fb;
-            return ($a->orden ?? 0) <=> ($b->orden ?? 0);
+            return ($b->orden ?? 0) <=> ($a->orden ?? 0);
         });
 
         $total = count($allRows);
