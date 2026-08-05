@@ -549,6 +549,12 @@ class KardexFacturacionService
 
         // Calcular stock acumulado para filas del kardex; las de entrega se omiten
         $stockPorProductoAlmacen = [];
+        // Stock que dejó cada VENTA por producto (key = "{referencia_id}_{producto_id}",
+        // referencia_id = venta_id). La ENTREGA de esa venta copia estos mismos valores
+        // en vez de calcular los suyos propios — la entrega no mueve stock por sí sola,
+        // así que debe mostrar EXACTAMENTE el mismo stock_anterior/stock_actual que su
+        // venta, no un valor "heredado" del acumulador general.
+        $stockPorVentaProducto = [];
         $rowsWithStockAll = [];
 
         foreach ($allRows as $row) {
@@ -565,19 +571,32 @@ class KardexFacturacionService
             }
 
             $key = "{$row->producto_id}_{$row->almacen_id}";
+            $ventaKey = "{$row->referencia_id}_{$row->producto_id}";
 
-            // Si el registro YA tiene stock_anterior y stock_actual guardados, usarlos
-            if ($row->stock_anterior !== null && $row->stock_actual !== null) {
+            if (($row->tipo ?? null) === 'entrega' && isset($stockPorVentaProducto[$ventaKey])) {
+                // Copiar el stock de la venta que generó esta entrega (mismo
+                // referencia_id = venta_id, mismo producto).
+                $stockAnterior = $stockPorVentaProducto[$ventaKey]['anterior'];
+                $stockActual = $stockPorVentaProducto[$ventaKey]['actual'];
+                // No tocar $stockPorProductoAlmacen[$key]: la entrega no "consume" el
+                // acumulador general, solo muestra los mismos números que su venta.
+            } elseif ($row->stock_anterior !== null && $row->stock_actual !== null) {
+                // Si el registro YA tiene stock_anterior y stock_actual guardados, usarlos
                 $stockAnterior = (float) $row->stock_anterior;
                 $stockActual = (float) $row->stock_actual;
                 $stockPorProductoAlmacen[$key] = $stockActual;
             } else {
-                // Para registros antiguos sin valores guardados, calcularlos
+                // Para registros antiguos sin valores guardados (o entregas sin venta
+                // encontrada — caso legacy), calcularlos por acumulación normal.
                 $stockAnterior = $stockPorProductoAlmacen[$key] ?? 0;
                 $cantIngreso = (float) $row->entrada;
                 $cantSalida = (float) $row->salida;
                 $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
                 $stockPorProductoAlmacen[$key] = $stockActual;
+            }
+
+            if (($row->tipo ?? null) === 'venta') {
+                $stockPorVentaProducto[$ventaKey] = ['anterior' => $stockAnterior, 'actual' => $stockActual];
             }
 
             // Si cliente_nombre está vacío pero cliente_id existe, buscar el nombre
@@ -599,13 +618,14 @@ class KardexFacturacionService
 
         // Invertir para mostrar los más recientes primero (descendente por fecha)
         $rowsWithStockAll = array_reverse($rowsWithStockAll);
-        
-        // Re-ordenar descendente por fecha y orden para mantener coherencia
+
+        // Re-ordenar descendente por fecha; en empate, la ENTREGA (orden=0) va ANTES
+        // que su VENTA (orden=1) — así queda arriba en la tabla ("movimientos de hoy").
         usort($rowsWithStockAll, function ($a, $b) {
             $fa = strtotime($a->fecha ?? '1970-01-01');
             $fb = strtotime($b->fecha ?? '1970-01-01');
             if ($fa !== $fb) return $fb <=> $fa; // Descendente
-            return ($b->orden ?? 0) <=> ($a->orden ?? 0); // Descendente
+            return ($a->orden ?? 0) <=> ($b->orden ?? 0); // Ascendente: entrega(0) antes que venta(1)
         });
 
         if ($perPage == -1) {
