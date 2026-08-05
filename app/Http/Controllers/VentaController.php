@@ -588,10 +588,9 @@ class VentaController extends Controller
             // se cree la entrega manualmente desde Mis Ventas.
             // No descontar si descontar_stock='no' (caso: el cliente ya tiene
             // el producto físicamente; solo se registra la venta administrativa).
-            // stock_ya_aplicado=true ya NO desactiva el descuento globalmente:
-            // el stock reservado por la cotización origen se resta POR LÍNEA vía
-            // `cantidad_ya_aplicada`, así las líneas nuevas o el excedente que el
-            // usuario agregó en la venta SÍ se descuentan.
+            // stock_ya_aplicado=true tampoco desactiva el descuento: si la venta viene de
+            // una cotización con stock reservado, esa reserva se libera por completo antes
+            // de descontar (ver más abajo), así que el descuento acá siempre es el normal.
             $tipoDespacho = $validated['tipo_despacho'] ?? null;
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
@@ -608,13 +607,42 @@ class VentaController extends Controller
             $stockYaAplicado = $cotizacionOrigen
                 ? (bool) $cotizacionOrigen->reservar_stock
                 : (bool) ($validated['stock_ya_aplicado'] ?? false);
+
+            // Cuando la venta viene de una cotización que YA reservó stock: la reserva
+            // cuenta como descuento EN FIRME desde que se cotizó (no un simple aparto), así
+            // que la venta solo debe descontar el EXCEDENTE sobre lo ya reservado — si se
+            // reservaron 8 y se vende 10, el kardex de la venta debe mostrar salida=2 (no
+            // 10), partiendo de `stock_anterior` = el valor YA reducido por la reserva (92,
+            // no 100).
+            //
+            // `$reservadoFraccionPorProducto` guarda, por producto_almacen_id, cuánto se
+            // reservó en total (en fracción) — se usa más abajo para calcular el excedente
+            // por línea al armar el kardex de la venta. Se calcula ANTES de tocar ningún
+            // lote, en modo lectura, para no alterar `stock_fraccion` todavía.
+            $reservadoFraccionPorProducto = [];
+            if ($cotizacionOrigen && $stockYaAplicado && $estadoVentaStr !== 'ee') {
+                $cotizacionOrigen->loadMissing('productosPorAlmacen.unidadesDerivadas');
+                foreach ($cotizacionOrigen->productosPorAlmacen as $productoAlmacenCotizacion) {
+                    $totalFraccionProducto = 0.0;
+                    foreach ($productoAlmacenCotizacion->unidadesDerivadas as $ud) {
+                        $totalFraccionProducto += (float) $ud->cantidad * (float) $ud->factor;
+                    }
+                    $reservadoFraccionPorProducto[$productoAlmacenCotizacion->producto_almacen_id] =
+                        ($reservadoFraccionPorProducto[$productoAlmacenCotizacion->producto_almacen_id] ?? 0) + $totalFraccionProducto;
+                }
+            }
+
             $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa', 'oc'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
                 && ! $noDescontarStock;
-            
+
             // CAPTURAR STOCK ANTERIOR ANTES DE DECREMENTAR (para kardex)
-            // Capturar SIEMPRE si no está en espera (porque se registrará en kardex)
+            // Capturar SIEMPRE si no está en espera (porque se registrará en kardex). Si
+            // esta venta viene de una cotización con reserva, este valor YA refleja el
+            // descuento en firme de la reserva (se captura ANTES de revertir el consumo de
+            // lotes más abajo) — es exactamente el punto de partida que necesita el kardex
+            // para mostrar solo el excedente sobre lo reservado.
             $stocksAnteriores = [];
             if ($estadoVentaStr !== 'ee') {
                 foreach ($validated['productos_por_almacen'] ?? [] as $idx => $producto) {
@@ -634,7 +662,47 @@ class VentaController extends Controller
                     }
                 }
             }
-            
+
+            // A nivel de lotes PEPS (`productoalmacen_lote`, la fuente real que usa
+            // `ProductoLoteService`): la reserva original ya consumió lotes al crearse (ver
+            // `CotizacionController::reservarStockLinea`). Acá se revierte ESE consumo
+            // (etiquetado `cotizacion`+id) — sin fila de kardex propia, porque no se está
+            // liberando para que otro cliente lo compre, se está transfiriendo a ESTA venta
+            // — y el descuento físico normal más abajo vuelve a consumir la cantidad TOTAL
+            // vendida, esta vez etiquetada `venta`+id. Así, si esta venta se anula después,
+            // `revertirConsumoPorOrigen('venta', $venta->id)` puede revertir TODO de una,
+            // sin dejar consumo huérfano etiquetado como `cotizacion`. Corre DESPUÉS de
+            // capturar `$stocksAnteriores` arriba, para no pisar ese valor.
+            if ($cotizacionOrigen && $stockYaAplicado && $estadoVentaStr !== 'ee') {
+                $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+                foreach ($cotizacionOrigen->productosPorAlmacen as $productoAlmacenCotizacion) {
+                    $productoAlmacenReservado = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
+                    if (! $productoAlmacenReservado) {
+                        continue;
+                    }
+                    $totalFraccionProducto = 0.0;
+                    foreach ($productoAlmacenCotizacion->unidadesDerivadas as $ud) {
+                        $totalFraccionProducto += (float) $ud->cantidad * (float) $ud->factor;
+
+                        // Devolver también el complementario reservado (mismo patrón que
+                        // CotizacionController al liberar una reserva).
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $productoAlmacenReservado->id,
+                            (float) $ud->factor,
+                            (float) $ud->cantidad,
+                            $productoAlmacenReservado->almacen_id,
+                            true // ingreso (devolver)
+                        );
+                    }
+
+                    // Revertir el consumo de lotes de la reserva UNA sola vez por producto
+                    // (con el total de todas sus unidades) — ver liberarStockProducto() en
+                    // CotizacionController para el mismo patrón y por qué no puede llamarse
+                    // por unidad.
+                    $loteService->revertirConsumoOReingresar($productoAlmacenReservado, 'cotizacion', $cotizacionOrigen->id, $totalFraccionProducto);
+                }
+            }
+
             if ($debeDescontar) {
                 foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
@@ -652,17 +720,15 @@ class VentaController extends Controller
                     $loteService = app(\App\Services\Producto\ProductoLoteService::class);
 
                     foreach ($producto['unidades_derivadas'] as $unidad) {
-                        // Si la cotización origen ya reservó parte de esa línea
-                        // (cantidad_ya_aplicada), descontar SOLO el exceso sobre lo
-                        // reservado. Las líneas nuevas o el excedente que el usuario
-                        // agregó en la venta se descuentan completos.
-                        $cantidadYaAplicada = (float) ($unidad['cantidad_ya_aplicada'] ?? 0);
-                        $cantidadNeta = (float) $unidad['cantidad'] - $cantidadYaAplicada;
-                        if ($cantidadNeta <= 0) {
+                        // La reserva de la cotización origen (si existía) ya se liberó por
+                        // completo arriba, así que acá siempre se descuenta la cantidad
+                        // TOTAL vendida — sin netear contra ninguna reserva previa.
+                        $cantidadVendida = (float) $unidad['cantidad'];
+                        if ($cantidadVendida <= 0) {
                             continue;
                         }
 
-                        $cantidadEnFraccion = $cantidadNeta * (float) $unidad['factor'];
+                        $cantidadEnFraccion = $cantidadVendida * (float) $unidad['factor'];
 
                         // Consumir lotes PEPS y registrar el consumo (para anular/reportes)
                         $loteService->consumirLotes($pAlmacen, $cantidadEnFraccion, ['tipo' => 'venta', 'id' => $venta->id]);
@@ -671,7 +737,7 @@ class VentaController extends Controller
                         ComplementarioStockService::procesarComplementarioPorFactor(
                             $pAlmacen->id,
                             (float) $unidad['factor'],
-                            $cantidadNeta,
+                            $cantidadVendida,
                             $validated['almacen_id'],
                             false // salida
                         );
@@ -918,26 +984,70 @@ class VentaController extends Controller
                             continue;
                         }
 
-                        // Obtener el stock anterior capturado ANTES del decremento
+                        // Obtener el stock anterior capturado ANTES del decremento. Si esta
+                        // venta viene de una cotización con reserva, este valor YA refleja
+                        // el descuento de la reserva (se capturó antes de revertir el
+                        // consumo de lotes más arriba) — es exactamente el punto de partida
+                        // que necesita el kardex para mostrar solo el excedente.
                         $stockAnterior = $stocksAnteriores[$productoAlmacenId] ?? null;
+                        $reservadoDisponibleFraccion = $reservadoFraccionPorProducto[$productoAlmacenId] ?? 0;
 
                         foreach ($producto['unidades_derivadas'] as $unidad) {
                             $costo = (float) $producto['costo'];
+                            $factor = (float) ($unidad['factor'] ?? 1);
+                            $cantidadVendidaFraccion = (float) $unidad['cantidad'] * $factor;
+
+                            // Si esta línea proviene de una cotización con reserva, la
+                            // reserva ya cuenta como descuento en firme — el kardex de la
+                            // venta solo debe mostrar el EXCEDENTE sobre lo ya reservado
+                            // (ej. reservó 8, vende 10 → salida=2, no 10).
+                            $consumidoDeReserva = min($reservadoDisponibleFraccion, $cantidadVendidaFraccion);
+                            $reservadoDisponibleFraccion -= $consumidoDeReserva;
+                            $excedenteFraccion = $cantidadVendidaFraccion - $consumidoDeReserva;
+
+                            // Si se vendió igual o menos de lo ya reservado, no hay nada
+                            // NUEVO que descontar en esta venta — la fila "RESERVA
+                            // COTIZACIÓN" ya documentó ese descuento, no se duplica aquí.
+                            if ($excedenteFraccion <= 0.0001) {
+                                continue;
+                            }
+
                             $unidadData = [
                                 'unidad_derivada_inmutable_name' => $unidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
-                                'cantidad' => (float) $unidad['cantidad'],
-                                'factor' => (float) $unidad['factor'],
+                                'cantidad' => $factor > 0 ? ($excedenteFraccion / $factor) : $excedenteFraccion,
+                                'factor' => $factor,
                                 'precio' => (float) $unidad['precio'],
                             ];
-                            
-                            // Pasar el stock anterior capturado. $stockYaAplicado=true
-                            // (venta desde cotización que ya reservó el stock) evita que el
-                            // kardex reste de nuevo la parte YA reservada; la cantidad
-                            // aumentada y las líneas nuevas (cantidad_ya_aplicada=0) sí se
-                            // descuentan (mismo criterio que el descuento físico).
-                            $cantidadYaAplicada = (float) ($unidad['cantidad_ya_aplicada'] ?? 0);
-                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $stockYaAplicado, $cantidadYaAplicada);
+
+                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior);
                         }
+
+                        // Si sobró reserva sin usar en esta venta (se vendió MENOS de lo
+                        // reservado), esa parte sí vuelve a estar disponible para otro
+                        // cliente — a diferencia del resto de esta lógica, acá corresponde
+                        // una liberación real, encadenada desde el mismo punto de partida
+                        // que la fila de venta (o desde el saldo de la reserva si no hubo
+                        // excedente en absoluto).
+                        if ($cotizacionOrigen && $reservadoDisponibleFraccion > 0.0001) {
+                            $primeraUnidad = $producto['unidades_derivadas'][0] ?? null;
+                            $factorLiberacion = (float) ($primeraUnidad['factor'] ?? 1) ?: 1;
+                            $kardexFacturacionService->registrarLiberacionReservaCotizacion(
+                                $cotizacionOrigen,
+                                $productoAlmacen,
+                                [
+                                    'unidad_derivada_inmutable_name' => $primeraUnidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
+                                    'cantidad' => $reservadoDisponibleFraccion / $factorLiberacion,
+                                    'factor' => $factorLiberacion,
+                                    'precio' => 0,
+                                ],
+                                $productoAlmacen->costo,
+                                'venta no cubrió toda la reserva',
+                                2,
+                                $stockAnterior
+                            );
+                        }
+
+                        $reservadoFraccionPorProducto[$productoAlmacenId] = $reservadoDisponibleFraccion;
                     }
                 } catch (\Exception $e) {
                     // No fallar la venta si hay error al registrar en kardex

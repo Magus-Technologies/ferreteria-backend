@@ -102,7 +102,7 @@ class KardexFacturacionService
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
      * CORRECCIÓN: Pasar factor explícitamente
      */
-    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, bool $stockYaAplicado = false, float $cantidadYaAplicada = 0)
+    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null)
     {
         $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
@@ -153,27 +153,13 @@ class KardexFacturacionService
             'orden' => $orden,
         ];
 
-        // Si se proporciona stock anterior en fracción, usarlo
+        // Si se proporciona stock anterior en fracción, usarlo. Si la venta viene de una
+        // cotización con stock reservado, esa reserva ya se liberó por completo (kardex
+        // "RESERVA LIBERADA" + increment de stock_fraccion) antes de llamar a este método,
+        // así que acá siempre se descuenta la salida completa por el camino normal — sin
+        // overrides de "excedente".
         if ($stockAnterior !== null) {
             $data['stock_anterior_override'] = $stockAnterior;
-        }
-
-        // stockYaAplicado=true: esta venta viene de una cotización que ya reservó (y por
-        // tanto ya descontó) parte del stock antes. La fila igual muestra `salida` = lo
-        // vendido (para el reporte de ventas / historial), pero el saldo resultante NO
-        // vuelve a descontar la parte YA reservada — ya se descontó al reservar, y aquí
-        // solo se está documentando la venta.
-        //
-        // IMPORTANTE: solo la parte YA reservada (cantidad_ya_aplicada) se conserva. El
-        // EXCEDENTE (cantidad aumentada sobre lo reservado) y las líneas NUEVAS (productos
-        // que no estaban en la cotización, cantidad_ya_aplicada = 0) SÍ deben descontar:
-        //   stock_actual = stock_anterior - (salida - ya_aplicado_en_fracción)
-        // así el kardex queda coherente con el descuento físico por línea (cantidadNeta)
-        // y con producto_almacen.stock_fraccion.
-        if ($stockYaAplicado && $stockAnterior !== null) {
-            $yaAplicadoFraccion = (float) ($cantidadYaAplicada * (float) ($unidad['factor'] ?? 1));
-            $excedente = max($cantSalida - $yaAplicadoFraccion, 0);
-            $data['stock_actual_override'] = $stockAnterior - $excedente;
         }
 
         return $this->registrar($data);
@@ -765,11 +751,11 @@ class KardexFacturacionService
      * (ENTRADA). $motivo describe por qué se liberó (cancelada, editada, expirada, etc.)
      * para que quede claro en el documento del kardex.
      */
-    public function registrarLiberacionReservaCotizacion($cotizacion, $productoAlmacen, array $unidad, $costo, string $motivo, $orden = 2)
+    public function registrarLiberacionReservaCotizacion($cotizacion, $productoAlmacen, array $unidad, $costo, string $motivo, $orden = 2, $stockAnteriorOverride = null)
     {
         $cantEntrada = (float) $unidad['cantidad'] * (float) $unidad['factor'];
 
-        return $this->registrar([
+        $data = [
             'tipo' => 'reserva',
             'movimiento' => 'RESERVA LIBERADA',
             'fecha' => now(),
@@ -790,7 +776,18 @@ class KardexFacturacionService
             'cliente_nombre' => $this->obtenerNombreClienteDeCotizacion($cotizacion),
             'almacen_id' => $productoAlmacen->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+
+        // Permite encadenar esta fila desde un valor conocido (ej. el saldo que dejó la
+        // fila "RESERVA COTIZACIÓN" original) en vez de releer `stock_fraccion` en vivo —
+        // necesario cuando esta liberación se registra ANTES de que el stock físico
+        // termine de reflejar el ajuste (ver VentaController::store(), liberación parcial
+        // de reserva no cubierta por la venta).
+        if ($stockAnteriorOverride !== null) {
+            $data['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+
+        return $this->registrar($data);
     }
 
     /**
