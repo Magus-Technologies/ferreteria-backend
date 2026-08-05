@@ -102,7 +102,7 @@ class KardexFacturacionService
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
      * CORRECCIÓN: Pasar factor explícitamente
      */
-    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null)
+    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, $fecha = null)
     {
         $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
@@ -133,7 +133,12 @@ class KardexFacturacionService
         $data = [
             'tipo' => 'venta',
             'movimiento' => $movimiento,
-            'fecha' => now(),
+            // Si el llamador pasa una fecha explícita (ej. la misma que se usó para la
+            // entrega auto-creada de esta venta), se reusa para que ambas filas del
+            // kardex queden con el fecha EXACTAMENTE igual — así el desempate por
+            // `orden` (venta antes que entrega) siempre aplica, sin depender de que
+            // ambos inserts caigan en el mismo segundo por casualidad.
+            'fecha' => $fecha ?? now(),
             'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad['unidad_derivada_inmutable_name'],
             'cantidad' => $unidad['cantidad'],

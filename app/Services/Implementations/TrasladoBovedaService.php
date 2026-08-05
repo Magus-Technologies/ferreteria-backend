@@ -156,7 +156,20 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
      */
     public function obtenerTodosLosTrasladosPorCaja(string $aperturaCierreId): Collection
     {
-        return TrasladoBoveda::where('apertura_cierre_caja_id', $aperturaCierreId)
+        // "Caja General" es compartida: cada vendedor tiene su PROPIA apertura dentro
+        // de la misma caja principal. Filtrar por el `apertura_cierre_caja_id` exacto
+        // del usuario actual dejaba invisibles los traslados hechos por OTROS
+        // vendedores en la misma caja principal. Hay que resolver la caja principal de
+        // esta apertura y traer los traslados de TODAS las aperturas de esa caja.
+        $apertura = AperturaCierreCaja::find($aperturaCierreId);
+        if (! $apertura) {
+            return new Collection();
+        }
+
+        return TrasladoBoveda::whereHas(
+            'aperturaCierreCaja',
+            fn ($q) => $q->where('caja_principal_id', $apertura->caja_principal_id)
+        )
             ->with(['vendedor', 'supervisor', 'subCaja', 'desplieguePago.metodoDePago'])
             ->orderBy('fecha_traslado', 'desc')
             ->get();

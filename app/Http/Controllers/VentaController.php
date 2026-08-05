@@ -781,6 +781,14 @@ class VentaController extends Controller
             //    entrega completada.
             //  - omitir_entrega=true: NO se crea (queda pendiente para que
             //    el usuario la programe manualmente desde Mis Ventas).
+            // Capturado UNA sola vez y reusado tanto para `entrega.created_at` (más
+            // abajo) como para el `fecha` del kardex de la venta (bloque "REGISTRAR EN
+            // KARDEX FACTURACIÓN"): si cada uno toma su propio `now()` por separado,
+            // ambos inserts pueden caer en segundos distintos (kardex_facturacions y
+            // entrega.created_at solo tienen precisión de segundo) y el kardex termina
+            // mostrando la ENTREGA antes que su propia VENTA en "movimientos de hoy".
+            $fechaMovimientoVenta = now();
+
             $autoCrearEntrega = $tipoDespacho === 'et'
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega;
@@ -812,7 +820,7 @@ class VentaController extends Controller
                     $unidad->update(['cantidad_pendiente' => 0]);
                 }
 
-                $this->entregaService->crearSync([
+                $entregaAuto = $this->entregaService->crearSync([
                     'venta_id'          => $venta->id,
                     'tipo_entrega'      => 'rt',
                     'tipo_despacho'     => 'in',
@@ -829,6 +837,15 @@ class VentaController extends Controller
                         'cantidad'                 => (float) $u->cantidad,
                     ])->toArray(),
                 ]);
+
+                // Forzar created_at al mismo instante que el kardex de la venta (ver
+                // $fechaMovimientoVenta arriba) — el kardex de "ENTREGA" usa
+                // `entrega.created_at` como su columna `fecha` (ver
+                // KardexFacturacionService::getEntregasParaKardex()), así que sin esto
+                // podía quedar un segundo después del de la venta y aparecer primero en
+                // "movimientos de hoy" (ordenado más reciente arriba).
+                $entregaAuto->created_at = $fechaMovimientoVenta;
+                $entregaAuto->save();
 
                 // Si la venta NO aplicó stock en la rama inicial (ej. crédito en
                 // En Tienda), descontarlo aquí para que el comportamiento quede
@@ -1019,7 +1036,7 @@ class VentaController extends Controller
                                 'precio' => (float) $unidad['precio'],
                             ];
 
-                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior);
+                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $fechaMovimientoVenta);
                         }
 
                         // Si sobró reserva sin usar en esta venta (se vendió MENOS de lo
@@ -1436,8 +1453,15 @@ class VentaController extends Controller
             // medianoche (00:00), la fecha cae ANTES de la hora de apertura de caja
             // y VentaRepository::obtenerPorApertura (whereBetween por 'fecha') deja
             // la venta FUERA del arqueo → descuadre real de caja.
+            // Capturado UNA sola vez y reusado tanto para el kardex de la venta (más
+            // abajo) como para `entrega.created_at` de la auto-entrega EnTienda (mucho
+            // más abajo): si cada uno toma su propio `now()` por separado pueden caer
+            // en segundos distintos y el kardex termina mostrando la ENTREGA antes que
+            // su propia VENTA en "movimientos de hoy" (mismo problema que en store()).
+            $fechaMovimientoVenta = now();
+
             if ($estadoAnterior === 'ee' && $estadoNuevo !== 'ee') {
-                $venta->update(['fecha' => now()]);
+                $venta->update(['fecha' => $fechaMovimientoVenta]);
             }
 
             // Si transición En Espera → Creado y la venta aún no tiene serie/numero,
@@ -1472,7 +1496,7 @@ class VentaController extends Controller
 
                         foreach ($detalle->unidadesDerivadas as $ud) {
                             $costo = (float) $detalle->costo;
-                            $kardexFacturacionService->registrarVenta($ventaConRelaciones, $productoAlmacen, $ud, $costo);
+                            $kardexFacturacionService->registrarVenta($ventaConRelaciones, $productoAlmacen, $ud, $costo, 1, null, $fechaMovimientoVenta);
                         }
                     }
                 } catch (\Exception $e) {
@@ -1813,7 +1837,7 @@ class VentaController extends Controller
                 }
 
                 // Crear la entrega en la tabla NUEVA (sin fila legacy).
-                $this->entregaService->crearSync([
+                $entregaAutoUpdate = $this->entregaService->crearSync([
                     'venta_id'          => $venta->id,
                     'tipo_entrega'      => 'rt',
                     'tipo_despacho'     => 'in',
@@ -1830,6 +1854,12 @@ class VentaController extends Controller
                         'cantidad'                 => (float) $u->cantidad,
                     ])->toArray(),
                 ]);
+
+                // Mismo motivo que en store(): forzar created_at al mismo instante que
+                // el kardex de la venta para que el desempate por `orden` siempre
+                // ponga la VENTA antes que su ENTREGA en "movimientos de hoy".
+                $entregaAutoUpdate->created_at = $fechaMovimientoVenta;
+                $entregaAutoUpdate->save();
             }
 
             // Si llega despliegue_de_pago_ventas es porque totalPagadoPrevio
