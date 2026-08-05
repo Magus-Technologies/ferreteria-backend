@@ -145,15 +145,18 @@ class CierreCajaController extends Controller
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
         $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
 
-        // Préstamos dados y recibidos (SOLO HOY)
+        // Préstamos dados y recibidos (SOLO HOY). Se excluyen los que su solicitud fue
+        // anulada — la transferencia queda como registro histórico, pero ya no debe sumar.
         $prestamosDados = \App\Models\TransferenciaEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
             ->where('vendedor_origen_id', $userId)
             ->whereDate('fecha_transferencia', now())
+            ->whereDoesntHave('solicitud', fn ($q) => $q->where('estado', 'anulada'))
             ->sum('monto');
- 
+
         $prestamosRecibidos = \App\Models\TransferenciaEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
             ->where('vendedor_destino_id', $userId)
             ->whereDate('fecha_transferencia', now())
+            ->whereDoesntHave('solicitud', fn ($q) => $q->where('estado', 'anulada'))
             ->sum('monto');
 
         $montoEsperado = $montoInicial + $ingresos - $egresos;

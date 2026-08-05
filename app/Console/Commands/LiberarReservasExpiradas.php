@@ -43,13 +43,16 @@ class LiberarReservasExpiradas extends Command
 
                 $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
 
+                $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+
                 foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
                     $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
 
                     if ($productoAlmacen) {
+                        $totalFraccion = 0.0;
                         foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidad) {
-                            // Registrar en kardex ANTES de incrementar, para capturar el
-                            // stock_anterior correcto.
+                            // Registrar en kardex ANTES de revertir el consumo de lotes, para
+                            // capturar el stock_anterior correcto.
                             $kardexFacturacionService->registrarLiberacionReservaCotizacion(
                                 $cotizacion,
                                 $productoAlmacen->load('producto'),
@@ -63,9 +66,7 @@ class LiberarReservasExpiradas extends Command
                                 'reserva expirada'
                             );
 
-                            $cantidadEnFraccion = $unidad->cantidad * $unidad->factor;
-
-                            $productoAlmacen->increment('stock_fraccion', $cantidadEnFraccion);
+                            $totalFraccion += $unidad->cantidad * $unidad->factor;
 
                             ComplementarioStockService::procesarComplementarioPorFactor(
                                 $productoAlmacen->id,
@@ -75,6 +76,12 @@ class LiberarReservasExpiradas extends Command
                                 true
                             );
                         }
+
+                        // Revertir el consumo de lotes PEPS de la reserva UNA sola vez por
+                        // producto (con el total de todas sus unidades derivadas) — revertir
+                        // por unidad duplicaría la reversión, ver liberarStockProducto() en
+                        // CotizacionController para el mismo patrón.
+                        $loteService->revertirConsumoOReingresar($productoAlmacen, 'cotizacion', $cotizacion->id, $totalFraccion);
                     }
                 }
 

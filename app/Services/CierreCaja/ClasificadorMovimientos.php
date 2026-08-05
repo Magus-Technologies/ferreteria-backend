@@ -191,7 +191,13 @@ class ClasificadorMovimientos
             return collect([]);
         }
 
-        // Obtener los pagos de las ventas desde despliegue_de_pago_ventas (TODOS los pagos)
+        // Obtener los pagos de las ventas desde despliegue_de_pago_ventas
+        // FILTRADOS POR ESTE USUARIO: con el modelo de cobro diferencial una
+        // misma venta puede tener filas de pago de VARIOS usuarios (cobro
+        // inicial por uno, diferencia por otro, típicamente compartiendo la
+        // misma Caja Chica física) — sin este filtro cada usuario vería en
+        // su cierre el total de la venta completa, no solo lo que él cobró,
+        // duplicando el efectivo esperado entre los cierres de ambos.
         $ventaIds = $ventasVendedor->pluck('id');
 
 
@@ -202,6 +208,11 @@ class ClasificadorMovimientos
             ->leftJoin('sub_cajas as sc', 'mp.subcaja_id', '=', 'sc.id')
             ->leftJoin('numeros_operacion_pago as nop', 'dpv.numero_operacion_id', '=', 'nop.id')
             ->whereIn('dpv.venta_id', $ventaIds)
+            ->where(function ($q) use ($userId) {
+                // Filas viejas (previas a la migración) no tienen user_id —
+                // se mantienen visibles para no perder historial pre-existente.
+                $q->where('dpv.user_id', $userId)->orWhereNull('dpv.user_id');
+            })
             ->select([
                 'mp.id as metodo_pago_id',
                 'mp.name as banco',
@@ -318,8 +329,26 @@ class ClasificadorMovimientos
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'egreso')
             ->where(function ($query) {
+                // Todos los egresos cuentan como gasto EXCEPTO:
+                //  - los préstamos entre vendedores (van por separado como "préstamos dados")
+                //  - el egreso de un traslado "cerrado → sesión" (el mismo usuario recibió el
+                //    traslado de vuelta en la misma sub-caja; el ingreso ya lo suma y restar
+                //    el egreso autocancelaría ese efectivo nuevo entrando a la sesión).
+                // Los egresos por movimiento_interno que SÍ salen del control del vendedor
+                // (traslado a OTRO usuario o a otra sub-caja) restan del efectivo disponible.
                 $query->whereNull('tc.referencia_tipo')
-                    ->orWhereNotIn('tc.referencia_tipo', ['transferencia_vendedor', 'movimiento_interno']);
+                    ->orWhere(function ($q) {
+                        $q->where('tc.referencia_tipo', '!=', 'transferencia_vendedor')
+                          ->whereNotExists(function ($sub) {
+                              $sub->select(DB::raw(1))
+                                  ->from('transacciones_caja as tci')
+                                  ->whereColumn('tci.referencia_id', 'tc.referencia_id')
+                                  ->where('tci.referencia_tipo', 'movimiento_interno')
+                                  ->where('tci.tipo_transaccion', 'ingreso')
+                                  ->whereColumn('tci.user_id', 'tc.user_id')
+                                  ->whereColumn('tci.sub_caja_id', 'tc.sub_caja_id');
+                          });
+                    });
             })
             ->where('tc.fecha', '>=', $fechaInicio)
             ->where('tc.fecha', '<=', $fechaFin)
@@ -360,13 +389,17 @@ class ClasificadorMovimientos
 
             $prestamos = DB::table('transferencias_efectivo_vendedores as tev')
                 ->join('user as u_origen', 'tev.vendedor_origen_id', '=', 'u_origen.id')
+                ->join('apertura_cierre_caja as acc', 'tev.apertura_cierre_caja_id', '=', 'acc.id')
                 ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
                 ->leftJoin('sub_cajas as sc_destino', 'tev.sub_caja_destino_id', '=', 'sc_destino.id')
                 ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
-                ->where('tev.apertura_cierre_caja_id', $apertura->id) // ✅ Filtrar por apertura
+                ->where('acc.caja_principal_id', $apertura->caja_principal_id) // Misma caja principal que la apertura
                 ->where('tev.vendedor_destino_id', $userId) // Recibidos por este vendedor
                 ->where('tev.fecha_transferencia', '>=', $fechaInicio)
                 ->where('tev.fecha_transferencia', '<=', $fechaFin)
+                // Excluir préstamos cuya solicitud fue anulada — la transferencia queda
+                // como registro histórico, pero ya no debe sumar en el resumen de caja.
+                ->where(fn ($q) => $q->whereNull('sev.estado')->orWhere('sev.estado', '!=', 'anulada'))
                 ->select([
                     'tev.id',
                     'tev.monto',
@@ -398,13 +431,17 @@ class ClasificadorMovimientos
 
         $prestamos = DB::table('transferencias_efectivo_vendedores as tev')
             ->join('user as u_destino', 'tev.vendedor_destino_id', '=', 'u_destino.id')
+            ->join('apertura_cierre_caja as acc', 'tev.apertura_cierre_caja_id', '=', 'acc.id')
             ->leftJoin('sub_cajas as sc_origen', 'tev.sub_caja_origen_id', '=', 'sc_origen.id')
             ->leftJoin('sub_cajas as sc_destino', 'tev.sub_caja_destino_id', '=', 'sc_destino.id')
             ->leftJoin('solicitudes_efectivo_vendedores as sev', 'tev.solicitud_id', '=', 'sev.id')
-            ->where('tev.apertura_cierre_caja_id', $apertura->id) // ✅ Filtrar por apertura
+            ->where('acc.caja_principal_id', $apertura->caja_principal_id) // Misma caja principal que la apertura
             ->where('tev.vendedor_origen_id', $userId) // Dados por este vendedor
             ->where('tev.fecha_transferencia', '>=', $fechaInicio)
             ->where('tev.fecha_transferencia', '<=', $fechaFin)
+            // Excluir préstamos cuya solicitud fue anulada — la transferencia queda como
+            // registro histórico, pero ya no debe sumar en el resumen de caja.
+            ->where(fn ($q) => $q->whereNull('sev.estado')->orWhere('sev.estado', '!=', 'anulada'))
             ->select([
                 'tev.id',
                 'tev.monto',

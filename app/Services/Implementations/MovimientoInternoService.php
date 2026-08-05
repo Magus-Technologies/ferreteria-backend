@@ -162,6 +162,8 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 'justificacion' => $mov->justificacion,
                 'fecha' => $mov->fecha,
                 'vendedor' => $mov->user->name,
+                'user_id' => $mov->user_id,
+                'estado' => $mov->estado,
             ];
         })->toArray();
     }
@@ -216,10 +218,85 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 'fecha' => $mov->fecha,
                 // Quién REALIZÓ el traslado.
                 'vendedor' => $mov->user->name,
+                'user_id' => $mov->user_id,
                 // A quién se le acreditó el dinero (si no se resolvió, es el mismo usuario).
                 'usuario_destino' => $usuariosDestinoPorMovimiento->get($mov->id)?->name ?? $mov->user->name,
+                'estado' => $mov->estado,
             ];
         })->toArray();
+    }
+
+    public function anularMovimiento(string $movimientoId, string|int $userId): void
+    {
+        DB::transaction(function () use ($movimientoId, $userId) {
+            $movimiento = MovimientoInterno::with(['subCajaOrigen', 'subCajaDestino'])
+                ->lockForUpdate()
+                ->findOrFail($movimientoId);
+
+            if ($movimiento->estaAnulado()) {
+                throw new \Exception('Este movimiento ya fue anulado anteriormente.');
+            }
+
+            // Mismo criterio de permisos que la creación (sin chequeo de rol/supervisor,
+            // "Caja General" es compartida) — pero solo quien realizó el movimiento puede
+            // anularlo.
+            if ((string) $movimiento->user_id !== (string) $userId) {
+                throw new \Exception('No tienes permiso para anular este movimiento.');
+            }
+
+            $subCajaOrigen = $movimiento->subCajaOrigen;
+            $subCajaDestino = $movimiento->subCajaDestino;
+            $monto = (float) $movimiento->monto;
+
+            // Verificar que la caja siga activa — misma resolución de apertura que
+            // registrarTransacciones() usó para crear el movimiento.
+            $apertura = AperturaCierreCaja::where('user_id', $userId)
+                ->where('estado', 'abierta')
+                ->first();
+            if (!$apertura) {
+                $apertura = AperturaCierreCaja::where('caja_principal_id', $subCajaOrigen->caja_principal_id)
+                    ->where('estado', 'abierta')
+                    ->first();
+            }
+            if (!$apertura) {
+                throw new \Exception('No se puede anular un movimiento de una caja ya cerrada.');
+            }
+
+            // 1. Eliminar transacciones de caja asociadas.
+            TransaccionCaja::where('referencia_id', $movimiento->id)
+                ->where('referencia_tipo', 'movimiento_interno')
+                ->delete();
+
+            // 2. Eliminar movimientos de caja asociados. MovimientoCaja no guarda
+            // referencia_id/referencia_tipo, así que se identifican por apertura +
+            // sub_caja + monto + concepto, igual que TrasladoBovedaService/
+            // PrestamoVendedorService.
+            MovimientoCaja::where('apertura_cierre_id', $apertura->id)
+                ->where('sub_caja_id', $subCajaOrigen->id)
+                ->where('salida', $monto)
+                ->where('tipo_movimiento', 'transferencia')
+                ->where('concepto', 'LIKE', 'Movimiento interno:%')
+                ->delete();
+
+            MovimientoCaja::where('apertura_cierre_id', $apertura->id)
+                ->where('sub_caja_id', $subCajaDestino->id)
+                ->where('ingreso', $monto)
+                ->where('tipo_movimiento', 'transferencia')
+                ->where('concepto', 'LIKE', 'Movimiento interno:%')
+                ->delete();
+
+            // 3. Restaurar saldos — inverso exacto de registrarTransacciones() (que
+            // resta del origen y suma al destino). Uso increment/decrement (SQL directo)
+            // para que sea seguro incluso si origen y destino son la MISMA sub-caja.
+            $subCajaOrigen->increment('saldo_actual', $monto);
+            $subCajaDestino->decrement('saldo_actual', $monto);
+
+            // 4. Marcar como anulado (no se elimina, queda como registro histórico).
+            $movimiento->update([
+                'estado' => 'anulado',
+                'fecha_anulacion' => now(),
+            ]);
+        });
     }
 
     public function listarDepositosSeguridad(string|int $userId): array

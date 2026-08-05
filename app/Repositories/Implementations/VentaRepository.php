@@ -42,15 +42,22 @@ class VentaRepository implements VentaRepositoryInterface
         // estado_de_venta != 'an' (Anulado) en AMBAS ramas: una venta anulada puede
         // quedarse sin transacciones_caja (se revierten al anular) y caer igual en la
         // rama "sin transacciones" de abajo si no se excluye explícitamente por estado.
+        // El rango de fechas se filtra sobre transacciones_caja.fecha (cuándo
+        // ENTRÓ el dinero a esta apertura), no sobre venta.fecha (cuándo se
+        // EMITIÓ la venta). Con el modelo de cobro diferencial una venta
+        // puede haberse creado en una apertura/día distinto al de un cobro de
+        // diferencia posterior — filtrar por venta.fecha dejaba ese cobro
+        // fuera del cierre del usuario que lo hizo, aunque su
+        // transacciones_caja sí existiera.
         $ventasConTransacciones = Venta::with(['cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social'])
-            ->whereIn('id', function($query) use ($apertura) {
+            ->whereIn('id', function($query) use ($apertura, $inicioDia, $finDia) {
                 $query->select('referencia_id')
                     ->from('transacciones_caja')
                     ->where('referencia_tipo', 'venta')
                     ->where('sub_caja_id', $apertura->sub_caja_id)
-                    ->where('user_id', $apertura->user_id);
+                    ->where('user_id', $apertura->user_id)
+                    ->whereBetween('fecha', [$inicioDia, $finDia]);
             })
-            ->whereBetween('fecha', [$inicioDia, $finDia])
             ->where('estado_de_venta', '!=', 'an')
             ->get();
 

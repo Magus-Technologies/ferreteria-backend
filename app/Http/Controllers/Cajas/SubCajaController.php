@@ -546,16 +546,26 @@ class SubCajaController extends Controller
         // — es efectivo nuevo que entró a la sesión abierta (mismo criterio que
         // ClasificadorMovimientos::obtenerOtrosIngresosVendedor).
         $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Egresos: excluir 'movimiento_interno'. Ese efectivo sale del acumulado de
-        // sesiones CERRADAS (ver "Traslado de Efectivo": mueve efectivo cerrado hacia la
-        // sesión abierta de un usuario), NO de la sesión abierta actual — mismo criterio
-        // que ClasificadorMovimientos::obtenerGastosVendedor, que también lo excluye.
-        // Sin este exclude, un traslado RECIBIDO en la misma sub-caja/despliegue que su
-        // origen (ej. "Caja Chica" hacia "Caja Chica" del mismo usuario) se autocancelaba
-        // (ingreso - egreso = 0) aunque sí fuera efectivo nuevo entrando a la sesión.
+        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
+        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
+        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
+        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
+        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión.
         $egresos = (float) $transacciones
             ->where('tipo_transaccion', 'egreso')
-            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->filter(function ($t) use ($transacciones) {
+                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
+                    return true;
+                }
+
+                return !$transacciones->contains(function ($i) use ($t) {
+                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
+                        && $i->tipo_transaccion === 'ingreso'
+                        && $i->referencia_id === $t->referencia_id
+                        && $i->user_id === $t->user_id
+                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
+                });
+            })
             ->sum('monto');
 
         return $montoInicial + $ingresos - $egresos;
@@ -563,47 +573,55 @@ class SubCajaController extends Controller
 
     /**
      * Obtener todos los vendedores con efectivo disponible
-     * Los vendedores NO tienen cajas asignadas, solo tienen transacciones en las sub-cajas
+     * El efectivo mostrado = el mismo que calcula el cierre de caja:
+     * desde la apertura, sumando todos los despliegues de efectivo
+     * (ventas, otros ingresos, préstamos recibidos) y restando los
+     * egresos (gastos, compras, préstamos dados).
      */
     public function getVendedoresConEfectivo(): JsonResponse
     {
         try {
             $userId = auth()->id();
-            
-            
-            // Obtener TODAS las Cajas Chicas
-            $cajasChicas = \App\Models\SubCaja::where('tipo_caja', 'CC')->get();
-            
-            
-            // Obtener todos los vendedores que tienen transacciones
-            $vendedoresConTransacciones = \App\Models\TransaccionCaja::whereIn('sub_caja_id', $cajasChicas->pluck('id'))
-                ->where('user_id', '!=', $userId) // Excluir usuario actual
-                ->distinct()
-                ->pluck('user_id');
-            
-            
+
+            // Solo vendedores con caja ABIERTA en este momento. Si un vendedor ya
+            // cerró su caja, ese efectivo quedó reconciliado/cerrado — no es dinero
+            // "en caja" disponible para prestar desde una sesión activa. Antes se
+            // agregaba además cualquier usuario con transacciones históricas en
+            // cajas chicas (aunque su caja ya estuviera cerrada) y se le calculaba
+            // un "efectivo histórico" que seguía apareciendo en este selector mucho
+            // después de haber cerrado — bug real reportado por el usuario.
+            $vendedoresIds = \App\Models\AperturaCierreCaja::whereNull('fecha_cierre')
+                ->where('user_id', '!=', $userId)
+                ->pluck('user_id')
+                ->unique()
+                ->values();
+
+            $calculadorResumen = app(\App\Services\CierreCaja\CalculadorResumenCaja::class);
+
             $vendedoresConEfectivo = [];
 
-            foreach ($vendedoresConTransacciones as $vendedorId) {
+            foreach ($vendedoresIds as $vendedorId) {
                 $vendedor = \App\Models\User::find($vendedorId);
-                
+
                 if (!$vendedor) {
                     continue;
                 }
-                
-                
-                // Calcular efectivo total del vendedor en TODAS las Cajas Chicas
-                $efectivoTotal = 0;
-                
-                foreach ($cajasChicas as $cajaChica) {
-                    $efectivoEnCaja = $this->calcularEfectivoEnSubCaja($cajaChica->id, $vendedorId);
-                    $efectivoTotal += $efectivoEnCaja;
-                    
-                    if ($efectivoEnCaja > 0) {
-                    }
+
+                // Apertura activa del vendedor
+                $apertura = \App\Models\AperturaCierreCaja::where('user_id', $vendedorId)
+                    ->whereNull('fecha_cierre')
+                    ->first();
+
+                if (!$apertura) {
+                    // Por seguridad: ya venimos filtrados por apertura abierta, pero si
+                    // se cerró entre el pluck() y este punto, no mostrarlo.
+                    continue;
                 }
-                
-                
+
+                // MISMA lógica que el cierre de caja: efectivo en caja desde su apertura
+                $resumen = $calculadorResumen->calcular($apertura);
+                $efectivoTotal = $resumen->montoEsperado;
+
                 // Solo incluir si tiene efectivo > 0
                 if ($efectivoTotal > 0) {
                     $vendedoresConEfectivo[] = [
@@ -613,7 +631,6 @@ class SubCajaController extends Controller
                     ];
                 }
             }
-            
 
             return response()->json([
                 'success' => true,
@@ -624,7 +641,7 @@ class SubCajaController extends Controller
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener vendedores: ' . $e->getMessage(),
@@ -645,23 +662,22 @@ class SubCajaController extends Controller
         }
         
         $montoInicial = 0;
-        
+
+        // Obtener la apertura activa de ESTE VENDEDOR en la caja principal
+        // (acota el saldo DESDE su apertura; cada vendedor tiene su propia apertura)
+        $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $vendedorId)
+            ->whereNull('fecha_cierre')
+            ->first();
+
         // Solo si es Caja Chica, considerar la distribución inicial de efectivo
-        if ($subCaja->tipo_caja === 'CC') {
-            // Obtener la apertura activa de la caja principal
-            $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-                ->whereNull('fecha_cierre')
-                ->first();
-            
-            if ($aperturaActiva) {
-                // Sumar solo las distribuciones de efectivo del vendedor
-                $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                    ->where('user_id', $vendedorId)
-                    ->get();
-                
-                $montoInicial = $distribuciones->sum('monto');
-                
-            }
+        if ($subCaja->tipo_caja === 'CC' && $aperturaActiva) {
+            // Sumar solo las distribuciones de efectivo del vendedor
+            $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                ->where('user_id', $vendedorId)
+                ->get();
+
+            $montoInicial = $distribuciones->sum('monto');
         }
         
         // Obtener IDs de despliegues de pago tipo EFECTIVO de esta sub-caja
@@ -692,6 +708,7 @@ class SubCajaController extends Controller
         
         // Calcular transacciones de efectivo
         // IMPORTANTE: EXCLUIR transacciones de tipo "apertura" para evitar duplicar las distribuciones
+        // Solo considera transacciones DESDE la apertura activa de la caja
         $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $vendedorId)
             ->whereIn('despliegue_pago_id', $desplieguePagoEfectivoIds)
@@ -699,16 +716,30 @@ class SubCajaController extends Controller
                 $query->whereNull('referencia_tipo')
                       ->orWhere('referencia_tipo', '!=', 'apertura');
             })
+            ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
             ->get();
         
         
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Excluir 'movimiento_interno' de los egresos (mismo criterio que
-        // calcularEfectivoDesdeApertura y ClasificadorMovimientos::obtenerGastosVendedor):
-        // ese efectivo sale del acumulado de sesiones cerradas, no de esta sub-caja.
+        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
+        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
+        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
+        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma.
         $egresos = $transacciones
             ->where('tipo_transaccion', 'egreso')
-            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->filter(function ($t) use ($transacciones) {
+                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
+                    return true;
+                }
+
+                return !$transacciones->contains(function ($i) use ($t) {
+                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
+                        && $i->tipo_transaccion === 'ingreso'
+                        && $i->referencia_id === $t->referencia_id
+                        && $i->user_id === $t->user_id
+                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
+                });
+            })
             ->sum('monto');
 
         $saldoFinal = $montoInicial + $ingresos - $egresos;
@@ -729,8 +760,10 @@ class SubCajaController extends Controller
             return '0.00';
         }
         
-        // Apertura activa de la caja principal: acota el saldo DESDE la apertura HASTA el cierre.
+        // Apertura activa de ESTE VENDEDOR en la caja principal:
+        // acota el saldo DESDE su apertura HASTA el cierre.
         $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $userId)
             ->whereNull('fecha_cierre')
             ->first();
 
@@ -862,8 +895,10 @@ class SubCajaController extends Controller
             return '0.00';
         }
         
-        // Apertura activa de la caja principal: acota el saldo DESDE la apertura HASTA el cierre.
+        // Apertura activa de ESTE VENDEDOR en la caja principal:
+        // acota el saldo DESDE su apertura HASTA el cierre.
         $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $userId)
             ->whereNull('fecha_cierre')
             ->first();
 

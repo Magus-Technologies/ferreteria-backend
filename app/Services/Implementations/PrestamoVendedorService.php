@@ -157,6 +157,75 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         ]);
     }
 
+    public function anularSolicitud(string $solicitudId, int|string $usuarioId): void
+    {
+        DB::transaction(function () use ($solicitudId, $usuarioId) {
+            $solicitud = SolicitudEfectivoVendedor::with(['aperturaCierreCaja', 'transferencia'])
+                ->lockForUpdate()
+                ->findOrFail($solicitudId);
+
+            // Solo se puede anular un préstamo ya aprobado — pendiente/rechazada nunca
+            // movieron dinero real, no hay nada que revertir.
+            if (!$solicitud->estaAprobada()) {
+                throw new \Exception('Solo se puede anular un préstamo aprobado.');
+            }
+
+            if (
+                $usuarioId !== $solicitud->vendedor_prestamista_id
+                && $usuarioId !== $solicitud->vendedor_solicitante_id
+            ) {
+                throw new PermisoPrestamoException('anular');
+            }
+
+            $apertura = $solicitud->aperturaCierreCaja;
+            if ($apertura && $apertura->estado !== 'abierta' && $apertura->estado !== 'activa') {
+                throw new \Exception('No se puede anular un préstamo de una caja ya cerrada.');
+            }
+
+            $transferencia = $solicitud->transferencia;
+            if (!$transferencia) {
+                throw new \Exception('No se encontró la transferencia asociada a este préstamo.');
+            }
+
+            $subCajaOrigen = \App\Models\SubCaja::findOrFail($transferencia->sub_caja_origen_id);
+            $subCajaDestino = \App\Models\SubCaja::findOrFail($transferencia->sub_caja_destino_id);
+            $monto = (float) $transferencia->monto;
+
+            // 1. Eliminar transacciones de caja asociadas a la transferencia.
+            TransaccionCaja::where('referencia_id', $transferencia->id)
+                ->where('referencia_tipo', 'transferencia_vendedor')
+                ->delete();
+
+            // 2. Eliminar movimientos de caja asociados. MovimientoCaja no guarda
+            // referencia_id/referencia_tipo para estas filas (ver
+            // registrarTransaccionesYMovimientos), así que se identifican por apertura +
+            // sub_caja + monto + concepto, igual que TrasladoBovedaService::anularTraslado.
+            MovimientoCaja::where('apertura_cierre_id', $solicitud->apertura_cierre_caja_id)
+                ->where('sub_caja_id', $subCajaOrigen->id)
+                ->where('salida', $monto)
+                ->where('tipo_movimiento', 'transferencia')
+                ->where('concepto', 'LIKE', 'Préstamo de S/.%')
+                ->delete();
+
+            MovimientoCaja::where('apertura_cierre_id', $solicitud->apertura_cierre_caja_id)
+                ->where('sub_caja_id', $subCajaDestino->id)
+                ->where('ingreso', $monto)
+                ->where('tipo_movimiento', 'transferencia')
+                ->where('concepto', 'LIKE', 'Préstamo de S/.%')
+                ->delete();
+
+            // 3. Restaurar saldos de ambas sub-cajas (inverso de la aprobación).
+            $subCajaOrigen->increment('saldo_actual', $monto);
+            $subCajaDestino->decrement('saldo_actual', $monto);
+
+            // 4. Marcar la solicitud como anulada (no se elimina, queda como registro).
+            $solicitud->update([
+                'estado' => 'anulada',
+                'fecha_anulacion' => now(),
+            ]);
+        });
+    }
+
     public function listarSolicitudesPendientes(int|string $vendedorId): array
     {
         $solicitudes = SolicitudEfectivoVendedor::with(['vendedorSolicitante', 'aperturaCierreCaja'])
@@ -404,15 +473,26 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             ->get();
 
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Excluir 'movimiento_interno' de los egresos: ese efectivo sale del acumulado de
-        // sesiones cerradas (ver "Traslado de Efectivo"), no de la sesión abierta actual —
-        // mismo criterio que SubCajaController::calcularEfectivoDesdeApertura y
-        // ClasificadorMovimientos::obtenerGastosVendedor. Sin este exclude, un traslado
-        // RECIBIDO (ingreso) en la misma sub-caja/despliegue que su origen se autocancelaba
-        // con su propio egreso, aunque sí fuera efectivo nuevo entrando a la sesión.
+        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
+        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
+        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
+        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
+        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión.
         $egresos = $transacciones
             ->where('tipo_transaccion', 'egreso')
-            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->filter(function ($t) use ($transacciones) {
+                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
+                    return true;
+                }
+
+                return !$transacciones->contains(function ($i) use ($t) {
+                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
+                        && $i->tipo_transaccion === 'ingreso'
+                        && $i->referencia_id === $t->referencia_id
+                        && $i->user_id === $t->user_id
+                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
+                });
+            })
             ->sum('monto');
 
         return $montoInicial + $ingresos - $egresos;
@@ -467,6 +547,8 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                 $query->where('vendedor_origen_id', $vendedorId)
                     ->orWhere('vendedor_destino_id', $vendedorId);
             })
+            // Excluir préstamos cuya solicitud fue anulada.
+            ->whereDoesntHave('solicitud', fn ($q) => $q->where('estado', 'anulada'))
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -494,23 +576,17 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         \App\Models\SubCaja $subCajaOrigen,
         \App\Models\SubCaja $subCajaDestino
     ): void {
-        // Buscar método de pago de efectivo (intentar varios nombres comunes)
-        $desplieguePagoEfectivo = DespliegueDePago::where('activo', true)
-            ->where(function ($query) {
-                $query->where('name', 'like', '%Efectivo%')
-                      ->orWhere('name', 'like', '%efectivo%')
-                      ->orWhere('name', 'like', '%EFECTIVO%');
-            })
-            ->first();
-
-        // Si no se encuentra, buscar el primer método de pago activo de efectivo
-        if (!$desplieguePagoEfectivo) {
-            $desplieguePagoEfectivo = DespliegueDePago::where('activo', true)
-                ->whereHas('metodoDePago', function ($query) {
-                    $query->whereNull('cuenta_bancaria');
-                })
-                ->first();
-        }
+        // Resolver el método de pago EFECTIVO propio de cada sub-caja (no una búsqueda
+        // genérica por nombre): puede haber varios despliegues "tipo efectivo" activos
+        // en el sistema (ej. "efectivo" y "efectivo negro"), y `calcularEfectivoEnSubCaja`/
+        // `calcularEfectivoEnCajaChica` solo reconocen como válido el que está en
+        // `sub_caja.despliegues_pago_ids` de ESA sub-caja específica. Si acá se usaba
+        // uno "genérico" que no está en esa lista, la transacción del préstamo quedaba
+        // invisible para el cálculo de "efectivo disponible" del vendedor (bug real:
+        // un préstamo aprobado no se reflejaba ni en Traslado a Bóveda ni en el
+        // selector de "Solicitar Préstamo").
+        $desplieguePagoOrigen = $this->resolverDesplieguePagoEfectivo($subCajaOrigen);
+        $desplieguePagoDestino = $this->resolverDesplieguePagoEfectivo($subCajaDestino);
 
         $saldoAnteriorOrigen = $subCajaOrigen->saldo_actual;
         $saldoAnteriorDestino = $subCajaDestino->saldo_actual;
@@ -519,7 +595,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         TransaccionCaja::create([
             'id' => (string) Str::ulid(),
             'sub_caja_id' => $subCajaOrigen->id,
-            'despliegue_pago_id' => $desplieguePagoEfectivo?->id,
+            'despliegue_pago_id' => $desplieguePagoOrigen?->id,
             'tipo_transaccion' => 'egreso',
             'monto' => $transferencia->monto,
             'saldo_anterior' => $saldoAnteriorOrigen,
@@ -535,7 +611,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         TransaccionCaja::create([
             'id' => (string) Str::ulid(),
             'sub_caja_id' => $subCajaDestino->id,
-            'despliegue_pago_id' => $desplieguePagoEfectivo?->id,
+            'despliegue_pago_id' => $desplieguePagoDestino?->id,
             'tipo_transaccion' => 'ingreso',
             'monto' => $transferencia->monto,
             'saldo_anterior' => $saldoAnteriorDestino,
@@ -584,5 +660,45 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             'saldo_final' => $saldoAnteriorDestino + $transferencia->monto,
             'estado_caja' => 'abierta',
         ]);
+    }
+
+    /**
+     * Resuelve el despliegue de pago EFECTIVO válido para una sub-caja específica —
+     * es decir, el que está listado en `sub_caja.despliegues_pago_ids`. Mismo criterio
+     * que usa `calcularEfectivoEnCajaChica()`/`SubCajaController::calcularEfectivoEnSubCaja()`
+     * para decidir qué transacciones cuentan como "efectivo disponible" de esa sub-caja:
+     * una transacción con un despliegue_pago_id que NO esté en esa lista queda invisible
+     * para esos cálculos, aunque el método de pago también se llame "efectivo".
+     */
+    private function resolverDesplieguePagoEfectivo(\App\Models\SubCaja $subCaja): ?DespliegueDePago
+    {
+        $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
+
+        $desplieguePago = DespliegueDePago::whereIn('id', $desplieguePagoIds)
+            ->whereHas('metodoDePago', function ($query) {
+                $query->where(function ($q) {
+                    $q->whereNull('cuenta_bancaria')
+                      ->orWhere('cuenta_bancaria', 'SIN-CUENTA');
+                })
+                ->where(function ($q) {
+                    $q->where('name', 'like', '%efectivo%')
+                      ->orWhere('name', 'like', '%Efectivo%');
+                });
+            })
+            ->first();
+
+        if ($desplieguePago) {
+            return $desplieguePago;
+        }
+
+        // Fallback: si la sub-caja no tiene ningún despliegue de efectivo configurado
+        // (caso legacy/mal configurado), usar el mismo criterio genérico de antes en
+        // vez de dejar la transacción sin método de pago.
+        return DespliegueDePago::where('activo', true)
+            ->where(function ($query) {
+                $query->where('name', 'like', '%Efectivo%')
+                      ->orWhere('name', 'like', '%efectivo%');
+            })
+            ->first();
     }
 }

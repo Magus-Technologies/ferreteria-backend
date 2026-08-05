@@ -113,8 +113,9 @@ class CalculadorResumenCaja
         $montoCierre = $apertura->monto_cierre;
         $diferencia = $montoCierre !== null ? ($montoCierre - $montoEsperado) : null;
 
-        // Formatear detalles de ventas con información de pagos
-        $detalleVentas = $this->formatearDetalleVentas($clasificacion['ventas']);
+        // Formatear detalles de ventas con información de pagos — filtrado
+        // por el usuario de esta apertura (ver formatearDetalleVentas).
+        $detalleVentas = $this->formatearDetalleVentas($clasificacion['ventas'], $apertura->user_id);
 
         // Función auxiliar para formatear movimientos manuales
         $formatearManual = function ($item, $tipoDefault = 'ingreso_manual') use ($esEfectivo) {
@@ -174,23 +175,43 @@ class CalculadorResumenCaja
         return $resultado;
     }
 
-    private function formatearDetalleVentas($ventas)
+    private function formatearDetalleVentas($ventas, string $userId)
     {
-        return $ventas->map(function ($venta) {
+        return $ventas->map(function ($venta) use ($userId) {
+            // Sub-caja por método de pago de ESTA venta, colapsada a UNA fila
+            // por despliegue_pago_id. Necesario porque el modelo de cobro
+            // diferencial puede dejar VARIAS transacciones_caja para el mismo
+            // (venta, método) — cobro inicial + cobro de diferencia (+
+            // devolución) — y un JOIN directo contra transacciones_caja
+            // multiplicaría en cruz cada fila de desplieguedepagoventa por
+            // cada transacción coincidente, inflando el total mostrado.
+            $subCajaPorMetodo = \Illuminate\Support\Facades\DB::table('transacciones_caja')
+                ->select('despliegue_pago_id', \Illuminate\Support\Facades\DB::raw('MIN(sub_caja_id) as sub_caja_id'))
+                ->where('referencia_id', $venta->id)
+                ->where('referencia_tipo', 'venta')
+                ->groupBy('despliegue_pago_id');
+
             // Obtener los pagos de esta venta con información de sub-caja
             // La sub-caja se obtiene desde transacciones_caja, no desde metododepago
             $pagos = \Illuminate\Support\Facades\DB::table('desplieguedepagoventa as dpv')
                 ->join('desplieguedepago as dp', 'dpv.despliegue_de_pago_id', '=', 'dp.id')
                 ->leftJoin('metododepago as mp', 'dp.metodo_de_pago_id', '=', 'mp.id')
                 ->leftJoin('numeros_operacion_pago as nop', 'dpv.numero_operacion_id', '=', 'nop.id')
-                // Obtener la sub-caja desde transacciones_caja
-                ->leftJoin('transacciones_caja as tc', function ($join) use ($venta) {
-                    $join->on('tc.despliegue_pago_id', '=', 'dpv.despliegue_de_pago_id')
-                        ->where('tc.referencia_id', '=', $venta->id)
-                        ->where('tc.referencia_tipo', '=', 'venta');
+                // Obtener la sub-caja desde transacciones_caja (ya colapsada arriba)
+                ->leftJoinSub($subCajaPorMetodo, 'tc', function ($join) {
+                    $join->on('tc.despliegue_pago_id', '=', 'dpv.despliegue_de_pago_id');
                 })
                 ->leftJoin('sub_cajas as sc', 'tc.sub_caja_id', '=', 'sc.id')
                 ->where('dpv.venta_id', $venta->id)
+                // Solo los pagos que hizo ESTE usuario — con cobro diferencial
+                // una venta puede tener pagos de distintos usuarios (ej.
+                // cobro inicial de uno, diferencia de otro compartiendo la
+                // misma Caja Chica); cada cierre debe ver solo lo suyo.
+                // Filas viejas sin user_id (previas a la migración) se
+                // mantienen visibles para no perder historial.
+                ->where(function ($q) use ($userId) {
+                    $q->where('dpv.user_id', $userId)->orWhereNull('dpv.user_id');
+                })
                 ->select([
                     'sc.nombre as sub_caja',
                     'mp.name as banco',

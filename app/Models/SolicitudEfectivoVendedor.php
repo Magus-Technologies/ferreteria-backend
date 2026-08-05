@@ -25,12 +25,14 @@ class SolicitudEfectivoVendedor extends Model
         'fecha_solicitud',
         'fecha_respuesta',
         'comentario_respuesta',
+        'fecha_anulacion',
     ];
 
     protected $casts = [
         'monto_solicitado' => 'decimal:2',
         'fecha_solicitud' => 'datetime',
         'fecha_respuesta' => 'datetime',
+        'fecha_anulacion' => 'datetime',
     ];
 
     protected static function boot()
@@ -92,5 +94,10 @@ class SolicitudEfectivoVendedor extends Model
     public function estaRechazada(): bool
     {
         return $this->estado === 'rechazada';
+    }
+
+    public function estaAnulada(): bool
+    {
+        return $this->estado === 'anulada';
     }
 }

@@ -24,10 +24,13 @@ class DespliegueDePagoVenta extends Model
         'venta_id',
         'despliegue_de_pago_id',
         'monto',
+        'tipo',
         'numero_operacion_id',
         'sobrecargo_aplicado',
         'referencia',
         'recibe_efectivo',
+        'fecha',
+        'user_id',
     ];
 
     /**
@@ -39,6 +42,7 @@ class DespliegueDePagoVenta extends Model
             'monto' => 'decimal:4',
             'sobrecargo_aplicado' => 'decimal:4',
             'recibe_efectivo' => 'decimal:4',
+            'fecha' => 'datetime',
         ];
     }
 
@@ -64,5 +68,14 @@ class DespliegueDePagoVenta extends Model
     public function numeroOperacion(): BelongsTo
     {
         return $this->belongsTo(NumeroOperacionPago::class, 'numero_operacion_id');
+    }
+
+    /**
+     * Relación: Usuario que registró este movimiento (cobro inicial, cobro
+     * de diferencia o devolución).
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

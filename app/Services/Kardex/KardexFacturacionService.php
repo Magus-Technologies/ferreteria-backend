@@ -102,7 +102,7 @@ class KardexFacturacionService
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
      * CORRECCIÓN: Pasar factor explícitamente
      */
-    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, bool $stockYaAplicado = false)
+    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, $fecha = null)
     {
         $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
@@ -133,7 +133,12 @@ class KardexFacturacionService
         $data = [
             'tipo' => 'venta',
             'movimiento' => $movimiento,
-            'fecha' => now(),
+            // Si el llamador pasa una fecha explícita (ej. la misma que se usó para la
+            // entrega auto-creada de esta venta), se reusa para que ambas filas del
+            // kardex queden con el fecha EXACTAMENTE igual — así el desempate por
+            // `orden` (venta antes que entrega) siempre aplica, sin depender de que
+            // ambos inserts caigan en el mismo segundo por casualidad.
+            'fecha' => $fecha ?? now(),
             'documento' => "{$tipoDocumento} {$venta->serie}-{$venta->numero}",
             'unidad' => $unidad['unidad_derivada_inmutable_name'],
             'cantidad' => $unidad['cantidad'],
@@ -153,17 +158,13 @@ class KardexFacturacionService
             'orden' => $orden,
         ];
 
-        // Si se proporciona stock anterior en fracción, usarlo
+        // Si se proporciona stock anterior en fracción, usarlo. Si la venta viene de una
+        // cotización con stock reservado, esa reserva ya se liberó por completo (kardex
+        // "RESERVA LIBERADA" + increment de stock_fraccion) antes de llamar a este método,
+        // así que acá siempre se descuenta la salida completa por el camino normal — sin
+        // overrides de "excedente".
         if ($stockAnterior !== null) {
             $data['stock_anterior_override'] = $stockAnterior;
-        }
-
-        // stockYaAplicado=true: esta venta viene de una cotización que ya reservó (y por
-        // tanto ya descontó) el stock antes. La fila igual muestra `salida` = lo vendido
-        // (para el reporte de ventas / historial), pero el saldo resultante NO vuelve a
-        // descontar — ya se descontó al reservar, y aquí solo se está documentando la venta.
-        if ($stockYaAplicado && $stockAnterior !== null) {
-            $data['stock_actual_override'] = $stockAnterior;
         }
 
         return $this->registrar($data);
@@ -527,19 +528,33 @@ class KardexFacturacionService
         // Obtener filas de entregas hechas y anuladas
         $entregaRows = $this->getEntregasParaKardex($productoId, $almacenId, $desde, $hasta, $clienteId);
 
-        // Combinar y ordenar por fecha asc, luego por orden
+        // Combinar y ordenar por fecha asc para acumular el stock cronológicamente.
+        // En caso de empate de fecha (venta + su entrega automática), la VENTA
+        // (orden=1) debe procesarse ANTES que la ENTREGA (orden=0) en esta pasada
+        // ascendente — la entrega no mueve stock por sí sola, solo "hereda" el saldo
+        // que dejó la venta. Si se procesara al revés, la entrega leería el saldo
+        // ANTERIOR a la venta (el de la reserva/movimiento previo) y mostraría un
+        // stock_anterior/stock_actual desactualizado en vez del real posterior a la
+        // venta. Por eso el desempate acá es DESCENDENTE por orden, aunque la fecha
+        // sea ascendente.
         $allRows = array_merge($kardexRows, $entregaRows);
         usort($allRows, function ($a, $b) {
             $fa = strtotime($a->fecha ?? '1970-01-01');
             $fb = strtotime($b->fecha ?? '1970-01-01');
             if ($fa !== $fb) return $fa <=> $fb;
-            return ($a->orden ?? 0) <=> ($b->orden ?? 0);
+            return ($b->orden ?? 0) <=> ($a->orden ?? 0);
         });
 
         $total = count($allRows);
 
         // Calcular stock acumulado para filas del kardex; las de entrega se omiten
         $stockPorProductoAlmacen = [];
+        // Stock que dejó cada VENTA por producto (key = "{referencia_id}_{producto_id}",
+        // referencia_id = venta_id). La ENTREGA de esa venta copia estos mismos valores
+        // en vez de calcular los suyos propios — la entrega no mueve stock por sí sola,
+        // así que debe mostrar EXACTAMENTE el mismo stock_anterior/stock_actual que su
+        // venta, no un valor "heredado" del acumulador general.
+        $stockPorVentaProducto = [];
         $rowsWithStockAll = [];
 
         foreach ($allRows as $row) {
@@ -556,19 +571,32 @@ class KardexFacturacionService
             }
 
             $key = "{$row->producto_id}_{$row->almacen_id}";
+            $ventaKey = "{$row->referencia_id}_{$row->producto_id}";
 
-            // Si el registro YA tiene stock_anterior y stock_actual guardados, usarlos
-            if ($row->stock_anterior !== null && $row->stock_actual !== null) {
+            if (($row->tipo ?? null) === 'entrega' && isset($stockPorVentaProducto[$ventaKey])) {
+                // Copiar el stock de la venta que generó esta entrega (mismo
+                // referencia_id = venta_id, mismo producto).
+                $stockAnterior = $stockPorVentaProducto[$ventaKey]['anterior'];
+                $stockActual = $stockPorVentaProducto[$ventaKey]['actual'];
+                // No tocar $stockPorProductoAlmacen[$key]: la entrega no "consume" el
+                // acumulador general, solo muestra los mismos números que su venta.
+            } elseif ($row->stock_anterior !== null && $row->stock_actual !== null) {
+                // Si el registro YA tiene stock_anterior y stock_actual guardados, usarlos
                 $stockAnterior = (float) $row->stock_anterior;
                 $stockActual = (float) $row->stock_actual;
                 $stockPorProductoAlmacen[$key] = $stockActual;
             } else {
-                // Para registros antiguos sin valores guardados, calcularlos
+                // Para registros antiguos sin valores guardados (o entregas sin venta
+                // encontrada — caso legacy), calcularlos por acumulación normal.
                 $stockAnterior = $stockPorProductoAlmacen[$key] ?? 0;
                 $cantIngreso = (float) $row->entrada;
                 $cantSalida = (float) $row->salida;
                 $stockActual = $stockAnterior + $cantIngreso - $cantSalida;
                 $stockPorProductoAlmacen[$key] = $stockActual;
+            }
+
+            if (($row->tipo ?? null) === 'venta') {
+                $stockPorVentaProducto[$ventaKey] = ['anterior' => $stockAnterior, 'actual' => $stockActual];
             }
 
             // Si cliente_nombre está vacío pero cliente_id existe, buscar el nombre
@@ -590,13 +618,14 @@ class KardexFacturacionService
 
         // Invertir para mostrar los más recientes primero (descendente por fecha)
         $rowsWithStockAll = array_reverse($rowsWithStockAll);
-        
-        // Re-ordenar descendente por fecha y orden para mantener coherencia
+
+        // Re-ordenar descendente por fecha; en empate, la ENTREGA (orden=0) va ANTES
+        // que su VENTA (orden=1) — así queda arriba en la tabla ("movimientos de hoy").
         usort($rowsWithStockAll, function ($a, $b) {
             $fa = strtotime($a->fecha ?? '1970-01-01');
             $fb = strtotime($b->fecha ?? '1970-01-01');
             if ($fa !== $fb) return $fb <=> $fa; // Descendente
-            return ($b->orden ?? 0) <=> ($a->orden ?? 0); // Descendente
+            return ($a->orden ?? 0) <=> ($b->orden ?? 0); // Ascendente: entrega(0) antes que venta(1)
         });
 
         if ($perPage == -1) {
@@ -755,11 +784,11 @@ class KardexFacturacionService
      * (ENTRADA). $motivo describe por qué se liberó (cancelada, editada, expirada, etc.)
      * para que quede claro en el documento del kardex.
      */
-    public function registrarLiberacionReservaCotizacion($cotizacion, $productoAlmacen, array $unidad, $costo, string $motivo, $orden = 2)
+    public function registrarLiberacionReservaCotizacion($cotizacion, $productoAlmacen, array $unidad, $costo, string $motivo, $orden = 2, $stockAnteriorOverride = null)
     {
         $cantEntrada = (float) $unidad['cantidad'] * (float) $unidad['factor'];
 
-        return $this->registrar([
+        $data = [
             'tipo' => 'reserva',
             'movimiento' => 'RESERVA LIBERADA',
             'fecha' => now(),
@@ -780,7 +809,18 @@ class KardexFacturacionService
             'cliente_nombre' => $this->obtenerNombreClienteDeCotizacion($cotizacion),
             'almacen_id' => $productoAlmacen->almacen_id,
             'orden' => $orden,
-        ]);
+        ];
+
+        // Permite encadenar esta fila desde un valor conocido (ej. el saldo que dejó la
+        // fila "RESERVA COTIZACIÓN" original) en vez de releer `stock_fraccion` en vivo —
+        // necesario cuando esta liberación se registra ANTES de que el stock físico
+        // termine de reflejar el ajuste (ver VentaController::store(), liberación parcial
+        // de reserva no cubierta por la venta).
+        if ($stockAnteriorOverride !== null) {
+            $data['stock_anterior_override'] = $stockAnteriorOverride;
+        }
+
+        return $this->registrar($data);
     }
 
     /**

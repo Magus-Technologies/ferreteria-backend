@@ -588,10 +588,9 @@ class VentaController extends Controller
             // se cree la entrega manualmente desde Mis Ventas.
             // No descontar si descontar_stock='no' (caso: el cliente ya tiene
             // el producto físicamente; solo se registra la venta administrativa).
-            // stock_ya_aplicado=true ya NO desactiva el descuento globalmente:
-            // el stock reservado por la cotización origen se resta POR LÍNEA vía
-            // `cantidad_ya_aplicada`, así las líneas nuevas o el excedente que el
-            // usuario agregó en la venta SÍ se descuentan.
+            // stock_ya_aplicado=true tampoco desactiva el descuento: si la venta viene de
+            // una cotización con stock reservado, esa reserva se libera por completo antes
+            // de descontar (ver más abajo), así que el descuento acá siempre es el normal.
             $tipoDespacho = $validated['tipo_despacho'] ?? null;
             $estadoVentaStr = $validated['estado_de_venta'] ?? 'cr';
             $omitirEntrega = (bool) ($validated['omitir_entrega'] ?? false);
@@ -608,13 +607,42 @@ class VentaController extends Controller
             $stockYaAplicado = $cotizacionOrigen
                 ? (bool) $cotizacionOrigen->reservar_stock
                 : (bool) ($validated['stock_ya_aplicado'] ?? false);
+
+            // Cuando la venta viene de una cotización que YA reservó stock: la reserva
+            // cuenta como descuento EN FIRME desde que se cotizó (no un simple aparto), así
+            // que la venta solo debe descontar el EXCEDENTE sobre lo ya reservado — si se
+            // reservaron 8 y se vende 10, el kardex de la venta debe mostrar salida=2 (no
+            // 10), partiendo de `stock_anterior` = el valor YA reducido por la reserva (92,
+            // no 100).
+            //
+            // `$reservadoFraccionPorProducto` guarda, por producto_almacen_id, cuánto se
+            // reservó en total (en fracción) — se usa más abajo para calcular el excedente
+            // por línea al armar el kardex de la venta. Se calcula ANTES de tocar ningún
+            // lote, en modo lectura, para no alterar `stock_fraccion` todavía.
+            $reservadoFraccionPorProducto = [];
+            if ($cotizacionOrigen && $stockYaAplicado && $estadoVentaStr !== 'ee') {
+                $cotizacionOrigen->loadMissing('productosPorAlmacen.unidadesDerivadas');
+                foreach ($cotizacionOrigen->productosPorAlmacen as $productoAlmacenCotizacion) {
+                    $totalFraccionProducto = 0.0;
+                    foreach ($productoAlmacenCotizacion->unidadesDerivadas as $ud) {
+                        $totalFraccionProducto += (float) $ud->cantidad * (float) $ud->factor;
+                    }
+                    $reservadoFraccionPorProducto[$productoAlmacenCotizacion->producto_almacen_id] =
+                        ($reservadoFraccionPorProducto[$productoAlmacenCotizacion->producto_almacen_id] ?? 0) + $totalFraccionProducto;
+                }
+            }
+
             $debeDescontar = in_array($tipoDespacho, ['et', 'do', 'pa', 'oc'])
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega
                 && ! $noDescontarStock;
-            
+
             // CAPTURAR STOCK ANTERIOR ANTES DE DECREMENTAR (para kardex)
-            // Capturar SIEMPRE si no está en espera (porque se registrará en kardex)
+            // Capturar SIEMPRE si no está en espera (porque se registrará en kardex). Si
+            // esta venta viene de una cotización con reserva, este valor YA refleja el
+            // descuento en firme de la reserva (se captura ANTES de revertir el consumo de
+            // lotes más abajo) — es exactamente el punto de partida que necesita el kardex
+            // para mostrar solo el excedente sobre lo reservado.
             $stocksAnteriores = [];
             if ($estadoVentaStr !== 'ee') {
                 foreach ($validated['productos_por_almacen'] ?? [] as $idx => $producto) {
@@ -634,7 +662,47 @@ class VentaController extends Controller
                     }
                 }
             }
-            
+
+            // A nivel de lotes PEPS (`productoalmacen_lote`, la fuente real que usa
+            // `ProductoLoteService`): la reserva original ya consumió lotes al crearse (ver
+            // `CotizacionController::reservarStockLinea`). Acá se revierte ESE consumo
+            // (etiquetado `cotizacion`+id) — sin fila de kardex propia, porque no se está
+            // liberando para que otro cliente lo compre, se está transfiriendo a ESTA venta
+            // — y el descuento físico normal más abajo vuelve a consumir la cantidad TOTAL
+            // vendida, esta vez etiquetada `venta`+id. Así, si esta venta se anula después,
+            // `revertirConsumoPorOrigen('venta', $venta->id)` puede revertir TODO de una,
+            // sin dejar consumo huérfano etiquetado como `cotizacion`. Corre DESPUÉS de
+            // capturar `$stocksAnteriores` arriba, para no pisar ese valor.
+            if ($cotizacionOrigen && $stockYaAplicado && $estadoVentaStr !== 'ee') {
+                $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+                foreach ($cotizacionOrigen->productosPorAlmacen as $productoAlmacenCotizacion) {
+                    $productoAlmacenReservado = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
+                    if (! $productoAlmacenReservado) {
+                        continue;
+                    }
+                    $totalFraccionProducto = 0.0;
+                    foreach ($productoAlmacenCotizacion->unidadesDerivadas as $ud) {
+                        $totalFraccionProducto += (float) $ud->cantidad * (float) $ud->factor;
+
+                        // Devolver también el complementario reservado (mismo patrón que
+                        // CotizacionController al liberar una reserva).
+                        ComplementarioStockService::procesarComplementarioPorFactor(
+                            $productoAlmacenReservado->id,
+                            (float) $ud->factor,
+                            (float) $ud->cantidad,
+                            $productoAlmacenReservado->almacen_id,
+                            true // ingreso (devolver)
+                        );
+                    }
+
+                    // Revertir el consumo de lotes de la reserva UNA sola vez por producto
+                    // (con el total de todas sus unidades) — ver liberarStockProducto() en
+                    // CotizacionController para el mismo patrón y por qué no puede llamarse
+                    // por unidad.
+                    $loteService->revertirConsumoOReingresar($productoAlmacenReservado, 'cotizacion', $cotizacionOrigen->id, $totalFraccionProducto);
+                }
+            }
+
             if ($debeDescontar) {
                 foreach ($validated['productos_por_almacen'] ?? [] as $producto) {
                     $pAlmacenId = $producto['producto_almacen_id'] ?? null;
@@ -652,17 +720,15 @@ class VentaController extends Controller
                     $loteService = app(\App\Services\Producto\ProductoLoteService::class);
 
                     foreach ($producto['unidades_derivadas'] as $unidad) {
-                        // Si la cotización origen ya reservó parte de esa línea
-                        // (cantidad_ya_aplicada), descontar SOLO el exceso sobre lo
-                        // reservado. Las líneas nuevas o el excedente que el usuario
-                        // agregó en la venta se descuentan completos.
-                        $cantidadYaAplicada = (float) ($unidad['cantidad_ya_aplicada'] ?? 0);
-                        $cantidadNeta = (float) $unidad['cantidad'] - $cantidadYaAplicada;
-                        if ($cantidadNeta <= 0) {
+                        // La reserva de la cotización origen (si existía) ya se liberó por
+                        // completo arriba, así que acá siempre se descuenta la cantidad
+                        // TOTAL vendida — sin netear contra ninguna reserva previa.
+                        $cantidadVendida = (float) $unidad['cantidad'];
+                        if ($cantidadVendida <= 0) {
                             continue;
                         }
 
-                        $cantidadEnFraccion = $cantidadNeta * (float) $unidad['factor'];
+                        $cantidadEnFraccion = $cantidadVendida * (float) $unidad['factor'];
 
                         // Consumir lotes PEPS y registrar el consumo (para anular/reportes)
                         $loteService->consumirLotes($pAlmacen, $cantidadEnFraccion, ['tipo' => 'venta', 'id' => $venta->id]);
@@ -671,7 +737,7 @@ class VentaController extends Controller
                         ComplementarioStockService::procesarComplementarioPorFactor(
                             $pAlmacen->id,
                             (float) $unidad['factor'],
-                            $cantidadNeta,
+                            $cantidadVendida,
                             $validated['almacen_id'],
                             false // salida
                         );
@@ -715,6 +781,14 @@ class VentaController extends Controller
             //    entrega completada.
             //  - omitir_entrega=true: NO se crea (queda pendiente para que
             //    el usuario la programe manualmente desde Mis Ventas).
+            // Capturado UNA sola vez y reusado tanto para `entrega.created_at` (más
+            // abajo) como para el `fecha` del kardex de la venta (bloque "REGISTRAR EN
+            // KARDEX FACTURACIÓN"): si cada uno toma su propio `now()` por separado,
+            // ambos inserts pueden caer en segundos distintos (kardex_facturacions y
+            // entrega.created_at solo tienen precisión de segundo) y el kardex termina
+            // mostrando la ENTREGA antes que su propia VENTA en "movimientos de hoy".
+            $fechaMovimientoVenta = now();
+
             $autoCrearEntrega = $tipoDespacho === 'et'
                 && $estadoVentaStr !== 'ee'
                 && ! $omitirEntrega;
@@ -746,7 +820,7 @@ class VentaController extends Controller
                     $unidad->update(['cantidad_pendiente' => 0]);
                 }
 
-                $this->entregaService->crearSync([
+                $entregaAuto = $this->entregaService->crearSync([
                     'venta_id'          => $venta->id,
                     'tipo_entrega'      => 'rt',
                     'tipo_despacho'     => 'in',
@@ -763,6 +837,15 @@ class VentaController extends Controller
                         'cantidad'                 => (float) $u->cantidad,
                     ])->toArray(),
                 ]);
+
+                // Forzar created_at al mismo instante que el kardex de la venta (ver
+                // $fechaMovimientoVenta arriba) — el kardex de "ENTREGA" usa
+                // `entrega.created_at` como su columna `fecha` (ver
+                // KardexFacturacionService::getEntregasParaKardex()), así que sin esto
+                // podía quedar un segundo después del de la venta y aparecer primero en
+                // "movimientos de hoy" (ordenado más reciente arriba).
+                $entregaAuto->created_at = $fechaMovimientoVenta;
+                $entregaAuto->save();
 
                 // Si la venta NO aplicó stock en la rama inicial (ej. crédito en
                 // En Tienda), descontarlo aquí para que el comportamiento quede
@@ -846,10 +929,13 @@ class VentaController extends Controller
                         'venta_id' => $venta->id,
                         'despliegue_de_pago_id' => $desplieguePago['despliegue_de_pago_id'],
                         'monto' => $desplieguePago['monto'],
+                        'tipo' => 'inicial',
                         'numero_operacion_id' => $numeroOperacionId,
                         'sobrecargo_aplicado' => $sobrecargo,
                         'referencia' => $desplieguePago['referencia'] ?? null,
                         'recibe_efectivo' => $desplieguePago['recibe_efectivo'] ?? null,
+                        'fecha' => now(),
+                        'user_id' => $validated['user_id'] ?? auth()->id(),
                     ]);
                 }
             }
@@ -915,23 +1001,70 @@ class VentaController extends Controller
                             continue;
                         }
 
-                        // Obtener el stock anterior capturado ANTES del decremento
+                        // Obtener el stock anterior capturado ANTES del decremento. Si esta
+                        // venta viene de una cotización con reserva, este valor YA refleja
+                        // el descuento de la reserva (se capturó antes de revertir el
+                        // consumo de lotes más arriba) — es exactamente el punto de partida
+                        // que necesita el kardex para mostrar solo el excedente.
                         $stockAnterior = $stocksAnteriores[$productoAlmacenId] ?? null;
+                        $reservadoDisponibleFraccion = $reservadoFraccionPorProducto[$productoAlmacenId] ?? 0;
 
                         foreach ($producto['unidades_derivadas'] as $unidad) {
                             $costo = (float) $producto['costo'];
+                            $factor = (float) ($unidad['factor'] ?? 1);
+                            $cantidadVendidaFraccion = (float) $unidad['cantidad'] * $factor;
+
+                            // Si esta línea proviene de una cotización con reserva, la
+                            // reserva ya cuenta como descuento en firme — el kardex de la
+                            // venta solo debe mostrar el EXCEDENTE sobre lo ya reservado
+                            // (ej. reservó 8, vende 10 → salida=2, no 10).
+                            $consumidoDeReserva = min($reservadoDisponibleFraccion, $cantidadVendidaFraccion);
+                            $reservadoDisponibleFraccion -= $consumidoDeReserva;
+                            $excedenteFraccion = $cantidadVendidaFraccion - $consumidoDeReserva;
+
+                            // Si se vendió igual o menos de lo ya reservado, no hay nada
+                            // NUEVO que descontar en esta venta — la fila "RESERVA
+                            // COTIZACIÓN" ya documentó ese descuento, no se duplica aquí.
+                            if ($excedenteFraccion <= 0.0001) {
+                                continue;
+                            }
+
                             $unidadData = [
                                 'unidad_derivada_inmutable_name' => $unidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
-                                'cantidad' => (float) $unidad['cantidad'],
-                                'factor' => (float) $unidad['factor'],
+                                'cantidad' => $factor > 0 ? ($excedenteFraccion / $factor) : $excedenteFraccion,
+                                'factor' => $factor,
                                 'precio' => (float) $unidad['precio'],
                             ];
-                            
-                            // Pasar el stock anterior capturado. $stockYaAplicado=true
-                            // (venta desde cotización que ya reservó el stock) evita que el
-                            // kardex reste la venta de nuevo sobre un stock ya descontado.
-                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $stockYaAplicado);
+
+                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $fechaMovimientoVenta);
                         }
+
+                        // Si sobró reserva sin usar en esta venta (se vendió MENOS de lo
+                        // reservado), esa parte sí vuelve a estar disponible para otro
+                        // cliente — a diferencia del resto de esta lógica, acá corresponde
+                        // una liberación real, encadenada desde el mismo punto de partida
+                        // que la fila de venta (o desde el saldo de la reserva si no hubo
+                        // excedente en absoluto).
+                        if ($cotizacionOrigen && $reservadoDisponibleFraccion > 0.0001) {
+                            $primeraUnidad = $producto['unidades_derivadas'][0] ?? null;
+                            $factorLiberacion = (float) ($primeraUnidad['factor'] ?? 1) ?: 1;
+                            $kardexFacturacionService->registrarLiberacionReservaCotizacion(
+                                $cotizacionOrigen,
+                                $productoAlmacen,
+                                [
+                                    'unidad_derivada_inmutable_name' => $primeraUnidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
+                                    'cantidad' => $reservadoDisponibleFraccion / $factorLiberacion,
+                                    'factor' => $factorLiberacion,
+                                    'precio' => 0,
+                                ],
+                                $productoAlmacen->costo,
+                                'venta no cubrió toda la reserva',
+                                2,
+                                $stockAnterior
+                            );
+                        }
+
+                        $reservadoFraccionPorProducto[$productoAlmacenId] = $reservadoDisponibleFraccion;
                     }
                 } catch (\Exception $e) {
                     // No fallar la venta si hay error al registrar en kardex
@@ -1088,6 +1221,17 @@ class VentaController extends Controller
             'servicios_venta.*.precio_unitario' => 'required|numeric|min:0',
             'servicios_venta.*.subtotal' => 'required|numeric|min:0',
             'servicios_venta.*.referencia' => 'nullable|string|max:200',
+            // Cobro/devolución de la diferencia (modelo cobro diferencial):
+            // se resuelve DENTRO de esta misma transacción — si el pago no
+            // cuadra con la diferencia real, toda la edición se revierte
+            // (atómico: no queda una edición guardada sin su cobro).
+            'diferencia_pago' => 'sometimes|array',
+            'diferencia_pago.tipo' => 'required_with:diferencia_pago|string|in:diferencia,devolucion',
+            'diferencia_pago.despliegue_de_pago_ventas' => 'required_with:diferencia_pago|array|min:1',
+            'diferencia_pago.despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required_with:diferencia_pago|string',
+            'diferencia_pago.despliegue_de_pago_ventas.*.monto' => 'required_with:diferencia_pago|numeric',
+            'diferencia_pago.despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
+            'diferencia_pago.despliegue_de_pago_ventas.*.recibe_efectivo' => 'nullable|numeric',
         ]);
 
         return DB::transaction(function () use ($id, $validated) {
@@ -1151,11 +1295,34 @@ class VentaController extends Controller
                 }
             }
 
-            // Validar nueva venta
-            $this->validarNuevaVenta($validated);
+            // Total ya cobrado ANTES de esta edición (suma con signo: inicial +
+            // diferencia - devolución). Se usa para (a) rechazar resubmisión
+            // del total completo si ya había cobro, y (b) avisarle a
+            // validarNuevaVenta que la ausencia de despliegue_de_pago_ventas en
+            // esta edición es esperada, no un error — el modelo cobro
+            // diferencial cobra/devuelve la diferencia aparte, ver
+            // cobrarDiferencia()/devolverDiferencia() más abajo.
+            $totalPagadoPrevio = (float) $venta->despliegueDePagoVentas->sum('monto');
+            $yaTienePagoPrevio = abs($totalPagadoPrevio) > 0.01;
 
-            // Devolver dinero de venta anterior
-            $this->devolverDineroDeVenta($venta);
+            // ✅ Ya no se acepta resubmitir el total completo de pagos en una
+            // edición cuando la venta ya tenía cobros reales — eso es lo que
+            // causaba que cada edición duplicara el dinero en caja (se volvía
+            // a registrar el total nuevo sin revertir el anterior). Para ese
+            // caso el frontend debe usar /cobrar-diferencia o
+            // /devolver-diferencia. Validado ANTES de cualquier escritura en
+            // esta transacción (si se hiciera más abajo, un `return` acá
+            // dejaría committeados los cambios ya aplicados, en vez de
+            // abortar la edición completa).
+            if (isset($validated['despliegue_de_pago_ventas']) && $yaTienePagoPrevio) {
+                return response()->json([
+                    'message' => 'Esta venta ya tiene cobros registrados. Usa "Cobrar diferencia" o "Devolver diferencia" para ajustar el monto cobrado.',
+                    'error' => 'VENTA_YA_COBRADA',
+                ], 422);
+            }
+
+            // Validar nueva venta
+            $this->validarNuevaVenta($validated, $yaTienePagoPrevio);
 
             // Convert enums if present
             $updateData = [];
@@ -1286,8 +1453,15 @@ class VentaController extends Controller
             // medianoche (00:00), la fecha cae ANTES de la hora de apertura de caja
             // y VentaRepository::obtenerPorApertura (whereBetween por 'fecha') deja
             // la venta FUERA del arqueo → descuadre real de caja.
+            // Capturado UNA sola vez y reusado tanto para el kardex de la venta (más
+            // abajo) como para `entrega.created_at` de la auto-entrega EnTienda (mucho
+            // más abajo): si cada uno toma su propio `now()` por separado pueden caer
+            // en segundos distintos y el kardex termina mostrando la ENTREGA antes que
+            // su propia VENTA en "movimientos de hoy" (mismo problema que en store()).
+            $fechaMovimientoVenta = now();
+
             if ($estadoAnterior === 'ee' && $estadoNuevo !== 'ee') {
-                $venta->update(['fecha' => now()]);
+                $venta->update(['fecha' => $fechaMovimientoVenta]);
             }
 
             // Si transición En Espera → Creado y la venta aún no tiene serie/numero,
@@ -1322,7 +1496,7 @@ class VentaController extends Controller
 
                         foreach ($detalle->unidadesDerivadas as $ud) {
                             $costo = (float) $detalle->costo;
-                            $kardexFacturacionService->registrarVenta($ventaConRelaciones, $productoAlmacen, $ud, $costo);
+                            $kardexFacturacionService->registrarVenta($ventaConRelaciones, $productoAlmacen, $ud, $costo, 1, null, $fechaMovimientoVenta);
                         }
                     }
                 } catch (\Exception $e) {
@@ -1663,7 +1837,7 @@ class VentaController extends Controller
                 }
 
                 // Crear la entrega en la tabla NUEVA (sin fila legacy).
-                $this->entregaService->crearSync([
+                $entregaAutoUpdate = $this->entregaService->crearSync([
                     'venta_id'          => $venta->id,
                     'tipo_entrega'      => 'rt',
                     'tipo_despacho'     => 'in',
@@ -1680,33 +1854,42 @@ class VentaController extends Controller
                         'cantidad'                 => (float) $u->cantidad,
                     ])->toArray(),
                 ]);
+
+                // Mismo motivo que en store(): forzar created_at al mismo instante que
+                // el kardex de la venta para que el desempate por `orden` siempre
+                // ponga la VENTA antes que su ENTREGA en "movimientos de hoy".
+                $entregaAutoUpdate->created_at = $fechaMovimientoVenta;
+                $entregaAutoUpdate->save();
             }
 
-            // If despliegue_de_pago_ventas is provided, update them
+            // Si llega despliegue_de_pago_ventas es porque totalPagadoPrevio
+            // era ~0 (ya validado al inicio de la transacción): primer cobro
+            // real de la venta (Caso 3 — ej. al confirmar una venta que
+            // estaba "en espera"). No hay nada que borrar/revertir.
             if (isset($validated['despliegue_de_pago_ventas'])) {
-                // Delete existing despliegue_de_pago_ventas
-                DespliegueDePagoVenta::where('venta_id', $id)->delete();
-
-                // Create new despliegue_de_pago_ventas
                 foreach ($validated['despliegue_de_pago_ventas'] as $desplieguePago) {
                     DespliegueDePagoVenta::create([
                         'venta_id' => $venta->id,
                         'despliegue_de_pago_id' => $desplieguePago['despliegue_de_pago_id'],
                         'monto' => $desplieguePago['monto'],
+                        'tipo' => 'inicial',
                         'referencia' => $desplieguePago['referencia'] ?? null,
                         'recibe_efectivo' => $desplieguePago['recibe_efectivo'] ?? null,
+                        'fecha' => now(),
+                        'user_id' => $validated['user_id'] ?? auth()->id(),
                     ]);
                 }
             } elseif ($venta->forma_de_pago === FormaDePago::Credito || $estadoNuevo === 'ee') {
                 // CRÉDITO: el dinero no ingresa al crear (queda como cuenta por cobrar),
                 // así que no debe sobrevivir ningún método de pago de una edición previa
-                // al contado. devolverDineroDeVenta() ya revirtió los montos en caja;
-                // aquí eliminamos las filas huérfanas.
+                // al contado (inicial + diferencia - devolución). Revertimos los montos
+                // en caja/contador ANTES de borrar las filas huérfanas.
                 //
                 // EN ESPERA (ee): la venta no está confirmada, por lo que los métodos de
                 // pago registrados deben limpiarse para no afectar traslado a bóveda ni
                 // cierre de caja. El frontend ya no envía métodos al poner en espera,
                 // pero si quedaron de una edición previa se eliminan aquí.
+                $this->devolverDineroDeVenta($venta);
                 DespliegueDePagoVenta::where('venta_id', $id)->delete();
             }
 
@@ -1797,6 +1980,66 @@ class VentaController extends Controller
                     ];
                 })->toArray(),
             ];
+
+            // Cobro/devolución de la diferencia — ATÓMICO con la edición: si
+            // esta venta ya tenía cobro previo y la edición deja una
+            // diferencia, se resuelve AQUÍ, dentro de la misma transacción.
+            // Si el pago enviado no cuadra con la diferencia real (monto
+            // incorrecto, tipo incorrecto, método no permitido, o falta por
+            // completo), se hace `throw` — Laravel revierte TODA la
+            // transacción, incluidos los cambios de productos ya aplicados.
+            // Así el usuario nunca se queda con una edición guardada sin su
+            // cobro correspondiente: es todo o nada.
+            if ($yaTienePagoPrevio) {
+                $nuevoTotal = $this->getTotalVenta($ventaFresh);
+                $diferenciaCalculada = round($nuevoTotal - $totalPagadoPrevio, 2);
+
+                if (abs($diferenciaCalculada) > 0.01) {
+                    if (!isset($validated['diferencia_pago'])) {
+                        $accion = $diferenciaCalculada > 0 ? 'cobrar' : 'devolver';
+                        throw new \Exception(
+                            "Esta edición deja una diferencia de S/ " . number_format(abs($diferenciaCalculada), 2)
+                            . " pendiente de {$accion}. Debes indicar el pago junto con la edición."
+                        );
+                    }
+
+                    $tipoPago = $validated['diferencia_pago']['tipo'];
+                    $filasPago = $validated['diferencia_pago']['despliegue_de_pago_ventas'];
+
+                    $tipoEsperado = $diferenciaCalculada > 0 ? 'diferencia' : 'devolucion';
+                    if ($tipoPago !== $tipoEsperado) {
+                        throw new \Exception(
+                            'El pago de la diferencia no coincide con el nuevo total de la venta '
+                            . '(puede que otro usuario haya editado la venta al mismo tiempo). Vuelve a intentar.'
+                        );
+                    }
+
+                    $sumaPayload = round(array_sum(array_column($filasPago, 'monto')), 2);
+                    $montoEsperado = abs($diferenciaCalculada);
+                    if (abs($sumaPayload - $montoEsperado) > 0.01) {
+                        throw new \Exception(
+                            'El monto de la diferencia (S/ ' . number_format($sumaPayload, 2) . ') no coincide con lo '
+                            . 'que corresponde ' . ($tipoPago === 'devolucion' ? 'devolver' : 'cobrar') . ' (S/ '
+                            . number_format($montoEsperado, 2) . '). Puede que otro usuario haya editado la venta al mismo tiempo.'
+                        );
+                    }
+
+                    if ($tipoPago === 'devolucion') {
+                        // Solo se puede devolver por un método YA usado en esta venta.
+                        $metodosUsados = $venta->despliegueDePagoVentas
+                            ->where('monto', '>', 0)
+                            ->pluck('despliegue_de_pago_id')
+                            ->unique();
+                        foreach ($filasPago as $fila) {
+                            if (!$metodosUsados->contains($fila['despliegue_de_pago_id'])) {
+                                throw new \Exception('Solo puedes devolver por un método de pago ya usado en esta venta.');
+                            }
+                        }
+                    }
+
+                    $this->aplicarPagosVenta($ventaFresh, $filasPago, $tipoPago, $validated['user_id'] ?? auth()->id());
+                }
+            }
 
             VentaHistorial::registrar(
                 ventaId: $id,
@@ -2101,7 +2344,7 @@ class VentaController extends Controller
     /**
      * Validar nueva venta
      */
-    private function validarNuevaVenta($venta)
+    private function validarNuevaVenta($venta, bool $yaTienePagoPrevio = false)
     {
         $estadoEnum = EstadoDeVenta::from($venta['estado_de_venta']);
         $formaDePagoEnum = FormaDePago::from($venta['forma_de_pago']);
@@ -2124,10 +2367,16 @@ class VentaController extends Controller
             }
         }
 
-        // Validar pagos al contado
+        // Validar pagos al contado. $yaTienePagoPrevio=true SOLO lo pasa
+        // update() cuando la venta que se edita ya tenía un cobro registrado
+        // (modelo cobro diferencial) — en ese caso NO se reenvían métodos de
+        // pago en la edición (se cobran/devuelven aparte vía
+        // cobrar-diferencia/devolver-diferencia), así que su ausencia acá es
+        // esperada, no un error.
         if (
             $estadoEnum === EstadoDeVenta::Creado &&
             $formaDePagoEnum === FormaDePago::Contado &&
+            ! $yaTienePagoPrevio &&
             ! isset($venta['ingreso_dinero_id']) &&
             (! isset($venta['despliegue_de_pago_ventas']) || empty($venta['despliegue_de_pago_ventas']))
         ) {
@@ -2186,13 +2435,30 @@ class VentaController extends Controller
     }
 
     /**
-     * Registrar venta en la caja del vendedor
+     * Registrar venta en la caja del vendedor.
+     *
+     * `monto` en cada fila de $desplieguesDePago puede ser NEGATIVO — se usa
+     * también para registrar devoluciones por edición de venta (diferencia
+     * negativa). `saldo_actual += $monto` decrementa naturalmente en ese
+     * caso. `tipo_transaccion` se mantiene 'ingreso' para TODAS las filas
+     * (incluidas devoluciones) a propósito: los reportes de cierre de caja
+     * (`ClasificadorMovimientos::obtenerGastosVendedor`) tratan cualquier
+     * `tipo_transaccion='egreso'` como gasto operativo, y una devolución de
+     * venta ya se neta correctamente vía `desplieguedepagoventa` (fuente de
+     * "cobros por método" del cierre) — marcarla 'egreso' la duplicaría ahí.
      */
-    private function registrarVentaEnCaja($venta, $desplieguesDePago)
+    private function registrarVentaEnCaja($venta, $desplieguesDePago, string $tipoMovimiento = 'venta', ?string $actorUserId = null)
     {
         try {
-            // 1. Buscar la caja abierta del vendedor
-            $apertura = AperturaCierreCaja::where('user_id', $venta->user_id)
+            // Usuario a quien se le carga el movimiento en caja: por defecto
+            // el vendedor de la venta (comportamiento original, cobro
+            // inicial). Para cobro de diferencia / devolución por edición,
+            // el caller pasa el usuario que EDITA — el dinero entra/sale de
+            // SU caja, no de la del vendedor original.
+            $actorUserId = $actorUserId ?? $venta->user_id;
+
+            // 1. Buscar la caja abierta del usuario que registra el movimiento
+            $apertura = AperturaCierreCaja::where('user_id', $actorUserId)
                 ->where('estado', 'abierta')
                 ->first();
 
@@ -2258,6 +2524,12 @@ class VentaController extends Controller
                 $subCaja->saldo_actual += $monto;
                 $subCaja->save();
 
+                $descripcionBase = match ($tipoMovimiento) {
+                    'venta_diferencia' => "Cobro diferencia venta {$venta->serie}-{$venta->numero}",
+                    'venta_devolucion' => "Devolución venta {$venta->serie}-{$venta->numero}",
+                    default => "Venta {$venta->serie}-{$venta->numero}",
+                };
+
                 // 5. Registrar transacción en transacciones_caja
                 TransaccionCaja::create([
                     'id' => (string) Str::ulid(),
@@ -2266,10 +2538,10 @@ class VentaController extends Controller
                     'monto' => $monto,
                     'saldo_anterior' => $saldoAnterior,
                     'saldo_nuevo' => $subCaja->saldo_actual,
-                    'descripcion' => "Venta {$venta->serie}-{$venta->numero}",
+                    'descripcion' => $descripcionBase,
                     'referencia_id' => $venta->id,
                     'referencia_tipo' => 'venta',
-                    'user_id' => $venta->user_id,
+                    'user_id' => $actorUserId,
                     'despliegue_pago_id' => $desplieguePago['despliegue_de_pago_id'],
                     'fecha' => now(),
                 ]);
@@ -2283,13 +2555,13 @@ class VentaController extends Controller
                         'apertura_cierre_id' => $apertura->id,
                         'caja_principal_id' => $apertura->caja_principal_id,
                         'sub_caja_id' => $subCaja->id,
-                        'cajero_id' => $venta->user_id,
+                        'cajero_id' => $actorUserId,
                         'fecha_hora' => now(),
-                        'tipo_movimiento' => 'venta',
-                        'concepto' => "Venta {$venta->serie}-{$venta->numero} - Cliente: {$clienteNombre}",
+                        'tipo_movimiento' => $tipoMovimiento,
+                        'concepto' => "{$descripcionBase} - Cliente: {$clienteNombre}",
                         'saldo_inicial' => $saldoAnterior,
-                        'ingreso' => $monto,
-                        'salida' => 0,
+                        'ingreso' => $monto > 0 ? $monto : 0,
+                        'salida' => $monto < 0 ? abs($monto) : 0,
                         'saldo_final' => $subCaja->saldo_actual,
                         'estado_caja' => 'abierta',
                         'tipo_comprobante' => $venta->tipo_documento->value,
@@ -2301,9 +2573,75 @@ class VentaController extends Controller
                 }
             }
 
-        } catch (\Exception $e) {
-            // No fallar la venta si hay error al registrar en caja
+        } catch (\Throwable $e) {
+            // No fallar la venta si hay error al registrar en caja — pero SÍ
+            // dejar rastro. Antes este catch era completamente silencioso y
+            // escondió un bug real (MovimientoCaja no se creaba para el
+            // usuario que cobraba la diferencia, sin ningún indicio en logs).
+            \Log::error('Error al registrar venta/diferencia en caja', [
+                'venta_id' => $venta->id ?? null,
+                'tipo_movimiento' => $tipoMovimiento ?? null,
+                'actor_user_id' => $actorUserId ?? null,
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
         }
+    }
+
+    /**
+     * Aplica un movimiento de pago sobre una venta AL CONTADO ya creada:
+     * crea las filas `DespliegueDePagoVenta` correspondientes (monto
+     * negativo si es devolución), actualiza el contador `MetodoDePago.monto`
+     * y registra el movimiento en caja a nombre del usuario que lo ejecuta
+     * (no necesariamente el vendedor original de la venta).
+     *
+     * Usado por `cobrarDiferencia()` y `devolverDiferencia()` — el cobro
+     * inicial (creación / primer cobro en update) sigue su propio camino
+     * porque además maneja sobrecargo y número de operación.
+     *
+     * @param string $tipo 'diferencia' | 'devolucion'
+     * @param array<int, array{despliegue_de_pago_id: string, monto: float, referencia?: string|null, recibe_efectivo?: float|null, sub_caja_id?: int|null}> $filas
+     */
+    private function aplicarPagosVenta($venta, array $filas, string $tipo, string $userId): array
+    {
+        $filasCreadas = [];
+        $paraCaja = [];
+
+        foreach ($filas as $fila) {
+            $montoAbs = round((float) $fila['monto'], 4);
+            $montoFirmado = $tipo === 'devolucion' ? -$montoAbs : $montoAbs;
+
+            $despliegue = DespliegueDePago::findOrFail($fila['despliegue_de_pago_id']);
+
+            $filasCreadas[] = DespliegueDePagoVenta::create([
+                'venta_id' => $venta->id,
+                'despliegue_de_pago_id' => $fila['despliegue_de_pago_id'],
+                'monto' => $montoFirmado,
+                'tipo' => $tipo,
+                'referencia' => $fila['referencia'] ?? null,
+                'recibe_efectivo' => $fila['recibe_efectivo'] ?? null,
+                'fecha' => now(),
+                'user_id' => $userId,
+            ]);
+
+            if ($tipo === 'devolucion') {
+                MetodoDePago::where('id', $despliegue->metodo_de_pago_id)->decrement('monto', $montoAbs);
+            } else {
+                MetodoDePago::where('id', $despliegue->metodo_de_pago_id)->increment('monto', $montoAbs);
+            }
+
+            $paraCaja[] = [
+                'despliegue_de_pago_id' => $fila['despliegue_de_pago_id'],
+                'monto' => $montoFirmado,
+                'sub_caja_id' => $fila['sub_caja_id'] ?? null,
+            ];
+        }
+
+        $tipoMovimiento = $tipo === 'devolucion' ? 'venta_devolucion' : 'venta_diferencia';
+        $this->registrarVentaEnCaja($venta, $paraCaja, $tipoMovimiento, $userId);
+
+        return $filasCreadas;
     }
 
     /**
@@ -2625,20 +2963,143 @@ class VentaController extends Controller
 
     // ventasPorCobrar() movido al final del archivo (usa cobrosVenta)
 
+    /**
+     * Cobrar SOLO la diferencia entre el total actual de una venta ya
+     * cobrada y lo que ya se cobró (modelo "cobro diferencial" — ver
+     * memoria del proyecto). Nunca se vuelve a pedir el total completo.
+     */
+    public function cobrarDiferencia(Request $request, string $id)
+    {
+        $validated = $request->validate([
+            'despliegue_de_pago_ventas' => 'required|array|min:1',
+            'despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
+            'despliegue_de_pago_ventas.*.monto' => 'required|numeric|min:0.01',
+            'despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
+            'despliegue_de_pago_ventas.*.recibe_efectivo' => 'nullable|numeric',
+            'user_id' => 'required|string|exists:user,id',
+        ]);
+
+        return DB::transaction(function () use ($id, $validated) {
+            $venta = Venta::with(['productosPorAlmacen.unidadesDerivadas', 'despliegueDePagoVentas'])
+                ->findOrFail($id);
+
+            if ($venta->estado_de_venta === EstadoDeVenta::Anulado) {
+                return response()->json(['error' => ['message' => 'La venta está anulada']], 422);
+            }
+
+            $totalVenta = $this->getTotalVenta($venta);
+            $totalPagadoPrevio = (float) $venta->despliegueDePagoVentas->sum('monto');
+            $diferencia = round($totalVenta - $totalPagadoPrevio, 2);
+
+            if ($diferencia <= 0.01) {
+                return response()->json([
+                    'error' => ['message' => 'No hay diferencia pendiente de cobro para esta venta'],
+                ], 422);
+            }
+
+            $sumaPayload = round(array_sum(array_column($validated['despliegue_de_pago_ventas'], 'monto')), 2);
+            if (abs($sumaPayload - $diferencia) > 0.01) {
+                return response()->json([
+                    'error' => ['message' => 'El monto a cobrar (S/ ' . number_format($sumaPayload, 2) . ') debe ser igual a la diferencia pendiente (S/ ' . number_format($diferencia, 2) . ')'],
+                ], 422);
+            }
+
+            $filas = $this->aplicarPagosVenta($venta, $validated['despliegue_de_pago_ventas'], 'diferencia', $validated['user_id']);
+
+            return response()->json([
+                'data' => $filas,
+                'message' => 'Diferencia cobrada correctamente',
+                'diferencia_cobrada' => $diferencia,
+            ], 201);
+        });
+    }
 
     /**
-     * Historial de ediciones de una venta específica
+     * Devolver SOLO la diferencia cuando una edición redujo el total de una
+     * venta ya cobrada. La devolución debe salir por el/los mismo(s)
+     * método(s) de pago ya usados en la venta (no se puede elegir uno
+     * distinto).
+     */
+    public function devolverDiferencia(Request $request, string $id)
+    {
+        $validated = $request->validate([
+            'despliegue_de_pago_ventas' => 'required|array|min:1',
+            'despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required|string|exists:desplieguedepago,id',
+            'despliegue_de_pago_ventas.*.monto' => 'required|numeric|min:0.01',
+            'despliegue_de_pago_ventas.*.referencia' => 'nullable|string|max:191',
+            'user_id' => 'required|string|exists:user,id',
+        ]);
+
+        return DB::transaction(function () use ($id, $validated) {
+            $venta = Venta::with(['productosPorAlmacen.unidadesDerivadas', 'despliegueDePagoVentas'])
+                ->findOrFail($id);
+
+            if ($venta->estado_de_venta === EstadoDeVenta::Anulado) {
+                return response()->json(['error' => ['message' => 'La venta está anulada']], 422);
+            }
+
+            $totalVenta = $this->getTotalVenta($venta);
+            $totalPagadoPrevio = (float) $venta->despliegueDePagoVentas->sum('monto');
+            $diferencia = round($totalVenta - $totalPagadoPrevio, 2);
+
+            if ($diferencia >= -0.01) {
+                return response()->json([
+                    'error' => ['message' => 'No hay ningún monto pendiente de devolver para esta venta'],
+                ], 422);
+            }
+
+            // La devolución solo puede salir por métodos YA usados en esta venta
+            // (cobro inicial o de diferencia previos, monto > 0).
+            $metodosUsados = $venta->despliegueDePagoVentas
+                ->where('monto', '>', 0)
+                ->pluck('despliegue_de_pago_id')
+                ->unique()
+                ->values();
+
+            foreach ($validated['despliegue_de_pago_ventas'] as $fila) {
+                if (!$metodosUsados->contains($fila['despliegue_de_pago_id'])) {
+                    return response()->json([
+                        'error' => ['message' => 'Solo puedes devolver por un método de pago ya usado en esta venta'],
+                    ], 422);
+                }
+            }
+
+            $sumaPayload = round(array_sum(array_column($validated['despliegue_de_pago_ventas'], 'monto')), 2);
+            $montoADevolver = abs($diferencia);
+            if (abs($sumaPayload - $montoADevolver) > 0.01) {
+                return response()->json([
+                    'error' => ['message' => 'El monto a devolver (S/ ' . number_format($sumaPayload, 2) . ') debe ser igual a la diferencia pendiente (S/ ' . number_format($montoADevolver, 2) . ')'],
+                ], 422);
+            }
+
+            $filas = $this->aplicarPagosVenta($venta, $validated['despliegue_de_pago_ventas'], 'devolucion', $validated['user_id']);
+
+            return response()->json([
+                'data' => $filas,
+                'message' => 'Devolución registrada correctamente',
+                'monto_devuelto' => $montoADevolver,
+            ], 201);
+        });
+    }
+
+    /**
+     * Historial de ediciones y de cobros de una venta específica.
      */
     public function getHistorial(string $id)
     {
         $venta = Venta::findOrFail($id);
 
-        $historial = $venta->historial()
+        $ediciones = $venta->historial()
             ->with('usuario:id,name')
             ->orderBy('fecha', 'desc')
             ->get();
 
-        return response()->json(['data' => $historial]);
+        $cobros = $venta->despliegueDePagoVentas()
+            ->with(['user:id,name', 'despliegueDePago:id,name'])
+            ->orderBy('fecha')
+            ->get();
+
+        return response()->json(['data' => ['ediciones' => $ediciones, 'cobros' => $cobros]]);
     }
 
     /**

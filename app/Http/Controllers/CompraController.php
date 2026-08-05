@@ -1750,12 +1750,26 @@ class CompraController extends Controller
                 ->where('tipo_transaccion', 'ingreso')
                 ->sum('monto');
 
-            // Egresos de la sesión: se EXCLUYEN los movimientos internos, porque
-            // por regla propia solo pueden mover dinero de sesiones CERRADAS
-            // (no consumen el efectivo de la sesión abierta).
+            // Egresos de la sesión: restan todos, incluidos los movimientos internos
+            // cuando el traslado SALIÓ del control del vendedor (a otro usuario u otra
+            // sub-caja) — ese dinero ya no puede usarse para pagar. Excepción: el
+            // traslado "cerrado → sesión" (mismo usuario lo recibió de vuelta en la
+            // misma sub-caja) NO debe restar, porque el ingreso ya lo suma.
             $egresosSesion = (float) $transaccionesSesion
                 ->where('tipo_transaccion', 'egreso')
-                ->where('referencia_tipo', '!=', 'movimiento_interno')
+                ->filter(function ($t) use ($transaccionesSesion) {
+                    if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
+                        return true;
+                    }
+
+                    return !$transaccionesSesion->contains(function ($i) use ($t) {
+                        return ($i->referencia_tipo ?? null) === 'movimiento_interno'
+                            && $i->tipo_transaccion === 'ingreso'
+                            && $i->referencia_id === $t->referencia_id
+                            && $i->user_id === $t->user_id
+                            && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
+                    });
+                })
                 ->sum('monto');
 
             $disponibleSesion = (float) $aperturaAbierta->monto_apertura + $ingresosSesion - $egresosSesion;

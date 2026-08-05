@@ -140,6 +140,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/saldos-disponibles', [MovimientoInternoController::class, 'saldosDisponibles']);
             Route::get('/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
+            Route::post('/{id}/anular', [MovimientoInternoController::class, 'anular']);
         });
 
         Route::get('/movimientos-internos/usuarios-con-saldo', [MovimientoInternoController::class, 'usuariosConSaldo']);
@@ -165,9 +166,10 @@ Route::middleware('auth:sanctum')->group(function () {
             // Rechazar NO requiere caja abierta (solo es cambiar estado)
             Route::post('/{id}/rechazar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'rechazarSolicitud']);
 
-            // Aprobar SÍ requiere caja abierta (involucra transferencia de dinero)
+            // Aprobar y anular SÍ requieren caja abierta (involucran mover/revertir dinero)
             Route::middleware('caja.abierta')->group(function () {
                 Route::post('/{id}/aprobar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'aprobarSolicitud']);
+                Route::post('/{id}/anular', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'anularSolicitud']);
             });
         });
 
@@ -186,7 +188,7 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // Traslados a Bóveda
-        Route::prefix('traslados-boveda')->group(function () {
+        Route::prefix('traslados-boveda')->middleware('broadcast:traslados-boveda')->group(function () {
             Route::get('/caja/{aperturaCierreId}', [TrasladoBovedaController::class, 'obtenerPorCaja']);
             Route::get('/caja/{aperturaCierreId}/todos', [TrasladoBovedaController::class, 'obtenerTodosPorCaja']);
             Route::get('/{aperturaCierreId}/total', [TrasladoBovedaController::class, 'obtenerTotal']);

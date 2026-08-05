@@ -156,7 +156,20 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
      */
     public function obtenerTodosLosTrasladosPorCaja(string $aperturaCierreId): Collection
     {
-        return TrasladoBoveda::where('apertura_cierre_caja_id', $aperturaCierreId)
+        // "Caja General" es compartida: cada vendedor tiene su PROPIA apertura dentro
+        // de la misma caja principal. Filtrar por el `apertura_cierre_caja_id` exacto
+        // del usuario actual dejaba invisibles los traslados hechos por OTROS
+        // vendedores en la misma caja principal. Hay que resolver la caja principal de
+        // esta apertura y traer los traslados de TODAS las aperturas de esa caja.
+        $apertura = AperturaCierreCaja::find($aperturaCierreId);
+        if (! $apertura) {
+            return new Collection();
+        }
+
+        return TrasladoBoveda::whereHas(
+            'aperturaCierreCaja',
+            fn ($q) => $q->where('caja_principal_id', $apertura->caja_principal_id)
+        )
             ->with(['vendedor', 'supervisor', 'subCaja', 'desplieguePago.metodoDePago'])
             ->orderBy('fecha_traslado', 'desc')
             ->get();
@@ -189,6 +202,18 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
 
         $montoInicial = 0.0;
 
+        // Resuelto UNA vez, fuera del if de Caja Chica: hace falta también para acotar
+        // por fecha la consulta de transacciones más abajo, sin importar el tipo de
+        // sub-caja. IMPORTANTE: filtrar por `user_id` — "Caja General" es compartida,
+        // así que puede haber VARIAS aperturas abiertas simultáneas en la misma caja
+        // principal (una por vendedor). Sin este filtro, `first()` podía devolver la
+        // apertura de OTRO usuario, usando su fecha_apertura como límite y dejando el
+        // saldo de este usuario completamente mal calculado.
+        $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $userId)
+            ->whereNull('fecha_cierre')
+            ->first();
+
         if ($subCaja->esCajaChica()) {
             $despliegue = DespliegueDePago::find($desplieguePagoId);
             if ($despliegue && $despliegue->metodoDePago) {
@@ -196,20 +221,19 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                               $despliegue->metodoDePago->cuenta_bancaria === 'SIN-CUENTA') &&
                              (stripos($despliegue->metodoDePago->name, 'efectivo') !== false);
 
-                if ($esEfectivo) {
-                    $aperturaActiva = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-                        ->whereNull('fecha_cierre')
-                        ->first();
-
-                    if ($aperturaActiva) {
-                        $montoInicial = (float) DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                            ->where('user_id', $userId)
-                            ->sum('monto');
-                    }
+                if ($esEfectivo && $aperturaActiva) {
+                    $montoInicial = (float) DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
+                        ->where('user_id', $userId)
+                        ->sum('monto');
                 }
             }
         }
 
+        // IMPORTANTE: acotar SOLO a transacciones DESDE la apertura activa actual —
+        // sin este filtro se sumaban TODAS las transacciones históricas del usuario en
+        // esta sub-caja (de aperturas ya cerradas hace meses), dando saldos absurdos
+        // (ej. negativos enormes) que no reflejan el efectivo real disponible AHORA.
+        // Mismo criterio que SubCajaController::calcularEfectivoEnSubCaja().
         $transacciones = TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $userId)
             ->where('despliegue_pago_id', $desplieguePagoId)
@@ -217,10 +241,36 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                 $query->whereNull('referencia_tipo')
                       ->orWhere('referencia_tipo', '!=', 'apertura');
             })
+            ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
             ->get();
 
+        // Ingresos: los de movimiento_interno (traslados de efectivo recibidos) SÍ
+        // cuentan — es efectivo nuevo que entró a la sesión abierta.
         $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        $egresos  = (float) $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
+        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
+        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
+        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
+        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
+        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión. Mismo
+        // criterio EXACTO que SubCajaController::calcularEfectivoDesdeApertura() —
+        // la validación de este traslado debe usar la misma lógica que el número
+        // que se le mostró al usuario en el modal, para que nunca diverjan.
+        $egresos = (float) $transacciones
+            ->where('tipo_transaccion', 'egreso')
+            ->filter(function ($t) use ($transacciones) {
+                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
+                    return true;
+                }
+
+                return !$transacciones->contains(function ($i) use ($t) {
+                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
+                        && $i->tipo_transaccion === 'ingreso'
+                        && $i->referencia_id === $t->referencia_id
+                        && $i->user_id === $t->user_id
+                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
+                });
+            })
+            ->sum('monto');
 
         return $montoInicial + $ingresos - $egresos;
     }
