@@ -829,27 +829,107 @@ class CotizacionController extends Controller
     {
         $request->validate(['venta_id' => 'required|string|exists:venta,id']);
 
-        $cotizacion = Cotizacion::findOrFail($id);
+        $cotizacion = Cotizacion::with([
+            'productosPorAlmacen.productoAlmacen.producto',
+            'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+        ])->findOrFail($id);
 
         if ($cotizacion->venta_id) {
             return response()->json(['message' => 'Esta cotización ya está vinculada a una venta'], 400);
         }
 
-        $cotizacion->update([
-            'venta_id' => $request->venta_id,
-            'estado_cotizacion' => 'co',
-            // El stock reservado por esta cotización ya es propiedad de la venta
-            // recién vinculada (haya descontado de nuevo o no): la reserva queda
-            // cerrada. Evita que el cron `reservas:liberar-expiradas` la devuelva.
-            'reservar_stock' => false,
-        ]);
+        try {
+            DB::beginTransaction();
 
-        // Actualizar la descripción de la venta para que muestre el número de cotización
-        \App\Models\Venta::where('id', $request->venta_id)->update([
-            'descripcion' => "Convertida desde cotización {$cotizacion->numero}",
-        ]);
+            // Si la cotización reservó stock y la venta lleva MENOS de lo reservado,
+            // devolver el excedente: esa parte se reservó pero nunca se vendió.
+            if ($cotizacion->reservar_stock) {
+                $venta = \App\Models\Venta::with([
+                    'productosPorAlmacen.unidadesDerivadas',
+                ])->find($request->venta_id);
 
-        return response()->json(['message' => 'Cotización vinculada a venta exitosamente']);
+                // Fracción vendida por producto_almacen (todas las unidades de la venta)
+                $vendidoPorAlmacen = [];
+                if ($venta) {
+                    foreach ($venta->productosPorAlmacen as $productoAlmacenVenta) {
+                        $fraccion = 0;
+                        foreach ($productoAlmacenVenta->unidadesDerivadas as $unidadDerivadaVenta) {
+                            $fraccion += (float) $unidadDerivadaVenta->cantidad * (float) $unidadDerivadaVenta->factor;
+                        }
+                        $vendidoPorAlmacen[$productoAlmacenVenta->producto_almacen_id] =
+                            ($vendidoPorAlmacen[$productoAlmacenVenta->producto_almacen_id] ?? 0) + $fraccion;
+                    }
+                }
+
+                $kardexFacturacionService = app(\App\Services\Kardex\KardexFacturacionService::class);
+
+                foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
+                    // Fracción reservada por la cotización
+                    $reservado = 0;
+                    foreach ($productoAlmacenCotizacion->unidadesDerivadas as $unidadDerivada) {
+                        $reservado += (float) $unidadDerivada->cantidad * (float) $unidadDerivada->factor;
+                    }
+
+                    $vendido = (float) ($vendidoPorAlmacen[$productoAlmacenCotizacion->producto_almacen_id] ?? 0);
+                    $excedente = $reservado - $vendido;
+                    if ($excedente <= 0) {
+                        continue;
+                    }
+
+                    $productoAlmacen = $productoAlmacenCotizacion->productoAlmacen;
+
+                    // Registrar en kardex ANTES de incrementar, para capturar el
+                    // stock_anterior correcto. cantidad=fracción excedente, factor=1.
+                    $unidadReferencia = $productoAlmacenCotizacion->unidadesDerivadas->first();
+                    $kardexFacturacionService->registrarLiberacionReservaCotizacion(
+                        $cotizacion,
+                        $productoAlmacen->load('producto'),
+                        [
+                            'unidad_derivada_inmutable_name' => $unidadReferencia?->unidadDerivadaInmutable->name ?? 'UNIDAD',
+                            'cantidad' => $excedente,
+                            'factor' => 1,
+                            'precio' => $unidadReferencia?->precio ?? 0,
+                        ],
+                        $productoAlmacen->costo,
+                        'excedente venta vinculada'
+                    );
+
+                    $productoAlmacen->increment('stock_fraccion', $excedente);
+
+                    // Devolver stock del producto complementario
+                    ComplementarioStockService::procesarComplementarioPorFactor(
+                        $productoAlmacenCotizacion->producto_almacen_id,
+                        1,
+                        $excedente,
+                        $productoAlmacen->almacen_id,
+                        true // ingreso (devolver)
+                    );
+                }
+            }
+
+            $cotizacion->update([
+                'venta_id' => $request->venta_id,
+                'estado_cotizacion' => 'co',
+                // El stock reservado por esta cotización ya es propiedad de la venta
+                // recién vinculada (haya descontado de nuevo o no): la reserva queda
+                // cerrada. Evita que el cron `reservas:liberar-expiradas` la devuelva.
+                'reservar_stock' => false,
+            ]);
+
+            // Actualizar la descripción de la venta para que muestre el número de cotización
+            \App\Models\Venta::where('id', $request->venta_id)->update([
+                'descripcion' => "Convertida desde cotización {$cotizacion->numero}",
+            ]);
+
+            DB::commit();
+
+            return response()->json(['message' => 'Cotización vinculada a venta exitosamente']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error al vincular la cotización a la venta: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
