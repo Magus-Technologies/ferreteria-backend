@@ -165,9 +165,10 @@ Route::middleware('auth:sanctum')->group(function () {
             // Rechazar NO requiere caja abierta (solo es cambiar estado)
             Route::post('/{id}/rechazar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'rechazarSolicitud']);
 
-            // Aprobar SÍ requiere caja abierta (involucra transferencia de dinero)
+            // Aprobar y anular SÍ requieren caja abierta (involucran mover/revertir dinero)
             Route::middleware('caja.abierta')->group(function () {
                 Route::post('/{id}/aprobar', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'aprobarSolicitud']);
+                Route::post('/{id}/anular', [\App\Http\Controllers\Cajas\PrestamoVendedorController::class, 'anularSolicitud']);
             });
         });
 

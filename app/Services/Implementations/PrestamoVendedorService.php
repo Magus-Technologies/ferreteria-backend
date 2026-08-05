@@ -157,6 +157,75 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
         ]);
     }
 
+    public function anularSolicitud(string $solicitudId, int|string $usuarioId): void
+    {
+        DB::transaction(function () use ($solicitudId, $usuarioId) {
+            $solicitud = SolicitudEfectivoVendedor::with(['aperturaCierreCaja', 'transferencia'])
+                ->lockForUpdate()
+                ->findOrFail($solicitudId);
+
+            // Solo se puede anular un préstamo ya aprobado — pendiente/rechazada nunca
+            // movieron dinero real, no hay nada que revertir.
+            if (!$solicitud->estaAprobada()) {
+                throw new \Exception('Solo se puede anular un préstamo aprobado.');
+            }
+
+            if (
+                $usuarioId !== $solicitud->vendedor_prestamista_id
+                && $usuarioId !== $solicitud->vendedor_solicitante_id
+            ) {
+                throw new PermisoPrestamoException('anular');
+            }
+
+            $apertura = $solicitud->aperturaCierreCaja;
+            if ($apertura && $apertura->estado !== 'abierta' && $apertura->estado !== 'activa') {
+                throw new \Exception('No se puede anular un préstamo de una caja ya cerrada.');
+            }
+
+            $transferencia = $solicitud->transferencia;
+            if (!$transferencia) {
+                throw new \Exception('No se encontró la transferencia asociada a este préstamo.');
+            }
+
+            $subCajaOrigen = \App\Models\SubCaja::findOrFail($transferencia->sub_caja_origen_id);
+            $subCajaDestino = \App\Models\SubCaja::findOrFail($transferencia->sub_caja_destino_id);
+            $monto = (float) $transferencia->monto;
+
+            // 1. Eliminar transacciones de caja asociadas a la transferencia.
+            TransaccionCaja::where('referencia_id', $transferencia->id)
+                ->where('referencia_tipo', 'transferencia_vendedor')
+                ->delete();
+
+            // 2. Eliminar movimientos de caja asociados. MovimientoCaja no guarda
+            // referencia_id/referencia_tipo para estas filas (ver
+            // registrarTransaccionesYMovimientos), así que se identifican por apertura +
+            // sub_caja + monto + concepto, igual que TrasladoBovedaService::anularTraslado.
+            MovimientoCaja::where('apertura_cierre_id', $solicitud->apertura_cierre_caja_id)
+                ->where('sub_caja_id', $subCajaOrigen->id)
+                ->where('salida', $monto)
+                ->where('tipo_movimiento', 'transferencia')
+                ->where('concepto', 'LIKE', 'Préstamo de S/.%')
+                ->delete();
+
+            MovimientoCaja::where('apertura_cierre_id', $solicitud->apertura_cierre_caja_id)
+                ->where('sub_caja_id', $subCajaDestino->id)
+                ->where('ingreso', $monto)
+                ->where('tipo_movimiento', 'transferencia')
+                ->where('concepto', 'LIKE', 'Préstamo de S/.%')
+                ->delete();
+
+            // 3. Restaurar saldos de ambas sub-cajas (inverso de la aprobación).
+            $subCajaOrigen->increment('saldo_actual', $monto);
+            $subCajaDestino->decrement('saldo_actual', $monto);
+
+            // 4. Marcar la solicitud como anulada (no se elimina, queda como registro).
+            $solicitud->update([
+                'estado' => 'anulada',
+                'fecha_anulacion' => now(),
+            ]);
+        });
+    }
+
     public function listarSolicitudesPendientes(int|string $vendedorId): array
     {
         $solicitudes = SolicitudEfectivoVendedor::with(['vendedorSolicitante', 'aperturaCierreCaja'])
@@ -478,6 +547,8 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                 $query->where('vendedor_origen_id', $vendedorId)
                     ->orWhere('vendedor_destino_id', $vendedorId);
             })
+            // Excluir préstamos cuya solicitud fue anulada.
+            ->whereDoesntHave('solicitud', fn ($q) => $q->where('estado', 'anulada'))
             ->orderBy('created_at', 'desc')
             ->get();
 

@@ -12,7 +12,9 @@ interface PrestamoVendedorServiceInterface
     public function aprobarSolicitud(string $solicitudId, int|string $vendedorPrestamistaId, int $subCajaOrigenId, ?float $montoAprobado = null): array;
     
     public function rechazarSolicitud(string $solicitudId, RechazarSolicitudDTO $dto, int|string $vendedorPrestamistaId): void;
-    
+
+    public function anularSolicitud(string $solicitudId, int|string $usuarioId): void;
+
     public function listarSolicitudesPendientes(int|string $vendedorId): array;
     
     public function listarTodasLasSolicitudes(int|string $vendedorId): array;

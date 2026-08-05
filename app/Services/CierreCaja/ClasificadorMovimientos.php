@@ -397,6 +397,9 @@ class ClasificadorMovimientos
                 ->where('tev.vendedor_destino_id', $userId) // Recibidos por este vendedor
                 ->where('tev.fecha_transferencia', '>=', $fechaInicio)
                 ->where('tev.fecha_transferencia', '<=', $fechaFin)
+                // Excluir préstamos cuya solicitud fue anulada — la transferencia queda
+                // como registro histórico, pero ya no debe sumar en el resumen de caja.
+                ->where(fn ($q) => $q->whereNull('sev.estado')->orWhere('sev.estado', '!=', 'anulada'))
                 ->select([
                     'tev.id',
                     'tev.monto',
@@ -436,6 +439,9 @@ class ClasificadorMovimientos
             ->where('tev.vendedor_origen_id', $userId) // Dados por este vendedor
             ->where('tev.fecha_transferencia', '>=', $fechaInicio)
             ->where('tev.fecha_transferencia', '<=', $fechaFin)
+            // Excluir préstamos cuya solicitud fue anulada — la transferencia queda como
+            // registro histórico, pero ya no debe sumar en el resumen de caja.
+            ->where(fn ($q) => $q->whereNull('sev.estado')->orWhere('sev.estado', '!=', 'anulada'))
             ->select([
                 'tev.id',
                 'tev.monto',

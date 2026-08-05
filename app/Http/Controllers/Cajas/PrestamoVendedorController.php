@@ -136,6 +136,31 @@ class PrestamoVendedorController extends Controller
     }
 
     /**
+     * Anular un préstamo ya aprobado (revierte transacciones, movimientos y saldos)
+     */
+    public function anularSolicitud(string $id): JsonResponse
+    {
+        try {
+            $this->prestamoVendedorService->anularSolicitud($id, auth()->id());
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Préstamo anulado',
+            ]);
+        } catch (PermisoPrestamoException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al anular préstamo: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Listar solicitudes pendientes (recibidas)
      */
     public function solicitudesPendientes(): JsonResponse
