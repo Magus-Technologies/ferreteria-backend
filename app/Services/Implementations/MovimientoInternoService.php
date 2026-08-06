@@ -299,10 +299,15 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         });
     }
 
+    /**
+     * Listar movimientos internos para la pestaña "Movimiento entre Cajas" — antes
+     * solo mostraba depósitos efectivo→banco, ahora muestra TODO lo registrado
+     * desde el modal "Mover Dinero entre Sub-Cajas" (cualquier combinación de
+     * métodos de pago origen/destino), del usuario indicado.
+     */
     public function listarDepositosSeguridad(string|int $userId): array
     {
-        // Filtrar solo movimientos donde origen es efectivo y destino es banco/billetera
-        $depositos = MovimientoInterno::with([
+        $movimientos = MovimientoInterno::with([
             'subCajaOrigen',
             'subCajaDestino',
             'desplieguePagoOrigen.metodoDePago',
@@ -310,29 +315,28 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             'user'
         ])
         ->where('user_id', $userId)
-        ->whereHas('desplieguePagoOrigen.metodoDePago', function ($query) {
-            $query->where('name', 'LIKE', '%EFECTIVO%');
-        })
-        ->whereHas('desplieguePagoDestino.metodoDePago', function ($query) {
-            $query->where('name', 'NOT LIKE', '%EFECTIVO%');
-        })
         ->orderBy('fecha', 'desc')
         ->get();
 
-        return $depositos->map(function ($dep) {
+        return $movimientos->map(function ($mov) {
             return [
-                'id' => $dep->id,
-                'vendedor' => $dep->user->name,
-                'vendedor_id' => $dep->user_id,
-                'sub_caja_origen' => $dep->subCajaOrigen->nombre,
-                'sub_caja_destino' => $dep->subCajaDestino->nombre,
-                'metodo_destino' => $dep->desplieguePagoDestino->name,
-                'banco_destino' => $dep->desplieguePagoDestino->metodoDePago->name,
-                'titular' => $dep->desplieguePagoDestino->metodoDePago->nombre_titular,
-                'monto' => $dep->monto,
-                'motivo' => $dep->justificacion,
-                'fecha' => $dep->fecha,
-                'tipo' => 'deposito_seguridad',
+                'id' => $mov->id,
+                'vendedor' => $mov->user->name,
+                'vendedor_id' => $mov->user_id,
+                'sub_caja_origen' => $mov->subCajaOrigen->nombre,
+                'sub_caja_destino' => $mov->subCajaDestino->nombre,
+                // Null-safe: movimientos registrados con CONCEPTO (sin despliegue de
+                // pago) no tienen desplieguePagoOrigen/Destino — mismo patrón que
+                // listarMovimientos().
+                'metodo_origen' => $mov->desplieguePagoOrigen?->name ?? $mov->concepto ?? '-',
+                'banco_origen' => $mov->desplieguePagoOrigen?->metodoDePago?->name ?? '-',
+                'metodo_destino' => $mov->desplieguePagoDestino?->name ?? $mov->concepto ?? '-',
+                'banco_destino' => $mov->desplieguePagoDestino?->metodoDePago?->name ?? '-',
+                'titular' => $mov->desplieguePagoDestino?->metodoDePago?->nombre_titular,
+                'monto' => $mov->monto,
+                'motivo' => $mov->justificacion,
+                'fecha' => $mov->fecha,
+                'tipo' => 'movimiento_entre_cajas',
             ];
         })->toArray();
     }
