@@ -566,6 +566,12 @@ class KardexFacturacionService
         // mostrar el total real (excedente + reservado) con el reservado entre paréntesis
         // en AMBAS filas del par, no solo en la de venta.
         $stockPorVentaProducto = [];
+        // Cantidad original de cada reserva de cotización (key = "{referencia_id}_{producto_id}",
+        // referencia_id = cotizacion_id), capturada de su fila "RESERVA COTIZACIÓN". La fila
+        // "RESERVA LIBERADA" de esa misma cotización usa este valor como "Cantidades" (el
+        // tamaño de la reserva original) en vez de la cantidad liberada en sí (que puede ser
+        // solo una parte, si la venta no cubrió toda la reserva).
+        $reservaOriginalPorCotizacion = [];
         $rowsWithStockAll = [];
 
         foreach ($allRows as $row) {
@@ -585,6 +591,7 @@ class KardexFacturacionService
             $ventaKey = "{$row->referencia_id}_{$row->producto_id}";
 
             $cantidadReservadaFila = (float) ($row->cantidad_reservada ?? 0);
+            $cantidadLiberadaFila = (float) ($row->cantidad_liberada ?? 0);
 
             if (($row->tipo ?? null) === 'entrega' && isset($stockPorVentaProducto[$ventaKey])) {
                 // Copiar el stock de la venta que generó esta entrega (mismo
@@ -592,6 +599,7 @@ class KardexFacturacionService
                 $stockAnterior = $stockPorVentaProducto[$ventaKey]['anterior'];
                 $stockActual = $stockPorVentaProducto[$ventaKey]['actual'];
                 $cantidadReservadaFila = $stockPorVentaProducto[$ventaKey]['reservada'];
+                $cantidadLiberadaFila = $stockPorVentaProducto[$ventaKey]['liberada'];
                 // No tocar $stockPorProductoAlmacen[$key]: la entrega no "consume" el
                 // acumulador general, solo muestra los mismos números que su venta.
             } elseif ($row->stock_anterior !== null && $row->stock_actual !== null) {
@@ -614,7 +622,14 @@ class KardexFacturacionService
                     'anterior' => $stockAnterior,
                     'actual' => $stockActual,
                     'reservada' => $cantidadReservadaFila,
+                    'liberada' => $cantidadLiberadaFila,
                 ];
+            }
+
+            // Recordar la cantidad original de cada "RESERVA COTIZACIÓN" (por si más
+            // adelante aparece su "RESERVA LIBERADA" correspondiente).
+            if (($row->tipo ?? null) === 'reserva' && ($row->movimiento ?? null) === 'RESERVA COTIZACIÓN') {
+                $reservaOriginalPorCotizacion[$ventaKey] = (float) ($row->cantidad ?? 0);
             }
 
             // Si cliente_nombre está vacío pero cliente_id existe, buscar el nombre
@@ -637,9 +652,17 @@ class KardexFacturacionService
             // reservado (evita duplicarlo). `cantidad_total` es lo que debe mostrar la
             // columna "Cantidades" / el número principal de "Cantidad Salida".
             $rowData['cantidad_reservada'] = $cantidadReservadaFila;
-            $rowData['cantidad_total'] = ($row->tipo ?? null) === 'entrega'
-                ? (float) ($row->cantidad ?? 0)
-                : (float) ($row->cantidad ?? 0) + $cantidadReservadaFila;
+            $rowData['cantidad_liberada'] = $cantidadLiberadaFila;
+            if (($row->tipo ?? null) === 'entrega') {
+                $rowData['cantidad_total'] = (float) ($row->cantidad ?? 0);
+            } elseif (($row->tipo ?? null) === 'reserva' && ($row->movimiento ?? null) === 'RESERVA LIBERADA' && isset($reservaOriginalPorCotizacion[$ventaKey])) {
+                // "Cantidades" en una liberación muestra el tamaño de la reserva
+                // ORIGINAL (no lo que efectivamente se liberó, que puede ser solo una
+                // parte si la venta no cubrió toda la reserva).
+                $rowData['cantidad_total'] = $reservaOriginalPorCotizacion[$ventaKey];
+            } else {
+                $rowData['cantidad_total'] = (float) ($row->cantidad ?? 0) + $cantidadReservadaFila;
+            }
 
             $rowsWithStockAll[] = (object) $rowData;
         }
@@ -721,6 +744,7 @@ class KardexFacturacionService
                     DB::raw('ed.cantidad as cantidad'),
                     DB::raw('ed.cantidad * udv.factor as cantidad_fraccion'),
                     DB::raw('0 as cantidad_reservada'),
+                    DB::raw('0 as cantidad_liberada'),
                     DB::raw('udv.precio as precio'),
                     DB::raw('pav.costo as costo'),
                     DB::raw('0 as entrada'),

@@ -1008,6 +1008,11 @@ class VentaController extends Controller
                         // que necesita el kardex para mostrar solo el excedente.
                         $stockAnterior = $stocksAnteriores[$productoAlmacenId] ?? null;
                         $reservadoDisponibleFraccion = $reservadoFraccionPorProducto[$productoAlmacenId] ?? 0;
+                        // Se usa más abajo para anotarle `cantidad_liberada` si sobra reserva
+                        // sin usar — así "Cant. Ingreso" puede mostrarlo también en la fila de
+                        // venta (y por herencia en su ENTREGA), no solo en la fila separada de
+                        // "RESERVA LIBERADA".
+                        $ultimaVentaKardexRow = null;
 
                         foreach ($producto['unidades_derivadas'] as $unidad) {
                             $costo = (float) $producto['costo'];
@@ -1042,7 +1047,7 @@ class VentaController extends Controller
                             ];
                             $cantidadReservadaNominal = $factor > 0 ? ($consumidoDeReserva / $factor) : $consumidoDeReserva;
 
-                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $fechaMovimientoVenta, $cantidadReservadaNominal);
+                            $ultimaVentaKardexRow = $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $fechaMovimientoVenta, $cantidadReservadaNominal);
                         }
 
                         // Si sobró reserva sin usar en esta venta (se vendió MENOS de lo
@@ -1065,9 +1070,33 @@ class VentaController extends Controller
                                 ],
                                 $productoAlmacen->costo,
                                 'venta no cubrió toda la reserva',
-                                2,
+                                // El desempate de "movimientos de hoy" es ascendente por
+                                // `orden` (ver KardexFacturacionService::getPaginated()):
+                                // entrega=0 antes que venta=1. Esta liberación va emparejada
+                                // con esa misma venta/entrega (mismo fecha exacto) y debe
+                                // mostrarse ARRIBA de ambas — por eso -1, no el default 2
+                                // (que la dejaría al final).
+                                -1,
                                 $stockAnterior
                             );
+
+                            // Reflejar el sobrante liberado también en la fila de venta, para
+                            // que "Cant. Ingreso" lo muestre ahí (y su ENTREGA lo herede en
+                            // getPaginated()) además de en la fila separada de arriba. El
+                            // stock_actual de la venta también sube por ese sobrante — se
+                            // había guardado como si nada se liberara (stock_actual =
+                            // stock_anterior − excedente, sin el +liberado), porque al
+                            // momento de crear la fila de venta aún no se sabía si iba a
+                            // sobrar reserva.
+                            if ($ultimaVentaKardexRow) {
+                                $cantidadLiberadaNominal = $factorLiberacion > 0
+                                    ? ($reservadoDisponibleFraccion / $factorLiberacion)
+                                    : $reservadoDisponibleFraccion;
+                                $ultimaVentaKardexRow->update([
+                                    'cantidad_liberada' => $cantidadLiberadaNominal,
+                                    'stock_actual' => (float) $ultimaVentaKardexRow->stock_actual + $reservadoDisponibleFraccion,
+                                ]);
+                            }
                         }
 
                         $reservadoFraccionPorProducto[$productoAlmacenId] = $reservadoDisponibleFraccion;
