@@ -102,7 +102,7 @@ class KardexFacturacionService
      * Solo se registra si estado_de_venta != 'ee' (no en espera)
      * CORRECCIÓN: Pasar factor explícitamente
      */
-    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, $fecha = null)
+    public function registrarVenta($venta, $productoAlmacen, $unidad, $costo, $orden = 1, $stockAnterior = null, $fecha = null, $cantidadReservada = 0)
     {
         $tipoDocumento = match ($venta->tipo_documento->value) {
             '01' => 'Factura',
@@ -143,6 +143,12 @@ class KardexFacturacionService
             'unidad' => $unidad['unidad_derivada_inmutable_name'],
             'cantidad' => $unidad['cantidad'],
             'cantidad_fraccion' => $cantSalida,
+            // Cuánto de esta línea ya estaba reservado por una cotización previa (nominal,
+            // misma unidad que `cantidad`). `cantidad` acá es solo el EXCEDENTE sobre la
+            // reserva (ver VentaController::store()) — la columna "Cantidad Salida" del
+            // kardex se arma en getPaginated() como "{cantidad+cantidad_reservada} ({cantidad_reservada})"
+            // para mostrarle al usuario el total real que salió, no solo el excedente.
+            'cantidad_reservada' => $cantidadReservada,
             'factor' => (float) $unidad['factor'], // CORRECCIÓN: Pasar factor explícitamente
             'precio' => $unidad['precio'],
             'costo' => $costo,
@@ -554,6 +560,11 @@ class KardexFacturacionService
         // en vez de calcular los suyos propios — la entrega no mueve stock por sí sola,
         // así que debe mostrar EXACTAMENTE el mismo stock_anterior/stock_actual que su
         // venta, no un valor "heredado" del acumulador general.
+        // Además del stock, cada venta puede llevar `cantidad_reservada` (la parte de la
+        // línea que ya venía reservada por una cotización — ver VentaController::store()).
+        // La ENTREGA de esa venta hereda ese mismo valor, para que "Cantidad Salida" pueda
+        // mostrar el total real (excedente + reservado) con el reservado entre paréntesis
+        // en AMBAS filas del par, no solo en la de venta.
         $stockPorVentaProducto = [];
         $rowsWithStockAll = [];
 
@@ -573,11 +584,14 @@ class KardexFacturacionService
             $key = "{$row->producto_id}_{$row->almacen_id}";
             $ventaKey = "{$row->referencia_id}_{$row->producto_id}";
 
+            $cantidadReservadaFila = (float) ($row->cantidad_reservada ?? 0);
+
             if (($row->tipo ?? null) === 'entrega' && isset($stockPorVentaProducto[$ventaKey])) {
                 // Copiar el stock de la venta que generó esta entrega (mismo
                 // referencia_id = venta_id, mismo producto).
                 $stockAnterior = $stockPorVentaProducto[$ventaKey]['anterior'];
                 $stockActual = $stockPorVentaProducto[$ventaKey]['actual'];
+                $cantidadReservadaFila = $stockPorVentaProducto[$ventaKey]['reservada'];
                 // No tocar $stockPorProductoAlmacen[$key]: la entrega no "consume" el
                 // acumulador general, solo muestra los mismos números que su venta.
             } elseif ($row->stock_anterior !== null && $row->stock_actual !== null) {
@@ -596,7 +610,11 @@ class KardexFacturacionService
             }
 
             if (($row->tipo ?? null) === 'venta') {
-                $stockPorVentaProducto[$ventaKey] = ['anterior' => $stockAnterior, 'actual' => $stockActual];
+                $stockPorVentaProducto[$ventaKey] = [
+                    'anterior' => $stockAnterior,
+                    'actual' => $stockActual,
+                    'reservada' => $cantidadReservadaFila,
+                ];
             }
 
             // Si cliente_nombre está vacío pero cliente_id existe, buscar el nombre
@@ -612,6 +630,16 @@ class KardexFacturacionService
             $rowData['cant_ingreso'] = (float) $row->entrada;
             $rowData['cant_salida'] = (float) $row->salida;
             $rowData['stock_actual'] = $stockActual;
+            // `cantidad` en una fila de VENTA puede ser solo el excedente sobre una
+            // reserva (ver registrarVenta()) — ahí sí hay que sumarle lo reservado para
+            // obtener el total real. En una fila de ENTREGA, `cantidad` (entrega_detalle)
+            // YA es la cantidad total entregada, así que NO se le vuelve a sumar lo
+            // reservado (evita duplicarlo). `cantidad_total` es lo que debe mostrar la
+            // columna "Cantidades" / el número principal de "Cantidad Salida".
+            $rowData['cantidad_reservada'] = $cantidadReservadaFila;
+            $rowData['cantidad_total'] = ($row->tipo ?? null) === 'entrega'
+                ? (float) ($row->cantidad ?? 0)
+                : (float) ($row->cantidad ?? 0) + $cantidadReservadaFila;
 
             $rowsWithStockAll[] = (object) $rowData;
         }
@@ -692,6 +720,7 @@ class KardexFacturacionService
                     DB::raw('udi.name as unidad'),
                     DB::raw('ed.cantidad as cantidad'),
                     DB::raw('ed.cantidad * udv.factor as cantidad_fraccion'),
+                    DB::raw('0 as cantidad_reservada'),
                     DB::raw('udv.precio as precio'),
                     DB::raw('pav.costo as costo'),
                     DB::raw('0 as entrada'),

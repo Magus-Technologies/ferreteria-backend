@@ -1035,8 +1035,9 @@ class VentaController extends Controller
                                 'factor' => $factor,
                                 'precio' => (float) $unidad['precio'],
                             ];
+                            $cantidadReservadaNominal = $factor > 0 ? ($consumidoDeReserva / $factor) : $consumidoDeReserva;
 
-                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $fechaMovimientoVenta);
+                            $kardexFacturacionService->registrarVenta($venta, $productoAlmacen, $unidadData, $costo, 1, $stockAnterior, $fechaMovimientoVenta, $cantidadReservadaNominal);
                         }
 
                         // Si sobró reserva sin usar en esta venta (se vendió MENOS de lo
