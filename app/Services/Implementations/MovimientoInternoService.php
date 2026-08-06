@@ -78,6 +78,16 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 );
             }
 
+            // Snapshot del saldo MOVIBLE (Saldo Cerrado) de ambas sub-cajas ANTES de
+            // mover el dinero — mismo patrón que el kardex de stock (stock_anterior/
+            // stock_actual): se guarda en el propio registro para que el historial
+            // pueda mostrar "antes → después" sin tener que recalcular en vivo hacia
+            // atrás en el tiempo (el saldo movible cambia con cada movimiento nuevo).
+            $saldoOrigenAnteriorMovible = $saldoMovible;
+            $saldoDestinoAnteriorMovible = ($subCajaDestino->id === $subCajaOrigen->id)
+                ? $saldoOrigenAnteriorMovible
+                : $this->calcularSaldoMovible($subCajaDestino);
+
             // Flujo original con despliegues NO-efectivo: además valida el saldo
             // del vendedor en ese despliegue.
             if (!$esTrasladoEfectivo && $desplieguePagoOrigen) {
@@ -124,6 +134,24 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 $dto->concepto,
                 $dto->destinoUserId
             );
+
+            // Snapshot DESPUÉS de mover el dinero. Se recalcula en vivo (no se suma/
+            // resta el monto a mano) para reflejar exactamente lo que quedó registrado
+            // por registrarTransacciones(), incluida cualquier auto-cancelación si
+            // origen y destino son la misma sub-caja.
+            $subCajaOrigen->refresh();
+            $subCajaDestino->refresh();
+            $saldoOrigenActualMovible = $this->calcularSaldoMovible($subCajaOrigen);
+            $saldoDestinoActualMovible = ($subCajaDestino->id === $subCajaOrigen->id)
+                ? $saldoOrigenActualMovible
+                : $this->calcularSaldoMovible($subCajaDestino);
+
+            $movimiento->update([
+                'saldo_origen_anterior' => $saldoOrigenAnteriorMovible,
+                'saldo_origen_actual' => $saldoOrigenActualMovible,
+                'saldo_destino_anterior' => $saldoDestinoAnteriorMovible,
+                'saldo_destino_actual' => $saldoDestinoActualMovible,
+            ]);
 
             return [
                 'id' => $movimiento->id,
@@ -339,6 +367,12 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 'banco_destino' => $mov->desplieguePagoDestino?->metodoDePago?->name ?? '-',
                 'titular' => $mov->desplieguePagoDestino?->metodoDePago?->nombre_titular,
                 'monto' => $mov->monto,
+                // Saldo MOVIBLE (Saldo Cerrado) de cada sub-caja antes/después de este
+                // movimiento — null en movimientos creados antes de este campo existir.
+                'saldo_origen_anterior' => $mov->saldo_origen_anterior,
+                'saldo_origen_actual' => $mov->saldo_origen_actual,
+                'saldo_destino_anterior' => $mov->saldo_destino_anterior,
+                'saldo_destino_actual' => $mov->saldo_destino_actual,
                 'motivo' => $mov->justificacion,
                 'fecha' => $mov->fecha,
                 'estado' => $mov->estado,

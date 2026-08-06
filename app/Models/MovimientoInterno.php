@@ -14,6 +14,10 @@ class MovimientoInterno extends Model
         'sub_caja_origen_id',
         'sub_caja_destino_id',
         'monto',
+        'saldo_origen_anterior',
+        'saldo_origen_actual',
+        'saldo_destino_anterior',
+        'saldo_destino_actual',
         'despliegue_de_pago_origen_id',
         'despliegue_de_pago_destino_id',
         'concepto',
@@ -28,6 +32,10 @@ class MovimientoInterno extends Model
 
     protected $casts = [
         'monto' => 'decimal:2',
+        'saldo_origen_anterior' => 'float',
+        'saldo_origen_actual' => 'float',
+        'saldo_destino_anterior' => 'float',
+        'saldo_destino_actual' => 'float',
         'fecha' => 'datetime',
         'fecha_anulacion' => 'datetime',
     ];
