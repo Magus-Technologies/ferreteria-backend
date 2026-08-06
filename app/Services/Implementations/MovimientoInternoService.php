@@ -341,6 +341,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 'monto' => $mov->monto,
                 'motivo' => $mov->justificacion,
                 'fecha' => $mov->fecha,
+                'estado' => $mov->estado,
                 'tipo' => 'movimiento_entre_cajas',
             ];
         })->toArray();
@@ -401,10 +402,19 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             ->get();
 
         // Dinero de la SESIÓN presente en la sub-caja: todos los ingresos de la
-        // sesión menos sus egresos, EXCLUYENDO los egresos por movimiento interno
-        // (esos salen del dinero cerrado por regla). Así, un traslado de cerrado
-        // → sesión reduce el movible y no se puede mover dos veces.
-        $ingresosSesion = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
+        // sesión menos sus egresos, EXCLUYENDO los de movimiento_interno en AMBOS
+        // lados. Un "Mover Dinero entre Sub-Cajas" no es actividad nueva de la
+        // sesión (ventas, gastos) — es dinero YA movible que solo cambió de
+        // sub-caja, así que debe seguir siendo movible de inmediato en las dos
+        // puntas: el egreso reduce el movible del origen ya (no se puede mover
+        // dos veces) y el ingreso aumenta el movible del destino ya (no espera
+        // al cierre). Antes solo se excluía el egreso — el ingreso SÍ se contaba
+        // como "dinero de sesión" y se autocancelaba con el aumento del saldo
+        // real, dejando el movible del destino sin cambiar tras recibir dinero.
+        $ingresosSesion = (float) $transacciones
+            ->where('tipo_transaccion', 'ingreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->sum('monto');
         $egresosSesion = (float) $transacciones
             ->where('tipo_transaccion', 'egreso')
             ->where('referencia_tipo', '!=', 'movimiento_interno')

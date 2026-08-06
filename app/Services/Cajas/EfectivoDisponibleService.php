@@ -127,10 +127,17 @@ class EfectivoDisponibleService
         }
         $transaccionesSesion = $sesionQuery->get();
 
-        $ingresosSesion = (float) $transaccionesSesion->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Egresos de movimiento_interno se excluyen: ese dinero sale del
-        // "cerrado" por regla, no de la sesión (mismo criterio que
-        // MovimientoInternoService::calcularSaldoMovible).
+        // movimiento_interno se excluye en AMBOS lados (ingreso y egreso): un
+        // "Mover Dinero entre Sub-Cajas" no es actividad nueva de la sesión, es
+        // dinero YA movible que solo cambió de sub-caja — debe seguir siendo
+        // movible de inmediato en las dos puntas. Antes solo se excluía el
+        // egreso, así que el ingreso del lado receptor se autocancelaba con el
+        // aumento del saldo total y el movible del destino no subía al recibir
+        // dinero (mismo criterio que MovimientoInternoService::calcularSaldoMovible).
+        $ingresosSesion = (float) $transaccionesSesion
+            ->where('tipo_transaccion', 'ingreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->sum('monto');
         $egresosSesion = (float) $transaccionesSesion
             ->where('tipo_transaccion', 'egreso')
             ->where('referencia_tipo', '!=', 'movimiento_interno')
