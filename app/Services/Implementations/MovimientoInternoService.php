@@ -323,6 +323,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             return [
                 'id' => $dep->id,
                 'vendedor' => $dep->user->name,
+                'vendedor_id' => $dep->user_id,
                 'sub_caja_origen' => $dep->subCajaOrigen->nombre,
                 'sub_caja_destino' => $dep->subCajaDestino->nombre,
                 'metodo_destino' => $dep->desplieguePagoDestino->name,
