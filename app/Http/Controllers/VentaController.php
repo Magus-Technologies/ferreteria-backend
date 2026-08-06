@@ -1018,17 +1018,22 @@ class VentaController extends Controller
                             // reserva ya cuenta como descuento en firme — el kardex de la
                             // venta solo debe mostrar el EXCEDENTE sobre lo ya reservado
                             // (ej. reservó 8, vende 10 → salida=2, no 10).
+                            if ($cantidadVendidaFraccion <= 0.0001) {
+                                continue;
+                            }
+
                             $consumidoDeReserva = min($reservadoDisponibleFraccion, $cantidadVendidaFraccion);
                             $reservadoDisponibleFraccion -= $consumidoDeReserva;
                             $excedenteFraccion = $cantidadVendidaFraccion - $consumidoDeReserva;
 
-                            // Si se vendió igual o menos de lo ya reservado, no hay nada
-                            // NUEVO que descontar en esta venta — la fila "RESERVA
-                            // COTIZACIÓN" ya documentó ese descuento, no se duplica aquí.
-                            if ($excedenteFraccion <= 0.0001) {
-                                continue;
-                            }
-
+                            // Si se vendió igual o menos de lo ya reservado, el stock NO se
+                            // vuelve a descontar acá (ya se descontó al reservar) — pero la
+                            // fila de venta SIGUE registrándose (con salida=0/excedente=0),
+                            // porque el kardex necesita esta fila como ancla para que su
+                            // ENTREGA pareja herede stock_anterior/actual y
+                            // cantidad_reservada (ver getPaginated()) — antes se omitía esta
+                            // fila por completo y la entrega quedaba huérfana, mostrando un
+                            // stock calculado por acumulador en vez del real.
                             $unidadData = [
                                 'unidad_derivada_inmutable_name' => $unidad['unidad_derivada_inmutable_name'] ?? 'UNIDAD',
                                 'cantidad' => $factor > 0 ? ($excedenteFraccion / $factor) : $excedenteFraccion,
