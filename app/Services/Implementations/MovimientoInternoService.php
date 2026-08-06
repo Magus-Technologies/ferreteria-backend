@@ -237,20 +237,20 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 throw new \Exception('Este movimiento ya fue anulado anteriormente.');
             }
 
-            // Mismo criterio de permisos que la creación (sin chequeo de rol/supervisor,
-            // "Caja General" es compartida) — pero solo quien realizó el movimiento puede
-            // anularlo.
-            if ((string) $movimiento->user_id !== (string) $userId) {
-                throw new \Exception('No tienes permiso para anular este movimiento.');
-            }
-
+            // Sin restricción de dueño: "Caja General" es compartida entre vendedores,
+            // así que cualquier usuario con la caja abierta puede anular un movimiento
+            // interno, no solo quien lo creó.
             $subCajaOrigen = $movimiento->subCajaOrigen;
             $subCajaDestino = $movimiento->subCajaDestino;
             $monto = (float) $movimiento->monto;
 
-            // Verificar que la caja siga activa — misma resolución de apertura que
-            // registrarTransacciones() usó para crear el movimiento.
-            $apertura = AperturaCierreCaja::where('user_id', $userId)
+            // Resolver la MISMA apertura que registrarTransacciones() usó al crear el
+            // movimiento — por eso se busca por el usuario CREADOR (movimiento->user_id),
+            // no por quien está anulando ahora: los MovimientoCaja se identifican más
+            // abajo por apertura_cierre_id, así que si se resolviera con la apertura del
+            // usuario que anula (cuando es distinto del creador) no encontraría las filas
+            // correctas y las dejaría huérfanas sin eliminar.
+            $apertura = AperturaCierreCaja::where('user_id', $movimiento->user_id)
                 ->where('estado', 'abierta')
                 ->first();
             if (!$apertura) {
