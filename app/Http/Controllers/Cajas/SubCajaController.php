@@ -10,6 +10,7 @@ use App\UseCases\CrearSubCaja\CrearSubCajaRequest;
 use App\UseCases\CrearSubCaja\CrearSubCajaUseCase;
 use App\Repositories\Interfaces\SubCajaRepositoryInterface;
 use App\Services\Interfaces\CajaServiceInterface;
+use App\Services\Cajas\EfectivoDisponibleService;
 use Illuminate\Http\JsonResponse;
 
 class SubCajaController extends Controller
@@ -17,7 +18,8 @@ class SubCajaController extends Controller
     public function __construct(
         private CrearSubCajaUseCase $crearSubCajaUseCase,
         private SubCajaRepositoryInterface $subCajaRepository,
-        private CajaServiceInterface $cajaService
+        private CajaServiceInterface $cajaService,
+        private EfectivoDisponibleService $efectivoDisponibleService
     ) {}
 
     /**
@@ -305,9 +307,25 @@ class SubCajaController extends Controller
             $subCajas = \App\Models\SubCaja::where('estado', true)->get();
             
             $subCajasConSaldo = $subCajas->map(function ($subCaja) use ($userId) {
-                // Calcular saldo del vendedor en esta sub-caja
-                $saldoVendedor = $this->calcularSaldoVendedorEnSubCaja($subCaja->id, $userId);
-                
+                // "Mover Dinero entre Sub-Cajas" necesita el saldo MOVIBLE de la
+                // SUB-CAJA COMPLETA (Caja Chica es un cajón físico compartido entre
+                // vendedores, no algo que se reparte por vendedor) — cerrado +
+                // apertura de hoy, sin la actividad de la sesión. Distinto del saldo
+                // "efectivo desde apertura" (session-scoped, por vendedor) que usa
+                // getConSaldoVendedor() para gastos. Por eso NO se reutiliza
+                // calcularSaldoVendedorEnSubCaja() acá, para no cambiarle el
+                // comportamiento a esa otra pantalla. La apertura se resuelve igual
+                // que MovimientoInternoService::calcularSaldoMovible() (cualquier
+                // apertura abierta de esa caja principal, no solo la de este usuario).
+                $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+                    ->where('estado', 'abierta')
+                    ->orderBy('fecha_apertura', 'desc')
+                    ->first();
+                $saldoVendedor = number_format(
+                    $this->efectivoDisponibleService->calcularMovibleDesdeApertura($subCaja, null, $aperturaActiva),
+                    2, '.', ''
+                );
+
                 // Obtener métodos de pago con sus saldos individuales
                 $metodosPago = $this->obtenerMetodosPagoConSaldo($subCaja, $userId);
                 
@@ -516,59 +534,14 @@ class SubCajaController extends Controller
      * Efectivo de un usuario en una sub-caja/método ACOTADO a una apertura:
      * distribución de esa apertura (si es Caja Chica) + ingresos − egresos de efectivo
      * registrados DESDE la fecha de apertura. Así solo cuenta "lo que tengo desde que aperturé".
+     *
+     * Delegado a EfectivoDisponibleService (única fuente de verdad, también usada
+     * por MovimientoInternoService) — se mantiene este método como wrapper para no
+     * tocar los llamadores existentes en este controlador.
      */
     private function calcularEfectivoDesdeApertura($subCaja, string|int $userId, string $desplieguePagoId, $apertura): float
     {
-        // Monto distribuido en ESTA apertura (solo Caja Chica)
-        $montoInicial = 0.0;
-        if ($apertura && $subCaja->esCajaChica()) {
-            $montoInicial = (float) \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $apertura->id)
-                ->where('user_id', $userId)
-                ->sum('monto');
-        }
-
-        // Transacciones del método, excluyendo las de tipo "apertura" (ya contadas arriba)
-        $query = \App\Models\TransaccionCaja::where('sub_caja_id', $subCaja->id)
-            ->where('user_id', $userId)
-            ->where('despliegue_pago_id', $desplieguePagoId)
-            ->where(function ($q) {
-                $q->whereNull('referencia_tipo')
-                  ->orWhere('referencia_tipo', '!=', 'apertura');
-            });
-
-        // Solo desde que se aperturó
-        if ($apertura && $apertura->fecha_apertura) {
-            $query->where('created_at', '>=', $apertura->fecha_apertura);
-        }
-
-        $transacciones = $query->get();
-        // Ingresos: los de movimiento_interno (traslados de efectivo recibidos) SÍ cuentan
-        // — es efectivo nuevo que entró a la sesión abierta (mismo criterio que
-        // ClasificadorMovimientos::obtenerOtrosIngresosVendedor).
-        $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
-        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
-        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
-        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
-        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión.
-        $egresos = (float) $transacciones
-            ->where('tipo_transaccion', 'egreso')
-            ->filter(function ($t) use ($transacciones) {
-                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                    return true;
-                }
-
-                return !$transacciones->contains(function ($i) use ($t) {
-                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                        && $i->tipo_transaccion === 'ingreso'
-                        && $i->referencia_id === $t->referencia_id
-                        && $i->user_id === $t->user_id
-                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                });
-            })
-            ->sum('monto');
-
-        return $montoInicial + $ingresos - $egresos;
+        return $this->efectivoDisponibleService->calcularDesdeApertura($subCaja, $userId, $desplieguePagoId, $apertura);
     }
 
     /**
@@ -886,7 +859,19 @@ class SubCajaController extends Controller
     }
     
     /**
-     * Calcular saldo del vendedor para un método de pago específico en una sub-caja
+     * Calcular saldo MOVIBLE de la sub-caja para un método de pago específico,
+     * para el modal "Mover Dinero entre Sub-Cajas".
+     *
+     * Delega en EfectivoDisponibleService::calcularMovibleDesdeApertura() — el
+     * TOTAL desde siempre (cerrado + apertura de hoy) de la SUB-CAJA COMPLETA
+     * (cajón físico compartido, no por vendedor — mismo criterio que
+     * calcularSaldoVendedorEnSubCaja() más abajo), sin la actividad de la
+     * sesión actual. OJO: esto es distinto de calcularEfectivoDesdeApertura()
+     * (session-scoped, por vendedor, usado por Traslado a Bóveda/Efectivo) —
+     * "Mover Dinero" necesita ver también lo acumulado en sesiones ya
+     * cerradas de CUALQUIER vendedor, no solo lo propio de la sesión abierta.
+     * `$userId` ya no se usa para acotar el saldo, solo queda en la firma por
+     * compatibilidad con el único llamador (obtenerMetodosPagoConSaldo).
      */
     private function calcularSaldoVendedorPorMetodoPago(int $subCajaId, string|int $userId, string $desplieguePagoId): string
     {
@@ -894,51 +879,14 @@ class SubCajaController extends Controller
         if (!$subCaja) {
             return '0.00';
         }
-        
-        // Apertura activa de ESTE VENDEDOR en la caja principal:
-        // acota el saldo DESDE su apertura HASTA el cierre.
+
         $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-            ->where('user_id', $userId)
-            ->whereNull('fecha_cierre')
+            ->where('estado', 'abierta')
+            ->orderBy('fecha_apertura', 'desc')
             ->first();
 
-        $montoInicial = 0;
+        $saldo = $this->efectivoDisponibleService->calcularMovibleDesdeApertura($subCaja, $desplieguePagoId, $aperturaActiva);
 
-        // Solo si es Caja Chica Y el método es efectivo, considerar la distribución inicial
-        if ($subCaja->esCajaChica() && $aperturaActiva) {
-            $despliegue = \App\Models\DespliegueDePago::find($desplieguePagoId);
-            if ($despliegue && $despliegue->metodoDePago) {
-                $esEfectivo = (empty($despliegue->metodoDePago->cuenta_bancaria) ||
-                              $despliegue->metodoDePago->cuenta_bancaria === 'SIN-CUENTA') &&
-                             (stripos($despliegue->metodoDePago->name, 'efectivo') !== false);
-
-                if ($esEfectivo) {
-                    $distribuciones = \App\Models\DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                        ->where('user_id', $userId)
-                        ->get();
-
-                    $montoInicial = $distribuciones->sum('monto');
-                }
-            }
-        }
-
-        // Transacciones de este método, DESDE la apertura. EXCLUIR las de tipo "apertura".
-        $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
-            ->where('user_id', $userId)
-            ->where('despliegue_pago_id', $desplieguePagoId)
-            ->where(function ($query) {
-                $query->whereNull('referencia_tipo')
-                      ->orWhere('referencia_tipo', '!=', 'apertura');
-            })
-            ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
-            ->get();
-        
-        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
-        
-        // Saldo = Monto inicial (solo efectivo en Caja Chica) + Ingresos - Egresos
-        $saldo = $montoInicial + $ingresos - $egresos;
-        
         return number_format($saldo, 2, '.', '');
     }
 

@@ -10,12 +10,17 @@ use App\Models\MovimientoCaja;
 use App\Models\MovimientoInterno;
 use App\Models\SubCaja;
 use App\Models\TransaccionCaja;
+use App\Services\Cajas\EfectivoDisponibleService;
 use App\Services\Interfaces\MovimientoInternoServiceInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class MovimientoInternoService implements MovimientoInternoServiceInterface
 {
+    public function __construct(
+        private EfectivoDisponibleService $efectivoDisponibleService
+    ) {}
+
     public function crearMovimiento(CrearMovimientoInternoDTO $dto, string|int $userId): array
     {
         return DB::transaction(function () use ($dto, $userId) {
@@ -342,15 +347,34 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
     }
 
     /**
-     * Saldo MOVIBLE de una sub-caja: solo el dinero de sesiones cerradas.
-     * Si la caja principal tiene una apertura ABIERTA, se descuenta el neto
-     * (ingresos - egresos) generado desde esa apertura; ese dinero recién se
-     * puede mover al cerrar caja. Ej: aperturé con 10, vendí 20 → saldo 30,
-     * movible 10.
+     * Saldo REAL de una sub-caja: recalculado en vivo desde todo el historial de
+     * `transacciones_caja`, en vez de leer `sub_cajas.saldo_actual`.
+     *
+     * OJO: `saldo_actual` NO se usa a propósito — un Traslado a Bóveda registra su
+     * egreso en `transacciones_caja` pero deliberadamente NO descuenta
+     * `saldo_actual` (ver TrasladoBovedaService::registrarTraslado, "sigue siendo
+     * dinero bajo responsabilidad de la Caja Chica"). Si se leyera la columna acá,
+     * cada bóveda hecha en la sesión quedaría "fantasma": el saldo movible
+     * mostraría dinero que físicamente ya no está.
+     */
+    private function calcularSaldoRealSubCaja(SubCaja $subCaja): float
+    {
+        return (float) TransaccionCaja::where('sub_caja_id', $subCaja->id)
+            ->selectRaw("COALESCE(SUM(CASE WHEN tipo_transaccion = 'ingreso' THEN monto ELSE -monto END), 0) as total")
+            ->value('total');
+    }
+
+    /**
+     * Saldo MOVIBLE de una sub-caja: el TOTAL desde que se aperturó (dinero de
+     * sesiones ya cerradas + el monto con el que se aperturó hoy), sin contar
+     * lo que entró/salió DURANTE la sesión actual (ventas, gastos, etc. — eso
+     * recién se puede mover al cerrar caja). Ej: tenía 1000 cerrado, aperturé
+     * con 500 → movible 1500. Si además vendo 200 hoy, esos 200 NO se pueden
+     * mover todavía (siguen siendo "de la sesión"), pero el 1500 sí.
      */
     private function calcularSaldoMovible(SubCaja $subCaja): float
     {
-        $saldoActual = (float) $subCaja->saldo_actual;
+        $saldoActual = $this->calcularSaldoRealSubCaja($subCaja);
 
         $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
             ->where('estado', 'abierta')
@@ -361,8 +385,19 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             return $saldoActual;
         }
 
+        // Transacciones de la sesión, EXCLUYENDO la propia fila de "apertura" —
+        // ese monto ya es movible por definición (no es dinero "nuevo" de la
+        // sesión, es lo que el vendedor cargó al aperturar), así que no debe
+        // contarse como actividad de sesión a descontar. Antes SÍ se contaba
+        // acá (como ingreso) Y se restaba OTRA VEZ más abajo con
+        // `monto_apertura` — un doble descuento que dejaba el movible muy por
+        // debajo de lo real.
         $transacciones = TransaccionCaja::where('sub_caja_id', $subCaja->id)
             ->where('fecha', '>=', $apertura->fecha_apertura)
+            ->where(function ($q) {
+                $q->whereNull('referencia_tipo')
+                    ->orWhere('referencia_tipo', '!=', 'apertura');
+            })
             ->get();
 
         // Dinero de la SESIÓN presente en la sub-caja: todos los ingresos de la
@@ -377,14 +412,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
 
         $dineroSesion = $ingresosSesion - $egresosSesion;
 
-        // El monto de APERTURA sale físicamente del dinero cerrado del cajón:
-        // también se descuenta del movible (evita aperturar con 80,000 y luego
-        // trasladar "otros" 80,000 cerrados que son el mismo dinero).
-        $montoApertura = ((int) $apertura->sub_caja_id === (int) $subCaja->id)
-            ? (float) $apertura->monto_apertura
-            : 0.0;
-
-        return $saldoActual - max($dineroSesion, 0) - $montoApertura;
+        return $saldoActual - max($dineroSesion, 0);
     }
 
     public function saldosDisponibles(): array
@@ -393,18 +421,21 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             ->where('estado', true)
             ->get()
             ->map(function (SubCaja $subCaja) {
+                $saldoReal = $this->calcularSaldoRealSubCaja($subCaja);
                 $cerrado = round(max($this->calcularSaldoMovible($subCaja), 0), 2);
 
                 // NO CERRADO = todo lo demás del saldo: dinero de la sesión
                 // abierta + monto de apertura (el movible ya los descuenta).
-                // Así siempre se cumple: Cerrado + No Cerrado = Saldo total.
-                $noCerrado = round(max((float) $subCaja->saldo_actual - $cerrado, 0), 2);
+                // Así siempre se cumple: Cerrado + No Cerrado = Saldo total real
+                // (recalculado en vivo, no la columna `saldo_actual` — ver
+                // calcularSaldoRealSubCaja()).
+                $noCerrado = round(max($saldoReal - $cerrado, 0), 2);
 
                 return [
                     'sub_caja_id' => $subCaja->id,
                     'nombre' => $subCaja->nombre,
                     'caja_principal_id' => $subCaja->caja_principal_id,
-                    'saldo_actual' => (float) $subCaja->saldo_actual,
+                    'saldo_actual' => round($saldoReal, 2),
                     'saldo_disponible' => $cerrado,
                     'saldo_no_cerrado' => $noCerrado,
                 ];
@@ -473,19 +504,26 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
     }
 
     /**
-     * Calcular el saldo disponible de un vendedor específico en una sub-caja y despliegue de pago
+     * Calcular el saldo MOVIBLE de la sub-caja (cajón compartido, no por
+     * vendedor) para un método de pago específico (métodos NO efectivo) —
+     * delegado a EfectivoDisponibleService::calcularMovibleDesdeApertura(),
+     * la MISMA calculadora que alimenta lo que el modal "Mover Dinero entre
+     * Sub-Cajas" le muestra (cerrado + apertura de hoy, de CUALQUIER
+     * vendedor, sin la actividad de la sesión). La apertura se resuelve
+     * igual que calcularSaldoMovible() (cualquier apertura abierta de esa
+     * caja principal, no solo la de este usuario) para que ambas
+     * validaciones queden consistentes entre sí.
      */
     private function calcularSaldoVendedorEnSubCaja(int $subCajaId, string|int $userId, string $desplieguePagoId): float
     {
-        $transacciones = TransaccionCaja::where('sub_caja_id', $subCajaId)
-            ->where('despliegue_pago_id', $desplieguePagoId)
-            ->where('user_id', $userId)
-            ->get();
-        
-        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
-        
-        return $ingresos - $egresos;
+        $subCaja = SubCaja::findOrFail($subCajaId);
+
+        $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('estado', 'abierta')
+            ->orderBy('fecha_apertura', 'desc')
+            ->first();
+
+        return $this->efectivoDisponibleService->calcularMovibleDesdeApertura($subCaja, $desplieguePagoId, $apertura);
     }
 
     private function registrarTransacciones(
