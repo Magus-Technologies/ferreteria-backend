@@ -97,7 +97,10 @@ class GastoExtraController extends Controller
      */
     public function resumen(Request $request)
     {
-        $gastoQuery = GastoExtra::query();
+        // Excluye gastos ya asociados a una compra (gasto_extra_id de la
+        // compra) — ese monto ya se refleja como costo de la compra, así
+        // que contarlo también aquí lo duplicaría.
+        $gastoQuery = GastoExtra::query()->whereDoesntHave('compra');
 
         if ($request->has('estado') && $request->estado) {
             $gastoQuery->where('estado', $request->estado);
