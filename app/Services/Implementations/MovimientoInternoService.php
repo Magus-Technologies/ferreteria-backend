@@ -10,8 +10,10 @@ use App\Models\MovimientoCaja;
 use App\Models\MovimientoInterno;
 use App\Models\SubCaja;
 use App\Models\TransaccionCaja;
+use App\Models\User;
 use App\Services\Cajas\EfectivoDisponibleService;
 use App\Services\Interfaces\MovimientoInternoServiceInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -171,6 +173,19 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         });
     }
 
+    /**
+     * Historial completo de movimientos internos (tab "Traslado de Efectivo").
+     *
+     * Devuelve los de TODOS los usuarios: la tabla del front filtra en el cliente
+     * (arranca precargada con el usuario logueado salvo roles administrativos, ver
+     * useVeTodosLosMovimientos). Antes filtraba acá por `user_id`, así que ni un
+     * admin podía ver los traslados de otro vendedor y el selector "Usuario:
+     * Todos" de esa pantalla no tenía ningún efecto. Mismo criterio que
+     * listarMovimientosPorCajaPrincipal(), que tampoco filtra por usuario.
+     *
+     * $userId se conserva por compatibilidad de la interfaz (ya no se usa para
+     * acotar el resultado).
+     */
     public function listarMovimientos(string|int $userId): array
     {
         $movimientos = MovimientoInterno::with([
@@ -180,29 +195,10 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             'desplieguePagoDestino.metodoDePago',
             'user'
         ])
-        ->where('user_id', $userId)
         ->orderBy('fecha', 'desc')
         ->get();
 
-        return $movimientos->map(function ($mov) {
-            return [
-                'id' => $mov->id,
-                'sub_caja_origen' => $mov->subCajaOrigen->nombre,
-                'sub_caja_destino' => $mov->subCajaDestino->nombre,
-                // Null-safe: los movimientos con CONCEPTO no tienen despliegues
-                'metodo_origen' => $mov->desplieguePagoOrigen?->name ?? $mov->concepto ?? '-',
-                'banco_origen' => $mov->desplieguePagoOrigen?->metodoDePago?->name ?? '-',
-                'metodo_destino' => $mov->desplieguePagoDestino?->name ?? $mov->concepto ?? '-',
-                'banco_destino' => $mov->desplieguePagoDestino?->metodoDePago?->name ?? '-',
-                'concepto' => $mov->concepto,
-                'monto' => $mov->monto,
-                'justificacion' => $mov->justificacion,
-                'fecha' => $mov->fecha,
-                'vendedor' => $mov->user->name,
-                'user_id' => $mov->user_id,
-                'estado' => $mov->estado,
-            ];
-        })->toArray();
+        return $this->mapearFilas($movimientos);
     }
 
     public function listarMovimientosPorCajaPrincipal(int $cajaPrincipalId): array
@@ -226,25 +222,32 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         ->orderBy('fecha', 'desc')
         ->get();
 
-        // El usuario AL QUE se le acreditó el dinero no se guarda en movimientos_internos
-        // (esa tabla solo tiene el user_id de quien REALIZÓ el traslado); se resuelve desde
-        // la transacción de INGRESO que registrarTransacciones() crea en transacciones_caja
-        // (referencia_id = movimiento.id, referencia_tipo = 'movimiento_interno').
-        $movimientoIds = $movimientos->pluck('id');
-        $usuariosDestinoPorMovimiento = $movimientoIds->isEmpty() ? collect() : DB::table('transacciones_caja as tc')
-            ->join('user as u', 'tc.user_id', '=', 'u.id')
-            ->whereIn('tc.referencia_id', $movimientoIds)
-            ->where('tc.referencia_tipo', 'movimiento_interno')
-            ->where('tc.tipo_transaccion', 'ingreso')
-            ->select('tc.referencia_id', 'u.name')
-            ->get()
-            ->keyBy('referencia_id');
+        return $this->mapearFilas($movimientos);
+    }
 
-        return $movimientos->map(function ($mov) use ($usuariosDestinoPorMovimiento) {
+    /**
+     * Forma PLANA de fila que consumen las tablas de historial (sub_caja_origen es
+     * el NOMBRE, no un objeto anidado). Compartida por listarMovimientos() y
+     * listarMovimientosPorCajaPrincipal() para que ambas pantallas muestren
+     * exactamente los mismos campos.
+     */
+    private function mapearFilas(Collection $movimientos): array
+    {
+        // Nombre del usuario AL QUE se le acreditó el dinero (solo en TRASLADO DE
+        // EFECTIVO). Se resuelve en un solo query desde `destino_user_id`; antes
+        // había que deducirlo con un join a la transacción de ingreso porque la
+        // columna no existía.
+        $destinoIds = $movimientos->pluck('destino_user_id')->filter()->unique();
+        $nombresDestino = $destinoIds->isEmpty()
+            ? collect()
+            : User::whereIn('id', $destinoIds)->pluck('name', 'id');
+
+        return $movimientos->map(function ($mov) use ($nombresDestino) {
             return [
                 'id' => $mov->id,
                 'sub_caja_origen' => $mov->subCajaOrigen->nombre,
                 'sub_caja_destino' => $mov->subCajaDestino->nombre,
+                // Null-safe: los movimientos con CONCEPTO no tienen despliegues
                 'metodo_origen' => $mov->desplieguePagoOrigen?->name ?? $mov->concepto ?? '-',
                 'banco_origen' => $mov->desplieguePagoOrigen?->metodoDePago?->name ?? '-',
                 'metodo_destino' => $mov->desplieguePagoDestino?->name ?? $mov->concepto ?? '-',
@@ -256,8 +259,10 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 // Quién REALIZÓ el traslado.
                 'vendedor' => $mov->user->name,
                 'user_id' => $mov->user_id,
-                // A quién se le acreditó el dinero (si no se resolvió, es el mismo usuario).
-                'usuario_destino' => $usuariosDestinoPorMovimiento->get($mov->id)?->name ?? $mov->user->name,
+                // A quién se le acreditó el dinero: en un movimiento cajón → cajón
+                // (sin destino_user_id) es el mismo que lo realizó.
+                'usuario_destino' => $nombresDestino->get($mov->destino_user_id) ?? $mov->user->name,
+                'destino_user_id' => $mov->destino_user_id,
                 'estado' => $mov->estado,
             ];
         })->toArray();
