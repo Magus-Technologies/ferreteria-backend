@@ -339,7 +339,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
                 'forma_pago' => 'CONTADO',
                 'venta_id' => $notaDebito->venta_id,
                 'user_id' => $notaDebito->usuario_id,
-                'estado_sunat' => 'PROCESANDO',
+                'estado_sunat' => 'ACEPTADO', // ✅ Tras respuesta exitosa de SUNAT (como NC)
                 'xml_path' => $xmlPath,
                 'cdr_path' => $cdrPath,
                 'hash' => $resultado['hash_cpe'],
