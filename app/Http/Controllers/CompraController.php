@@ -28,13 +28,16 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use App\Services\Interfaces\CompraReporteServiceInterface;
+use App\Services\Cajas\EfectivoDisponibleService;
 
 class CompraController extends Controller
 {
     private ?CompraReporteServiceInterface $reporteService;
 
-    public function __construct(CompraReporteServiceInterface $reporteService)
-    {
+    public function __construct(
+        CompraReporteServiceInterface $reporteService,
+        private EfectivoDisponibleService $efectivoDisponibleService
+    ) {
         $this->reporteService = $reporteService;
     }
 
@@ -1725,54 +1728,29 @@ class CompraController extends Controller
         $monto = (float) $pago->monto;
         $saldoAnterior = (float) $subCaja->saldo_actual;
 
-        // Disponible para pagar:
-        // - Si la sub-caja tiene una APERTURA ABIERTA, solo se puede pagar con el
-        //   dinero de la SESIÓN (monto de apertura + ingresos − egresos desde que
-        //   se abrió). El dinero de sesiones cerradas se dispone con "Traslado de
-        //   Efectivo" hacia otra sub-caja.
-        // - Sin apertura abierta (ej. sub-caja "efectivo negro" o bancarias), el
-        //   límite es su saldo actual.
+        // Disponible para pagar: delegado a EfectivoDisponibleService (la MISMA
+        // calculadora que ya usan Traslado a Bóveda / Traslado de Efectivo para
+        // mostrar "Efectivo Disponible") en vez de una copia local — esta copia
+        // tenía su propia fórmula (sub-caja-wide, sin filtrar por vendedor ni por
+        // método de pago específico, con su propia lista de exclusiones) que
+        // podía divergir bastante del número que el usuario ve en pantalla antes
+        // de pagar. Si la sub-caja tiene una APERTURA ABIERTA de este vendedor,
+        // solo se puede pagar con el dinero de ESA sesión (apertura + ingresos −
+        // egresos desde que se abrió, para este método de pago específico); el
+        // dinero de sesiones cerradas se dispone con "Traslado de Efectivo".
         $disponible = $saldoAnterior;
-        $aperturaAbierta = AperturaCierreCaja::where('sub_caja_id', $subCaja->id)
-            ->where('estado', 'abierta')
-            ->orderBy('fecha_apertura', 'desc')
+        $aperturaAbierta = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $compra->user_id)
+            ->whereNull('fecha_cierre')
             ->first();
 
         if ($aperturaAbierta) {
-            $transaccionesSesion = TransaccionCaja::where('sub_caja_id', $subCaja->id)
-                ->where('fecha', '>=', $aperturaAbierta->fecha_apertura)
-                ->get();
-
-            // Ingresos de la sesión: cuentan TODOS (ventas, ingresos extras y
-            // también los traslados/movimientos internos RECIBIDOS — ese dinero
-            // llega justamente para poder pagar).
-            $ingresosSesion = (float) $transaccionesSesion
-                ->where('tipo_transaccion', 'ingreso')
-                ->sum('monto');
-
-            // Egresos de la sesión: restan todos, incluidos los movimientos internos
-            // cuando el traslado SALIÓ del control del vendedor (a otro usuario u otra
-            // sub-caja) — ese dinero ya no puede usarse para pagar. Excepción: el
-            // traslado "cerrado → sesión" (mismo usuario lo recibió de vuelta en la
-            // misma sub-caja) NO debe restar, porque el ingreso ya lo suma.
-            $egresosSesion = (float) $transaccionesSesion
-                ->where('tipo_transaccion', 'egreso')
-                ->filter(function ($t) use ($transaccionesSesion) {
-                    if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                        return true;
-                    }
-
-                    return !$transaccionesSesion->contains(function ($i) use ($t) {
-                        return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                            && $i->tipo_transaccion === 'ingreso'
-                            && $i->referencia_id === $t->referencia_id
-                            && $i->user_id === $t->user_id
-                            && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                    });
-                })
-                ->sum('monto');
-
-            $disponibleSesion = (float) $aperturaAbierta->monto_apertura + $ingresosSesion - $egresosSesion;
+            $disponibleSesion = $this->efectivoDisponibleService->calcularDesdeApertura(
+                $subCaja,
+                $compra->user_id,
+                $pago->despliegue_de_pago_id,
+                $aperturaAbierta
+            );
             $disponible = min($saldoAnterior, $disponibleSesion);
         }
 
