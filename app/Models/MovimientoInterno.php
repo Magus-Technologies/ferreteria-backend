@@ -25,6 +25,11 @@ class MovimientoInterno extends Model
         'comprobante',
         'numero_operacion',
         'user_id',
+        // Solo en TRASLADO DE EFECTIVO: usuario a cuya SESIÓN ABIERTA se acreditó
+        // el dinero. Su presencia es lo que marca el movimiento como
+        // "cerrado → sesión" (deja de ser saldo movible) en vez de un simple
+        // "cajón → cajón". Ver esTrasladoASesion().
+        'destino_user_id',
         'fecha',
         'estado',
         'fecha_anulacion',
@@ -49,6 +54,16 @@ class MovimientoInterno extends Model
     public function estaAnulado(): bool
     {
         return $this->estado === 'anulado';
+    }
+
+    /**
+     * ¿Este movimiento mandó dinero CERRADO a la SESIÓN ABIERTA de un usuario?
+     * De ser así el monto deja de ser movible: recién se podrá volver a mover
+     * cuando ese usuario cierre su caja.
+     */
+    public function esTrasladoASesion(): bool
+    {
+        return !empty($this->destino_user_id);
     }
 
     public $incrementing = false;

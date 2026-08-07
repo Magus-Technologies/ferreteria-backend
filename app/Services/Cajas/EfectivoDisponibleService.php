@@ -4,8 +4,10 @@ namespace App\Services\Cajas;
 
 use App\Models\AperturaCierreCaja;
 use App\Models\DistribucionEfectivoVendedor;
+use App\Models\MovimientoInterno;
 use App\Models\SubCaja;
 use App\Models\TransaccionCaja;
+use Illuminate\Support\Collection;
 
 /**
  * Única fuente de verdad para "cuánto efectivo tiene un vendedor en una
@@ -18,6 +20,34 @@ use App\Models\TransaccionCaja;
  */
 class EfectivoDisponibleService
 {
+    /**
+     * De un lote de transacciones, cuáles vienen de un TRASLADO DE EFECTIVO
+     * (movimiento interno con `destino_user_id`): dinero CERRADO que se mandó a
+     * la SESIÓN ABIERTA de un usuario. Se distingue del movimiento interno
+     * normal (cajón → cajón) porque ahí el dinero sigue cerrado en ambas puntas,
+     * mientras que acá pasa a ser dinero de sesión y deja de ser movible.
+     *
+     * Devuelve los IDs de movimiento (= `transacciones_caja.referencia_id`).
+     */
+    public function idsTrasladoASesion(Collection $transacciones): array
+    {
+        $referencias = $transacciones
+            ->where('referencia_tipo', 'movimiento_interno')
+            ->pluck('referencia_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($referencias->isEmpty()) {
+            return [];
+        }
+
+        return MovimientoInterno::whereIn('id', $referencias)
+            ->whereNotNull('destino_user_id')
+            ->pluck('id')
+            ->all();
+    }
+
     /**
      * Efectivo de un usuario en una sub-caja/método ACOTADO a una apertura:
      * distribución de esa apertura (si es Caja Chica) + ingresos − egresos de
@@ -56,14 +86,27 @@ class EfectivoDisponibleService
 
         // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
         // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
-        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
-        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
-        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión.
+        //
+        // Excepción 1 — TRASLADO DE EFECTIVO (movimiento con destino_user_id): ese
+        // dinero sale del pozo CERRADO de la sub-caja, no del efectivo de sesión de
+        // nadie, así que su egreso no debe restarle a ningún vendedor. Sin esto, al
+        // trasladar a OTRO usuario el efectivo del que realizó el traslado quedaba
+        // en negativo (solo veía el egreso; el ingreso quedó a nombre del destino).
+        //
+        // Excepción 2 (legado, para movimientos previos a destino_user_id): el
+        // traslado que el mismo usuario recibió de vuelta en la misma sub-caja
+        // tampoco resta — el ingreso ya lo suma y restarlo lo autocancelaría.
+        $idsTrasladoASesion = $this->idsTrasladoASesion($transacciones);
+
         $egresos = (float) $transacciones
             ->where('tipo_transaccion', 'egreso')
-            ->filter(function ($t) use ($transacciones) {
+            ->filter(function ($t) use ($transacciones, $idsTrasladoASesion) {
                 if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
                     return true;
+                }
+
+                if (in_array($t->referencia_id, $idsTrasladoASesion, true)) {
+                    return false;
                 }
 
                 return !$transacciones->contains(function ($i) use ($t) {
@@ -134,9 +177,16 @@ class EfectivoDisponibleService
         // egreso, así que el ingreso del lado receptor se autocancelaba con el
         // aumento del saldo total y el movible del destino no subía al recibir
         // dinero (mismo criterio que MovimientoInternoService::calcularSaldoMovible).
+        //
+        // EXCEPCIÓN: el TRASLADO DE EFECTIVO (destino_user_id) manda el dinero a
+        // la SESIÓN ABIERTA de un usuario, no a otro cajón — ese ingreso SÍ es
+        // dinero de sesión y debe salir del movible hasta que se cierre caja.
+        $idsTrasladoASesion = $this->idsTrasladoASesion($transaccionesSesion);
+
         $ingresosSesion = (float) $transaccionesSesion
             ->where('tipo_transaccion', 'ingreso')
-            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                || in_array($t->referencia_id, $idsTrasladoASesion, true))
             ->sum('monto');
         $egresosSesion = (float) $transaccionesSesion
             ->where('tipo_transaccion', 'egreso')

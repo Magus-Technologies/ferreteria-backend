@@ -119,6 +119,10 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 'comprobante' => $dto->comprobante,
                 'numero_operacion' => $dto->numeroOperacion,
                 'user_id' => $userId,
+                // TRASLADO DE EFECTIVO: marca que el dinero fue a la SESIÓN ABIERTA
+                // de este usuario, no a otro cajón. Es lo que hace que el monto deje
+                // de contar como saldo movible (ver calcularSaldoMovible()).
+                'destino_user_id' => $dto->destinoUserId,
                 'fecha' => now(),
             ]);
 
@@ -445,9 +449,20 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         // al cierre). Antes solo se excluía el egreso — el ingreso SÍ se contaba
         // como "dinero de sesión" y se autocancelaba con el aumento del saldo
         // real, dejando el movible del destino sin cambiar tras recibir dinero.
+        //
+        // EXCEPCIÓN: el TRASLADO DE EFECTIVO (movimiento con destino_user_id) no
+        // es cajón → cajón sino CERRADO → SESIÓN ABIERTA de un usuario. Ese
+        // ingreso SÍ es dinero de sesión y debe salir del movible; si no, el
+        // monto sigue figurando como disponible y se puede trasladar las veces
+        // que se quiera (además, cuando origen y destino son la misma sub-caja
+        // —el caso normal: el efectivo de un usuario vive en la misma sub-caja—
+        // egreso e ingreso se autocancelaban y nada cambiaba).
+        $idsTrasladoASesion = $this->efectivoDisponibleService->idsTrasladoASesion($transacciones);
+
         $ingresosSesion = (float) $transacciones
             ->where('tipo_transaccion', 'ingreso')
-            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                || in_array($t->referencia_id, $idsTrasladoASesion, true))
             ->sum('monto');
         $egresosSesion = (float) $transacciones
             ->where('tipo_transaccion', 'egreso')
