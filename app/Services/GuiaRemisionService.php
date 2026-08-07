@@ -545,6 +545,36 @@ class GuiaRemisionService
     }
 
     /**
+     * Obtener el XML firmado de una guía (desde el archivo en storage)
+     */
+    public function obtenerXml(GuiaRemision $guia): string
+    {
+        if (empty($guia->sunat_xml_path)) {
+            throw new \Exception('La guía no tiene XML generado');
+        }
+
+        return $this->xmlStorageService->obtenerXml($guia->sunat_xml_path);
+    }
+
+    /**
+     * Obtener el CDR de una guía. Prioriza el contenido en BD
+     * (el API lo entrega en base64 de un zip); si no, lee el archivo.
+     */
+    public function obtenerCdr(GuiaRemision $guia): string
+    {
+        if (!empty($guia->sunat_cdr_xml)) {
+            $decodificado = base64_decode($guia->sunat_cdr_xml, true);
+            return $decodificado !== false ? $decodificado : $guia->sunat_cdr_xml;
+        }
+
+        if (empty($guia->sunat_cdr_path)) {
+            throw new \Exception('La guía no tiene CDR');
+        }
+
+        return $this->xmlStorageService->obtenerCdr($guia->sunat_cdr_path);
+    }
+
+    /**
      * Generar código QR para guía de remisión
      * Formato: RUC|TIPO_DOC|SERIE|NUMERO|FECHA|HASH
      */

@@ -9,6 +9,7 @@ use App\Models\GuiaRemision;
 use App\QueryBuilders\GuiaRemisionQueryBuilder;
 use App\Services\GuiaRemisionService;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 
 class GuiaRemisionController extends Controller
 {
@@ -259,6 +260,44 @@ class GuiaRemisionController extends Controller
                 ],
             ],
         ]);
+    }
+
+    /**
+     * Ver el XML firmado de una guía en el navegador.
+     */
+    public function verXml(string $id): Response
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+            $xml = $this->guiaRemisionService->obtenerXml($guia);
+
+            return response($xml, 200)
+                ->header('Content-Type', 'application/xml')
+                ->header('Content-Disposition', 'inline');
+        } catch (\Exception $e) {
+            return response('Error al obtener XML: ' . $e->getMessage(), 404)
+                ->header('Content-Type', 'text/plain');
+        }
+    }
+
+    /**
+     * Descargar el CDR de una guía aceptada por SUNAT.
+     */
+    public function descargarCdr(string $id): Response
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+            $cdr = $this->guiaRemisionService->obtenerCdr($guia);
+            $nombreArchivo = 'R-' . \App\Models\Empresa::getRucEmisor() . "-09-{$guia->serie}-{$guia->numero}.zip";
+
+            return response($cdr, 200)
+                ->header('Content-Type', 'application/octet-stream')
+                ->header('Content-Disposition', "attachment; filename=\"{$nombreArchivo}\"")
+                ->header('Content-Transfer-Encoding', 'binary');
+        } catch (\Exception $e) {
+            return response('Error al obtener CDR: ' . $e->getMessage(), 404)
+                ->header('Content-Type', 'text/plain');
+        }
     }
 
     /**
