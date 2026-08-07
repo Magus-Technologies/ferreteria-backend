@@ -502,16 +502,36 @@ class CotizacionController extends Controller
                 'precio' => $unidad->precio,
             ];
 
+            // ¿Los productos que HOY tiene guardados la cotización están reservados?
+            // Se va actualizando a medida que los bloques de abajo reservan/liberan,
+            // para que el bloque de reemplazo de productos sepa si de verdad hay algo
+            // que liberar. Antes ese bloque miraba `$cotizacion->reservar_stock`, que
+            // para entonces ya tenía el valor NUEVO — ver más abajo.
+            $reservaVigente = (bool) $reservarStockAnterior;
+
+            // Si viene lista de `productos`, los actuales van a ser borrados y
+            // recreados más abajo (con su propia reserva si corresponde), así que
+            // reservarlos acá sería trabajo que se deshace en el mismo request.
+            $reemplazaProductos = isset($validated['productos']);
+
             // Si cambia reservar_stock de true a false, devolver stock
             if ($reservarStockAnterior && isset($validated['reservar_stock']) && !$validated['reservar_stock']) {
                 foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
                     $this->liberarStockProducto($cotizacion, $productoAlmacenCotizacion, $kardexFacturacionService, 'reserva desactivada');
                 }
+                $reservaVigente = false;
             }
 
-            // Si cambia reservar_stock de false a true, reservar stock
+            // Si cambia reservar_stock de false a true, reservar stock.
+            //
+            // Solo cuando NO vienen productos nuevos: si vienen, reservar acá los
+            // productos viejos generaba un ciclo completo dentro del mismo request
+            // —RESERVA COTIZACIÓN → RESERVA LIBERADA (producto reemplazado) → RESERVA
+            // COTIZACIÓN— o sea 3 filas de kardex (y tres pasadas de consumo/reversión
+            // de lotes PEPS) para lo que es una sola reserva. El bloque de productos
+            // de más abajo ya reserva lo que corresponde.
             $reservarStockNuevo = $validated['reservar_stock'] ?? $cotizacion->reservar_stock;
-            if (!$reservarStockAnterior && $reservarStockNuevo) {
+            if (!$reservarStockAnterior && $reservarStockNuevo && !$reemplazaProductos) {
                 foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
                     $productoAlmacen = ProductoAlmacen::find($productoAlmacenCotizacion->producto_almacen_id);
                     if ($productoAlmacen) {
@@ -520,6 +540,7 @@ class CotizacionController extends Controller
                         }
                     }
                 }
+                $reservaVigente = true;
             }
 
             // Actualizar datos básicos de la cotización
@@ -528,9 +549,15 @@ class CotizacionController extends Controller
             }, ARRAY_FILTER_USE_KEY));
 
             // Si se cambian los productos, eliminar los anteriores y crear nuevos
-            if (isset($validated['productos'])) {
-                // Primero devolver stock de productos anteriores si estaba reservado
-                if ($cotizacion->reservar_stock) {
+            if ($reemplazaProductos) {
+                // Primero devolver stock de productos anteriores si estaba reservado.
+                //
+                // Se consulta $reservaVigente y NO $cotizacion->reservar_stock: el
+                // update() de arriba ya dejó ahí el valor NUEVO, así que al activar la
+                // reserva durante esta misma edición se liberaba una reserva que los
+                // productos viejos nunca tuvieron (y que además el bloque anterior
+                // acababa de crear al pedo).
+                if ($reservaVigente) {
                     foreach ($cotizacion->productosPorAlmacen as $productoAlmacenCotizacion) {
                         $this->liberarStockProducto($cotizacion, $productoAlmacenCotizacion, $kardexFacturacionService, 'producto reemplazado');
                     }
