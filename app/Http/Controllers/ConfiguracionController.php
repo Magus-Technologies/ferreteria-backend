@@ -14,12 +14,12 @@ class ConfiguracionController extends Controller
     {
         return response()->json([
             'factura' => [
-                'enabled' => Cache::get('greenter_auto_send_factura_enabled', config('services.greenter.auto_send_factura_enabled', false)),
-                'after_days' => (int) Cache::get('greenter_auto_send_factura_after_days', config('services.greenter.auto_send_factura_after_days', 3)),
+                'enabled' => Cache::get('sunat_api_auto_send_factura_enabled', config('sunat-api.auto_send_factura_enabled', false)),
+                'after_days' => (int) Cache::get('sunat_api_auto_send_factura_after_days', config('sunat-api.auto_send_factura_after_days', 3)),
             ],
             'boleta' => [
-                'enabled' => Cache::get('greenter_auto_send_boleta_enabled', config('services.greenter.auto_send_boleta_enabled', false)),
-                'after_days' => (int) Cache::get('greenter_auto_send_boleta_after_days', config('services.greenter.auto_send_boleta_after_days', 0)),
+                'enabled' => Cache::get('sunat_api_auto_send_boleta_enabled', config('sunat-api.auto_send_boleta_enabled', false)),
+                'after_days' => (int) Cache::get('sunat_api_auto_send_boleta_after_days', config('sunat-api.auto_send_boleta_after_days', 0)),
             ],
         ]);
     }
@@ -57,7 +57,7 @@ class ConfiguracionController extends Controller
 
     private function saveToCache($type, $config)
     {
-        Cache::forever("greenter_auto_send_{$type}_enabled", $config['enabled']);
-        Cache::forever("greenter_auto_send_{$type}_after_days", $config['after_days']);
+        Cache::forever("sunat_api_auto_send_{$type}_enabled", $config['enabled']);
+        Cache::forever("sunat_api_auto_send_{$type}_after_days", $config['after_days']);
     }
 }

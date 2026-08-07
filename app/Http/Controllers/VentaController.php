@@ -1123,7 +1123,15 @@ class VentaController extends Controller
                     );
                     $this->facturaService->generarComprobanteDesdeVenta($dto);
                 } catch (\Exception $e) {
-                    // No fallar la venta si hay error al generar comprobante
+                    // No fallar la venta si hay error al generar comprobante, pero
+                    // SIEMPRE loguearlo: un error silencioso deja ventas sin XML
+                    // y el usuario cree que no se generó.
+                    \Illuminate\Support\Facades\Log::error('[VentaController::store] Error al generar comprobante', [
+                        'venta_id' => $venta->id,
+                        'serie' => $venta->serie,
+                        'numero' => $venta->numero,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             }
 
@@ -1978,7 +1986,14 @@ class VentaController extends Controller
                         $this->facturaService->generarComprobanteDesdeVenta($dto);
                     }
                 } catch (\Exception $e) {
-                    // No fallar el update si hay error al generar comprobante
+                    // No fallar el update si hay error al generar comprobante, pero
+                    // SIEMPRE loguearlo para que el problema no pase invisible.
+                    \Illuminate\Support\Facades\Log::error('[VentaController::update] Error al generar comprobante', [
+                        'venta_id' => $venta->id,
+                        'serie' => $venta->serie,
+                        'numero' => $venta->numero,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             }
 
