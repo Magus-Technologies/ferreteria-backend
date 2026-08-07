@@ -88,7 +88,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
                         'cliente_id' => $cliente->id,
                         'cliente_tipo_documento' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
                         'cliente_numero_documento' => $cliente->numero_documento,
-                        'cliente_razon_social' => $cliente->razon_social ?? $cliente->nombre,
+                        'cliente_razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'Cliente',
                         'cliente_direccion' => $cliente->direccion,
                         'moneda' => 'PEN',
                         'operacion_gravada' => $notaCredito->monto_subtotal,
@@ -106,7 +106,15 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
                 }
             } catch (\Exception $e) {
-                // No fallar la creación si hay error al generar XML
+                // No fallar la creación si hay error al generar XML,
+                // pero SÍ loguear el detalle para poder diagnosticarlo.
+                Log::error('Error al generar XML de nota de crédito al crear', [
+                    'nota_credito_id' => $notaCredito->id,
+                    'serie' => $notaCredito->serie,
+                    'numero' => $notaCredito->numero,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
             }
 
             DB::commit();
@@ -259,7 +267,11 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             $resultado = $this->sunatApiService->generarYEnviarNotaCredito($dataGreenter);
 
             if (!$resultado['success']) {
-                throw NotaCreditoException::notaCreditoNoEnviable('Error al generar XML o enviar a SUNAT');
+                // Propagar el detalle real del API en lugar del mensaje genérico
+                $detalle = $resultado['mensaje_sunat']
+                    ?? $resultado['error']
+                    ?? 'Error al generar XML o enviar a SUNAT';
+                throw NotaCreditoException::notaCreditoNoEnviable($detalle);
             }
 
             $ruc = \App\Models\Empresa::getRucEmisor();
@@ -290,7 +302,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
                     'cliente_id' => $cliente->id,
                     'cliente_tipo_documento' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
                     'cliente_numero_documento' => $cliente->numero_documento,
-                    'cliente_razon_social' => $cliente->razon_social ?? $cliente->nombre,
+                    'cliente_razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'Cliente',
                     'cliente_direccion' => $cliente->direccion,
                     'moneda' => 'PEN',
                     'operacion_gravada' => $notaCredito->monto_subtotal,
@@ -679,7 +691,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             'cliente' => [
                 'tipo_doc' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
                 'num_doc' => $cliente->numero_documento,
-                'razon_social' => $cliente->razon_social ?? $cliente->nombre,
+                'razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'Cliente',
                 'direccion' => $cliente->direccion ?? '',
             ],
             'items' => $this->prepararItemsParaGreenter($notaCredito),

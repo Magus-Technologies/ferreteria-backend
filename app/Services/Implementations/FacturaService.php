@@ -245,7 +245,11 @@ class FacturaService implements FacturaServiceInterface
             $resultado = $this->sunatApiService->generarYEnviarFactura($dataGreenter);
 
             if (!$resultado['success']) {
-                throw FacturaException::facturaNoEnviable('Error al generar XML o enviar a SUNAT');
+                // Propagar el detalle real del API en lugar del mensaje genérico
+                $detalle = $resultado['mensaje_sunat']
+                    ?? $resultado['error']
+                    ?? 'Error al generar XML o enviar a SUNAT';
+                throw FacturaException::facturaNoEnviable($detalle);
             }
 
             // Guardar archivos XML y CDR
@@ -611,7 +615,7 @@ class FacturaService implements FacturaServiceInterface
                 return [
                     'tipo_doc' => $tipoDoc,
                     'num_doc' => $numDoc,
-                    'razon_social' => $cliente->razon_social ?? $cliente->nombre ?? 'CLIENTE',
+                    'razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'CLIENTE',
                     'direccion' => $cliente->direccion ?? '',
                 ];
             })(),

@@ -112,7 +112,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
                         'venta_id' => $venta->id,
                         'cliente_id' => $venta->cliente_id,
                         'cliente_tipo_documento' => $venta->cliente->tipo_documento === 'ruc' ? '6' : '1',
-                        'cliente_razon_social' => $venta->cliente->razon_social ?? $venta->cliente->nombre ?? 'Cliente',
+                        'cliente_razon_social' => $venta->cliente->razon_social ?? trim(($venta->cliente->nombres ?? '') . ' ' . ($venta->cliente->apellidos ?? '')) ?: 'Cliente',
                         'cliente_numero_documento' => $venta->cliente->numero_documento,
                         'moneda' => 'PEN',
                         'operacion_gravada' => $notaDebito->monto_subtotal,
@@ -284,7 +284,11 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             $resultado = $this->sunatApiService->generarYEnviarNotaDebito($dataGreenter);
 
             if (!$resultado['success']) {
-                throw NotaDebitoException::notaDebitoNoEnviable('Error al generar XML o enviar a SUNAT');
+                // Propagar el detalle real del API en lugar del mensaje genérico
+                $detalle = $resultado['mensaje_sunat']
+                    ?? $resultado['error']
+                    ?? 'Error al generar XML o enviar a SUNAT';
+                throw NotaDebitoException::notaDebitoNoEnviable($detalle);
             }
 
             // Guardar archivos XML y CDR
@@ -633,7 +637,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             'cliente' => [
                 'tipo_doc' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
                 'num_doc' => $cliente->numero_documento,
-                'razon_social' => $cliente->razon_social ?? $cliente->nombre,
+                'razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'Cliente',
                 'direccion' => $cliente->direccion ?? '',
             ],
             'items' => $this->prepararItemsParaGreenter($notaDebito),
