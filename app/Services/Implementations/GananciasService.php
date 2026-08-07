@@ -478,6 +478,7 @@ class GananciasService implements GananciasServiceInterface
                 DB::raw("'GASTO OPERATIVO' as tipo_gasto"),
                 DB::raw("'gasto_operativo' as tipo")
             ])
+            ->where('ge.estado', '!=', 'anulado')
             ->whereNull('c.id'); // Solo gastos que NO están asociados a compras
 
         $filter->applyGastosExtras($queryGastosExtras);
@@ -499,6 +500,7 @@ class GananciasService implements GananciasServiceInterface
                 DB::raw("'gasto_compra' as tipo")
             ])
             ->where('c.estado_de_compra', '!=', 'an')
+            ->where('ge.estado', '!=', 'anulado')
             ->whereNotNull('c.gasto_extra_id');
 
         $filter->applyGastosCompras($queryGastosCompras);
