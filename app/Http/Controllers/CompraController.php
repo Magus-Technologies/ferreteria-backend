@@ -1164,14 +1164,16 @@ class CompraController extends Controller
             }
 
             if ($query->exists()) {
-                throw new \Illuminate\Validation\ValidationException(
-                    validator([], []),
-                    response()->json([
-                        'message' => "Ya existe una compra con la serie {$compra['serie']}-{$compra['numero']} para este proveedor",
-                        'errors' => [
-                            'numero' => ["Ya existe una compra con la serie {$compra['serie']}-{$compra['numero']} para este proveedor"],
-                        ],
-                    ], 422)
+                // store() envuelve todo en un try/catch(\Exception) local (más abajo)
+                // que responde con $e->getMessage() — un ValidationException con una
+                // response 422 "a medida" queda descartado ahí (Laravel arma su
+                // propio resumen genérico, "The given data was invalid.", para
+                // $e->getMessage() porque el validator se construyó vacío), y ese es
+                // el mensaje genérico que terminaba viendo el usuario. Un \Exception
+                // simple sí se propaga con su texto real, igual que la validación de
+                // arriba (línea 1149) y el mismo patrón que ya usa VentaController.
+                throw new \Exception(
+                    "Ya existe una compra con la serie {$compra['serie']}-{$compra['numero']} para este proveedor"
                 );
             }
         }
