@@ -394,16 +394,29 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * Saldo REAL de una sub-caja: recalculado en vivo desde todo el historial de
      * `transacciones_caja`, en vez de leer `sub_cajas.saldo_actual`.
      *
-     * OJO: `saldo_actual` NO se usa a propósito — un Traslado a Bóveda registra su
-     * egreso en `transacciones_caja` pero deliberadamente NO descuenta
-     * `saldo_actual` (ver TrasladoBovedaService::registrarTraslado, "sigue siendo
-     * dinero bajo responsabilidad de la Caja Chica"). Si se leyera la columna acá,
-     * cada bóveda hecha en la sesión quedaría "fantasma": el saldo movible
-     * mostraría dinero que físicamente ya no está.
+     * El TRASLADO A BÓVEDA se EXCLUYE del cálculo: mandar efectivo a la bóveda no
+     * es plata que se va de la caja, es plata que se guarda. Sigue siendo dinero
+     * de la caja principal, solo que ya no está en la sesión de ningún vendedor
+     * — o sea, pasa a ser CERRADO.
+     *
+     * El egreso sí se sigue contando como actividad de sesión en
+     * calcularSaldoMovible(), así que el efecto neto de un traslado es mover el
+     * monto de "No Cerrado" a "Cerrado", sin cambiar el total de la sub-caja. Si
+     * el egreso se restara acá, el monto desaparecería del total y las columnas
+     * dejarían de sumar lo que el usuario ve.
+     *
+     * Es además el mismo criterio que la columna `sub_cajas.saldo_actual`, que
+     * TrasladoBovedaService::registrarTraslado() tampoco descuenta a propósito
+     * ("sigue siendo dinero bajo responsabilidad de la Caja Chica"). Antes el
+     * libro y la columna discrepaban justo en este punto.
      */
     private function calcularSaldoRealSubCaja(SubCaja $subCaja): float
     {
         return (float) TransaccionCaja::where('sub_caja_id', $subCaja->id)
+            ->where(function ($q) {
+                $q->whereNull('referencia_tipo')
+                    ->orWhere('referencia_tipo', '!=', 'traslado_boveda');
+            })
             ->selectRaw("COALESCE(SUM(CASE WHEN tipo_transaccion = 'ingreso' THEN monto ELSE -monto END), 0) as total")
             ->value('total');
     }
