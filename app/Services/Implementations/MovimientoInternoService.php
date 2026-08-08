@@ -420,22 +420,38 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
     {
         $saldoActual = $this->calcularSaldoRealSubCaja($subCaja);
 
-        // Corte = la apertura abierta MÁS ANTIGUA de la caja principal, no la más
-        // reciente. Una caja principal puede tener varias sesiones abiertas a la
-        // vez (una por vendedor, más las que operan por distribución de efectivo)
-        // y el saldo de la sub-caja es un cajón COMPARTIDO: el "no cerrado" debe
-        // ser el dinero de sesión de TODOS ellos. Con `desc` se tomaba solo la
-        // última apertura y todo lo movido por los vendedores que aperturaron
-        // antes caía por debajo del corte y se contaba como CERRADO (movible),
-        // así que el monto cambiaba cada vez que alguien aperturaba.
-        $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+        // El corte NO puede ser una sola fecha global de la caja principal: una
+        // caja es un cajón COMPARTIDO con varias sesiones abiertas a la vez (una
+        // por vendedor) que empiezan en momentos distintos. Con un corte único:
+        //   - si se tomaba la apertura más reciente, la actividad de los que
+        //     aperturaron antes caía por debajo y se contaba como CERRADO;
+        //   - si se toma la más antigua, se cuenta como NO CERRADO el dinero de
+        //     sesiones YA CERRADAS de otros usuarios (ej. un Traslado de Efectivo
+        //     recibido en una sesión anterior seguía figurando como "de sesión"
+        //     para siempre, aunque al cerrar esa caja ya se consolidó).
+        //
+        // Corte POR USUARIO: cada apertura abierta define desde cuándo cuenta la
+        // actividad de SU dueño. Una transacción es "dinero de sesión" solo si su
+        // `user_id` tiene sesión abierta y ocurrió a partir de la apertura de esa
+        // sesión. Lo de un usuario sin sesión abierta ya está cerrado → movible.
+        $aperturas = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
             ->where('estado', 'abierta')
-            ->orderBy('fecha_apertura', 'asc')
-            ->first();
+            ->get();
 
-        if (!$apertura) {
+        if ($aperturas->isEmpty()) {
             return $saldoActual;
         }
+
+        $cortePorUsuario = [];
+        foreach ($aperturas as $ap) {
+            $previo = $cortePorUsuario[$ap->user_id] ?? null;
+            if ($previo === null || $ap->fecha_apertura < $previo) {
+                $cortePorUsuario[$ap->user_id] = $ap->fecha_apertura;
+            }
+        }
+
+        // La más antigua solo acota la query; el filtro fino es por usuario.
+        $corteMasAntiguo = min($cortePorUsuario);
 
         // Transacciones de la sesión, EXCLUYENDO la propia fila de "apertura" —
         // ese monto ya es movible por definición (no es dinero "nuevo" de la
@@ -445,12 +461,18 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         // `monto_apertura` — un doble descuento que dejaba el movible muy por
         // debajo de lo real.
         $transacciones = TransaccionCaja::where('sub_caja_id', $subCaja->id)
-            ->where('fecha', '>=', $apertura->fecha_apertura)
+            ->where('fecha', '>=', $corteMasAntiguo)
             ->where(function ($q) {
                 $q->whereNull('referencia_tipo')
                     ->orWhere('referencia_tipo', '!=', 'apertura');
             })
-            ->get();
+            ->get()
+            // Cada transacción se mide contra la apertura de SU PROPIO usuario.
+            ->filter(function ($t) use ($cortePorUsuario) {
+                $corte = $cortePorUsuario[$t->user_id] ?? null;
+
+                return $corte !== null && $t->fecha >= $corte;
+            });
 
         // Dinero de la SESIÓN presente en la sub-caja: todos los ingresos de la
         // sesión menos sus egresos, EXCLUYENDO los de movimiento_interno en AMBOS
