@@ -381,11 +381,31 @@ class SubCajaController extends Controller
             $aperturaCierreId = request()->query('apertura_cierre_caja_id');
 
             // Si se indica la apertura, limitar a su caja principal y acotar el efectivo
-            // a lo ocurrido DESDE esa apertura.
+            // a lo ocurrido DESDE esa apertura. Si NO se indica, se resuelve la apertura
+            // ABIERTA del propio usuario.
+            //
+            // Antes, sin el parámetro, se pasaba null a calcularDesdeApertura() y ese
+            // método solo filtra por fecha cuando recibe una apertura: sin ella sumaba el
+            // HISTORIAL COMPLETO del usuario en la sub-caja (meses de ventas y traslados
+            // de sesiones ya cerradas). Por eso un vendedor que ni había aperturado
+            // aparecía con decenas de miles de soles "disponibles".
             $apertura = $aperturaCierreId
                 ? \App\Models\AperturaCierreCaja::find($aperturaCierreId)
-                : null;
-            $cajaPrincipalId = $apertura?->caja_principal_id;
+                : \App\Models\AperturaCierreCaja::where('user_id', $userId)
+                    ->whereNull('fecha_cierre')
+                    ->orderByDesc('fecha_apertura')
+                    ->first();
+
+            // Sin sesión abierta no hay efectivo de sesión que mostrar: lo de sesiones
+            // cerradas se dispone con "Traslado de Efectivo", no desde acá.
+            if (!$apertura) {
+                return response()->json([
+                    'success' => true,
+                    'data' => [],
+                ]);
+            }
+
+            $cajaPrincipalId = $apertura->caja_principal_id;
 
             // TODAS las sub-cajas de efectivo del usuario (Caja Chica + las demás), no solo CC.
             $subCajas = \App\Models\SubCaja::where('estado', true)

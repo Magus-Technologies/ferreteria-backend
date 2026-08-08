@@ -53,9 +53,20 @@ class EfectivoDisponibleService
      * distribución de esa apertura (si es Caja Chica) + ingresos − egresos de
      * ese método registrados DESDE la fecha de apertura. Así solo cuenta "lo
      * que tengo desde que aperturé".
+     *
+     * SIN apertura el resultado es 0, no el histórico. El filtro por fecha de más
+     * abajo solo se aplica si hay apertura, así que devolver el cálculo con
+     * `$apertura = null` significaba sumar TODAS las transacciones del usuario en
+     * la sub-caja desde siempre — un "efectivo disponible" inflado con dinero de
+     * sesiones ya cerradas. Este método es "lo que tengo desde que aperturé": si
+     * no hay sesión abierta, la respuesta correcta es cero.
      */
     public function calcularDesdeApertura(SubCaja $subCaja, string|int $userId, string $desplieguePagoId, ?AperturaCierreCaja $apertura): float
     {
+        if (!$apertura || !$apertura->fecha_apertura) {
+            return 0.0;
+        }
+
         // Monto distribuido en ESTA apertura (solo Caja Chica)
         $montoInicial = 0.0;
         if ($apertura && $subCaja->esCajaChica()) {
@@ -73,10 +84,8 @@ class EfectivoDisponibleService
                     ->orWhere('referencia_tipo', '!=', 'apertura');
             });
 
-        // Solo desde que se aperturó
-        if ($apertura && $apertura->fecha_apertura) {
-            $query->where('created_at', '>=', $apertura->fecha_apertura);
-        }
+        // Solo desde que se aperturó (garantizado no-null por el guard de arriba)
+        $query->where('created_at', '>=', $apertura->fecha_apertura);
 
         $transacciones = $query->get();
 
