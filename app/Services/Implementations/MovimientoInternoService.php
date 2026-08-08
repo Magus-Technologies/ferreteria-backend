@@ -453,19 +453,18 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         // La más antigua solo acota la query; el filtro fino es por usuario.
         $corteMasAntiguo = min($cortePorUsuario);
 
-        // Transacciones de la sesión, EXCLUYENDO la propia fila de "apertura" —
-        // ese monto ya es movible por definición (no es dinero "nuevo" de la
-        // sesión, es lo que el vendedor cargó al aperturar), así que no debe
-        // contarse como actividad de sesión a descontar. Antes SÍ se contaba
-        // acá (como ingreso) Y se restaba OTRA VEZ más abajo con
-        // `monto_apertura` — un doble descuento que dejaba el movible muy por
-        // debajo de lo real.
+        // Transacciones de la sesión, INCLUYENDO la fila de "apertura": el monto
+        // con el que un vendedor aperturó es dinero de su sesión abierta y no se
+        // puede trasladar hasta que cierre, igual que sus ventas o sus cobros.
+        //
+        // Antes se excluía, por lo que el monto de apertura aparecía en "Saldo
+        // Cerrado" (movible) mientras la sesión seguía abierta. Se excluía para
+        // arreglar un doble descuento viejo: se contaba acá como ingreso Y se
+        // volvía a restar más abajo con `monto_apertura`. Esa segunda resta ya no
+        // existe (el return final solo descuenta `$dineroSesion`), así que
+        // incluirla ahora la cuenta UNA sola vez.
         $transacciones = TransaccionCaja::where('sub_caja_id', $subCaja->id)
             ->where('fecha', '>=', $corteMasAntiguo)
-            ->where(function ($q) {
-                $q->whereNull('referencia_tipo')
-                    ->orWhere('referencia_tipo', '!=', 'apertura');
-            })
             ->get()
             // Cada transacción se mide contra la apertura de SU PROPIO usuario.
             ->filter(function ($t) use ($cortePorUsuario) {
