@@ -214,6 +214,17 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
             ->whereNull('fecha_cierre')
             ->first();
 
+        // SIN sesión abierta no hay nada que trasladar: si el usuario ya cerró (o
+        // nunca aperturó), su efectivo quedó consolidado en el cierre y no es dinero
+        // suyo "en mano". Antes el filtro por fecha de más abajo era condicional
+        // (`->when($aperturaActiva, ...)`), así que en ese caso la consulta salía SIN
+        // acotar y sumaba el historial completo del usuario en la sub-caja: se podía
+        // trasladar a bóveda contra meses de transacciones de sesiones ya cerradas.
+        // La ruta de traslados no exige `caja.abierta`, así que era alcanzable.
+        if (!$aperturaActiva) {
+            return 0.0;
+        }
+
         if ($subCaja->esCajaChica()) {
             $despliegue = DespliegueDePago::find($desplieguePagoId);
             if ($despliegue && $despliegue->metodoDePago) {
@@ -221,7 +232,7 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                               $despliegue->metodoDePago->cuenta_bancaria === 'SIN-CUENTA') &&
                              (stripos($despliegue->metodoDePago->name, 'efectivo') !== false);
 
-                if ($esEfectivo && $aperturaActiva) {
+                if ($esEfectivo) {
                     $montoInicial = (float) DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
                         ->where('user_id', $userId)
                         ->sum('monto');
@@ -241,7 +252,7 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                 $query->whereNull('referencia_tipo')
                       ->orWhere('referencia_tipo', '!=', 'apertura');
             })
-            ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
+            ->where('created_at', '>=', $aperturaActiva->fecha_apertura)
             ->get();
 
         // Ingresos: los de movimiento_interno (traslados de efectivo recibidos) SÍ
