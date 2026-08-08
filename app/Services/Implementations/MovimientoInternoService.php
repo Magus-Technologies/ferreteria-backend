@@ -420,9 +420,17 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
     {
         $saldoActual = $this->calcularSaldoRealSubCaja($subCaja);
 
+        // Corte = la apertura abierta MÁS ANTIGUA de la caja principal, no la más
+        // reciente. Una caja principal puede tener varias sesiones abiertas a la
+        // vez (una por vendedor, más las que operan por distribución de efectivo)
+        // y el saldo de la sub-caja es un cajón COMPARTIDO: el "no cerrado" debe
+        // ser el dinero de sesión de TODOS ellos. Con `desc` se tomaba solo la
+        // última apertura y todo lo movido por los vendedores que aperturaron
+        // antes caía por debajo del corte y se contaba como CERRADO (movible),
+        // así que el monto cambiaba cada vez que alguien aperturaba.
         $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
             ->where('estado', 'abierta')
-            ->orderBy('fecha_apertura', 'desc')
+            ->orderBy('fecha_apertura', 'asc')
             ->first();
 
         if (!$apertura) {
@@ -574,7 +582,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * la MISMA calculadora que alimenta lo que el modal "Mover Dinero entre
      * Sub-Cajas" le muestra (cerrado + apertura de hoy, de CUALQUIER
      * vendedor, sin la actividad de la sesión). La apertura se resuelve
-     * igual que calcularSaldoMovible() (cualquier apertura abierta de esa
+     * igual que calcularSaldoMovible() (la apertura abierta MÁS ANTIGUA de esa
      * caja principal, no solo la de este usuario) para que ambas
      * validaciones queden consistentes entre sí.
      */
@@ -584,7 +592,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
 
         $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
             ->where('estado', 'abierta')
-            ->orderBy('fecha_apertura', 'desc')
+            ->orderBy('fecha_apertura', 'asc')
             ->first();
 
         return $this->efectivoDisponibleService->calcularMovibleDesdeApertura($subCaja, $desplieguePagoId, $apertura);

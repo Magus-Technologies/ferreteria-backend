@@ -134,10 +134,17 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/{id}/devolver', [PrestamoEntreCajasController::class, 'devolver']);
         });
 
+        // Consulta de saldos por sub-caja: es SOLO LECTURA y muestra el dinero de
+        // TODAS las sub-cajas y de TODOS los usuarios, así que NO va dentro del
+        // grupo `caja.abierta`. Estaba adentro y el middleware devolvía 403 al
+        // usuario sin caja abierta; el frontend se comía el error, se quedaba con
+        // el array vacío y la tabla caía al fallback `sub_cajas.saldo_actual` —
+        // por eso el mismo modal mostraba montos distintos según quién entraba.
+        Route::get('/movimientos-internos/saldos-disponibles', [MovimientoInternoController::class, 'saldosDisponibles']);
+
         // Movimientos Internos
         Route::prefix('movimientos-internos')->middleware('caja.abierta')->group(function () {
             Route::get('/', [MovimientoInternoController::class, 'index']);
-            Route::get('/saldos-disponibles', [MovimientoInternoController::class, 'saldosDisponibles']);
             Route::get('/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
             Route::post('/{id}/anular', [MovimientoInternoController::class, 'anular']);

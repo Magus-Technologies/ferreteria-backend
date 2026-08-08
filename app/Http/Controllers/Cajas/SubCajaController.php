@@ -315,11 +315,13 @@ class SubCajaController extends Controller
                 // getConSaldoVendedor() para gastos. Por eso NO se reutiliza
                 // calcularSaldoVendedorEnSubCaja() acá, para no cambiarle el
                 // comportamiento a esa otra pantalla. La apertura se resuelve igual
-                // que MovimientoInternoService::calcularSaldoMovible() (cualquier
-                // apertura abierta de esa caja principal, no solo la de este usuario).
+                // que MovimientoInternoService::calcularSaldoMovible() (la apertura
+                // abierta MÁS ANTIGUA de esa caja principal, no solo la de este
+                // usuario, para que el dinero de sesión de TODOS los vendedores
+                // quede fuera del movible).
                 $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
                     ->where('estado', 'abierta')
-                    ->orderBy('fecha_apertura', 'desc')
+                    ->orderBy('fecha_apertura', 'asc')
                     ->first();
                 $saldoVendedor = number_format(
                     $this->efectivoDisponibleService->calcularMovibleDesdeApertura($subCaja, null, $aperturaActiva),
