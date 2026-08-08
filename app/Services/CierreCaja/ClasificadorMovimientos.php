@@ -7,6 +7,32 @@ use Illuminate\Support\Facades\DB;
 
 class ClasificadorMovimientos
 {
+    /**
+     * Tipo de cada EGRESO del cierre, derivado de `referencia_tipo`.
+     *
+     * Antes las dos consultas de egresos estampaban `'gasto'` fijo, así que un
+     * Traslado de Efectivo o un Traslado a Bóveda aparecían en el cierre bajo
+     * "Gastos" — y no lo son: uno es plata que se le entregó a otro vendedor y
+     * el otro plata que se guardó. Peor aún, el traslado a UNO MISMO sí quedaba
+     * fuera (se autocancela contra su propio ingreso) pero el traslado a OTRO
+     * usuario entraba como gasto, así que el mismo tipo de operación se veía de
+     * dos formas distintas según a quién se le pasara el dinero.
+     *
+     * Solo cambia la ETIQUETA, no el monto: estos egresos siguen restando del
+     * `monto_esperado` (ver CalculadorResumenCaja), porque el dinero sí salió
+     * físicamente del cajón. Sacarlos del cálculo haría que el cierre le exija
+     * al vendedor plata que ya entregó.
+     */
+    private const TIPO_EGRESO_SQL = <<<'SQL'
+        CASE tc.referencia_tipo
+            WHEN 'traslado_boveda'    THEN 'traslado_boveda'
+            WHEN 'movimiento_interno' THEN 'traslado_efectivo'
+            WHEN 'pago_compra'        THEN 'pago_compra'
+            WHEN 'gasto_extra'        THEN 'gasto_extra'
+            ELSE 'gasto'
+        END as tipo
+        SQL;
+
     public function clasificar(Collection $movimientos, Collection $ventas): array
     {
         return [
@@ -331,22 +357,25 @@ class ClasificadorMovimientos
             ->where(function ($query) {
                 // Todos los egresos cuentan como gasto EXCEPTO:
                 //  - los préstamos entre vendedores (van por separado como "préstamos dados")
-                //  - el egreso de un traslado "cerrado → sesión" (el mismo usuario recibió el
-                //    traslado de vuelta en la misma sub-caja; el ingreso ya lo suma y restar
-                //    el egreso autocancelaría ese efectivo nuevo entrando a la sesión).
-                // Los egresos por movimiento_interno que SÍ salen del control del vendedor
-                // (traslado a OTRO usuario o a otra sub-caja) restan del efectivo disponible.
+                //  - el egreso de un TRASLADO DE EFECTIVO (movimiento_interno con
+                //    `destino_user_id`), sin importar quién lo reciba.
+                //
+                // Ese traslado saca dinero del pozo CERRADO de la sub-caja y lo pone en la
+                // sesión abierta de un usuario: no es plata de la sesión de quien lo ejecuta,
+                // así que no le resta a nadie (mismo criterio que
+                // EfectivoDisponibleService::calcularDesdeApertura, "Excepción 1").
+                //
+                // Antes se excluía solo cuando el MISMO usuario lo recibía en la MISMA
+                // sub-caja, así que al trasladarle efectivo a otro vendedor al ejecutor le
+                // aparecía un egreso —y encima bajo "Gastos"— por dinero que nunca fue suyo.
                 $query->whereNull('tc.referencia_tipo')
                     ->orWhere(function ($q) {
                         $q->where('tc.referencia_tipo', '!=', 'transferencia_vendedor')
                           ->whereNotExists(function ($sub) {
                               $sub->select(DB::raw(1))
-                                  ->from('transacciones_caja as tci')
-                                  ->whereColumn('tci.referencia_id', 'tc.referencia_id')
-                                  ->where('tci.referencia_tipo', 'movimiento_interno')
-                                  ->where('tci.tipo_transaccion', 'ingreso')
-                                  ->whereColumn('tci.user_id', 'tc.user_id')
-                                  ->whereColumn('tci.sub_caja_id', 'tc.sub_caja_id');
+                                  ->from('movimientos_internos as mi')
+                                  ->whereColumn('mi.id', 'tc.referencia_id')
+                                  ->whereNotNull('mi.destino_user_id');
                           });
                     });
             })
@@ -362,7 +391,7 @@ class ClasificadorMovimientos
                 'mp.name as metodo_nombre',
                 'mp.cuenta_bancaria as metodo_cuenta',
                 'dp.name as despliegue_nombre',
-                DB::raw("'gasto' as tipo")
+                DB::raw(self::TIPO_EGRESO_SQL),
             ])
             ->get();
 
@@ -691,7 +720,7 @@ class ClasificadorMovimientos
                 'tc.descripcion',
                 'tc.created_at',
                 'sc.nombre as sub_caja',
-                DB::raw("'gasto' as tipo")
+                DB::raw(self::TIPO_EGRESO_SQL),
             ])
             ->get();
     }
