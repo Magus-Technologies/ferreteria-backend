@@ -217,6 +217,13 @@ class CalculadorResumenCaja
                     'mp.name as banco',
                     'dp.name as metodo_pago',
                     'dpv.monto',
+                    // Fecha y tipo del COBRO (no de la venta): con el modelo de cobro
+                    // diferencial una venta editada tiene varios pagos —el inicial y la
+                    // diferencia— hechos en momentos distintos, y el detalle del cierre
+                    // los lista uno por fila. Sin esto, todas las filas mostraban la
+                    // fecha de emisión de la venta.
+                    'dpv.fecha',
+                    'dpv.tipo',
                     'nop.numero_operacion'
                 ])
                 ->get();
@@ -244,6 +251,11 @@ class CalculadorResumenCaja
                         'metodo_pago' => $metodoPagoFormateado,
                         'monto' => (float) $pago->monto,
                         'numero_operacion' => $pago->numero_operacion,
+                        // 'inicial' | 'diferencia' | 'devolucion' — permite distinguir
+                        // en el detalle del cierre qué cobro es el original y cuál vino
+                        // de una edición posterior.
+                        'tipo' => $pago->tipo,
+                        'fecha' => $pago->fecha,
                     ];
                 })->toArray(),
             ];
