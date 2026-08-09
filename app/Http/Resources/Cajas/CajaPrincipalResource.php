@@ -2,7 +2,7 @@
 
 namespace App\Http\Resources\Cajas;
 
-use App\Models\TransaccionCaja;
+use App\Services\Interfaces\MovimientoInternoServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -31,27 +31,22 @@ class CajaPrincipalResource extends JsonResource
 
     /**
      * Saldo total de la caja principal RECALCULADO desde `transacciones_caja`,
-     * no sumando la columna guardada `sub_cajas.saldo_actual`.
+     * no sumando la columna guardada `sub_cajas.saldo_actual` (esa columna queda
+     * por encima del dinero real y acumula descuadres propios).
      *
-     * Esa columna queda por encima del dinero real: un Traslado a Bóveda registra
-     * su egreso en el libro pero deliberadamente NO la descuenta (ver
-     * TrasladoBovedaService::registrarTraslado), y con el tiempo acumula además
-     * descuadres propios. Es el MISMO criterio que usa
-     * MovimientoInternoService::calcularSaldoRealSubCaja(), que alimenta las
-     * columnas "Saldo Cerrado" / "Saldo No Cerrado" del modal de Sub-Cajas — así
-     * el total de la tabla cuadra con el detalle en vez de mostrar un monto mayor.
+     * Es el "Total General" del modal de Sub-Cajas: Saldo Cerrado + Saldo No
+     * Cerrado, o sea todo el dinero que hay en la caja.
+     *
+     * Se delega en MovimientoInternoService, el MISMO calculador que alimenta ese
+     * modal. Antes este resource repetía la suma por su cuenta y se desincronizó:
+     * cuando el Traslado a Bóveda dejó de restar del saldo real, la copia de acá
+     * siguió descontándolo y la tabla mostraba un monto menor que el detalle,
+     * separándose más con cada traslado.
      */
     private function saldoTotalReal(): string
     {
-        $subCajaIds = $this->subCajas->pluck('id');
-
-        if ($subCajaIds->isEmpty()) {
-            return '0.00';
-        }
-
-        $total = (float) TransaccionCaja::whereIn('sub_caja_id', $subCajaIds)
-            ->selectRaw("COALESCE(SUM(CASE WHEN tipo_transaccion = 'ingreso' THEN monto ELSE -monto END), 0) as total")
-            ->value('total');
+        $total = app(MovimientoInternoServiceInterface::class)
+            ->saldoRealCajaPrincipal($this->id);
 
         return number_format($total, 2, '.', '');
     }

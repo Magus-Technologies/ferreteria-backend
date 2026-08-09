@@ -42,6 +42,11 @@ interface MovimientoInternoServiceInterface
     public function detalleNoCerrado(int $subCajaId): array;
 
     /**
+     * Saldo REAL de una caja principal (Cerrado + No Cerrado de sus sub-cajas).
+     */
+    public function saldoRealCajaPrincipal(int $cajaPrincipalId): float;
+
+    /**
      * Usuarios con saldo disponible de cierres cerrados, agrupado por sub-caja.
      */
     public function usuariosConSaldoDisponible(): array;

@@ -554,6 +554,28 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * la columna — salvo cuando el neto de la sesión es negativo y la columna lo
      * aplana a 0 (ver `total_aplanado` en la respuesta).
      */
+    /**
+     * Saldo REAL de una caja principal: todo el dinero que contiene, sumando el
+     * saldo real de sus sub-cajas activas. Equivale al "Total General" del modal
+     * (Saldo Cerrado + Saldo No Cerrado).
+     *
+     * Existe para que `CajaPrincipalResource` no repita la suma por su cuenta. La
+     * tenía duplicada y quedó desincronizada: cuando el Traslado a Bóveda dejó de
+     * restar del saldo real (ver calcularSaldoRealSubCaja), solo se actualizó el
+     * cálculo del modal, así que la columna "Saldo Total" de la tabla seguía
+     * descontando cada traslado y se separaba más del detalle con cada uno.
+     */
+    public function saldoRealCajaPrincipal(int $cajaPrincipalId): float
+    {
+        return round(
+            SubCaja::where('caja_principal_id', $cajaPrincipalId)
+                ->where('estado', true)
+                ->get()
+                ->sum(fn (SubCaja $subCaja) => $this->calcularSaldoRealSubCaja($subCaja)),
+            2
+        );
+    }
+
     public function detalleNoCerrado(int $subCajaId): array
     {
         $subCaja = SubCaja::findOrFail($subCajaId);
