@@ -142,6 +142,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // por eso el mismo modal mostraba montos distintos según quién entraba.
         Route::get('/movimientos-internos/saldos-disponibles', [MovimientoInternoController::class, 'saldosDisponibles']);
 
+        // Detalle del "Saldo No Cerrado" de una sub-caja (por despliegue y usuario).
+        // También es solo lectura: fuera del grupo `caja.abierta`, igual que la anterior.
+        Route::get('/movimientos-internos/detalle-no-cerrado/{subCajaId}', [MovimientoInternoController::class, 'detalleNoCerrado']);
+
         // Movimientos Internos
         Route::prefix('movimientos-internos')->middleware('caja.abierta')->group(function () {
             Route::get('/', [MovimientoInternoController::class, 'index']);

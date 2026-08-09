@@ -37,6 +37,11 @@ interface MovimientoInternoServiceInterface
     public function saldosDisponibles(): array;
 
     /**
+     * Desglose del "Saldo No Cerrado" de una sub-caja, por despliegue de pago y usuario.
+     */
+    public function detalleNoCerrado(int $subCajaId): array;
+
+    /**
      * Usuarios con saldo disponible de cierres cerrados, agrupado por sub-caja.
      */
     public function usuariosConSaldoDisponible(): array;
