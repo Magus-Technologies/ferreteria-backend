@@ -304,11 +304,6 @@ class ClasificadorMovimientos
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'ingreso')
             // EXCLUIR: ventas, aperturas, transferencias Y MONTOS INICIALES.
-            // Los INGRESOS por movimiento_interno (traslados de efectivo recibidos)
-            // SÍ cuentan: ese efectivo llegó físicamente al cajón durante la sesión
-            // y debe figurar en el cierre / monto esperado. Los EGRESOS por
-            // movimiento interno siguen excluidos (por regla salen del dinero de
-            // sesiones cerradas, no del efectivo de la sesión).
             ->where(function ($query) {
                 $query->whereNull('tc.referencia_tipo')
                     ->orWhereNotIn('tc.referencia_tipo', [
@@ -317,6 +312,25 @@ class ClasificadorMovimientos
                         'transferencia_vendedor',
                         'monto_inicial' // ✅ EXCLUIR montos iniciales de bancos
                     ]);
+            })
+            // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO, o sea
+            // el que tiene `destino_user_id`: ese dinero entra a la sesión abierta de
+            // un vendedor y él responde por ese efectivo al cerrar.
+            //
+            // El MOVIMIENTO ENTRE CAJAS (sin `destino_user_id`) queda fuera: es dinero
+            // ya CERRADO que solo cambia de cajón, nadie lo recibe en mano ni lo cuenta
+            // al cerrar. Antes entraba como "Otros Ingresos" y le subía el monto
+            // esperado al vendedor de la sub-caja destino por plata que nunca manejó.
+            // Es el mismo criterio que ya usa MovimientoInternoService::calcularSaldoMovible().
+            ->where(function ($query) {
+                $query->where('tc.referencia_tipo', '!=', 'movimiento_interno')
+                    ->orWhereNull('tc.referencia_tipo')
+                    ->orWhereExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('movimientos_internos as mi')
+                            ->whereColumn('mi.id', 'tc.referencia_id')
+                            ->whereNotNull('mi.destino_user_id');
+                    });
             })
             // Todo traslado de efectivo RECIBIDO por este usuario (movimiento_interno,
             // ingreso) cuenta como Otros Ingresos del cierre, sin importar a qué sub-caja
@@ -357,27 +371,26 @@ class ClasificadorMovimientos
             ->where(function ($query) {
                 // Todos los egresos cuentan como gasto EXCEPTO:
                 //  - los préstamos entre vendedores (van por separado como "préstamos dados")
-                //  - el egreso de un TRASLADO DE EFECTIVO (movimiento_interno con
-                //    `destino_user_id`), sin importar quién lo reciba.
+                //  - CUALQUIER `movimiento_interno`.
                 //
-                // Ese traslado saca dinero del pozo CERRADO de la sub-caja y lo pone en la
-                // sesión abierta de un usuario: no es plata de la sesión de quien lo ejecuta,
-                // así que no le resta a nadie (mismo criterio que
-                // EfectivoDisponibleService::calcularDesdeApertura, "Excepción 1").
+                // Ninguna de las dos operaciones que usan esa tabla le saca plata a la
+                // sesión de quien la ejecuta:
+                //  · TRASLADO DE EFECTIVO (con `destino_user_id`) mueve dinero del pozo
+                //    CERRADO a la sesión abierta de OTRO usuario — le suma a él, no le
+                //    resta al que lo hizo.
+                //  · MOVIMIENTO ENTRE CAJAS (sin `destino_user_id`) es cajón → cajón de
+                //    dinero ya cerrado: nadie lo recibe en mano ni lo cuenta al cerrar.
                 //
-                // Antes se excluía solo cuando el MISMO usuario lo recibía en la MISMA
-                // sub-caja, así que al trasladarle efectivo a otro vendedor al ejecutor le
-                // aparecía un egreso —y encima bajo "Gastos"— por dinero que nunca fue suyo.
+                // Antes se excluía solo el primero, así que un movimiento entre cajas le
+                // bajaba el monto esperado al vendedor de la sub-caja origen por plata que
+                // nunca manejó en su sesión. Es el mismo criterio que ya usa
+                // MovimientoInternoService::calcularSaldoMovible(), que excluye el
+                // movimiento interno de AMBOS lados.
                 $query->whereNull('tc.referencia_tipo')
-                    ->orWhere(function ($q) {
-                        $q->where('tc.referencia_tipo', '!=', 'transferencia_vendedor')
-                          ->whereNotExists(function ($sub) {
-                              $sub->select(DB::raw(1))
-                                  ->from('movimientos_internos as mi')
-                                  ->whereColumn('mi.id', 'tc.referencia_id')
-                                  ->whereNotNull('mi.destino_user_id');
-                          });
-                    });
+                    ->orWhereNotIn('tc.referencia_tipo', [
+                        'transferencia_vendedor',
+                        'movimiento_interno',
+                    ]);
             })
             ->where('tc.fecha', '>=', $fechaInicio)
             ->where('tc.fecha', '<=', $fechaFin)
