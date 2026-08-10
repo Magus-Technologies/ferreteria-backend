@@ -99,33 +99,26 @@ trait ManejaFlujoCajaExtra
                     ->where('fecha', '>=', $aperturaAbierta->fecha_apertura)
                     ->get();
 
-                // Ingresos de la sesión: cuentan TODOS (ventas, ingresos extras y
-                // también los traslados/movimientos internos RECIBIDOS — ese dinero
-                // llega justamente para poder gastar).
+                // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (el
+                // que lleva `destino_user_id`): ese dinero llega justamente para poder
+                // gastar. El MOVIMIENTO ENTRE CAJAS queda fuera de AMBOS lados — es
+                // dinero ya cerrado que solo cambia de cajón, el vendedor nunca lo tuvo.
+                //
+                // Antes el egreso solo se perdonaba si el ingreso volvía a la MISMA
+                // sub-caja y al MISMO usuario, así que un movimiento entre cajas le
+                // restaba al vendedor plata ajena y le bloqueaba registrar gastos.
+                $idsTrasladoASesion = app(\App\Services\Cajas\EfectivoDisponibleService::class)
+                    ->idsTrasladoASesion($transaccionesSesion);
+
                 $ingresosSesion = (float) $transaccionesSesion
                     ->where('tipo_transaccion', 'ingreso')
+                    ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                        || in_array($t->referencia_id, $idsTrasladoASesion, true))
                     ->sum('monto');
 
-                // Egresos de la sesión: restan todos, incluidos los movimientos internos
-                // cuando el traslado SALIÓ del control del vendedor (a otro usuario u otra
-                // sub-caja). Excepción: el traslado "cerrado → sesión" (mismo usuario lo
-                // recibió de vuelta en la misma sub-caja) NO debe restar, porque el ingreso
-                // ya lo suma y restarlo autocancelaría ese efectivo nuevo.
                 $egresosSesion = (float) $transaccionesSesion
                     ->where('tipo_transaccion', 'egreso')
-                    ->filter(function ($t) use ($transaccionesSesion) {
-                        if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                            return true;
-                        }
-
-                        return !$transaccionesSesion->contains(function ($i) use ($t) {
-                            return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                                && $i->tipo_transaccion === 'ingreso'
-                                && $i->referencia_id === $t->referencia_id
-                                && $i->user_id === $t->user_id
-                                && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                        });
-                    })
+                    ->where('referencia_tipo', '!=', 'movimiento_interno')
                     ->sum('monto');
 
                 $disponibleSesion = (float) $aperturaAbierta->monto_apertura + $ingresosSesion - $egresosSesion;

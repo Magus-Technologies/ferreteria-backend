@@ -719,26 +719,31 @@ class SubCajaController extends Controller
             ->get();
         
         
-        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
-        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
-        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
-        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma.
-        $egresos = $transacciones
-            ->where('tipo_transaccion', 'egreso')
-            ->filter(function ($t) use ($transacciones) {
-                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                    return true;
-                }
+        // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (el que
+        // lleva `destino_user_id`): ese dinero entra a la sesión abierta del vendedor
+        // y pasa a ser suyo.
+        //
+        // El MOVIMIENTO ENTRE CAJAS (sin `destino_user_id`) queda fuera de AMBOS
+        // lados: es dinero ya CERRADO que solo cambia de cajón, nadie lo recibe en
+        // mano. Mismo criterio que ClasificadorMovimientos, PrestamoVendedorService y
+        // MovimientoInternoService::calcularSaldoMovible().
+        //
+        // Antes el egreso solo se perdonaba si el ingreso volvía a la MISMA sub-caja
+        // y al MISMO usuario. Un movimiento 57 → 58 no cumplía esa condición, así que
+        // le restaba al vendedor plata que nunca fue de su sesión: con una apertura de
+        // 200 quedaba en -18,748.30 y, como este endpoint filtra `saldo > 0`, su
+        // sub-caja desaparecía de la lista y no se le podía aprobar un préstamo.
+        $idsTrasladoASesion = $this->efectivoDisponibleService->idsTrasladoASesion($transacciones);
 
-                return !$transacciones->contains(function ($i) use ($t) {
-                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                        && $i->tipo_transaccion === 'ingreso'
-                        && $i->referencia_id === $t->referencia_id
-                        && $i->user_id === $t->user_id
-                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                });
-            })
+        $ingresos = (float) $transacciones
+            ->where('tipo_transaccion', 'ingreso')
+            ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                || in_array($t->referencia_id, $idsTrasladoASesion, true))
+            ->sum('monto');
+
+        $egresos = (float) $transacciones
+            ->where('tipo_transaccion', 'egreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
         $saldoFinal = $montoInicial + $ingresos - $egresos;

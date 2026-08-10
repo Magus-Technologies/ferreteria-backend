@@ -9,6 +9,7 @@ use App\Models\SubCaja;
 use App\Models\DespliegueDePago;
 use App\Models\TransaccionCaja;
 use App\Models\DistribucionEfectivoVendedor;
+use App\Services\Cajas\EfectivoDisponibleService;
 use App\Services\Interfaces\TrasladoBovedaServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,10 @@ use Exception;
 
 class TrasladoBovedaService implements TrasladoBovedaServiceInterface
 {
+    public function __construct(
+        private EfectivoDisponibleService $efectivoDisponibleService
+    ) {}
+
     /**
      * Registrar un nuevo traslado a bóveda
      *
@@ -273,32 +278,23 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
             ->where('created_at', '>=', $aperturaActiva->fecha_apertura)
             ->get();
 
-        // Ingresos: los de movimiento_interno (traslados de efectivo recibidos) SÍ
-        // cuentan — es efectivo nuevo que entró a la sesión abierta.
-        $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
-        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
-        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
-        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
-        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión. Mismo
-        // criterio EXACTO que SubCajaController::calcularEfectivoDesdeApertura() —
-        // la validación de este traslado debe usar la misma lógica que el número
+        // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (con
+        // `destino_user_id`): ese sí es efectivo nuevo entrando a la sesión del
+        // vendedor. El MOVIMIENTO ENTRE CAJAS queda fuera de ambos lados — dinero ya
+        // cerrado que solo cambia de cajón. Mismo criterio que el resto del sistema:
+        // la validación de este traslado tiene que usar la misma lógica que el número
         // que se le mostró al usuario en el modal, para que nunca diverjan.
+        $idsTrasladoASesion = $this->efectivoDisponibleService->idsTrasladoASesion($transacciones);
+
+        $ingresos = (float) $transacciones
+            ->where('tipo_transaccion', 'ingreso')
+            ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                || in_array($t->referencia_id, $idsTrasladoASesion, true))
+            ->sum('monto');
+
         $egresos = (float) $transacciones
             ->where('tipo_transaccion', 'egreso')
-            ->filter(function ($t) use ($transacciones) {
-                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                    return true;
-                }
-
-                return !$transacciones->contains(function ($i) use ($t) {
-                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                        && $i->tipo_transaccion === 'ingreso'
-                        && $i->referencia_id === $t->referencia_id
-                        && $i->user_id === $t->user_id
-                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                });
-            })
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
         return $montoInicial + $ingresos - $egresos;
