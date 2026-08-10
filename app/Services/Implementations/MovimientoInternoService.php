@@ -399,10 +399,14 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * un registro —el efectivo se queda en la Caja Chica— y su fila vivía únicamente
      * para que después cada calculador tuviera que acordarse de ignorarla. Los que
      * lo hacían daban un saldo y los que no, otro.
+     *
+     * Con `$desplieguePagoId` acota a un método de pago concreto, para el selector
+     * "Método de Pago Origen" del modal Mover Dinero.
      */
-    private function calcularSaldoRealSubCaja(SubCaja $subCaja): float
+    private function calcularSaldoRealSubCaja(SubCaja $subCaja, ?string $desplieguePagoId = null): float
     {
         return (float) TransaccionCaja::where('sub_caja_id', $subCaja->id)
+            ->when($desplieguePagoId, fn ($q) => $q->where('despliegue_pago_id', $desplieguePagoId))
             ->selectRaw("COALESCE(SUM(CASE WHEN tipo_transaccion = 'ingreso' THEN monto ELSE -monto END), 0) as total")
             ->value('total');
     }
@@ -435,7 +439,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * como detalleNoCerrado() (el desglose por método y usuario), para que el
      * detalle siempre sume exactamente lo que muestra la columna.
      */
-    private function transaccionesDeSesion(SubCaja $subCaja): ?Collection
+    private function transaccionesDeSesion(SubCaja $subCaja, ?string $desplieguePagoId = null): ?Collection
     {
         $aperturas = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
             ->where('estado', 'abierta')
@@ -455,6 +459,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
 
         // La más antigua solo acota la query; el filtro fino es por usuario.
         return TransaccionCaja::where('sub_caja_id', $subCaja->id)
+            ->when($desplieguePagoId, fn ($q) => $q->where('despliegue_pago_id', $desplieguePagoId))
             ->where('fecha', '>=', min($cortePorUsuario))
             ->get()
             ->filter(function ($t) use ($cortePorUsuario) {
@@ -472,9 +477,9 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * con 500 → movible 1500. Si además vendo 200 hoy, esos 200 NO se pueden
      * mover todavía (siguen siendo "de la sesión"), pero el 1500 sí.
      */
-    private function calcularSaldoMovible(SubCaja $subCaja): float
+    private function calcularSaldoMovible(SubCaja $subCaja, ?string $desplieguePagoId = null): float
     {
-        $saldoActual = $this->calcularSaldoRealSubCaja($subCaja);
+        $saldoActual = $this->calcularSaldoRealSubCaja($subCaja, $desplieguePagoId);
 
         // El corte NO puede ser una sola fecha global de la caja principal: una
         // caja es un cajón COMPARTIDO con varias sesiones abiertas a la vez (una
@@ -490,7 +495,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         // actividad de SU dueño. Una transacción es "dinero de sesión" solo si su
         // `user_id` tiene sesión abierta y ocurrió a partir de la apertura de esa
         // sesión. Lo de un usuario sin sesión abierta ya está cerrado → movible.
-        $transacciones = $this->transaccionesDeSesion($subCaja);
+        $transacciones = $this->transaccionesDeSesion($subCaja, $desplieguePagoId);
 
         if ($transacciones === null) {
             return $saldoActual;
@@ -546,9 +551,12 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * mismo que valida crearMovimiento(), expuesto para que las pantallas no
      * tengan que recalcularlo por su cuenta.
      */
-    public function saldoMovibleSubCaja(int $subCajaId): float
+    public function saldoMovibleSubCaja(int $subCajaId, ?string $desplieguePagoId = null): float
     {
-        return round(max($this->calcularSaldoMovible(SubCaja::findOrFail($subCajaId)), 0), 2);
+        return round(
+            max($this->calcularSaldoMovible(SubCaja::findOrFail($subCajaId), $desplieguePagoId), 0),
+            2
+        );
     }
 
     /**

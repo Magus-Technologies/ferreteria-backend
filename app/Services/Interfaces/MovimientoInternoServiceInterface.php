@@ -48,8 +48,9 @@ interface MovimientoInternoServiceInterface
 
     /**
      * Saldo CERRADO (movible) de una sub-caja — lo único que se puede mover a otra.
+     * Con `$desplieguePagoId` lo acota a un método de pago concreto.
      */
-    public function saldoMovibleSubCaja(int $subCajaId): float;
+    public function saldoMovibleSubCaja(int $subCajaId, ?string $desplieguePagoId = null): float;
 
     /**
      * Usuarios con saldo disponible de cierres cerrados, agrupado por sub-caja.

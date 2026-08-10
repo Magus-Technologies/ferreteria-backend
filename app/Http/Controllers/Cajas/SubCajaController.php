@@ -888,30 +888,21 @@ class SubCajaController extends Controller
      * Calcular saldo MOVIBLE de la sub-caja para un método de pago específico,
      * para el modal "Mover Dinero entre Sub-Cajas".
      *
-     * Delega en EfectivoDisponibleService::calcularMovibleDesdeApertura() — el
-     * TOTAL desde siempre (cerrado + apertura de hoy) de la SUB-CAJA COMPLETA
-     * (cajón físico compartido, no por vendedor — mismo criterio que
-     * calcularSaldoVendedorEnSubCaja() más abajo), sin la actividad de la
-     * sesión actual. OJO: esto es distinto de calcularEfectivoDesdeApertura()
-     * (session-scoped, por vendedor, usado por Traslado a Bóveda/Efectivo) —
-     * "Mover Dinero" necesita ver también lo acumulado en sesiones ya
-     * cerradas de CUALQUIER vendedor, no solo lo propio de la sesión abierta.
-     * `$userId` ya no se usa para acotar el saldo, solo queda en la firma por
-     * compatibilidad con el único llamador (obtenerMetodosPagoConSaldo).
+     * Es el MISMO cálculo que el saldo de la sub-caja completa y que la validación
+     * al guardar el movimiento, solo que acotado a un despliegue de pago. Antes
+     * usaba EfectivoDisponibleService::calcularMovibleDesdeApertura(), que ofrecía
+     * de más porque excluía la fila de `apertura` del dinero de sesión y resolvía
+     * una sola apertura para toda la caja principal en vez de cortar por usuario.
+     * Por eso el selector de sub-caja mostraba 18,948.30 y el de método 19,148.30.
+     *
+     * `$userId` ya no se usa para acotar el saldo (la sub-caja es un cajón físico
+     * compartido, no se reparte por vendedor); queda en la firma por compatibilidad
+     * con el único llamador (obtenerMetodosPagoConSaldo).
      */
     private function calcularSaldoVendedorPorMetodoPago(int $subCajaId, string|int $userId, string $desplieguePagoId): string
     {
-        $subCaja = \App\Models\SubCaja::find($subCajaId);
-        if (!$subCaja) {
-            return '0.00';
-        }
-
-        $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-            ->where('estado', 'abierta')
-            ->orderBy('fecha_apertura', 'desc')
-            ->first();
-
-        $saldo = $this->efectivoDisponibleService->calcularMovibleDesdeApertura($subCaja, $desplieguePagoId, $aperturaActiva);
+        $saldo = app(\App\Services\Interfaces\MovimientoInternoServiceInterface::class)
+            ->saldoMovibleSubCaja($subCajaId, $desplieguePagoId);
 
         return number_format($saldo, 2, '.', '');
     }
