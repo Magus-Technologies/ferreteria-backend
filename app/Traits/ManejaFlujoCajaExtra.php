@@ -3,6 +3,7 @@
 namespace App\Traits;
 
 use App\Models\AperturaCierreCaja;
+use App\Models\DistribucionEfectivoVendedor;
 use App\Models\TransaccionCaja;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
@@ -74,18 +75,14 @@ trait ManejaFlujoCajaExtra
             ? $saldoAnterior + $monto
             : $saldoAnterior - $monto;
 
-        // Validar saldo insuficiente para gastos
-        if ($tipoTransaccion === 'egreso' && $saldoNuevo < 0) {
-            throw new \Exception("Saldo insuficiente en la sub-caja '{$subCaja->nombre}'. Disponible: S/" . number_format($saldoAnterior, 2));
-        }
-
-        // Validar contra el efectivo REAL de la sesión abierta del usuario (desde su
-        // apertura): si tiene una apertura abierta en esta sub-caja, solo puede gastar
-        // el dinero de SU sesión (monto_apertura + sus ingresos − sus egresos desde que
-        // se abrió). El saldo_actual de la sub-caja puede estar inflado con dinero de
-        // sesiones anteriores o de otros vendedores, y permitiría gastar lo que en
-        // realidad no hay en caja (ej. apertura de 150 y gasto de 2500).
-        // Sin apertura abierta del usuario, el límite es el saldo_actual.
+        // Validar contra el efectivo REAL de la sesión abierta del usuario: si tiene
+        // apertura abierta en esta sub-caja, solo puede gastar el dinero de SU sesión.
+        //
+        // Esta validación va PRIMERO. Antes corría después de un chequeo contra
+        // `sub_cajas.saldo_actual`, que es el saldo del cajón COMPLETO —compartido
+        // entre vendedores y desalineado del libro—, así que el usuario recibía
+        // "Disponible: S/230.00" (el saldo de la sub-caja) cuando su efectivo real de
+        // sesión era 120. El mensaje reportaba un monto que no era suyo.
         if ($tipoTransaccion === 'egreso') {
             $aperturaAbierta = AperturaCierreCaja::where('sub_caja_id', $subCajaId)
                 ->where('user_id', Auth::id())
@@ -121,7 +118,24 @@ trait ManejaFlujoCajaExtra
                     ->where('referencia_tipo', '!=', 'movimiento_interno')
                     ->sum('monto');
 
-                $disponibleSesion = (float) $aperturaAbierta->monto_apertura + $ingresosSesion - $egresosSesion;
+                // Base = lo que le tocó A ESTE VENDEDOR en el reparto, NO el
+                // `monto_apertura` de la apertura. Una apertura se distribuye entre
+                // varios vendedores, así que usar el total le daba a cada uno el
+                // dinero de todos: con una apertura de 230 repartida, un vendedor con
+                // 120 veía 230 disponibles.
+                //
+                // Si no hay fila de distribución, la apertura no se repartió y es
+                // enteramente suya (ya viene filtrada por su `user_id`), así que ahí
+                // sí corresponde el monto de apertura.
+                $distribuido = (float) DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaAbierta->id)
+                    ->where('user_id', Auth::id())
+                    ->sum('monto');
+
+                $montoInicial = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaAbierta->id)->exists()
+                    ? $distribuido
+                    : (float) $aperturaAbierta->monto_apertura;
+
+                $disponibleSesion = $montoInicial + $ingresosSesion - $egresosSesion;
 
                 if ($monto > $disponibleSesion + 0.001) {
                     throw new \Exception(
@@ -131,6 +145,13 @@ trait ManejaFlujoCajaExtra
                         . '. Solo puedes gastar el dinero de tu sesión abierta.'
                     );
                 }
+            } elseif ($saldoNuevo < 0) {
+                // Sin sesión abierta del usuario el único límite posible es el saldo
+                // del cajón. Queda como red de seguridad para no dejarlo en negativo.
+                throw new \Exception(
+                    "Saldo insuficiente en la sub-caja '{$subCaja->nombre}'. Disponible: S/"
+                    . number_format($saldoAnterior, 2)
+                );
             }
         }
 
