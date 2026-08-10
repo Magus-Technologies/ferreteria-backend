@@ -146,10 +146,17 @@ Route::middleware('auth:sanctum')->group(function () {
         // También es solo lectura: fuera del grupo `caja.abierta`, igual que la anterior.
         Route::get('/movimientos-internos/detalle-no-cerrado/{subCajaId}', [MovimientoInternoController::class, 'detalleNoCerrado']);
 
-        // Movimientos Internos
+        // HISTORIALES (solo lectura) — fuera de `caja.abierta`.
+        //
+        // Alimentan las pestañas "Traslado de Efectivo" y "Movimiento entre Cajas"
+        // de Movimientos de Caja. Son consultas de lo YA registrado, no operaciones:
+        // exigir caja abierta para verlas devolvía 403 y las pestañas salían vacías
+        // cuando el usuario no tenía sesión abierta, como si no hubiera registros.
+        Route::get('/movimientos-internos', [MovimientoInternoController::class, 'index']);
+        Route::get('/movimientos-internos/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
+
+        // Movimientos Internos — las que MUEVEN dinero sí exigen caja abierta.
         Route::prefix('movimientos-internos')->middleware('caja.abierta')->group(function () {
-            Route::get('/', [MovimientoInternoController::class, 'index']);
-            Route::get('/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
             Route::post('/{id}/anular', [MovimientoInternoController::class, 'anular']);
         });
@@ -200,6 +207,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Traslados a Bóveda
         Route::prefix('traslados-boveda')->middleware('broadcast:traslados-boveda')->group(function () {
+            // Historial sin depender de la apertura activa. Va ANTES de
+            // /caja/{aperturaCierreId} para que no lo capture esa ruta.
+            Route::get('/historial', [TrasladoBovedaController::class, 'historial']);
             Route::get('/caja/{aperturaCierreId}', [TrasladoBovedaController::class, 'obtenerPorCaja']);
             Route::get('/caja/{aperturaCierreId}/todos', [TrasladoBovedaController::class, 'obtenerTodosPorCaja']);
             Route::get('/{aperturaCierreId}/total', [TrasladoBovedaController::class, 'obtenerTotal']);

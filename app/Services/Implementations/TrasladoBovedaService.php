@@ -84,24 +84,19 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
 
             $traslado = TrasladoBoveda::create($createData);
 
-            // 2. Registrar el egreso en la historia de transacciones (para el cálculo de saldos)
-            // Se registra como egreso pero NO resta del saldo_actual persistido de la sub-caja
-            // porque sigue siendo dinero bajo responsabilidad de la Caja Chica.
+            // 2. NO se escribe nada en `transacciones_caja`.
+            //
+            // El traslado a bóveda es solo un REGISTRO: el efectivo se queda en la
+            // Caja Chica, no se va a ningún lado. Antes se grababa un egreso acá y,
+            // como TODOS los saldos del sistema se recalculan sumando ese libro,
+            // cada calculador tenía que acordarse de excluir esas filas. Los que se
+            // acordaban daban un saldo y los que no, otro: la misma sub-caja llegó a
+            // mostrar 18,948.30 en "Saldo Cerrado" y 11,948.30 en "Mover Dinero
+            // entre Sub-Cajas", diferencia exacta de los traslados registrados.
+            //
+            // Sin la fila, todos los calculadores coinciden solos y no hace falta
+            // ningún filtro especial en ninguno.
             $subCaja = $traslado->subCaja;
-            $transaccion = \App\Models\TransaccionCaja::create([
-                'id' => (string) \Illuminate\Support\Str::ulid(),
-                'sub_caja_id' => $data['sub_caja_id'],
-                'user_id' => $data['vendedor_id'],
-                'despliegue_pago_id' => $data['despliegue_pago_id'],
-                'tipo_transaccion' => 'egreso',
-                'monto' => $data['monto'],
-                'saldo_anterior' => $subCaja->saldo_actual,
-                'saldo_nuevo' => $subCaja->saldo_actual, // No descontamos de la responsabilidad total
-                'descripcion' => "Traslado a bóveda: " . ($data['justificacion'] ?? ''),
-                'referencia_tipo' => 'traslado_boveda',
-                'referencia_id' => $traslado->id,
-                'fecha' => now(),
-            ]);
 
             // 3. Registrar el movimiento de caja (para el ticket de cierre)
             \App\Models\MovimientoCaja::create([
@@ -154,6 +149,29 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
     /**
      * Obtener todos los traslados (incluyendo anulados) - para historial
      */
+    /**
+     * Historial de traslados para un usuario, SIN depender de que tenga caja
+     * abierta: se resuelve desde su última apertura (abierta o cerrada) y de ahí
+     * se amplía a toda la caja principal.
+     *
+     * La pestaña "Traslado a Bóveda" pedía la apertura ACTIVA y, si no había,
+     * ni siquiera llamaba al backend: el historial salía vacío como si no
+     * existieran registros. Ver los movimientos ya hechos no requiere estar
+     * operando.
+     */
+    public function obtenerHistorialDelUsuario(string|int $userId): Collection
+    {
+        $apertura = AperturaCierreCaja::where('user_id', $userId)
+            ->orderByDesc('fecha_apertura')
+            ->first();
+
+        if (! $apertura) {
+            return new Collection();
+        }
+
+        return $this->obtenerTodosLosTrasladosPorCaja($apertura->id);
+    }
+
     public function obtenerTodosLosTrasladosPorCaja(string $aperturaCierreId): Collection
     {
         // "Caja General" es compartida: cada vendedor tiene su PROPIA apertura dentro
@@ -349,9 +367,14 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                 ->where('concepto', 'LIKE', 'Traslado a bóveda%')
                 ->delete();
 
-            // 3. Restaurar saldo de la sub-caja
-            $subCaja->saldo_actual += $monto;
-            $subCaja->save();
+            // 3. NO se toca `saldo_actual`.
+            //
+            // Antes acá se hacía `$subCaja->saldo_actual += $monto` para "restaurar"
+            // el saldo — pero registrarTraslado() NUNCA lo restó, así que cada
+            // anulación le SUMABA plata que nunca había salido. Ese era el origen del
+            // desfase de la columna guardada (7,000 de más en la Caja Chica, igual al
+            // total de traslados). Como el traslado es solo un registro, anularlo no
+            // tiene que mover ningún saldo: basta con marcarlo.
 
             // 4. Marcar el traslado como anulado (no se elimina)
             $traslado->estado = 'anulado';
