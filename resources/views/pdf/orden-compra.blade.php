@@ -63,9 +63,9 @@
     @php
         $totalItems = [];
         
-        if (in_array('subtotal', $columnasSeleccionadas)) {
-            $totalItems[] = ['label' => 'SUBTOTAL', 'valor' => $monedaSimbolo . ' ' . number_format($calculos['subtotal'], 2)];
-        }
+        // Sin renglón de SUBTOTAL: el desagregado por impuesto (OP. GRAVADAS +
+        // I.G.V.) ya deja claro cómo se compone el total, y repetir el subtotal
+        // arriba solo confundía.
         if ($calculos['flete_total'] > 0 && in_array('flete', $columnasSeleccionadas)) {
             $totalItems[] = ['label' => 'FLETE TOTAL', 'valor' => $monedaSimbolo . ' ' . number_format($calculos['flete_total'], 2)];
         }
