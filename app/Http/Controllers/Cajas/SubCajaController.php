@@ -306,25 +306,29 @@ class SubCajaController extends Controller
             // Obtener TODAS las sub-cajas activas
             $subCajas = \App\Models\SubCaja::where('estado', true)->get();
             
-            $subCajasConSaldo = $subCajas->map(function ($subCaja) use ($userId) {
-                // "Mover Dinero entre Sub-Cajas" necesita el saldo MOVIBLE de la
-                // SUB-CAJA COMPLETA (Caja Chica es un cajón físico compartido entre
-                // vendedores, no algo que se reparte por vendedor) — cerrado +
-                // apertura de hoy, sin la actividad de la sesión. Distinto del saldo
-                // "efectivo desde apertura" (session-scoped, por vendedor) que usa
-                // getConSaldoVendedor() para gastos. Por eso NO se reutiliza
-                // calcularSaldoVendedorEnSubCaja() acá, para no cambiarle el
-                // comportamiento a esa otra pantalla. La apertura se resuelve igual
-                // que MovimientoInternoService::calcularSaldoMovible() (la apertura
-                // abierta MÁS ANTIGUA de esa caja principal, no solo la de este
-                // usuario, para que el dinero de sesión de TODOS los vendedores
-                // quede fuera del movible).
-                $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-                    ->where('estado', 'abierta')
-                    ->orderBy('fecha_apertura', 'asc')
-                    ->first();
+            $movimientoInternoService = app(\App\Services\Interfaces\MovimientoInternoServiceInterface::class);
+
+            $subCajasConSaldo = $subCajas->map(function ($subCaja) use ($userId, $movimientoInternoService) {
+                // "Mover Dinero entre Sub-Cajas" solo puede mover el saldo CERRADO:
+                // lo de las sesiones abiertas todavía no se puede tocar porque esos
+                // vendedores aún no cuadraron su caja.
+                //
+                // Se pide al MISMO calculador que muestra la columna "Saldo Cerrado" y
+                // que valida el movimiento al guardarlo. Antes se usaba
+                // calcularMovibleDesdeApertura(), que difiere en dos cosas y hacía que
+                // el modal ofreciera de más:
+                //   - EXCLUYE la fila de `apertura` del dinero de sesión, así que
+                //     ofrecía el monto con el que el vendedor aperturó (200.00 en la
+                //     Caja Chica) aunque su sesión siguiera abierta;
+                //   - resuelve UNA sola apertura para toda la caja principal, cuando el
+                //     corte correcto es POR USUARIO — con varias sesiones abiertas a la
+                //     vez contaba mal el dinero de sesión de los demás vendedores.
+                //
+                // El resultado era un disponible mayor que el real: al intentar moverlo
+                // la validación lo rechazaba con "Solo puedes mover dinero de caja
+                // CERRADA".
                 $saldoVendedor = number_format(
-                    $this->efectivoDisponibleService->calcularMovibleDesdeApertura($subCaja, null, $aperturaActiva),
+                    $movimientoInternoService->saldoMovibleSubCaja($subCaja->id),
                     2, '.', ''
                 );
 

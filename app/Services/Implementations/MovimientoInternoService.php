@@ -541,6 +541,17 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * aplana a 0 (ver `total_aplanado` en la respuesta).
      */
     /**
+     * Saldo CERRADO (movible) de una sub-caja: lo único que se puede mandar a otra
+     * sub-caja. Es el mismo número que muestra la columna "Saldo Cerrado" y el
+     * mismo que valida crearMovimiento(), expuesto para que las pantallas no
+     * tengan que recalcularlo por su cuenta.
+     */
+    public function saldoMovibleSubCaja(int $subCajaId): float
+    {
+        return round(max($this->calcularSaldoMovible(SubCaja::findOrFail($subCajaId)), 0), 2);
+    }
+
+    /**
      * Saldo REAL de una caja principal: todo el dinero que contiene, sumando el
      * saldo real de sus sub-cajas activas. Equivale al "Total General" del modal
      * (Saldo Cerrado + Saldo No Cerrado).

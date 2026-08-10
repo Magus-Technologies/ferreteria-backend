@@ -47,6 +47,11 @@ interface MovimientoInternoServiceInterface
     public function saldoRealCajaPrincipal(int $cajaPrincipalId): float;
 
     /**
+     * Saldo CERRADO (movible) de una sub-caja — lo único que se puede mover a otra.
+     */
+    public function saldoMovibleSubCaja(int $subCajaId): float;
+
+    /**
      * Usuarios con saldo disponible de cierres cerrados, agrupado por sub-caja.
      */
     public function usuariosConSaldoDisponible(): array;
