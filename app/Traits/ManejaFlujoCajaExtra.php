@@ -91,9 +91,17 @@ trait ManejaFlujoCajaExtra
                 ->first();
 
             if ($aperturaAbierta) {
+                // Se EXCLUYE la fila `apertura`: ese monto ya entra como base más
+                // abajo (la distribución del vendedor). Contarlo también acá lo sumaba
+                // DOS veces — con una apertura de 120 el disponible salía 240.
+                // Mismo criterio que el resto de calculadores del sistema.
                 $transaccionesSesion = TransaccionCaja::where('sub_caja_id', $subCajaId)
                     ->where('user_id', Auth::id())
                     ->where('fecha', '>=', $aperturaAbierta->fecha_apertura)
+                    ->where(function ($q) {
+                        $q->whereNull('referencia_tipo')
+                            ->orWhere('referencia_tipo', '!=', 'apertura');
+                    })
                     ->get();
 
                 // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (el
