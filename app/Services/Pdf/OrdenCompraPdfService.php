@@ -103,6 +103,9 @@ class OrdenCompraPdfService
         return $productos;
     }
 
+    /** IGV vigente en Perú. */
+    private const IGV = 0.18;
+
     private function calcularTotales(OrdenCompra $orden, array $productos): array
     {
         $subtotal = array_sum(array_column($productos, 'subtotal'));
@@ -110,10 +113,20 @@ class OrdenCompraPdfService
         $percepcion = (float) ($orden->percepcion ?? 0);
         $total = (float) ($orden->total ?? ($subtotal + $fleteTotal + $percepcion));
 
+        // Los precios de la orden ya vienen CON IGV incluido, así que la base
+        // gravada se desagrega hacia atrás (total ÷ 1.18) en vez de sumarle el
+        // impuesto por encima. El IGV se saca por diferencia para que
+        // `op_gravadas + igv` dé exactamente el total, sin descuadres de redondeo.
+        $opGravadas = round($total / (1 + self::IGV), 2);
+        $igv = round($total - $opGravadas, 2);
+
         return [
             'subtotal' => $subtotal,
             'flete_total' => $fleteTotal,
             'percepcion' => $percepcion,
+            'op_gravadas' => $opGravadas,
+            'igv' => $igv,
+            'igv_porcentaje' => (int) round(self::IGV * 100),
             'total' => $total,
         ];
     }
