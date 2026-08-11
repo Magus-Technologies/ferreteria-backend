@@ -564,6 +564,7 @@ class KardexFacturacionService
 
         // Obtener filas de entregas hechas y anuladas
         $entregaRows = $this->getEntregasParaKardex($productoId, $almacenId, $desde, $hasta, $clienteId);
+        $entregaRows = $this->expandirEntregasPorMovimiento($entregaRows, $kardexRows);
 
         // Combinar y ordenar por fecha asc para acumular el stock cronológicamente.
         // En caso de empate de fecha (venta + su entrega automática), la VENTA
@@ -724,6 +725,73 @@ class KardexFacturacionService
             'per_page' => $perPage,
             'last_page' => (int) ($perPage == -1 ? 1 : ceil($total / $perPage)),
         ]);
+    }
+
+    /**
+     * Reparte cada fila de ENTREGA en una fila por movimiento real de la venta.
+     *
+     * `entrega_detalle` NO es un libro histórico: al editar una venta se borra y se
+     * recrea con la cantidad NUEVA, bajo la misma cabecera `entrega` (que conserva su
+     * `created_at` original). Eso producía dos defectos en el kardex:
+     *
+     *  - La ENTREGA de un producto que subió de 50 a 55 mostraba `cantidad = 55` pero
+     *    arrastraba el stock del movimiento de 50 (255 → 205). La fila se contradecía,
+     *    y leída junto al AJUSTE los 5 aparecían dos veces.
+     *  - La ENTREGA de un producto AGREGADO en la edición nacía con la fecha de la
+     *    venta original, o sea antes de existir, y se ordenaba encima del ajuste que
+     *    la creó.
+     *
+     * El kardex (`kardexfacturacion`) sí es inmutable: guarda VENTA 50 y luego
+     * AJUSTE POR EDICIÓN 5. Así que la entrega se deriva de ahí — una fila espejo por
+     * movimiento, con la fecha y la cantidad de ese movimiento.
+     *
+     * Las ENTREGAS ANULADAS no se tocan: `fecha_anulacion` es un hecho propio, no el
+     * reflejo de un movimiento de venta.
+     */
+    private function expandirEntregasPorMovimiento(array $entregaRows, array $kardexRows): array
+    {
+        if (empty($entregaRows)) {
+            return $entregaRows;
+        }
+
+        // Movimientos de venta agrupados por venta+producto, en orden cronológico.
+        $movimientosPorVentaProducto = [];
+        foreach ($kardexRows as $k) {
+            if (($k->tipo ?? null) !== 'venta' || empty($k->producto_id)) {
+                continue;
+            }
+            $movimientosPorVentaProducto["{$k->referencia_id}_{$k->producto_id}"][] = $k;
+        }
+
+        $expandidas = [];
+        foreach ($entregaRows as $row) {
+            $movimientos = $movimientosPorVentaProducto["{$row->referencia_id}_{$row->producto_id}"] ?? [];
+
+            if (($row->movimiento ?? null) === 'ENTREGA ANULADA' || empty($movimientos)) {
+                // Sin movimientos que reflejar (entrega legacy, o venta fuera del rango
+                // de fechas consultado): se deja tal cual para no perder la fila.
+                $expandidas[] = $row;
+                continue;
+            }
+
+            foreach ($movimientos as $mov) {
+                $clon = clone $row;
+                $clon->fecha = $mov->fecha;
+                // `cantidad` de una VENTA puede ser solo el excedente sobre una reserva
+                // de cotización; se suma lo reservado para que la entrega muestre el
+                // total real (la rama de entrega más abajo ya no le vuelve a sumar).
+                $clon->cantidad = (float) ($mov->cantidad ?? 0) + (float) ($mov->cantidad_reservada ?? 0);
+                $clon->cantidad_fraccion = $clon->cantidad * (float) ($row->factor ?? 1);
+                // Las ENTREGAS van todas juntas encima del bloque de movimientos, no
+                // pegada cada una al suyo. El -100 las manda debajo de cualquier `orden`
+                // real; conservar el del movimiento como decimal mantiene entre ellas el
+                // mismo orden que tienen sus movimientos.
+                $clon->orden = (float) ($mov->orden ?? 1) - 100;
+                $expandidas[] = $clon;
+            }
+        }
+
+        return $expandidas;
     }
 
     private function getEntregasParaKardex(
