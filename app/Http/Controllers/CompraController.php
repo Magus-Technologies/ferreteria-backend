@@ -1868,7 +1868,11 @@ class CompraController extends Controller
             'descripcion' => 'Anulación de pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
             'referencia_id' => $compra->id,
             'referencia_tipo' => 'anulacion_pago_compra',
-            'user_id' => $compra->user_id,
+            // A nombre del MISMO usuario que hizo el pago original, no del creador de
+            // la compra: si el egreso quedó a nombre de uno y la reversión a nombre de
+            // otro, no se cancelan — al primero le sigue figurando el gasto en su
+            // cierre y al segundo le aparece un ingreso que nunca recibió.
+            'user_id' => $transaccionOriginal->user_id,
             'despliegue_pago_id' => $pago->despliegue_de_pago_id,
             'fecha' => now(),
         ]);
