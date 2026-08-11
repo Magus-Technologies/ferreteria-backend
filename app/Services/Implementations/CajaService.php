@@ -309,27 +309,113 @@ class CajaService implements CajaServiceInterface
     /**
      * Verificar si un método de pago es efectivo
      */
+    /**
+     * Deja el `monto_inicial` de un banco reflejado en el LIBRO (`transacciones_caja`),
+     * que es de donde salen todos los saldos que muestra el sistema.
+     *
+     * Antes esto solo pasaba al CREAR una sub-caja que incluyera un despliegue del
+     * banco (registrarMontoInicialSiAplica). Crear el banco o editarle el monto
+     * guardaba las columnas `monto_inicial`/`monto` y nada más, así que el número
+     * aparecía en la ficha del banco pero la sub-caja seguía en 0.00: dos
+     * contabilidades paralelas que nadie conciliaba.
+     *
+     * Registra la DIFERENCIA contra lo ya asentado, no el monto completo, para que
+     * editarlo varias veces no lo duplique:
+     *   - sube  → ingreso por la diferencia
+     *   - baja  → egreso por la diferencia
+     *   - igual → no hace nada
+     *
+     * Devuelve el monto ajustado (con signo), o 0 si no había nada que hacer.
+     */
+    public function sincronizarMontoInicialBanco(\App\Models\MetodoDePago $metodoPago): float
+    {
+        // El efectivo no lleva monto inicial de banco: ese dinero entra por la
+        // apertura de caja, no por la configuración del método de pago.
+        if ($this->esMetodoEfectivo($metodoPago)) {
+            return 0.0;
+        }
+
+        $desplieguesDelBanco = DespliegueDePago::where('metodo_de_pago_id', $metodoPago->id)
+            ->pluck('id')
+            ->all();
+
+        if (empty($desplieguesDelBanco)) {
+            return 0.0;
+        }
+
+        // Sub-caja donde vive este banco. Sin una sub-caja que lo acepte no hay
+        // dónde asentar el dinero: se queda configurado y se registrará cuando se
+        // cree una (ver registrarMontoInicialSiAplica).
+        $subCaja = null;
+        $desplieguePagoId = null;
+
+        foreach (SubCaja::where('estado', true)->get() as $candidata) {
+            foreach ($candidata->getDesplieguePagos() as $despliegue) {
+                if (in_array($despliegue->id, $desplieguesDelBanco, true)) {
+                    $subCaja = $candidata;
+                    $desplieguePagoId = $despliegue->id;
+                    break 2;
+                }
+            }
+        }
+
+        if (!$subCaja) {
+            return 0.0;
+        }
+
+        $yaRegistrado = (float) \App\Models\TransaccionCaja::where('referencia_tipo', 'monto_inicial')
+            ->where('referencia_id', $metodoPago->id)
+            ->selectRaw("COALESCE(SUM(CASE WHEN tipo_transaccion = 'ingreso' THEN monto ELSE -monto END), 0) as total")
+            ->value('total');
+
+        $diferencia = round((float) $metodoPago->monto_inicial - $yaRegistrado, 2);
+
+        if (abs($diferencia) < 0.005) {
+            return 0.0;
+        }
+
+        $esIngreso = $diferencia > 0;
+        $saldoAnterior = (float) $subCaja->saldo_actual;
+        $saldoNuevo = $saldoAnterior + $diferencia;
+
+        \App\Models\TransaccionCaja::create([
+            'id' => (string) Str::ulid(),
+            'sub_caja_id' => $subCaja->id,
+            'user_id' => Auth::id() ?? $subCaja->cajaPrincipal->user_id,
+            'tipo_transaccion' => $esIngreso ? 'ingreso' : 'egreso',
+            'monto' => abs($diferencia),
+            'saldo_anterior' => $saldoAnterior,
+            'saldo_nuevo' => $saldoNuevo,
+            'despliegue_pago_id' => $desplieguePagoId,
+            'descripcion' => ($esIngreso ? 'Monto inicial de ' : 'Ajuste de monto inicial de ') . $metodoPago->name,
+            'referencia_tipo' => 'monto_inicial',
+            'referencia_id' => $metodoPago->id,
+            'fecha' => now(),
+        ]);
+
+        $subCaja->saldo_actual = $saldoNuevo;
+        $subCaja->save();
+
+        return $diferencia;
+    }
+
+    /**
+     * ¿Este método de pago es EFECTIVO?
+     *
+     * Solo cuenta el nombre: si dice "efectivo", lo es. El efectivo se excluye del
+     * monto inicial porque ese dinero entra por la apertura de caja, no por la
+     * configuración del método.
+     *
+     * Antes, cuando el método no tenía cuenta bancaria, se adivinaba por palabras
+     * sueltas del nombre — "caja", "cash", "sin banco". Eso marcaba como efectivo a
+     * cualquier método que llevara "caja" en el nombre: un banco llamado "caja
+     * prueba" quedaba excluido y su monto inicial nunca se registraba, mientras que
+     * otro igual de "sin cuenta" pero llamado distinto sí entraba. La ausencia de
+     * cuenta bancaria no lo vuelve efectivo — hay métodos digitales sin cuenta.
+     */
     private function esMetodoEfectivo(\App\Models\MetodoDePago $metodoPago): bool
     {
-        $nombre = strtolower($metodoPago->name ?? '');
-        $cuentaBancaria = $metodoPago->cuenta_bancaria;
-
-        // Es efectivo si:
-        // 1. El nombre contiene "efectivo"
-        // 2. No tiene cuenta bancaria o es "SIN-CUENTA"
-        if (str_contains($nombre, 'efectivo')) {
-            return true;
-        }
-
-        // Si no tiene cuenta bancaria real, podría ser efectivo
-        if (!$cuentaBancaria || $cuentaBancaria === 'SIN-CUENTA') {
-            // Verificar si el nombre sugiere que es efectivo
-            return str_contains($nombre, 'caja') || 
-                   str_contains($nombre, 'cash') ||
-                   $nombre === 'sin banco';
-        }
-
-        return false;
+        return str_contains(strtolower($metodoPago->name ?? ''), 'efectivo');
     }
 
     public function actualizarSubCaja(int $subCajaId, array $data): SubCaja
