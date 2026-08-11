@@ -297,7 +297,17 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
             ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
-        return $montoInicial + $ingresos - $egresos;
+        // Lo ya mandado a bóveda en esta sesión no se puede volver a mandar. Se lee de
+        // `traslados_boveda` porque el traslado no deja rastro en el libro; sin esto se
+        // podía trasladar el mismo dinero una y otra vez.
+        $yaEnBoveda = $this->efectivoDisponibleService->trasladosBovedaActivos(
+            $subCajaId,
+            [$aperturaActiva->id],
+            $userId,
+            $desplieguePagoId
+        );
+
+        return $montoInicial + $ingresos - $egresos - $yaEnBoveda;
     }
 
     public function validarSupervisor(string $supervisorId, string $password): bool

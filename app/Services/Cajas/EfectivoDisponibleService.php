@@ -21,6 +21,36 @@ use Illuminate\Support\Collection;
 class EfectivoDisponibleService
 {
     /**
+     * Traslados a bóveda ACTIVOS de una sub-caja, con filtros opcionales.
+     *
+     * El traslado a bóveda NO se registra en `transacciones_caja` a propósito: el
+     * dinero no sale de la caja principal, solo cambia de lugar. Pero SÍ sale del
+     * efectivo que el vendedor tiene en mano, así que todo cálculo de "cuánto puede
+     * gastar / prestar / trasladar / entregar al cerrar" tiene que descontarlo desde
+     * ACÁ, no desde el libro.
+     *
+     * Es un único punto para los seis lugares que lo necesitan (saldo movible,
+     * efectivo por vendedor, traslado a bóveda, préstamos, aprobación de préstamos y
+     * gastos extras); antes cada uno lo resolvía —o lo olvidaba— por su cuenta.
+     *
+     * @param array $aperturaIds Limitar a estas aperturas; vacío = todas.
+     */
+    public function trasladosBovedaActivos(
+        int $subCajaId,
+        array $aperturaIds = [],
+        string|int|null $userId = null,
+        ?string $desplieguePagoId = null
+    ): float {
+        return (float) \Illuminate\Support\Facades\DB::table('traslados_boveda')
+            ->where('sub_caja_id', $subCajaId)
+            ->where('estado', 'activo')
+            ->when(!empty($aperturaIds), fn ($q) => $q->whereIn('apertura_cierre_caja_id', $aperturaIds))
+            ->when($userId !== null, fn ($q) => $q->where('vendedor_id', $userId))
+            ->when($desplieguePagoId !== null, fn ($q) => $q->where('despliegue_pago_id', $desplieguePagoId))
+            ->sum('monto');
+    }
+
+    /**
      * De un lote de transacciones, cuáles vienen de un TRASLADO DE EFECTIVO
      * (movimiento interno con `destino_user_id`): dinero CERRADO que se mandó a
      * la SESIÓN ABIERTA de un usuario. Se distingue del movimiento interno
@@ -112,7 +142,16 @@ class EfectivoDisponibleService
             ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
-        return $montoInicial + $ingresos - $egresos;
+        // El traslado a bóveda no está en el libro (no sale de la caja principal),
+        // pero sí sale de las manos del vendedor: se descuenta desde su tabla.
+        $boveda = $this->trasladosBovedaActivos(
+            $subCaja->id,
+            [$apertura->id],
+            $userId,
+            $desplieguePagoId
+        );
+
+        return $montoInicial + $ingresos - $egresos - $boveda;
     }
 
     /**

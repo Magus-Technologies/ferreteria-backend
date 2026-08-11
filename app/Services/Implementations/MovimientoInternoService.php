@@ -531,7 +531,23 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
-        $dineroSesion = $ingresosSesion - $egresosSesion;
+        // El TRASLADO A BÓVEDA saca el dinero de la sesión del vendedor pero NO de la
+        // sub-caja: sigue siendo plata de la empresa, solo guardada. Restarlo acá lo
+        // mueve de "No Cerrado" a "Cerrado" sin cambiar el total, que es justo lo que
+        // significa mandarlo a la bóveda.
+        //
+        // Se lee de la tabla `traslados_boveda` porque el traslado dejó de escribir en
+        // `transacciones_caja` (el dinero no sale de la caja). Sin esto, el monto se
+        // quedaba en No Cerrado para siempre aunque ya estuviera en la bóveda.
+        $aperturaIds = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('estado', 'abierta')
+            ->pluck('id')
+            ->all();
+
+        $bovedaDeSesion = $this->efectivoDisponibleService
+            ->trasladosBovedaActivos($subCaja->id, $aperturaIds);
+
+        $dineroSesion = $ingresosSesion - $egresosSesion - $bovedaDeSesion;
 
         return $saldoActual - max($dineroSesion, 0);
     }

@@ -143,7 +143,13 @@ trait ManejaFlujoCajaExtra
                     ? $distribuido
                     : (float) $aperturaAbierta->monto_apertura;
 
-                $disponibleSesion = $montoInicial + $ingresosSesion - $egresosSesion;
+                // Lo mandado a bóveda ya no lo tiene en mano, así que no lo puede
+                // gastar. No está en el libro (el traslado no sale de la caja
+                // principal), se descuenta desde `traslados_boveda`.
+                $enBoveda = app(\App\Services\Cajas\EfectivoDisponibleService::class)
+                    ->trasladosBovedaActivos($subCajaId, [$aperturaAbierta->id], Auth::id());
+
+                $disponibleSesion = $montoInicial + $ingresosSesion - $egresosSesion - $enBoveda;
 
                 if ($monto > $disponibleSesion + 0.001) {
                     throw new \Exception(

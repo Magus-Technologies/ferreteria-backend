@@ -487,7 +487,15 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
-        return $montoInicial + $ingresos - $egresos;
+        // Lo mandado a bóveda ya no lo tiene en mano, así que no lo puede prestar.
+        // No está en el libro (el traslado no sale de la caja), se lee de su tabla.
+        $boveda = $this->efectivoDisponibleService->trasladosBovedaActivos(
+            $cajaChica->id,
+            [$aperturaActiva->id],
+            $vendedorId
+        );
+
+        return $montoInicial + $ingresos - $egresos - $boveda;
     }
 
     public function calcularEfectivoDisponible(string $aperturaId, int|string $vendedorId): float

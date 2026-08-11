@@ -746,7 +746,17 @@ class SubCajaController extends Controller
             ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
-        $saldoFinal = $montoInicial + $ingresos - $egresos;
+        // Lo mandado a bóveda ya salió de sus manos. No está en el libro (el traslado
+        // no sale de la caja principal), se descuenta desde `traslados_boveda`.
+        $boveda = $aperturaActiva
+            ? $this->efectivoDisponibleService->trasladosBovedaActivos(
+                $subCajaId,
+                [$aperturaActiva->id],
+                $vendedorId
+            )
+            : 0.0;
+
+        $saldoFinal = $montoInicial + $ingresos - $egresos - $boveda;
         
         
         return $saldoFinal;
