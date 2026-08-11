@@ -95,6 +95,9 @@ class ClasificadorMovimientos
         // 4. GASTOS (egresos del vendedor)
         $gastosYPagos = $this->obtenerGastosVendedor($subCajasIds, $apertura, $userId, $fechaInicio, $fechaFin);
 
+        // 4.5 Descartar los pagos de compra ANULADOS junto con su reversión.
+        [$otrosIngresos, $gastosYPagos] = $this->descartarPagosAnulados($otrosIngresos, $gastosYPagos);
+
         // 5. PRÉSTAMOS RECIBIDOS (de otros vendedores)
         $prestamosRecibidos = $this->obtenerPrestamosRecibidosVendedor($apertura, $userId, $fechaInicio, $fechaFin);
 
@@ -294,6 +297,61 @@ class ClasificadorMovimientos
      * Obtener otros ingresos del vendedor (ingresos manuales, NO ventas, NO montos iniciales)
      * Los montos iniciales de bancos NO deben aparecer aquí
      */
+    /**
+     * Quita del cierre los pagos de compra ANULADOS y su transacción de reversión.
+     *
+     * Anular un pago no borra el egreso: crea un `anulacion_pago_compra` que lo
+     * compensa. El neto ya daba cero, pero el cierre seguía listando el gasto anulado
+     * en "Detalle de Gastos" —y la devolución en "Otros Ingresos"— como si la
+     * operación hubiera ocurrido.
+     *
+     * Se descartan LOS DOS: quitar solo el gasto dispararía el monto esperado por el
+     * importe de la reversión que quedaría suelta.
+     *
+     * El emparejamiento es por CANTIDAD, no por existencia: si hubo dos pagos iguales
+     * a la misma compra y solo se anuló uno, se oculta uno solo y el otro sigue
+     * contando.
+     *
+     * @return array{0: Collection, 1: Collection} [otrosIngresos, gastos] ya filtrados
+     */
+    private function descartarPagosAnulados(Collection $otrosIngresos, Collection $gastos): array
+    {
+        $clave = fn ($t) => ($t->referencia_id ?? '') . '|' . number_format((float) $t->monto, 2, '.', '');
+
+        $anulaciones = $otrosIngresos->where('referencia_tipo', 'anulacion_pago_compra');
+
+        if ($anulaciones->isEmpty()) {
+            return [$otrosIngresos, $gastos];
+        }
+
+        // Cuántos pagos hay que ocultar por cada (compra + monto).
+        $pendientes = [];
+        foreach ($anulaciones as $a) {
+            $k = $clave($a);
+            $pendientes[$k] = ($pendientes[$k] ?? 0) + 1;
+        }
+
+        $gastosFiltrados = $gastos->reject(function ($g) use (&$pendientes, $clave) {
+            if (($g->referencia_tipo ?? null) !== 'pago_compra') {
+                return false;
+            }
+
+            $k = $clave($g);
+            if (($pendientes[$k] ?? 0) > 0) {
+                $pendientes[$k]--;
+                return true;
+            }
+
+            return false;
+        });
+
+        // Las reversiones salen todas: su gasto ya no está, así que dejarlas sumaría
+        // dinero que nadie recibió.
+        $ingresosFiltrados = $otrosIngresos->where('referencia_tipo', '!=', 'anulacion_pago_compra');
+
+        return [$ingresosFiltrados, $gastosFiltrados];
+    }
+
     private function obtenerOtrosIngresosVendedor($subCajasIds, $apertura, string $userId, $fechaInicio, $fechaFin): Collection
     {
         $ingresos = DB::table('transacciones_caja as tc')
