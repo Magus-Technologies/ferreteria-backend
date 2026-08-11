@@ -478,7 +478,62 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 $corte = $cortePorUsuario[$t->user_id] ?? null;
 
                 return $corte !== null && $t->fecha >= $corte;
-            });
+            })
+            ->pipe(fn ($tx) => $this->descartarPagosAnulados($tx));
+    }
+
+    /**
+     * Quita los pagos de compra ANULADOS junto con su reversión.
+     *
+     * Anular un pago no borra el egreso: crea un `anulacion_pago_compra` que lo
+     * compensa. El neto ya daba cero, pero el detalle del "Saldo No Cerrado" seguía
+     * mostrando el egreso del pago anulado como si el vendedor hubiera gastado ese
+     * dinero.
+     *
+     * Se descartan LOS DOS: quitar solo el egreso dejaría suelto el ingreso de la
+     * reversión y el No Cerrado subiría por dinero que nunca entró.
+     *
+     * El emparejamiento es por CANTIDAD: si hubo dos pagos iguales a la misma compra
+     * y solo se anuló uno, se descarta uno solo y el otro sigue contando. No se
+     * compara el `user_id` a propósito — si el pago y su anulación quedaron a nombre
+     * de usuarios distintos (dato viejo), igual se cancelan dentro de la sub-caja.
+     */
+    private function descartarPagosAnulados(Collection $transacciones): Collection
+    {
+        $clave = fn ($t) => ($t->referencia_id ?? '') . '|'
+            . ($t->despliegue_pago_id ?? '') . '|'
+            . number_format((float) $t->monto, 2, '.', '');
+
+        $pendientes = [];
+        foreach ($transacciones->where('referencia_tipo', 'anulacion_pago_compra') as $a) {
+            $k = $clave($a);
+            $pendientes[$k] = ($pendientes[$k] ?? 0) + 1;
+        }
+
+        if (empty($pendientes)) {
+            return $transacciones;
+        }
+
+        return $transacciones->reject(function ($t) use (&$pendientes, $clave) {
+            $tipo = $t->referencia_tipo ?? null;
+
+            if ($tipo === 'anulacion_pago_compra') {
+                return true;
+            }
+
+            if ($tipo !== 'pago_compra') {
+                return false;
+            }
+
+            $k = $clave($t);
+            if (($pendientes[$k] ?? 0) > 0) {
+                $pendientes[$k]--;
+
+                return true;
+            }
+
+            return false;
+        });
     }
 
     /**
