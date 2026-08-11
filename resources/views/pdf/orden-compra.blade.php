@@ -105,19 +105,17 @@
     @endphp
     @include('pdf.layout.info-grid', ['filas' => $filasCondPago])
 
-    {{-- Firma: razón social de la empresa sobre la línea, y debajo el cargo y el
-         nombre de quien firma. Ambos textos salen de `mensajes_extra`, así que se
-         pueden cambiar desde la configuración de plantillas sin tocar la vista. --}}
+    {{-- Firma: la línea, y debajo el nombre y el cargo de quien firma. Ambos textos
+         salen de `mensajes_extra`, así que se pueden cambiar desde la configuración
+         de plantillas sin tocar la vista. --}}
     <table style="width: 100%; margin-top: 30px;">
         <tr>
             <td style="width: 35%;"></td>
             <td style="width: 30%; text-align: center; vertical-align: bottom;">
-                <div style="font-size: 8pt; font-weight: bold; text-transform: uppercase; margin-bottom: 34px;">
-                    {{ $empresa->razon_social }}
-                </div>
                 {{-- Línea de firma inline: la clase `.signature-line` está definida
-                     dentro de otra plantilla, no en el layout compartido. --}}
-                <div style="border-top: 1px solid #000; width: 100%; margin-bottom: 6px;"></div>
+                     dentro de otra plantilla, no en el layout compartido. El
+                     margen superior reserva el espacio para firmar a mano. --}}
+                <div style="border-top: 1px solid #000; width: 100%; margin-top: 42px; margin-bottom: 6px;"></div>
                 <div style="font-size: 8pt; font-weight: bold; text-transform: uppercase;">
                     {{ $msg['firma_nombre'] ?? '' }}
                 </div>
