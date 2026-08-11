@@ -418,7 +418,17 @@ class KardexFacturacionService
                 $ref = $antiguo['ref'];
                 $tipoVenta = $venta->forma_de_pago->value === 'co' ? 'CONTADO' : 'CRÉDITO';
 
+                // Igual que en registrarAjustePorEdicion: el stock ya se devolvió al
+                // guardar la edición, así que se fija el saldo real y se reconstruye el
+                // anterior deshaciendo la entrada. Sin esto la fila sumaba dos veces.
+                $stockActualEliminado = (float) (DB::table('productoalmacen')
+                    ->where('producto_id', $ref->producto_id)
+                    ->where('almacen_id', $venta->almacen_id)
+                    ->value('stock_fraccion') ?? 0);
+
                 $this->registrar([
+                    'stock_actual_override' => $stockActualEliminado,
+                    'stock_anterior_override' => $stockActualEliminado - $cantidadAntiguaFraccion,
                     'tipo' => 'venta',
                     'movimiento' => "AJUSTE POR EDICIÓN ({$tipoVenta})",
                     'fecha' => now(),
@@ -478,6 +488,27 @@ class KardexFacturacionService
             'almacen_id' => $venta->almacen_id,
             'orden' => $orden,
         ];
+
+        // El stock físico YA se aplicó cuando se guardó la edición: este kardex se
+        // escribe al final del update (VentaController -> marcarVentaComoEditada), con
+        // `productoalmacen.stock_fraccion` ya movido.
+        //
+        // Sin overrides, registrar() toma ese stock ya actualizado como "anterior" y
+        // vuelve a descontar la cantidad, así que la fila quedaba corrida por el monto
+        // del ajuste: al editar de 10 a 15 unidades con stock real -8, el kardex
+        // mostraba "-8 → -13" en vez de "-3 → -8".
+        //
+        // El saldo final es el stock real de ahora, y el anterior se reconstruye
+        // deshaciendo este mismo movimiento.
+        $stockActual = (float) (DB::table('productoalmacen')
+            ->where('producto_id', $productoAlmacen->producto_id)
+            ->where('almacen_id', $venta->almacen_id)
+            ->value('stock_fraccion') ?? 0);
+
+        $data['stock_actual_override'] = $stockActual;
+        $data['stock_anterior_override'] = $tipo === 'salida'
+            ? $stockActual + $cantidadFraccion
+            : $stockActual - $cantidadFraccion;
 
         return $this->registrar($data);
     }
