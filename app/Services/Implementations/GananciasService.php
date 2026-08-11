@@ -319,7 +319,7 @@ class GananciasService implements GananciasServiceInterface
         // que mostrar, así que se deja null).
         $resolverInfoCompra = function ($consumos) use ($compraIdPorLote, $comprasMap, $proveedoresMap, $usuariosCompraMap) {
             if (!$consumos || $consumos->isEmpty()) {
-                return [null, null, null, null, null];
+                return [null, null, null, null, null, null];
             }
             $compraIds = $consumos->pluck('lote_id')
                 ->unique()
@@ -328,11 +328,11 @@ class GananciasService implements GananciasServiceInterface
                 ->unique()
                 ->values();
             if ($compraIds->count() !== 1) {
-                return [null, null, null, null, null];
+                return [null, null, null, null, null, null];
             }
             $compra = $comprasMap->get($compraIds->first());
             if (!$compra) {
-                return [null, null, null, null, null];
+                return [null, null, null, null, null, null];
             }
             $proveedor = $compra->proveedor_id ? $proveedoresMap->get($compra->proveedor_id) : null;
             $registrador = $compra->user_id ? $usuariosCompraMap->get($compra->user_id) : null;
@@ -342,6 +342,11 @@ class GananciasService implements GananciasServiceInterface
                 $compra->forma_de_pago,
                 $proveedor->razon_social ?? null,
                 $registrador->name ?? null,
+                // 'd' = dólares. El frontend lo usa para mostrar la fila de subtotal
+                // solo en compras en dólares. No sirve `impacto_tc` para eso: ese es
+                // null mientras la compra no tenga pago registrado, aunque sea en
+                // dólares, y el subtotal desaparecería hasta que alguien pague.
+                $compra->tipo_moneda,
             ];
         };
 
@@ -389,6 +394,7 @@ class GananciasService implements GananciasServiceInterface
                     $row->compra_forma_pago,
                     $row->compra_proveedor,
                     $row->compra_registrado_por,
+                    $row->compra_moneda,
                 ] = $resolverInfoCompra($consumos);
                 $resultado->push($row);
                 continue;
@@ -418,6 +424,7 @@ class GananciasService implements GananciasServiceInterface
                     $fila->compra_forma_pago,
                     $fila->compra_proveedor,
                     $fila->compra_registrado_por,
+                    $fila->compra_moneda,
                 ] = $resolverInfoCompra($consumoUnico);
                 $resultado->push($fila);
             }
