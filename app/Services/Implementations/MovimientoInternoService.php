@@ -458,9 +458,21 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         }
 
         // La más antigua solo acota la query; el filtro fino es por usuario.
+        //
+        // Se EXCLUYE `monto_inicial`: es el saldo con el que se configuró un banco, no
+        // efectivo que un vendedor tenga en mano. La transacción se graba con el
+        // usuario que editó el banco y con la fecha del momento, así que caía dentro de
+        // su sesión abierta y aparecía como "No Cerrado" a su nombre — un banco con
+        // 50,000 de saldo inicial se le atribuía entero a quien lo configuró. Es dinero
+        // consolidado: va a CERRADO. Mismo criterio que ClasificadorMovimientos, que ya
+        // lo excluye de los ingresos del cierre.
         return TransaccionCaja::where('sub_caja_id', $subCaja->id)
             ->when($desplieguePagoId, fn ($q) => $q->where('despliegue_pago_id', $desplieguePagoId))
             ->where('fecha', '>=', min($cortePorUsuario))
+            ->where(function ($q) {
+                $q->whereNull('referencia_tipo')
+                    ->orWhere('referencia_tipo', '!=', 'monto_inicial');
+            })
             ->get()
             ->filter(function ($t) use ($cortePorUsuario) {
                 $corte = $cortePorUsuario[$t->user_id] ?? null;
