@@ -481,6 +481,22 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             ];
         }
 
+        $comprobante = $venta->comprobanteElectronico;
+
+        if (!$comprobante || !in_array($comprobante->tipo_comprobante, ['01', '03'])) {
+            return [
+                'valido' => false,
+                'mensaje' => 'La venta no tiene un comprobante electrónico de factura o boleta asociado',
+            ];
+        }
+
+        if (!in_array($comprobante->estado_sunat, ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES'])) {
+            return [
+                'valido' => false,
+                'mensaje' => 'El comprobante debe estar ACEPTADO por SUNAT para emitir una nota de crédito. Estado actual: ' . ($comprobante->estado_sunat ?? 'sin estado'),
+            ];
+        }
+
         return [
             'valido' => true,
             'mensaje' => 'Venta válida para nota de crédito',
@@ -526,7 +542,42 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             );
         }
 
+        $this->validarComprobanteAceptadoParaNota($venta);
+
         return $venta;
+    }
+
+    /**
+     * Valida que la venta tenga un comprobante electrónico (factura/boleta)
+     * ACEPTADO por SUNAT, requisito legal para emitir una nota de crédito.
+     *
+     * SUNAT: "Será emitida respecto de 'una' FE que cuente con CDR 'aceptada'
+     * o BVE otorgada con anterioridad." (ACEPTADO_CON_OBSERVACIONES también
+     * tiene validez tributaria).
+     */
+    private function validarComprobanteAceptadoParaNota(Venta $venta): void
+    {
+        $comprobante = $venta->comprobanteElectronico;
+
+        if (!$comprobante) {
+            throw NotaCreditoException::ventaNoValida(
+                'La venta no tiene un comprobante electrónico asociado. ' .
+                'Solo se pueden emitir notas de crédito sobre facturas o boletas emitidas.'
+            );
+        }
+
+        if (!in_array($comprobante->tipo_comprobante, ['01', '03'])) {
+            throw NotaCreditoException::ventaNoValida(
+                'El comprobante de la venta no es factura ni boleta (tipo: ' . $comprobante->tipo_comprobante . ').'
+            );
+        }
+
+        if (!in_array($comprobante->estado_sunat, ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES'])) {
+            throw NotaCreditoException::ventaNoValida(
+                'El comprobante debe estar ACEPTADO por SUNAT para emitir una nota de crédito. ' .
+                'Estado actual: ' . ($comprobante->estado_sunat ?? 'sin estado')
+            );
+        }
     }
 
     private function validarYObtenerMotivo(int $motivoId)

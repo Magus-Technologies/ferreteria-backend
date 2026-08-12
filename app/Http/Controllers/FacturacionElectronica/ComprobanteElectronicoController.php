@@ -38,7 +38,7 @@ class ComprobanteElectronicoController extends Controller
                 'detalles.producto.marca',
                 'detalles.unidadDerivada',
             ])
-                ->where('estado_sunat', 'ACEPTADO')
+                ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES'])
                 // ✅ FILTRO: Solo Facturas (01) y Boletas (03), NO Notas de Crédito (07) ni Débito (08)
                 ->whereIn('tipo_comprobante', ['01', '03'])
                 // Texto opcional: si no viene, se filtra solo por fechas/tipo.
@@ -47,8 +47,9 @@ class ComprobanteElectronicoController extends Controller
                     if (str_contains($query, '-')) {
                         [$serie, $numero] = explode('-', $query, 2);
                         $q->where(function ($subQ) use ($serie, $numero) {
-                            $subQ->where('serie', 'like', "%{$serie}%")
-                                ->where('correlativo', 'like', "%{$numero}%");
+                            // ✅ Coincidencia EXACTA para evitar resultados parciales no deseados
+                            $subQ->where('serie', $serie)
+                                ->where('correlativo', (int) $numero);
                         });
                     } else {
                         // Buscar por serie, número o cliente (nombres, apellidos, razón social o documento)
@@ -69,11 +70,11 @@ class ComprobanteElectronicoController extends Controller
                 ->when($tipo, fn($q) => $q->where('tipo_comprobante', $tipo))
                 // ✅ NUEVO FILTRO: Excluir comprobantes con nota de débito aceptada
                 ->when($paraNotaDebito, function ($q) {
-                    $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
-                        $subQ->whereHas('comprobanteElectronico', function ($compQ) {
-                            $compQ->where('estado_sunat', 'ACEPTADO');
+$q->whereDoesntHave('venta.notasDebito', function ($subQ) {
+                            $subQ->whereHas('comprobanteElectronico', function ($compQ) {
+                                $compQ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES']);
+                            });
                         });
-                    });
                 })
                 ->orderBy('fecha_emision', 'desc')
                 ->orderBy('correlativo', 'desc')
