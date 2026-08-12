@@ -271,10 +271,7 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
         $transacciones = TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $userId)
             ->where('despliegue_pago_id', $desplieguePagoId)
-            ->where(function ($query) {
-                $query->whereNull('referencia_tipo')
-                      ->orWhere('referencia_tipo', '!=', 'apertura');
-            })
+            ->sinFilasBase()
             ->where('created_at', '>=', $aperturaActiva->fecha_apertura)
             ->get();
 

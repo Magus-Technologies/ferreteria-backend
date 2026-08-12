@@ -480,10 +480,15 @@ class SubCajaController extends Controller
     }
 
     /**
-     * Efectivo por usuario de TODAS las aperturas abiertas: para cada usuario de
-     * la apertura (encargado + vendedores distribuidos), sus despliegues de
-     * EFECTIVO con el saldo acumulado desde que se aperturó. Usado como DESTINO
-     * en "Traslado de Efectivo" (apuntar el dinero al efectivo de un usuario).
+     * Saldo por usuario de TODAS las aperturas abiertas: para cada usuario de la
+     * apertura (encargado + vendedores distribuidos), TODOS sus despliegues de pago
+     * con el saldo acumulado desde que se aperturó. Usado como DESTINO en el
+     * Traslado de Dinero (apuntar el dinero al método de pago de un usuario).
+     *
+     * Antes esto devolvía solo los despliegues de efectivo, lo que limitaba el
+     * traslado a dinero físico. Ahora también entran bancos y billeteras: el modal
+     * sigue exigiendo que origen y destino sean del MISMO método, así que el filtro
+     * relevante se hace allá, contra el origen elegido.
      */
     public function getEfectivoTodosLosUsuarios(): JsonResponse
     {
@@ -507,19 +512,12 @@ class SubCajaController extends Controller
 
                 foreach ($usuarios as $usuario) {
                     foreach ($subCajas as $subCaja) {
-                        $desplieguesEfectivo = collect($subCaja->getDesplieguePagos())->filter(function ($despliegue) {
-                            $metodo = $despliegue->metodoDePago;
-                            if (!$metodo) {
-                                return false;
-                            }
-                            $cuenta = $metodo->cuenta_bancaria;
-                            $sinCuenta = empty($cuenta) || $cuenta === 'SIN-CUENTA' || $cuenta === '-';
-                            $esEfectivo = stripos($metodo->name, 'efectivo') !== false
-                                || stripos($despliegue->name, 'efectivo') !== false;
-                            return $sinCuenta && $esEfectivo;
-                        });
+                        // Todos los despliegues con método de pago válido, sin
+                        // distinguir efectivo de banco.
+                        $desplieguesDestino = collect($subCaja->getDesplieguePagos())
+                            ->filter(fn ($despliegue) => (bool) $despliegue->metodoDePago);
 
-                        foreach ($desplieguesEfectivo as $despliegue) {
+                        foreach ($desplieguesDestino as $despliegue) {
                             $saldo = $this->calcularEfectivoDesdeApertura(
                                 $subCaja,
                                 $usuario->id,
@@ -705,16 +703,12 @@ class SubCajaController extends Controller
             return $montoInicial;
         }
         
-        // Calcular transacciones de efectivo
-        // IMPORTANTE: EXCLUIR transacciones de tipo "apertura" para evitar duplicar las distribuciones
-        // Solo considera transacciones DESDE la apertura activa de la caja
+        // Calcular transacciones de efectivo, solo DESDE la apertura activa de la
+        // caja (ver TransaccionCaja::scopeSinFilasBase()).
         $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $vendedorId)
             ->whereIn('despliegue_pago_id', $desplieguePagoEfectivoIds)
-            ->where(function ($query) {
-                $query->whereNull('referencia_tipo')
-                      ->orWhere('referencia_tipo', '!=', 'apertura');
-            })
+            ->sinFilasBase()
             ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
             ->get();
         
@@ -800,15 +794,12 @@ class SubCajaController extends Controller
             return number_format($montoInicial, 2, '.', '');
         }
 
-        // Calcular las transacciones del vendedor en esta sub-caja, DESDE la apertura.
-        // EXCLUIR transacciones de tipo "apertura" para evitar duplicar las distribuciones
+        // Calcular las transacciones del vendedor en esta sub-caja, DESDE la apertura
+        // (ver TransaccionCaja::scopeSinFilasBase()).
         $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $userId)
             ->whereIn('despliegue_pago_id', $desplieguePagoIds)
-            ->where(function ($query) {
-                $query->whereNull('referencia_tipo')
-                      ->orWhere('referencia_tipo', '!=', 'apertura');
-            })
+            ->sinFilasBase()
             ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
             ->get();
         

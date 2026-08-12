@@ -136,10 +136,7 @@ class CierreCajaController extends Controller
         $transacciones = \App\Models\TransaccionCaja::whereIn('sub_caja_id', $cajasChicas)
             ->where('user_id', $userId)
             ->where('fecha', '>=', $hoy)
-            ->where(function ($query) {
-                $query->whereNull('referencia_tipo')
-                    ->orWhere('referencia_tipo', '!=', 'apertura');
-            })
+            ->sinFilasBase()
             ->get();
 
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');

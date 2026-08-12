@@ -105,14 +105,11 @@ class EfectivoDisponibleService
                 ->sum('monto');
         }
 
-        // Transacciones del método, excluyendo las de tipo "apertura" (ya contadas arriba)
+        // Transacciones del método (ver TransaccionCaja::scopeSinFilasBase()).
         $query = TransaccionCaja::where('sub_caja_id', $subCaja->id)
             ->where('user_id', $userId)
             ->where('despliegue_pago_id', $desplieguePagoId)
-            ->where(function ($q) {
-                $q->whereNull('referencia_tipo')
-                    ->orWhere('referencia_tipo', '!=', 'apertura');
-            });
+            ->sinFilasBase();
 
         // Solo desde que se aperturó (garantizado no-null por el guard de arriba)
         $query->where('created_at', '>=', $apertura->fecha_apertura);
@@ -188,15 +185,13 @@ class EfectivoDisponibleService
             return $saldoTotal;
         }
 
-        // Transacciones de la sesión (desde que aperturó), EXCLUYENDO la propia
-        // fila de "apertura" — ese monto ya es movible por definición, no es
-        // dinero "nuevo" de la sesión.
+        // Transacciones de la sesión (desde que aperturó). La fila de "apertura" y
+        // el "monto_inicial" de un banco no son dinero NUEVO de la sesión: ya son
+        // movibles por definición, así que quedan fuera y siguen contando como
+        // saldo cerrado (ver TransaccionCaja::scopeSinFilasBase()).
         $sesionQuery = TransaccionCaja::where('sub_caja_id', $subCaja->id)
             ->where('created_at', '>=', $apertura->fecha_apertura)
-            ->where(function ($q) {
-                $q->whereNull('referencia_tipo')
-                    ->orWhere('referencia_tipo', '!=', 'apertura');
-            });
+            ->sinFilasBase();
         if ($desplieguePagoId) {
             $sesionQuery->where('despliegue_pago_id', $desplieguePagoId);
         }
