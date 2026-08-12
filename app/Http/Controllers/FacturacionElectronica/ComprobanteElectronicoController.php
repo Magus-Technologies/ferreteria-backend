@@ -33,7 +33,7 @@ class ComprobanteElectronicoController extends Controller
             }
 
             $comprobantes = ComprobanteElectronico::with([
-                'cliente',
+                'cliente.direcciones',
                 'detalles.producto.unidadMedida',
                 'detalles.producto.marca',
                 'detalles.unidadDerivada',
@@ -101,7 +101,7 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
     {
         try {
             $comprobante = ComprobanteElectronico::with([
-                'cliente',
+                'cliente.direcciones',
                 'detalles.producto.unidadMedida',
                 'detalles.producto.marca',
                 'detalles.unidadDerivada',
