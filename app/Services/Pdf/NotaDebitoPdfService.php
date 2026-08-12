@@ -3,23 +3,28 @@
 namespace App\Services\Pdf;
 
 use App\Models\NotaDebito;
-use App\Models\PlantillaImpresion;
+use App\Services\Pdf\Traits\ResuelveEstilosPlantilla;
 use Illuminate\Http\Response;
 
 class NotaDebitoPdfService
 {
+    use ResuelveEstilosPlantilla;
+
     public function generar(string $id, string $formato = 'a4'): Response
     {
         $nota = $this->obtenerNota($id);
         $empresa = $nota->usuario->empresa;
 
-        // Plantilla del comprobante para respetar flags como "ocultar logo" en ticket.
-        $plantilla = PlantillaImpresion::obtenerParaConFormato(
+        // Resolver plantilla + estilos + fuentes como en ventas.
+        $plantillaData = $this->prepararDatosPlantilla(
             (int) $empresa->id,
             'nota-debito',
             $formato === 'ticket' ? 'Ticket' : 'A4'
         );
-        $msg = array_merge(PlantillaImpresion::DEFAULT_MENSAJES_EXTRA, $plantilla->mensajes_extra ?? []);
+        $plantilla = $plantillaData['plantilla'];
+        $bloques = $plantillaData['bloques'];
+        $fontFaceCss = $plantillaData['font_face_css'];
+        $msg = $plantillaData['msg'];
 
         $productos = $this->prepararProductos($nota);
         $calculos = $this->calcularTotales($nota, $productos);
@@ -36,6 +41,10 @@ class NotaDebitoPdfService
             'logoPath' => PdfService::getLogoPath($empresa->logo),
             'tipoDocumentoTitulo' => 'NOTA DE DÉBITO ELECTRÓNICA',
             'numeroDocumento' => $numeroCompleto,
+            'plantilla' => $plantilla,
+            'bloques' => $bloques,
+            'font_face_css' => $fontFaceCss,
+            'msg' => $msg,
             'filas' => [
                 [
                     'F. Emisión' => PdfService::formatFecha($nota->fecha_emision ?? $nota->fecha),
@@ -50,7 +59,7 @@ class NotaDebitoPdfService
                     'Doc. que modifica' => $comprobanteAfectado,
                 ],
                 [
-                    'Motivo' => $nota->motivoNota->descripcion ?? $nota->descripcion ?? 'Sin motivo',
+                    'Motivo' => $nota->motivo->descripcion ?? $nota->descripcion ?? 'Sin motivo',
                     'Observaciones' => $nota->observaciones ?? '-',
                 ],
             ],
@@ -58,20 +67,21 @@ class NotaDebitoPdfService
             'calculos' => $calculos,
             'son' => PdfService::numeroALetras($calculos['total']),
             'observaciones' => $nota->observaciones ?: '- NINGUNA',
-            'msg' => $msg,
         ];
 
         $filename = "ND-{$numeroCompleto}.pdf";
 
         $view = $formato === 'ticket' ? 'pdf.nota-debito-ticket' : 'pdf.nota-debito';
-        return PdfService::render($view, $data, $filename);
+        // Ticket en papel 80mm (226.77pt) como en ventas; A4 queda con el default.
+        $paperSize = $formato === 'ticket' ? [0, 0, 226.77, 841.89] : null;
+        return PdfService::render($view, $data, $filename, 'portrait', $paperSize);
     }
 
     private function obtenerNota(string $id): NotaDebito
     {
         return NotaDebito::with([
             'usuario.empresa',
-            'motivoNota',
+            'motivo',
             'venta.cliente',
             'comprobanteReferencia.detalles',
             'comprobanteReferencia.cliente',
