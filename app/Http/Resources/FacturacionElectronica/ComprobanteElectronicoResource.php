@@ -63,7 +63,16 @@ class ComprobanteElectronicoResource extends JsonResource
                     'apellidos' => $cliente->apellidos,
                     'razon_social' => $cliente->razon_social,
                     'nombre' => $nombre ?: 'Sin nombre',
-                    'direccion' => $cliente->direccion,
+                    // Dirección resuelta como en el PDF: la seleccionada en la
+                    // venta (D1-D4), si no D1, si no la primera disponible.
+                    'direccion' => $this->resolverDireccionCliente(),
+                    'direcciones' => $cliente->relationLoaded('direcciones')
+                        ? $cliente->direcciones->map(fn ($d) => [
+                            'tipo' => $d->tipo,
+                            'direccion' => $d->direccion,
+                            'referencia' => $d->referencia,
+                        ])->values()
+                        : [],
                     'telefono' => $cliente->telefono,
                     'email' => $cliente->email,
                 ];
@@ -110,5 +119,33 @@ class ComprobanteElectronicoResource extends JsonResource
             '08' => 'Nota de Débito',
             default => 'Desconocido',
         };
+    }
+
+    /**
+     * Resuelve la dirección del cliente igual que el PDF: usa la dirección
+     * seleccionada en la venta (direccion_seleccionada: D1-D4); si esa no
+     * existe, cae a D1; si no, a la primera disponible.
+     */
+    private function resolverDireccionCliente(): string
+    {
+        $cliente = $this->cliente;
+        if (!$cliente || !$cliente->relationLoaded('direcciones')) {
+            return '';
+        }
+
+        $tipo = null;
+        if ($this->relationLoaded('venta') && $this->venta) {
+            $tipo = $this->venta->direccion_seleccionada instanceof \BackedEnum
+                ? $this->venta->direccion_seleccionada->value
+                : ($this->venta->direccion_seleccionada ?? null);
+        }
+        $tipo = $tipo ?: 'D1';
+
+        $direcciones = $cliente->direcciones ?? collect();
+        $seleccionada = $direcciones->firstWhere('tipo', $tipo)
+            ?? $direcciones->firstWhere('tipo', 'D1')
+            ?? $direcciones->first();
+
+        return (string) ($seleccionada?->direccion ?? '');
     }
 }
