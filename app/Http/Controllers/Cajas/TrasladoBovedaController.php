@@ -72,6 +72,25 @@ class TrasladoBovedaController extends Controller
     /**
      * Obtener todos los traslados (incluyendo anulados) para historial
      */
+    /**
+     * Historial de traslados del usuario autenticado, sin depender de que tenga
+     * caja abierta. Alimenta la pestaña "Traslado a Bóveda" de Movimientos de Caja.
+     */
+    public function historial(): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => $this->trasladoService->obtenerHistorialDelUsuario(auth()->id()),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener el historial de traslados: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function obtenerTodosPorCaja(string $aperturaCierreId): JsonResponse
     {
         try {

@@ -319,7 +319,7 @@ class GananciasService implements GananciasServiceInterface
         // que mostrar, así que se deja null).
         $resolverInfoCompra = function ($consumos) use ($compraIdPorLote, $comprasMap, $proveedoresMap, $usuariosCompraMap) {
             if (!$consumos || $consumos->isEmpty()) {
-                return [null, null, null, null, null];
+                return [null, null, null, null, null, null];
             }
             $compraIds = $consumos->pluck('lote_id')
                 ->unique()
@@ -328,11 +328,11 @@ class GananciasService implements GananciasServiceInterface
                 ->unique()
                 ->values();
             if ($compraIds->count() !== 1) {
-                return [null, null, null, null, null];
+                return [null, null, null, null, null, null];
             }
             $compra = $comprasMap->get($compraIds->first());
             if (!$compra) {
-                return [null, null, null, null, null];
+                return [null, null, null, null, null, null];
             }
             $proveedor = $compra->proveedor_id ? $proveedoresMap->get($compra->proveedor_id) : null;
             $registrador = $compra->user_id ? $usuariosCompraMap->get($compra->user_id) : null;
@@ -342,6 +342,11 @@ class GananciasService implements GananciasServiceInterface
                 $compra->forma_de_pago,
                 $proveedor->razon_social ?? null,
                 $registrador->name ?? null,
+                // 'd' = dólares. El frontend lo usa para mostrar la fila de subtotal
+                // solo en compras en dólares. No sirve `impacto_tc` para eso: ese es
+                // null mientras la compra no tenga pago registrado, aunque sea en
+                // dólares, y el subtotal desaparecería hasta que alguien pague.
+                $compra->tipo_moneda,
             ];
         };
 
@@ -389,6 +394,7 @@ class GananciasService implements GananciasServiceInterface
                     $row->compra_forma_pago,
                     $row->compra_proveedor,
                     $row->compra_registrado_por,
+                    $row->compra_moneda,
                 ] = $resolverInfoCompra($consumos);
                 $resultado->push($row);
                 continue;
@@ -418,6 +424,7 @@ class GananciasService implements GananciasServiceInterface
                     $fila->compra_forma_pago,
                     $fila->compra_proveedor,
                     $fila->compra_registrado_por,
+                    $fila->compra_moneda,
                 ] = $resolverInfoCompra($consumoUnico);
                 $resultado->push($fila);
             }
@@ -484,27 +491,17 @@ class GananciasService implements GananciasServiceInterface
         $filter->applyGastosExtras($queryGastosExtras);
         $gastosExtras = $queryGastosExtras->get();
 
-        // Gastos de compras
-        $queryGastosCompras = DB::table('compra as c')
-            ->join('gastos_extras as ge', 'c.gasto_extra_id', '=', 'ge.id')
-            ->join('proveedor as prov', 'c.proveedor_id', '=', 'prov.id')
-            ->select([
-                'ge.id', 
-                DB::raw('DATE(ge.created_at) as fecha'), 
-                'ge.monto', 
-                'ge.concepto as descripcion', 
-                DB::raw("'GASTO DE COMPRA' as tipo_gasto"),
-                'prov.razon_social as proveedor', 
-                'c.serie', 
-                'c.numero', 
-                DB::raw("'gasto_compra' as tipo")
-            ])
-            ->where('c.estado_de_compra', '!=', 'an')
-            ->where('ge.estado', '!=', 'anulado')
-            ->whereNotNull('c.gasto_extra_id');
-
-        $filter->applyGastosCompras($queryGastosCompras);
-        $gastosCompras = $queryGastosCompras->get();
+        // Los gastos ASOCIADOS A UNA COMPRA (`compra.gasto_extra_id`) NO se listan
+        // acá ni suman en el total.
+        //
+        // Ese monto es el costo de la mercadería comprada: ya entra al costo de los
+        // productos y se descuenta de la ganancia cuando se venden. Sumarlo además
+        // como "gasto" lo restaba DOS VECES de la Ganancia Neta —la card "Gastos U"
+        // resta el total de este listado completo (cards-info-ganancias.tsx)—. En
+        // "Mis Gastos" estos gastos ya se distinguen por su relación `compra`.
+        //
+        // Antes se listaban como tipo 'gasto_compra'; el modal ni siquiera ofrecía
+        // filtro o tarjeta para ellos, así que solo inflaban el total de "TODOS".
 
         // Comisiones: SOLO las PAGADAS (comision_pago). Una comisión generada pero NO
         // pagada todavía no es un gasto real, así que no debe aparecer ni sumar en Gastos.
@@ -527,7 +524,7 @@ class GananciasService implements GananciasServiceInterface
         $filter->applyComisiones($queryComisiones);
         $comisiones = $queryComisiones->get();
 
-        $todosGastos = $gastosExtras->concat($gastosCompras)->concat($comisiones)->sortByDesc('fecha')->values();
+        $todosGastos = $gastosExtras->concat($comisiones)->sortByDesc('fecha')->values();
 
         // Calcular resumen
         $queryComprasPeriodo = DB::table('compra as comp')

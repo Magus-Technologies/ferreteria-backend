@@ -76,6 +76,26 @@ class MovimientoInternoController extends Controller
     }
 
     /**
+     * Desglose del "Saldo No Cerrado" de una sub-caja: cuánto tiene cada usuario
+     * con sesión abierta, en cada despliegue de pago. Alimenta el modal de detalle
+     * de esa columna en "Sub-Cajas de {caja}".
+     */
+    public function detalleNoCerrado(int $subCajaId): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => $this->movimientoInternoService->detalleNoCerrado($subCajaId),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener el detalle del saldo no cerrado: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Usuarios con saldo disponible de cierres cerrados
      */
     public function usuariosConSaldo(): JsonResponse

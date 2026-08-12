@@ -22,6 +22,25 @@ use Exception;
 class AperturaCajaController extends Controller
 {
     /**
+     * Despliegue de pago EFECTIVO de la sub-caja, para etiquetar la transacción de
+     * apertura con el mismo método que traen las filas históricas. Se resuelve vía
+     * getDesplieguePagos() para cubrir también las sub-cajas configuradas con "*"
+     * (acepta todos los métodos). Si no hay ninguno de efectivo devuelve null: la
+     * fila se registra igual, solo queda sin método asociado.
+     */
+    private function resolverDesplieguePagoEfectivo(SubCaja $subCaja): ?string
+    {
+        return $subCaja->getDesplieguePagos()
+            ->first(function ($despliegue) {
+                $metodo = $despliegue->metodoDePago;
+
+                return $metodo
+                    && $metodo->cuenta_bancaria === null
+                    && str_contains(mb_strtolower($metodo->name ?? ''), 'efectivo');
+            })?->id;
+    }
+
+    /**
      * Aperturar una caja principal con distribución a vendedores
      */
     public function aperturar(AperturarCajaRequest $request): JsonResponse
@@ -132,8 +151,60 @@ class AperturaCajaController extends Controller
                 }
 
                 // 7. Actualizar el saldo de la Caja Chica
+                $saldoAnteriorCajaChica = (float) $cajaChica->saldo_actual;
                 $cajaChica->saldo_actual += $montoTotal;
                 $cajaChica->save();
+
+                // 7.b Registrar el ingreso en `transacciones_caja`.
+                //
+                // Actualizar la columna `saldo_actual` (paso 7) NO alcanza: TODOS los
+                // saldos que muestra el sistema se recalculan desde este libro, no desde
+                // la columna — el saldo real de la sub-caja, las columnas "Saldo Cerrado"
+                // y "Saldo No Cerrado" del modal Sub-Cajas, el efectivo disponible del
+                // vendedor para préstamos y el cierre de caja. Sin esta fila la apertura
+                // simplemente no existe para ninguno de ellos.
+                //
+                // Esta escritura FALTABA: había 15 puntos del backend que filtran
+                // `referencia_tipo = 'apertura'` para excluirla, pero ninguno que la
+                // creara, así que las aperturas se venían parchando a mano después
+                // (quedaron filas con descripción "Backfill: ... que nunca genero su
+                // fila de ingreso"). Se registra una fila POR VENDEDOR, con el monto que
+                // le tocó en la distribución, igual que las 51 filas históricas.
+                $desplieguePagoEfectivoId = $this->resolverDesplieguePagoEfectivo($cajaChica);
+
+                $repartos = !empty($vendedores)
+                    ? collect($vendedores)->map(fn ($v) => [
+                        'user_id' => $v['user_id'],
+                        'monto' => (float) $v['monto'],
+                    ])
+                    // Apertura sin distribución: el monto es del propio usuario.
+                    : collect([['user_id' => $userId, 'monto' => (float) $montoTotal]]);
+
+                $saldoCorriente = $saldoAnteriorCajaChica;
+
+                foreach ($repartos as $reparto) {
+                    if ($reparto['monto'] <= 0) {
+                        continue;
+                    }
+
+                    $saldoSiguiente = $saldoCorriente + $reparto['monto'];
+
+                    TransaccionCaja::create([
+                        'sub_caja_id' => $cajaChica->id,
+                        'tipo_transaccion' => 'ingreso',
+                        'monto' => $reparto['monto'],
+                        'saldo_anterior' => $saldoCorriente,
+                        'saldo_nuevo' => $saldoSiguiente,
+                        'descripcion' => 'Apertura de caja',
+                        'despliegue_pago_id' => $desplieguePagoEfectivoId,
+                        'referencia_id' => $apertura->id,
+                        'referencia_tipo' => 'apertura',
+                        'user_id' => $reparto['user_id'],
+                        'fecha' => $apertura->fecha_apertura,
+                    ]);
+
+                    $saldoCorriente = $saldoSiguiente;
+                }
 
                 // 8. Cargar relaciones para la respuesta
                 $apertura->load(['cajaPrincipal', 'subCaja', 'user', 'distribucionesVendedores.vendedor']);

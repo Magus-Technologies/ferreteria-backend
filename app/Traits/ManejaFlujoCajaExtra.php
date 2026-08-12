@@ -3,6 +3,7 @@
 namespace App\Traits;
 
 use App\Models\AperturaCierreCaja;
+use App\Models\DistribucionEfectivoVendedor;
 use App\Models\TransaccionCaja;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
@@ -74,18 +75,14 @@ trait ManejaFlujoCajaExtra
             ? $saldoAnterior + $monto
             : $saldoAnterior - $monto;
 
-        // Validar saldo insuficiente para gastos
-        if ($tipoTransaccion === 'egreso' && $saldoNuevo < 0) {
-            throw new \Exception("Saldo insuficiente en la sub-caja '{$subCaja->nombre}'. Disponible: S/" . number_format($saldoAnterior, 2));
-        }
-
-        // Validar contra el efectivo REAL de la sesión abierta del usuario (desde su
-        // apertura): si tiene una apertura abierta en esta sub-caja, solo puede gastar
-        // el dinero de SU sesión (monto_apertura + sus ingresos − sus egresos desde que
-        // se abrió). El saldo_actual de la sub-caja puede estar inflado con dinero de
-        // sesiones anteriores o de otros vendedores, y permitiría gastar lo que en
-        // realidad no hay en caja (ej. apertura de 150 y gasto de 2500).
-        // Sin apertura abierta del usuario, el límite es el saldo_actual.
+        // Validar contra el efectivo REAL de la sesión abierta del usuario: si tiene
+        // apertura abierta en esta sub-caja, solo puede gastar el dinero de SU sesión.
+        //
+        // Esta validación va PRIMERO. Antes corría después de un chequeo contra
+        // `sub_cajas.saldo_actual`, que es el saldo del cajón COMPLETO —compartido
+        // entre vendedores y desalineado del libro—, así que el usuario recibía
+        // "Disponible: S/230.00" (el saldo de la sub-caja) cuando su efectivo real de
+        // sesión era 120. El mensaje reportaba un monto que no era suyo.
         if ($tipoTransaccion === 'egreso') {
             $aperturaAbierta = AperturaCierreCaja::where('sub_caja_id', $subCajaId)
                 ->where('user_id', Auth::id())
@@ -94,41 +91,65 @@ trait ManejaFlujoCajaExtra
                 ->first();
 
             if ($aperturaAbierta) {
+                // Se EXCLUYE la fila `apertura`: ese monto ya entra como base más
+                // abajo (la distribución del vendedor). Contarlo también acá lo sumaba
+                // DOS veces — con una apertura de 120 el disponible salía 240.
+                // Mismo criterio que el resto de calculadores del sistema.
                 $transaccionesSesion = TransaccionCaja::where('sub_caja_id', $subCajaId)
                     ->where('user_id', Auth::id())
                     ->where('fecha', '>=', $aperturaAbierta->fecha_apertura)
+                    ->where(function ($q) {
+                        $q->whereNull('referencia_tipo')
+                            ->orWhere('referencia_tipo', '!=', 'apertura');
+                    })
                     ->get();
 
-                // Ingresos de la sesión: cuentan TODOS (ventas, ingresos extras y
-                // también los traslados/movimientos internos RECIBIDOS — ese dinero
-                // llega justamente para poder gastar).
+                // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (el
+                // que lleva `destino_user_id`): ese dinero llega justamente para poder
+                // gastar. El MOVIMIENTO ENTRE CAJAS queda fuera de AMBOS lados — es
+                // dinero ya cerrado que solo cambia de cajón, el vendedor nunca lo tuvo.
+                //
+                // Antes el egreso solo se perdonaba si el ingreso volvía a la MISMA
+                // sub-caja y al MISMO usuario, así que un movimiento entre cajas le
+                // restaba al vendedor plata ajena y le bloqueaba registrar gastos.
+                $idsTrasladoASesion = app(\App\Services\Cajas\EfectivoDisponibleService::class)
+                    ->idsTrasladoASesion($transaccionesSesion);
+
                 $ingresosSesion = (float) $transaccionesSesion
                     ->where('tipo_transaccion', 'ingreso')
+                    ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                        || in_array($t->referencia_id, $idsTrasladoASesion, true))
                     ->sum('monto');
 
-                // Egresos de la sesión: restan todos, incluidos los movimientos internos
-                // cuando el traslado SALIÓ del control del vendedor (a otro usuario u otra
-                // sub-caja). Excepción: el traslado "cerrado → sesión" (mismo usuario lo
-                // recibió de vuelta en la misma sub-caja) NO debe restar, porque el ingreso
-                // ya lo suma y restarlo autocancelaría ese efectivo nuevo.
                 $egresosSesion = (float) $transaccionesSesion
                     ->where('tipo_transaccion', 'egreso')
-                    ->filter(function ($t) use ($transaccionesSesion) {
-                        if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                            return true;
-                        }
-
-                        return !$transaccionesSesion->contains(function ($i) use ($t) {
-                            return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                                && $i->tipo_transaccion === 'ingreso'
-                                && $i->referencia_id === $t->referencia_id
-                                && $i->user_id === $t->user_id
-                                && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                        });
-                    })
+                    ->where('referencia_tipo', '!=', 'movimiento_interno')
                     ->sum('monto');
 
-                $disponibleSesion = (float) $aperturaAbierta->monto_apertura + $ingresosSesion - $egresosSesion;
+                // Base = lo que le tocó A ESTE VENDEDOR en el reparto, NO el
+                // `monto_apertura` de la apertura. Una apertura se distribuye entre
+                // varios vendedores, así que usar el total le daba a cada uno el
+                // dinero de todos: con una apertura de 230 repartida, un vendedor con
+                // 120 veía 230 disponibles.
+                //
+                // Si no hay fila de distribución, la apertura no se repartió y es
+                // enteramente suya (ya viene filtrada por su `user_id`), así que ahí
+                // sí corresponde el monto de apertura.
+                $distribuido = (float) DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaAbierta->id)
+                    ->where('user_id', Auth::id())
+                    ->sum('monto');
+
+                $montoInicial = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaAbierta->id)->exists()
+                    ? $distribuido
+                    : (float) $aperturaAbierta->monto_apertura;
+
+                // Lo mandado a bóveda ya no lo tiene en mano, así que no lo puede
+                // gastar. No está en el libro (el traslado no sale de la caja
+                // principal), se descuenta desde `traslados_boveda`.
+                $enBoveda = app(\App\Services\Cajas\EfectivoDisponibleService::class)
+                    ->trasladosBovedaActivos($subCajaId, [$aperturaAbierta->id], Auth::id());
+
+                $disponibleSesion = $montoInicial + $ingresosSesion - $egresosSesion - $enBoveda;
 
                 if ($monto > $disponibleSesion + 0.001) {
                     throw new \Exception(
@@ -138,6 +159,13 @@ trait ManejaFlujoCajaExtra
                         . '. Solo puedes gastar el dinero de tu sesión abierta.'
                     );
                 }
+            } elseif ($saldoNuevo < 0) {
+                // Sin sesión abierta del usuario el único límite posible es el saldo
+                // del cajón. Queda como red de seguridad para no dejarlo en negativo.
+                throw new \Exception(
+                    "Saldo insuficiente en la sub-caja '{$subCaja->nombre}'. Disponible: S/"
+                    . number_format($saldoAnterior, 2)
+                );
             }
         }
 

@@ -159,14 +159,34 @@ class OrdenCompraService implements OrdenCompraServiceInterface
                 throw OrdenCompraException::sinProductos();
             }
 
-            // Actualizar datos de la orden
-            $orden->update([
-                'proveedor_id' => $data['proveedor_id'] ?? $orden->proveedor_id,
-                'fecha' => $data['fecha'] ?? $orden->fecha,
-                'tipo_moneda' => $data['tipo_moneda'] ?? $orden->tipo_moneda,
-                'tipo_de_cambio' => $data['tipo_de_cambio'] ?? $orden->tipo_de_cambio,
-                'ruc' => $data['ruc'] ?? $orden->ruc,
-            ]);
+            // Actualizar datos de la orden.
+            //
+            // Se listan TODOS los campos editables, no solo cinco: antes solo se
+            // guardaban proveedor, fecha, moneda, tipo de cambio y RUC, así que
+            // cambiar las condiciones de pago (crédito, días, vencimiento), el
+            // comprobante (tipo/serie/número/guía), la percepción o el almacén no
+            // tenía efecto — el formulario los mandaba, la validación los aceptaba y
+            // acá se descartaban en silencio. La orden respondía "actualizada
+            // exitosamente" con los valores viejos.
+            //
+            // `array_key_exists` en vez de `??` para que un valor enviado como null
+            // (ej. pasar de crédito a contado, que limpia días y vencimiento) sí se
+            // guarde en vez de conservar el valor anterior.
+            $campos = [
+                'proveedor_id', 'fecha', 'tipo_moneda', 'tipo_de_cambio', 'ruc',
+                'tipo_documento', 'serie', 'numero', 'guia', 'percepcion',
+                'forma_de_pago', 'numero_dias', 'fecha_vencimiento',
+                'egreso_dinero_id', 'despliegue_de_pago_id', 'almacen_id',
+            ];
+
+            $cambios = [];
+            foreach ($campos as $campo) {
+                if (array_key_exists($campo, $data)) {
+                    $cambios[$campo] = $data[$campo];
+                }
+            }
+
+            $orden->update($cambios);
 
             // Eliminar productos existentes y crear nuevos
             OrdenCompraProducto::where('orden_compra_id', $id)->delete();

@@ -132,12 +132,14 @@ class MetodoDePagoController extends Controller
         // a través del DespliegueDePagoController, no automáticamente aquí.
         // Esto permite que el usuario tenga control total sobre qué métodos crear.
 
-        // NOTA: El monto_inicial se registrará automáticamente cuando se cree una sub-caja
-        // digital con los métodos de pago vinculados de este banco (ver CajaService::registrarMontoInicialSiAplica)
+        // Asentar el monto inicial en el libro. Si el banco todavía no tiene
+        // despliegues ni sub-caja que lo acepte no hace nada, y quedará registrado
+        // al crear la sub-caja (ver CajaService::registrarMontoInicialSiAplica).
+        app(\App\Services\Implementations\CajaService::class)->sincronizarMontoInicialBanco($item);
 
         return response()->json([
             'data' => $item,
-            'message' => 'Banco creado exitosamente. El monto inicial se registrará automáticamente al crear sub-cajas digitales con este banco.'
+            'message' => 'Banco creado exitosamente'
         ], 201);
     }
 
@@ -182,8 +184,14 @@ class MetodoDePagoController extends Controller
         
         $item->update($validated);
 
+        // Reflejar el cambio en el libro: se asienta la DIFERENCIA contra lo ya
+        // registrado, así editarlo varias veces no lo duplica. Sin esto, cambiar el
+        // monto inicial solo tocaba las columnas del banco y la sub-caja seguía
+        // mostrando el saldo viejo (los saldos se recalculan desde `transacciones_caja`).
+        app(\App\Services\Implementations\CajaService::class)->sincronizarMontoInicialBanco($item);
+
         return response()->json([
-            'data' => $item,
+            'data' => $item->fresh(),
             'message' => 'Banco actualizado exitosamente'
         ]);
     }

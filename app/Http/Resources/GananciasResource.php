@@ -57,6 +57,8 @@ class GananciasResource extends JsonResource
             'compra_forma_pago' => isset($this->compra_forma_pago) ? $this->mapearFormaPago($this->compra_forma_pago) : null,
             'compra_proveedor' => $this->compra_proveedor ?? null,
             'compra_registrado_por' => $this->compra_registrado_por ?? null,
+            // Moneda de la compra de origen: 'd' = dólares, 's' = soles.
+            'compra_moneda' => $this->compra_moneda ?? null,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

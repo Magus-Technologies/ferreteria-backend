@@ -7,6 +7,32 @@ use Illuminate\Support\Facades\DB;
 
 class ClasificadorMovimientos
 {
+    /**
+     * Tipo de cada EGRESO del cierre, derivado de `referencia_tipo`.
+     *
+     * Antes las dos consultas de egresos estampaban `'gasto'` fijo, así que un
+     * Traslado de Efectivo o un Traslado a Bóveda aparecían en el cierre bajo
+     * "Gastos" — y no lo son: uno es plata que se le entregó a otro vendedor y
+     * el otro plata que se guardó. Peor aún, el traslado a UNO MISMO sí quedaba
+     * fuera (se autocancela contra su propio ingreso) pero el traslado a OTRO
+     * usuario entraba como gasto, así que el mismo tipo de operación se veía de
+     * dos formas distintas según a quién se le pasara el dinero.
+     *
+     * Solo cambia la ETIQUETA, no el monto: estos egresos siguen restando del
+     * `monto_esperado` (ver CalculadorResumenCaja), porque el dinero sí salió
+     * físicamente del cajón. Sacarlos del cálculo haría que el cierre le exija
+     * al vendedor plata que ya entregó.
+     */
+    private const TIPO_EGRESO_SQL = <<<'SQL'
+        CASE tc.referencia_tipo
+            WHEN 'traslado_boveda'    THEN 'traslado_boveda'
+            WHEN 'movimiento_interno' THEN 'traslado_efectivo'
+            WHEN 'pago_compra'        THEN 'pago_compra'
+            WHEN 'gasto_extra'        THEN 'gasto_extra'
+            ELSE 'gasto'
+        END as tipo
+        SQL;
+
     public function clasificar(Collection $movimientos, Collection $ventas): array
     {
         return [
@@ -68,6 +94,9 @@ class ClasificadorMovimientos
 
         // 4. GASTOS (egresos del vendedor)
         $gastosYPagos = $this->obtenerGastosVendedor($subCajasIds, $apertura, $userId, $fechaInicio, $fechaFin);
+
+        // 4.5 Descartar los pagos de compra ANULADOS junto con su reversión.
+        [$otrosIngresos, $gastosYPagos] = $this->descartarPagosAnulados($otrosIngresos, $gastosYPagos);
 
         // 5. PRÉSTAMOS RECIBIDOS (de otros vendedores)
         $prestamosRecibidos = $this->obtenerPrestamosRecibidosVendedor($apertura, $userId, $fechaInicio, $fechaFin);
@@ -268,6 +297,61 @@ class ClasificadorMovimientos
      * Obtener otros ingresos del vendedor (ingresos manuales, NO ventas, NO montos iniciales)
      * Los montos iniciales de bancos NO deben aparecer aquí
      */
+    /**
+     * Quita del cierre los pagos de compra ANULADOS y su transacción de reversión.
+     *
+     * Anular un pago no borra el egreso: crea un `anulacion_pago_compra` que lo
+     * compensa. El neto ya daba cero, pero el cierre seguía listando el gasto anulado
+     * en "Detalle de Gastos" —y la devolución en "Otros Ingresos"— como si la
+     * operación hubiera ocurrido.
+     *
+     * Se descartan LOS DOS: quitar solo el gasto dispararía el monto esperado por el
+     * importe de la reversión que quedaría suelta.
+     *
+     * El emparejamiento es por CANTIDAD, no por existencia: si hubo dos pagos iguales
+     * a la misma compra y solo se anuló uno, se oculta uno solo y el otro sigue
+     * contando.
+     *
+     * @return array{0: Collection, 1: Collection} [otrosIngresos, gastos] ya filtrados
+     */
+    private function descartarPagosAnulados(Collection $otrosIngresos, Collection $gastos): array
+    {
+        $clave = fn ($t) => ($t->referencia_id ?? '') . '|' . number_format((float) $t->monto, 2, '.', '');
+
+        $anulaciones = $otrosIngresos->where('referencia_tipo', 'anulacion_pago_compra');
+
+        if ($anulaciones->isEmpty()) {
+            return [$otrosIngresos, $gastos];
+        }
+
+        // Cuántos pagos hay que ocultar por cada (compra + monto).
+        $pendientes = [];
+        foreach ($anulaciones as $a) {
+            $k = $clave($a);
+            $pendientes[$k] = ($pendientes[$k] ?? 0) + 1;
+        }
+
+        $gastosFiltrados = $gastos->reject(function ($g) use (&$pendientes, $clave) {
+            if (($g->referencia_tipo ?? null) !== 'pago_compra') {
+                return false;
+            }
+
+            $k = $clave($g);
+            if (($pendientes[$k] ?? 0) > 0) {
+                $pendientes[$k]--;
+                return true;
+            }
+
+            return false;
+        });
+
+        // Las reversiones salen todas: su gasto ya no está, así que dejarlas sumaría
+        // dinero que nadie recibió.
+        $ingresosFiltrados = $otrosIngresos->where('referencia_tipo', '!=', 'anulacion_pago_compra');
+
+        return [$ingresosFiltrados, $gastosFiltrados];
+    }
+
     private function obtenerOtrosIngresosVendedor($subCajasIds, $apertura, string $userId, $fechaInicio, $fechaFin): Collection
     {
         $ingresos = DB::table('transacciones_caja as tc')
@@ -278,11 +362,6 @@ class ClasificadorMovimientos
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'ingreso')
             // EXCLUIR: ventas, aperturas, transferencias Y MONTOS INICIALES.
-            // Los INGRESOS por movimiento_interno (traslados de efectivo recibidos)
-            // SÍ cuentan: ese efectivo llegó físicamente al cajón durante la sesión
-            // y debe figurar en el cierre / monto esperado. Los EGRESOS por
-            // movimiento interno siguen excluidos (por regla salen del dinero de
-            // sesiones cerradas, no del efectivo de la sesión).
             ->where(function ($query) {
                 $query->whereNull('tc.referencia_tipo')
                     ->orWhereNotIn('tc.referencia_tipo', [
@@ -291,6 +370,25 @@ class ClasificadorMovimientos
                         'transferencia_vendedor',
                         'monto_inicial' // ✅ EXCLUIR montos iniciales de bancos
                     ]);
+            })
+            // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO, o sea
+            // el que tiene `destino_user_id`: ese dinero entra a la sesión abierta de
+            // un vendedor y él responde por ese efectivo al cerrar.
+            //
+            // El MOVIMIENTO ENTRE CAJAS (sin `destino_user_id`) queda fuera: es dinero
+            // ya CERRADO que solo cambia de cajón, nadie lo recibe en mano ni lo cuenta
+            // al cerrar. Antes entraba como "Otros Ingresos" y le subía el monto
+            // esperado al vendedor de la sub-caja destino por plata que nunca manejó.
+            // Es el mismo criterio que ya usa MovimientoInternoService::calcularSaldoMovible().
+            ->where(function ($query) {
+                $query->where('tc.referencia_tipo', '!=', 'movimiento_interno')
+                    ->orWhereNull('tc.referencia_tipo')
+                    ->orWhereExists(function ($sub) {
+                        $sub->select(DB::raw(1))
+                            ->from('movimientos_internos as mi')
+                            ->whereColumn('mi.id', 'tc.referencia_id')
+                            ->whereNotNull('mi.destino_user_id');
+                    });
             })
             // Todo traslado de efectivo RECIBIDO por este usuario (movimiento_interno,
             // ingreso) cuenta como Otros Ingresos del cierre, sin importar a qué sub-caja
@@ -331,24 +429,26 @@ class ClasificadorMovimientos
             ->where(function ($query) {
                 // Todos los egresos cuentan como gasto EXCEPTO:
                 //  - los préstamos entre vendedores (van por separado como "préstamos dados")
-                //  - el egreso de un traslado "cerrado → sesión" (el mismo usuario recibió el
-                //    traslado de vuelta en la misma sub-caja; el ingreso ya lo suma y restar
-                //    el egreso autocancelaría ese efectivo nuevo entrando a la sesión).
-                // Los egresos por movimiento_interno que SÍ salen del control del vendedor
-                // (traslado a OTRO usuario o a otra sub-caja) restan del efectivo disponible.
+                //  - CUALQUIER `movimiento_interno`.
+                //
+                // Ninguna de las dos operaciones que usan esa tabla le saca plata a la
+                // sesión de quien la ejecuta:
+                //  · TRASLADO DE EFECTIVO (con `destino_user_id`) mueve dinero del pozo
+                //    CERRADO a la sesión abierta de OTRO usuario — le suma a él, no le
+                //    resta al que lo hizo.
+                //  · MOVIMIENTO ENTRE CAJAS (sin `destino_user_id`) es cajón → cajón de
+                //    dinero ya cerrado: nadie lo recibe en mano ni lo cuenta al cerrar.
+                //
+                // Antes se excluía solo el primero, así que un movimiento entre cajas le
+                // bajaba el monto esperado al vendedor de la sub-caja origen por plata que
+                // nunca manejó en su sesión. Es el mismo criterio que ya usa
+                // MovimientoInternoService::calcularSaldoMovible(), que excluye el
+                // movimiento interno de AMBOS lados.
                 $query->whereNull('tc.referencia_tipo')
-                    ->orWhere(function ($q) {
-                        $q->where('tc.referencia_tipo', '!=', 'transferencia_vendedor')
-                          ->whereNotExists(function ($sub) {
-                              $sub->select(DB::raw(1))
-                                  ->from('transacciones_caja as tci')
-                                  ->whereColumn('tci.referencia_id', 'tc.referencia_id')
-                                  ->where('tci.referencia_tipo', 'movimiento_interno')
-                                  ->where('tci.tipo_transaccion', 'ingreso')
-                                  ->whereColumn('tci.user_id', 'tc.user_id')
-                                  ->whereColumn('tci.sub_caja_id', 'tc.sub_caja_id');
-                          });
-                    });
+                    ->orWhereNotIn('tc.referencia_tipo', [
+                        'transferencia_vendedor',
+                        'movimiento_interno',
+                    ]);
             })
             ->where('tc.fecha', '>=', $fechaInicio)
             ->where('tc.fecha', '<=', $fechaFin)
@@ -362,7 +462,7 @@ class ClasificadorMovimientos
                 'mp.name as metodo_nombre',
                 'mp.cuenta_bancaria as metodo_cuenta',
                 'dp.name as despliegue_nombre',
-                DB::raw("'gasto' as tipo")
+                DB::raw(self::TIPO_EGRESO_SQL),
             ])
             ->get();
 
@@ -691,7 +791,7 @@ class ClasificadorMovimientos
                 'tc.descripcion',
                 'tc.created_at',
                 'sc.nombre as sub_caja',
-                DB::raw("'gasto' as tipo")
+                DB::raw(self::TIPO_EGRESO_SQL),
             ])
             ->get();
     }

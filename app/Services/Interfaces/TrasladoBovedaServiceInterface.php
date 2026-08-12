@@ -27,6 +27,11 @@ interface TrasladoBovedaServiceInterface
     public function obtenerTodosLosTrasladosPorCaja(string $aperturaCierreId): Collection;
 
     /**
+     * Historial de traslados del usuario, sin requerir caja abierta.
+     */
+    public function obtenerHistorialDelUsuario(string|int $userId): Collection;
+
+    /**
      * Obtener el total trasladado de una caja
      *
      * @param string $aperturaCierreId

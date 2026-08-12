@@ -1730,6 +1730,14 @@ class CompraController extends Controller
         $monto = (float) $pago->monto;
         $saldoAnterior = (float) $subCaja->saldo_actual;
 
+        // Quien PAGA es quien pone el efectivo de su bolsillo, no quien registró la
+        // compra. Antes todo esto usaba `$compra->user_id`, así que al pagar una
+        // compra creada por otro vendedor se validaba contra la sesión del OTRO: un
+        // usuario con 3,110.60 en su caja recibía "disponible S/ 0.00" porque el
+        // creador de la compra no tenía efectivo. Y la transacción quedaba a nombre
+        // del creador, restándole a él en el cierre en vez de a quien pagó.
+        $pagadorId = auth()->id() ?? $compra->user_id;
+
         // Disponible para pagar: delegado a EfectivoDisponibleService (la MISMA
         // calculadora que ya usan Traslado a Bóveda / Traslado de Efectivo para
         // mostrar "Efectivo Disponible") en vez de una copia local — esta copia
@@ -1742,14 +1750,14 @@ class CompraController extends Controller
         // dinero de sesiones cerradas se dispone con "Traslado de Efectivo".
         $disponible = $saldoAnterior;
         $aperturaAbierta = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-            ->where('user_id', $compra->user_id)
+            ->where('user_id', $pagadorId)
             ->whereNull('fecha_cierre')
             ->first();
 
         if ($aperturaAbierta) {
             $disponibleSesion = $this->efectivoDisponibleService->calcularDesdeApertura(
                 $subCaja,
-                $compra->user_id,
+                $pagadorId,
                 $pago->despliegue_de_pago_id,
                 $aperturaAbierta
             );
@@ -1782,14 +1790,16 @@ class CompraController extends Controller
             'descripcion' => 'Pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
             'referencia_id' => $compra->id,
             'referencia_tipo' => 'pago_compra',
-            'user_id' => $compra->user_id,
+            // A nombre de quien pagó: es su efectivo el que sale, y es a él a quien
+            // el cierre debe descontarle este egreso.
+            'user_id' => $pagadorId,
             'despliegue_pago_id' => $pago->despliegue_de_pago_id,
             'fecha' => $pago->fecha ?? now(),
         ]);
 
         // Registrar en MovimientoCaja si hay apertura activa
         $apertura = AperturaCierreCaja::where('estado', 'abierta')
-            ->where('user_id', $compra->user_id)
+            ->where('user_id', $pagadorId)
             ->orderBy('fecha_apertura', 'desc')
             ->first();
 
@@ -1799,7 +1809,7 @@ class CompraController extends Controller
                     'apertura_cierre_id' => $apertura->id,
                     'caja_principal_id' => $apertura->caja_principal_id,
                     'sub_caja_id' => $subCaja->id,
-                    'cajero_id' => $compra->user_id,
+                    'cajero_id' => $pagadorId,
                     'fecha_hora' => now(),
                     'tipo_movimiento' => 'compra',
                     'concepto' => 'Pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
@@ -1858,7 +1868,11 @@ class CompraController extends Controller
             'descripcion' => 'Anulación de pago de compra ' . ($compra->serie ? $compra->serie . '-' . $compra->numero : $compra->id),
             'referencia_id' => $compra->id,
             'referencia_tipo' => 'anulacion_pago_compra',
-            'user_id' => $compra->user_id,
+            // A nombre del MISMO usuario que hizo el pago original, no del creador de
+            // la compra: si el egreso quedó a nombre de uno y la reversión a nombre de
+            // otro, no se cancelan — al primero le sigue figurando el gasto en su
+            // cierre y al segundo le aparece un ingreso que nunca recibió.
+            'user_id' => $transaccionOriginal->user_id,
             'despliegue_pago_id' => $pago->despliegue_de_pago_id,
             'fecha' => now(),
         ]);

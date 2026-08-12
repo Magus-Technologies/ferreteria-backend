@@ -13,6 +13,7 @@ use App\Models\TransferenciaEfectivoVendedor;
 use App\Models\TransaccionCaja;
 use App\Models\MovimientoCaja;
 use App\Models\DespliegueDePago;
+use App\Services\Cajas\EfectivoDisponibleService;
 use App\Services\Interfaces\PrestamoVendedorServiceInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -20,6 +21,10 @@ use Illuminate\Support\Str;
 
 class PrestamoVendedorService implements PrestamoVendedorServiceInterface
 {
+    public function __construct(
+        private EfectivoDisponibleService $efectivoDisponibleService
+    ) {}
+
     public function crearSolicitud(CrearSolicitudEfectivoDTO $dto, int|string $vendedorSolicitanteId): array
     {
         // Obtener el prestamista para verificar si es admin
@@ -328,71 +333,54 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
     }
 
     /**
-     * Calcular efectivo disponible en una sub-caja específica del vendedor
+     * Calcular efectivo disponible en una sub-caja específica del vendedor.
+     *
+     * Es la validación que corre al APROBAR una solicitud, y tiene que dar el
+     * MISMO número que obtenerVendedoresConEfectivo() le mostró al usuario al
+     * listar los prestamistas. Antes duplicaba el cálculo con una copia vieja
+     * que se quedó sin las tres correcciones que sí tiene
+     * calcularEfectivoEnCajaChica():
+     *
+     *   1. La apertura se buscaba sin filtrar por `user_id`, así que `->first()`
+     *      podía devolver la de OTRO vendedor y el monto de distribución salía
+     *      de una sesión ajena (normalmente 0).
+     *   2. Las transacciones no se acotaban a `fecha_apertura`: sumaba el
+     *      historial COMPLETO del vendedor en la sub-caja, de todas las sesiones
+     *      ya cerradas. Como los egresos acumulados de meses superan a los
+     *      ingresos, el "disponible" salía profundamente NEGATIVO
+     *      (ej. -34,785.40) y toda aprobación se rechazaba.
+     *   3. No exceptuaba los egresos de `movimiento_interno` que vuelven a la
+     *      misma sesión del mismo vendedor, que se autocancelaban con su ingreso.
+     *
+     * Por eso ahora delega en calcularEfectivoEnCajaChica() en vez de duplicar:
+     * una sola definición de "efectivo del vendedor desde que aperturó".
      */
     private function calcularEfectivoEnSubCaja(int $subCajaId, int|string $vendedorId): float
     {
         $subCaja = \App\Models\SubCaja::findOrFail($subCajaId);
 
-        // Si es Caja Chica, calcular efectivo del vendedor
+        // Caja Chica: efectivo del vendedor en ESTA sesión (distribución de
+        // apertura + ingresos − egresos de los despliegues de pago EFECTIVO).
         if ($subCaja->tipo_caja === 'CC') {
-            // Obtener la apertura activa
-            $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-                ->whereNull('fecha_cierre')
-                ->first();
-
-            if (!$aperturaActiva) {
-                return 0;
-            }
-
-            // Monto inicial de distribución
-            $montoInicial = DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
-                ->where('user_id', $vendedorId)
-                ->sum('monto');
-
-            // Obtener IDs de despliegues de pago tipo EFECTIVO de la Caja Chica
-            $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
-            
-            $desplieguePagoEfectivoIds = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
-                ->whereHas('metodoDePago', function ($query) {
-                    $query->whereNull('cuenta_bancaria')
-                          ->where(function ($q) {
-                              $q->where('name', 'like', '%efectivo%')
-                                ->orWhere('name', 'like', '%Efectivo%');
-                          });
-                })
-                ->pluck('id')
-                ->toArray();
-
-            if (empty($desplieguePagoEfectivoIds)) {
-                return $montoInicial;
-            }
-
-            // Calcular transacciones de efectivo (excluyendo aperturas)
-            $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCaja->id)
-                ->where('user_id', $vendedorId)
-                ->where(function ($query) use ($desplieguePagoEfectivoIds) {
-                    $query->whereIn('despliegue_pago_id', $desplieguePagoEfectivoIds)
-                          ->orWhere(function ($q) {
-                              $q->whereNull('despliegue_pago_id')
-                                ->where('referencia_tipo', 'venta');
-                          });
-                })
-                ->where(function ($query) {
-                    $query->whereNull('referencia_tipo')
-                          ->orWhere('referencia_tipo', '!=', 'apertura');
-                })
-                ->get();
-
-            $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-            $egresos = $transacciones->where('tipo_transaccion', 'egreso')->sum('monto');
-
-            return $montoInicial + $ingresos - $egresos;
+            return $this->calcularEfectivoEnCajaChica($subCaja->caja_principal_id, $vendedorId);
         }
 
-        // Para otras sub-cajas, calcular el saldo total
+        // Otras sub-cajas: mismo criterio de "desde que aperturó". La sub-caja ya
+        // define el método de pago, así que acá no se filtra por despliegue, pero
+        // el corte por sesión del vendedor sí aplica igual — sin él se arrastraba
+        // el saldo de sesiones cerradas anteriores.
+        $aperturaActiva = \App\Models\AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('user_id', $vendedorId)
+            ->whereNull('fecha_cierre')
+            ->first();
+
+        if (!$aperturaActiva) {
+            return 0;
+        }
+
         $transacciones = \App\Models\TransaccionCaja::where('sub_caja_id', $subCajaId)
             ->where('user_id', $vendedorId)
+            ->where('created_at', '>=', $aperturaActiva->fecha_apertura)
             ->get();
 
         $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
@@ -472,30 +460,42 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
             ->where('created_at', '>=', $aperturaActiva->fecha_apertura)
             ->get();
 
-        $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
-        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
-        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
-        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
-        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión.
-        $egresos = $transacciones
-            ->where('tipo_transaccion', 'egreso')
-            ->filter(function ($t) use ($transacciones) {
-                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                    return true;
-                }
+        // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (el que
+        // lleva `destino_user_id`): ese dinero entra a la sesión abierta de un
+        // vendedor y pasa a ser suyo.
+        //
+        // El MOVIMIENTO ENTRE CAJAS (sin `destino_user_id`) queda fuera de AMBOS
+        // lados: es dinero ya CERRADO que solo cambia de cajón, nadie lo recibe en
+        // mano. Mismo criterio que ClasificadorMovimientos y que
+        // MovimientoInternoService::calcularSaldoMovible().
+        //
+        // Antes el egreso solo se perdonaba si el ingreso volvía a la MISMA sub-caja
+        // y al MISMO usuario. Un movimiento 57 → 58 no cumplía esa condición, así que
+        // le restaba al vendedor plata que nunca fue de su sesión y lo dejaba en
+        // negativo (-18,748.30 con una apertura de 200), bloqueándole los préstamos.
+        $idsTrasladoASesion = $this->efectivoDisponibleService->idsTrasladoASesion($transacciones);
+        $esTrasladoASesion = fn ($t) => in_array($t->referencia_id, $idsTrasladoASesion, true);
 
-                return !$transacciones->contains(function ($i) use ($t) {
-                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                        && $i->tipo_transaccion === 'ingreso'
-                        && $i->referencia_id === $t->referencia_id
-                        && $i->user_id === $t->user_id
-                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                });
-            })
+        $ingresos = (float) $transacciones
+            ->where('tipo_transaccion', 'ingreso')
+            ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                || $esTrasladoASesion($t))
             ->sum('monto');
 
-        return $montoInicial + $ingresos - $egresos;
+        $egresos = (float) $transacciones
+            ->where('tipo_transaccion', 'egreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->sum('monto');
+
+        // Lo mandado a bóveda ya no lo tiene en mano, así que no lo puede prestar.
+        // No está en el libro (el traslado no sale de la caja), se lee de su tabla.
+        $boveda = $this->efectivoDisponibleService->trasladosBovedaActivos(
+            $cajaChica->id,
+            [$aperturaActiva->id],
+            $vendedorId
+        );
+
+        return $montoInicial + $ingresos - $egresos - $boveda;
     }
 
     public function calcularEfectivoDisponible(string $aperturaId, int|string $vendedorId): float

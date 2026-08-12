@@ -394,18 +394,146 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * Saldo REAL de una sub-caja: recalculado en vivo desde todo el historial de
      * `transacciones_caja`, en vez de leer `sub_cajas.saldo_actual`.
      *
-     * OJO: `saldo_actual` NO se usa a propósito — un Traslado a Bóveda registra su
-     * egreso en `transacciones_caja` pero deliberadamente NO descuenta
-     * `saldo_actual` (ver TrasladoBovedaService::registrarTraslado, "sigue siendo
-     * dinero bajo responsabilidad de la Caja Chica"). Si se leyera la columna acá,
-     * cada bóveda hecha en la sesión quedaría "fantasma": el saldo movible
-     * mostraría dinero que físicamente ya no está.
+     * Suma el libro completo, sin excepciones. Ya no hace falta excluir el
+     * TRASLADO A BÓVEDA: dejó de escribirse en `transacciones_caja` porque es solo
+     * un registro —el efectivo se queda en la Caja Chica— y su fila vivía únicamente
+     * para que después cada calculador tuviera que acordarse de ignorarla. Los que
+     * lo hacían daban un saldo y los que no, otro.
+     *
+     * Con `$desplieguePagoId` acota a un método de pago concreto, para el selector
+     * "Método de Pago Origen" del modal Mover Dinero.
      */
-    private function calcularSaldoRealSubCaja(SubCaja $subCaja): float
+    private function calcularSaldoRealSubCaja(SubCaja $subCaja, ?string $desplieguePagoId = null): float
     {
         return (float) TransaccionCaja::where('sub_caja_id', $subCaja->id)
+            ->when($desplieguePagoId, fn ($q) => $q->where('despliegue_pago_id', $desplieguePagoId))
             ->selectRaw("COALESCE(SUM(CASE WHEN tipo_transaccion = 'ingreso' THEN monto ELSE -monto END), 0) as total")
             ->value('total');
+    }
+
+    /**
+     * Transacciones que pertenecen a alguna SESIÓN ABIERTA de la sub-caja.
+     *
+     * Devuelve null si no hay ninguna sesión abierta en la caja principal (no es
+     * lo mismo que una colección vacía: sin sesiones, todo el saldo es movible).
+     *
+     * El corte NO puede ser una sola fecha global: una caja es un cajón COMPARTIDO
+     * con varias sesiones abiertas a la vez (una por vendedor) que empiezan en
+     * momentos distintos. Con un corte único:
+     *   - tomando la apertura más reciente, la actividad de los que aperturaron
+     *     antes caía por debajo y se contaba como CERRADO;
+     *   - tomando la más antigua, se contaba como NO CERRADO el dinero de sesiones
+     *     YA CERRADAS de otros usuarios (un Traslado de Efectivo recibido en una
+     *     sesión anterior seguía figurando como "de sesión" para siempre).
+     *
+     * Por eso el corte es POR USUARIO: una transacción es "dinero de sesión" solo
+     * si su `user_id` tiene sesión abierta y ocurrió a partir de la apertura de esa
+     * sesión. Lo de un usuario sin sesión abierta ya está cerrado → movible.
+     *
+     * Incluye la fila de "apertura": el monto con el que un vendedor aperturó es
+     * dinero de su sesión y no se puede trasladar hasta que cierre, igual que sus
+     * ventas o sus cobros.
+     *
+     * Es la ÚNICA definición de "transacciones de sesión" del servicio: la usan
+     * tanto calcularSaldoMovible() (que alimenta las columnas Cerrado / No Cerrado)
+     * como detalleNoCerrado() (el desglose por método y usuario), para que el
+     * detalle siempre sume exactamente lo que muestra la columna.
+     */
+    private function transaccionesDeSesion(SubCaja $subCaja, ?string $desplieguePagoId = null): ?Collection
+    {
+        $aperturas = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('estado', 'abierta')
+            ->get();
+
+        if ($aperturas->isEmpty()) {
+            return null;
+        }
+
+        $cortePorUsuario = [];
+        foreach ($aperturas as $ap) {
+            $previo = $cortePorUsuario[$ap->user_id] ?? null;
+            if ($previo === null || $ap->fecha_apertura < $previo) {
+                $cortePorUsuario[$ap->user_id] = $ap->fecha_apertura;
+            }
+        }
+
+        // La más antigua solo acota la query; el filtro fino es por usuario.
+        //
+        // Se EXCLUYE `monto_inicial`: es el saldo con el que se configuró un banco, no
+        // efectivo que un vendedor tenga en mano. La transacción se graba con el
+        // usuario que editó el banco y con la fecha del momento, así que caía dentro de
+        // su sesión abierta y aparecía como "No Cerrado" a su nombre — un banco con
+        // 50,000 de saldo inicial se le atribuía entero a quien lo configuró. Es dinero
+        // consolidado: va a CERRADO. Mismo criterio que ClasificadorMovimientos, que ya
+        // lo excluye de los ingresos del cierre.
+        return TransaccionCaja::where('sub_caja_id', $subCaja->id)
+            ->when($desplieguePagoId, fn ($q) => $q->where('despliegue_pago_id', $desplieguePagoId))
+            ->where('fecha', '>=', min($cortePorUsuario))
+            ->where(function ($q) {
+                $q->whereNull('referencia_tipo')
+                    ->orWhere('referencia_tipo', '!=', 'monto_inicial');
+            })
+            ->get()
+            ->filter(function ($t) use ($cortePorUsuario) {
+                $corte = $cortePorUsuario[$t->user_id] ?? null;
+
+                return $corte !== null && $t->fecha >= $corte;
+            })
+            ->pipe(fn ($tx) => $this->descartarPagosAnulados($tx));
+    }
+
+    /**
+     * Quita los pagos de compra ANULADOS junto con su reversión.
+     *
+     * Anular un pago no borra el egreso: crea un `anulacion_pago_compra` que lo
+     * compensa. El neto ya daba cero, pero el detalle del "Saldo No Cerrado" seguía
+     * mostrando el egreso del pago anulado como si el vendedor hubiera gastado ese
+     * dinero.
+     *
+     * Se descartan LOS DOS: quitar solo el egreso dejaría suelto el ingreso de la
+     * reversión y el No Cerrado subiría por dinero que nunca entró.
+     *
+     * El emparejamiento es por CANTIDAD: si hubo dos pagos iguales a la misma compra
+     * y solo se anuló uno, se descarta uno solo y el otro sigue contando. No se
+     * compara el `user_id` a propósito — si el pago y su anulación quedaron a nombre
+     * de usuarios distintos (dato viejo), igual se cancelan dentro de la sub-caja.
+     */
+    private function descartarPagosAnulados(Collection $transacciones): Collection
+    {
+        $clave = fn ($t) => ($t->referencia_id ?? '') . '|'
+            . ($t->despliegue_pago_id ?? '') . '|'
+            . number_format((float) $t->monto, 2, '.', '');
+
+        $pendientes = [];
+        foreach ($transacciones->where('referencia_tipo', 'anulacion_pago_compra') as $a) {
+            $k = $clave($a);
+            $pendientes[$k] = ($pendientes[$k] ?? 0) + 1;
+        }
+
+        if (empty($pendientes)) {
+            return $transacciones;
+        }
+
+        return $transacciones->reject(function ($t) use (&$pendientes, $clave) {
+            $tipo = $t->referencia_tipo ?? null;
+
+            if ($tipo === 'anulacion_pago_compra') {
+                return true;
+            }
+
+            if ($tipo !== 'pago_compra') {
+                return false;
+            }
+
+            $k = $clave($t);
+            if (($pendientes[$k] ?? 0) > 0) {
+                $pendientes[$k]--;
+
+                return true;
+            }
+
+            return false;
+        });
     }
 
     /**
@@ -416,33 +544,29 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * con 500 → movible 1500. Si además vendo 200 hoy, esos 200 NO se pueden
      * mover todavía (siguen siendo "de la sesión"), pero el 1500 sí.
      */
-    private function calcularSaldoMovible(SubCaja $subCaja): float
+    private function calcularSaldoMovible(SubCaja $subCaja, ?string $desplieguePagoId = null): float
     {
-        $saldoActual = $this->calcularSaldoRealSubCaja($subCaja);
+        $saldoActual = $this->calcularSaldoRealSubCaja($subCaja, $desplieguePagoId);
 
-        $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
-            ->where('estado', 'abierta')
-            ->orderBy('fecha_apertura', 'desc')
-            ->first();
+        // El corte NO puede ser una sola fecha global de la caja principal: una
+        // caja es un cajón COMPARTIDO con varias sesiones abiertas a la vez (una
+        // por vendedor) que empiezan en momentos distintos. Con un corte único:
+        //   - si se tomaba la apertura más reciente, la actividad de los que
+        //     aperturaron antes caía por debajo y se contaba como CERRADO;
+        //   - si se toma la más antigua, se cuenta como NO CERRADO el dinero de
+        //     sesiones YA CERRADAS de otros usuarios (ej. un Traslado de Efectivo
+        //     recibido en una sesión anterior seguía figurando como "de sesión"
+        //     para siempre, aunque al cerrar esa caja ya se consolidó).
+        //
+        // Corte POR USUARIO: cada apertura abierta define desde cuándo cuenta la
+        // actividad de SU dueño. Una transacción es "dinero de sesión" solo si su
+        // `user_id` tiene sesión abierta y ocurrió a partir de la apertura de esa
+        // sesión. Lo de un usuario sin sesión abierta ya está cerrado → movible.
+        $transacciones = $this->transaccionesDeSesion($subCaja, $desplieguePagoId);
 
-        if (!$apertura) {
+        if ($transacciones === null) {
             return $saldoActual;
         }
-
-        // Transacciones de la sesión, EXCLUYENDO la propia fila de "apertura" —
-        // ese monto ya es movible por definición (no es dinero "nuevo" de la
-        // sesión, es lo que el vendedor cargó al aperturar), así que no debe
-        // contarse como actividad de sesión a descontar. Antes SÍ se contaba
-        // acá (como ingreso) Y se restaba OTRA VEZ más abajo con
-        // `monto_apertura` — un doble descuento que dejaba el movible muy por
-        // debajo de lo real.
-        $transacciones = TransaccionCaja::where('sub_caja_id', $subCaja->id)
-            ->where('fecha', '>=', $apertura->fecha_apertura)
-            ->where(function ($q) {
-                $q->whereNull('referencia_tipo')
-                    ->orWhere('referencia_tipo', '!=', 'apertura');
-            })
-            ->get();
 
         // Dinero de la SESIÓN presente en la sub-caja: todos los ingresos de la
         // sesión menos sus egresos, EXCLUYENDO los de movimiento_interno en AMBOS
@@ -474,9 +598,152 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
-        $dineroSesion = $ingresosSesion - $egresosSesion;
+        // El TRASLADO A BÓVEDA saca el dinero de la sesión del vendedor pero NO de la
+        // sub-caja: sigue siendo plata de la empresa, solo guardada. Restarlo acá lo
+        // mueve de "No Cerrado" a "Cerrado" sin cambiar el total, que es justo lo que
+        // significa mandarlo a la bóveda.
+        //
+        // Se lee de la tabla `traslados_boveda` porque el traslado dejó de escribir en
+        // `transacciones_caja` (el dinero no sale de la caja). Sin esto, el monto se
+        // quedaba en No Cerrado para siempre aunque ya estuviera en la bóveda.
+        $aperturaIds = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
+            ->where('estado', 'abierta')
+            ->pluck('id')
+            ->all();
+
+        $bovedaDeSesion = $this->efectivoDisponibleService
+            ->trasladosBovedaActivos($subCaja->id, $aperturaIds);
+
+        $dineroSesion = $ingresosSesion - $egresosSesion - $bovedaDeSesion;
 
         return $saldoActual - max($dineroSesion, 0);
+    }
+
+    /**
+     * Desglose del "Saldo No Cerrado" de UNA sub-caja: cuánto aporta cada usuario
+     * con sesión abierta, en cada despliegue de pago.
+     *
+     * Usa las MISMAS transacciones y las mismas reglas de ingreso/egreso que
+     * calcularSaldoMovible(), así que la suma del detalle cuadra con el monto de
+     * la columna — salvo cuando el neto de la sesión es negativo y la columna lo
+     * aplana a 0 (ver `total_aplanado` en la respuesta).
+     */
+    /**
+     * Saldo CERRADO (movible) de una sub-caja: lo único que se puede mandar a otra
+     * sub-caja. Es el mismo número que muestra la columna "Saldo Cerrado" y el
+     * mismo que valida crearMovimiento(), expuesto para que las pantallas no
+     * tengan que recalcularlo por su cuenta.
+     */
+    public function saldoMovibleSubCaja(int $subCajaId, ?string $desplieguePagoId = null): float
+    {
+        return round(
+            max($this->calcularSaldoMovible(SubCaja::findOrFail($subCajaId), $desplieguePagoId), 0),
+            2
+        );
+    }
+
+    /**
+     * Saldo REAL de una caja principal: todo el dinero que contiene, sumando el
+     * saldo real de sus sub-cajas activas. Equivale al "Total General" del modal
+     * (Saldo Cerrado + Saldo No Cerrado).
+     *
+     * Existe para que `CajaPrincipalResource` no repita la suma por su cuenta. La
+     * tenía duplicada y quedó desincronizada: cuando el Traslado a Bóveda dejó de
+     * restar del saldo real (ver calcularSaldoRealSubCaja), solo se actualizó el
+     * cálculo del modal, así que la columna "Saldo Total" de la tabla seguía
+     * descontando cada traslado y se separaba más del detalle con cada uno.
+     */
+    public function saldoRealCajaPrincipal(int $cajaPrincipalId): float
+    {
+        return round(
+            SubCaja::where('caja_principal_id', $cajaPrincipalId)
+                ->where('estado', true)
+                ->get()
+                ->sum(fn (SubCaja $subCaja) => $this->calcularSaldoRealSubCaja($subCaja)),
+            2
+        );
+    }
+
+    public function detalleNoCerrado(int $subCajaId): array
+    {
+        $subCaja = SubCaja::findOrFail($subCajaId);
+
+        $transacciones = $this->transaccionesDeSesion($subCaja);
+
+        if ($transacciones === null || $transacciones->isEmpty()) {
+            return [
+                'sub_caja_id' => $subCaja->id,
+                'sub_caja_nombre' => $subCaja->nombre,
+                'total' => 0.0,
+                'total_aplanado' => false,
+                'detalle' => [],
+            ];
+        }
+
+        $idsTrasladoASesion = $this->efectivoDisponibleService->idsTrasladoASesion($transacciones);
+
+        // Mismo criterio que calcularSaldoMovible: los movimientos internos no son
+        // actividad de sesión (solo cambian el dinero de cajón), salvo el traslado
+        // de efectivo a la sesión de un usuario, que sí lo es del lado del ingreso.
+        $cuentaComoIngreso = fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+            || in_array($t->referencia_id, $idsTrasladoASesion, true);
+        $cuentaComoEgreso = fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno';
+
+        $nombresDespliegue = DespliegueDePago::whereIn(
+            'id',
+            $transacciones->pluck('despliegue_pago_id')->filter()->unique()
+        )->pluck('name', 'id');
+
+        $nombresUsuario = User::whereIn(
+            'id',
+            $transacciones->pluck('user_id')->filter()->unique()
+        )->pluck('name', 'id');
+
+        $filas = [];
+        $total = 0.0;
+
+        // Agrupado por despliegue de pago y, dentro de cada uno, por usuario: es el
+        // orden en que se lee en pantalla ("cada caja tiene sus métodos, y en cada
+        // método varios usuarios").
+        foreach ($transacciones->groupBy(fn ($t) => $t->despliegue_pago_id ?? '') as $desplieguePagoId => $delDespliegue) {
+            foreach ($delDespliegue->groupBy('user_id') as $userId => $delUsuario) {
+                $ingresos = (float) $delUsuario->where('tipo_transaccion', 'ingreso')
+                    ->filter($cuentaComoIngreso)->sum('monto');
+                $egresos = (float) $delUsuario->where('tipo_transaccion', 'egreso')
+                    ->filter($cuentaComoEgreso)->sum('monto');
+
+                $monto = round($ingresos - $egresos, 2);
+
+                if (abs($monto) < 0.005) {
+                    continue;
+                }
+
+                $total += $monto;
+
+                $filas[] = [
+                    'despliegue_pago_id' => $desplieguePagoId ?: null,
+                    'despliegue_nombre' => $nombresDespliegue[$desplieguePagoId] ?? 'Sin método',
+                    'user_id' => $userId,
+                    'user_nombre' => $nombresUsuario[$userId] ?? 'Sin usuario',
+                    'ingresos' => round($ingresos, 2),
+                    'egresos' => round($egresos, 2),
+                    'monto' => $monto,
+                ];
+            }
+        }
+
+        // Orden estable: método alfabético, y dentro de él el mayor monto primero.
+        usort($filas, fn ($a, $b) => [$a['despliegue_nombre'], -$a['monto']] <=> [$b['despliegue_nombre'], -$b['monto']]);
+
+        return [
+            'sub_caja_id' => $subCaja->id,
+            'sub_caja_nombre' => $subCaja->nombre,
+            'total' => round($total, 2),
+            // La columna muestra max(total, 0). Si el neto es negativo, el detalle
+            // suma menos que lo que se ve arriba; se avisa para no confundir.
+            'total_aplanado' => $total < 0,
+            'detalle' => $filas,
+        ];
     }
 
     public function saldosDisponibles(): array
@@ -574,7 +841,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
      * la MISMA calculadora que alimenta lo que el modal "Mover Dinero entre
      * Sub-Cajas" le muestra (cerrado + apertura de hoy, de CUALQUIER
      * vendedor, sin la actividad de la sesión). La apertura se resuelve
-     * igual que calcularSaldoMovible() (cualquier apertura abierta de esa
+     * igual que calcularSaldoMovible() (la apertura abierta MÁS ANTIGUA de esa
      * caja principal, no solo la de este usuario) para que ambas
      * validaciones queden consistentes entre sí.
      */
@@ -584,7 +851,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
 
         $apertura = AperturaCierreCaja::where('caja_principal_id', $subCaja->caja_principal_id)
             ->where('estado', 'abierta')
-            ->orderBy('fecha_apertura', 'desc')
+            ->orderBy('fecha_apertura', 'asc')
             ->first();
 
         return $this->efectivoDisponibleService->calcularMovibleDesdeApertura($subCaja, $desplieguePagoId, $apertura);

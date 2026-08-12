@@ -75,12 +75,26 @@ class CalculadorResumenCaja
             ->filter($esEfectivo)
             ->sum('monto');
 
+        // El TRASLADO A BÓVEDA resta: ese efectivo el vendedor ya lo entregó, así que
+        // no tiene que aparecer en su conteo al cerrar. La pantalla del cierre incluso
+        // rotula esa línea como "(RESTA DEL TOTAL)".
+        //
+        // Se toma de la tabla `traslados_boveda` (solo los activos de ESTA apertura),
+        // no del libro: el traslado dejó de escribir en `transacciones_caja` porque el
+        // dinero no sale de la caja principal —sigue siendo de la empresa, solo cambia
+        // de lugar—, y al quitarse esa fila el cierre se quedó sin nada que descontar
+        // y pedía el efectivo completo.
+        //
+        // Son dos preguntas distintas y cada una tiene su fuente:
+        //   · ¿bajó el saldo de la caja principal? NO  → el libro no lo registra
+        //   · ¿el vendedor sigue teniendo ese efectivo? NO → acá sí se resta
         $montoEsperado = $clasificacion['efectivo_inicial']
             + $cobrosEfectivo
             + $otrosIngresosEfectivo
             + $clasificacion['total_prestamos_recibidos']
             - $gastosEfectivo
-            - $clasificacion['total_prestamos_dados'];
+            - $clasificacion['total_prestamos_dados']
+            - (float) ($clasificacion['total_traslados_boveda'] ?? 0);
 
         // Redondeo a la décima SIEMPRE HACIA ABAJO (múltiplo de S/ 0.10). En Perú el
         // efectivo físico se cuadra en décimas (no circulan monedas de 0.01/0.05), así que
@@ -217,6 +231,13 @@ class CalculadorResumenCaja
                     'mp.name as banco',
                     'dp.name as metodo_pago',
                     'dpv.monto',
+                    // Fecha y tipo del COBRO (no de la venta): con el modelo de cobro
+                    // diferencial una venta editada tiene varios pagos —el inicial y la
+                    // diferencia— hechos en momentos distintos, y el detalle del cierre
+                    // los lista uno por fila. Sin esto, todas las filas mostraban la
+                    // fecha de emisión de la venta.
+                    'dpv.fecha',
+                    'dpv.tipo',
                     'nop.numero_operacion'
                 ])
                 ->get();
@@ -244,6 +265,11 @@ class CalculadorResumenCaja
                         'metodo_pago' => $metodoPagoFormateado,
                         'monto' => (float) $pago->monto,
                         'numero_operacion' => $pago->numero_operacion,
+                        // 'inicial' | 'diferencia' | 'devolucion' — permite distinguir
+                        // en el detalle del cierre qué cobro es el original y cuál vino
+                        // de una edición posterior.
+                        'tipo' => $pago->tipo,
+                        'fecha' => $pago->fecha,
                     ];
                 })->toArray(),
             ];

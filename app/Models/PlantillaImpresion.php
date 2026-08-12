@@ -50,6 +50,12 @@ class PlantillaImpresion extends Model
         'ocultar_cuentas_bancarias' => false,
         // Oculta el logo de la empresa en el ticket (configurable por comprobante).
         'ocultar_logo' => false,
+        // Bloque de firma del PDF A4 (orden de compra). El nombre no sale de la
+        // tabla `empresa` porque ahí no hay campo de representante legal; se deja
+        // acá para poder cambiarlo desde la configuración de plantillas sin tocar
+        // código.
+        'firma_cargo' => 'GERENTE GENERAL',
+        'firma_nombre' => 'ELIAS CASTILLO CHIGNE',
     ];
 
     /**

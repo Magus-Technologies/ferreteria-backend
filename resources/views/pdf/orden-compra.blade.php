@@ -63,9 +63,9 @@
     @php
         $totalItems = [];
         
-        if (in_array('subtotal', $columnasSeleccionadas)) {
-            $totalItems[] = ['label' => 'SUBTOTAL', 'valor' => $monedaSimbolo . ' ' . number_format($calculos['subtotal'], 2)];
-        }
+        // Sin renglón de SUBTOTAL: el desagregado por impuesto (OP. GRAVADAS +
+        // I.G.V.) ya deja claro cómo se compone el total, y repetir el subtotal
+        // arriba solo confundía.
         if ($calculos['flete_total'] > 0 && in_array('flete', $columnasSeleccionadas)) {
             $totalItems[] = ['label' => 'FLETE TOTAL', 'valor' => $monedaSimbolo . ' ' . number_format($calculos['flete_total'], 2)];
         }
@@ -73,6 +73,10 @@
             $totalItems[] = ['label' => 'PERCEPCIÓN', 'valor' => $monedaSimbolo . ' ' . number_format($calculos['percepcion'], 2)];
         }
         if (in_array('total', $columnasSeleccionadas)) {
+            // Desagregado del impuesto: los precios ya incluyen IGV, así que
+            // OP. GRAVADAS + I.G.V. dan exactamente el TOTAL de abajo.
+            $totalItems[] = ['label' => 'OP. GRAVADAS', 'valor' => $monedaSimbolo . ' ' . number_format($calculos['op_gravadas'], 2)];
+            $totalItems[] = ['label' => 'I.G.V. ' . $calculos['igv_porcentaje'] . '%', 'valor' => $monedaSimbolo . ' ' . number_format($calculos['igv'], 2)];
             $totalItems[] = ['label' => 'TOTAL', 'valor' => $monedaSimbolo . ' ' . number_format($calculos['total'], 2)];
         }
         
@@ -100,6 +104,28 @@
         );
     @endphp
     @include('pdf.layout.info-grid', ['filas' => $filasCondPago])
+
+    {{-- Firma: la línea, y debajo el nombre y el cargo de quien firma. Ambos textos
+         salen de `mensajes_extra`, así que se pueden cambiar desde la configuración
+         de plantillas sin tocar la vista. --}}
+    <table style="width: 100%; margin-top: 30px;">
+        <tr>
+            <td style="width: 35%;"></td>
+            <td style="width: 30%; text-align: center; vertical-align: bottom;">
+                {{-- Línea de firma inline: la clase `.signature-line` está definida
+                     dentro de otra plantilla, no en el layout compartido. El
+                     margen superior reserva el espacio para firmar a mano. --}}
+                <div style="border-top: 1px solid #000; width: 100%; margin-top: 42px; margin-bottom: 6px;"></div>
+                <div style="font-size: 8pt; font-weight: bold; text-transform: uppercase;">
+                    {{ $msg['firma_nombre'] ?? '' }}
+                </div>
+                <div style="font-size: 7.5pt; text-transform: uppercase;">
+                    {{ $msg['firma_cargo'] ?? '' }}
+                </div>
+            </td>
+            <td style="width: 35%;"></td>
+        </tr>
+    </table>
 
     {{-- Footer --}}
     @include('pdf.layout.footer', [

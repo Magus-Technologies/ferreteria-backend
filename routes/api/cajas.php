@@ -134,11 +134,29 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/{id}/devolver', [PrestamoEntreCajasController::class, 'devolver']);
         });
 
-        // Movimientos Internos
+        // Consulta de saldos por sub-caja: es SOLO LECTURA y muestra el dinero de
+        // TODAS las sub-cajas y de TODOS los usuarios, así que NO va dentro del
+        // grupo `caja.abierta`. Estaba adentro y el middleware devolvía 403 al
+        // usuario sin caja abierta; el frontend se comía el error, se quedaba con
+        // el array vacío y la tabla caía al fallback `sub_cajas.saldo_actual` —
+        // por eso el mismo modal mostraba montos distintos según quién entraba.
+        Route::get('/movimientos-internos/saldos-disponibles', [MovimientoInternoController::class, 'saldosDisponibles']);
+
+        // Detalle del "Saldo No Cerrado" de una sub-caja (por despliegue y usuario).
+        // También es solo lectura: fuera del grupo `caja.abierta`, igual que la anterior.
+        Route::get('/movimientos-internos/detalle-no-cerrado/{subCajaId}', [MovimientoInternoController::class, 'detalleNoCerrado']);
+
+        // HISTORIALES (solo lectura) — fuera de `caja.abierta`.
+        //
+        // Alimentan las pestañas "Traslado de Efectivo" y "Movimiento entre Cajas"
+        // de Movimientos de Caja. Son consultas de lo YA registrado, no operaciones:
+        // exigir caja abierta para verlas devolvía 403 y las pestañas salían vacías
+        // cuando el usuario no tenía sesión abierta, como si no hubiera registros.
+        Route::get('/movimientos-internos', [MovimientoInternoController::class, 'index']);
+        Route::get('/movimientos-internos/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
+
+        // Movimientos Internos — las que MUEVEN dinero sí exigen caja abierta.
         Route::prefix('movimientos-internos')->middleware('caja.abierta')->group(function () {
-            Route::get('/', [MovimientoInternoController::class, 'index']);
-            Route::get('/saldos-disponibles', [MovimientoInternoController::class, 'saldosDisponibles']);
-            Route::get('/depositos-seguridad', [MovimientoInternoController::class, 'depositosSeguridad']);
             Route::post('/', [MovimientoInternoController::class, 'store']);
             Route::post('/{id}/anular', [MovimientoInternoController::class, 'anular']);
         });
@@ -189,6 +207,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Traslados a Bóveda
         Route::prefix('traslados-boveda')->middleware('broadcast:traslados-boveda')->group(function () {
+            // Historial sin depender de la apertura activa. Va ANTES de
+            // /caja/{aperturaCierreId} para que no lo capture esa ruta.
+            Route::get('/historial', [TrasladoBovedaController::class, 'historial']);
             Route::get('/caja/{aperturaCierreId}', [TrasladoBovedaController::class, 'obtenerPorCaja']);
             Route::get('/caja/{aperturaCierreId}/todos', [TrasladoBovedaController::class, 'obtenerTodosPorCaja']);
             Route::get('/{aperturaCierreId}/total', [TrasladoBovedaController::class, 'obtenerTotal']);

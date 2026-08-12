@@ -21,6 +21,36 @@ use Illuminate\Support\Collection;
 class EfectivoDisponibleService
 {
     /**
+     * Traslados a bóveda ACTIVOS de una sub-caja, con filtros opcionales.
+     *
+     * El traslado a bóveda NO se registra en `transacciones_caja` a propósito: el
+     * dinero no sale de la caja principal, solo cambia de lugar. Pero SÍ sale del
+     * efectivo que el vendedor tiene en mano, así que todo cálculo de "cuánto puede
+     * gastar / prestar / trasladar / entregar al cerrar" tiene que descontarlo desde
+     * ACÁ, no desde el libro.
+     *
+     * Es un único punto para los seis lugares que lo necesitan (saldo movible,
+     * efectivo por vendedor, traslado a bóveda, préstamos, aprobación de préstamos y
+     * gastos extras); antes cada uno lo resolvía —o lo olvidaba— por su cuenta.
+     *
+     * @param array $aperturaIds Limitar a estas aperturas; vacío = todas.
+     */
+    public function trasladosBovedaActivos(
+        int $subCajaId,
+        array $aperturaIds = [],
+        string|int|null $userId = null,
+        ?string $desplieguePagoId = null
+    ): float {
+        return (float) \Illuminate\Support\Facades\DB::table('traslados_boveda')
+            ->where('sub_caja_id', $subCajaId)
+            ->where('estado', 'activo')
+            ->when(!empty($aperturaIds), fn ($q) => $q->whereIn('apertura_cierre_caja_id', $aperturaIds))
+            ->when($userId !== null, fn ($q) => $q->where('vendedor_id', $userId))
+            ->when($desplieguePagoId !== null, fn ($q) => $q->where('despliegue_pago_id', $desplieguePagoId))
+            ->sum('monto');
+    }
+
+    /**
      * De un lote de transacciones, cuáles vienen de un TRASLADO DE EFECTIVO
      * (movimiento interno con `destino_user_id`): dinero CERRADO que se mandó a
      * la SESIÓN ABIERTA de un usuario. Se distingue del movimiento interno
@@ -53,9 +83,20 @@ class EfectivoDisponibleService
      * distribución de esa apertura (si es Caja Chica) + ingresos − egresos de
      * ese método registrados DESDE la fecha de apertura. Así solo cuenta "lo
      * que tengo desde que aperturé".
+     *
+     * SIN apertura el resultado es 0, no el histórico. El filtro por fecha de más
+     * abajo solo se aplica si hay apertura, así que devolver el cálculo con
+     * `$apertura = null` significaba sumar TODAS las transacciones del usuario en
+     * la sub-caja desde siempre — un "efectivo disponible" inflado con dinero de
+     * sesiones ya cerradas. Este método es "lo que tengo desde que aperturé": si
+     * no hay sesión abierta, la respuesta correcta es cero.
      */
     public function calcularDesdeApertura(SubCaja $subCaja, string|int $userId, string $desplieguePagoId, ?AperturaCierreCaja $apertura): float
     {
+        if (!$apertura || !$apertura->fecha_apertura) {
+            return 0.0;
+        }
+
         // Monto distribuido en ESTA apertura (solo Caja Chica)
         $montoInicial = 0.0;
         if ($apertura && $subCaja->esCajaChica()) {
@@ -73,53 +114,44 @@ class EfectivoDisponibleService
                     ->orWhere('referencia_tipo', '!=', 'apertura');
             });
 
-        // Solo desde que se aperturó
-        if ($apertura && $apertura->fecha_apertura) {
-            $query->where('created_at', '>=', $apertura->fecha_apertura);
-        }
+        // Solo desde que se aperturó (garantizado no-null por el guard de arriba)
+        $query->where('created_at', '>=', $apertura->fecha_apertura);
 
         $transacciones = $query->get();
 
-        // Ingresos: los de movimiento_interno (traslados de efectivo recibidos) SÍ cuentan
-        // — es efectivo nuevo que entró a la sesión abierta.
-        $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-
-        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
-        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
+        // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (el que
+        // lleva `destino_user_id`): ese dinero sale del pozo CERRADO de la sub-caja y
+        // entra a la sesión abierta de un vendedor, así que le SUMA a quien lo recibe
+        // y no le resta a quien lo ejecutó.
         //
-        // Excepción 1 — TRASLADO DE EFECTIVO (movimiento con destino_user_id): ese
-        // dinero sale del pozo CERRADO de la sub-caja, no del efectivo de sesión de
-        // nadie, así que su egreso no debe restarle a ningún vendedor. Sin esto, al
-        // trasladar a OTRO usuario el efectivo del que realizó el traslado quedaba
-        // en negativo (solo veía el egreso; el ingreso quedó a nombre del destino).
-        //
-        // Excepción 2 (legado, para movimientos previos a destino_user_id): el
-        // traslado que el mismo usuario recibió de vuelta en la misma sub-caja
-        // tampoco resta — el ingreso ya lo suma y restarlo lo autocancelaría.
+        // El MOVIMIENTO ENTRE CAJAS (sin `destino_user_id`) queda fuera de AMBOS
+        // lados: es dinero ya cerrado que solo cambia de cajón, nadie lo recibe en
+        // mano. Antes el egreso solo se perdonaba si el ingreso volvía a la MISMA
+        // sub-caja y al MISMO usuario, así que un movimiento 57 → 58 le restaba al
+        // vendedor plata que nunca fue de su sesión y lo dejaba en negativo.
         $idsTrasladoASesion = $this->idsTrasladoASesion($transacciones);
+
+        $ingresos = (float) $transacciones
+            ->where('tipo_transaccion', 'ingreso')
+            ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                || in_array($t->referencia_id, $idsTrasladoASesion, true))
+            ->sum('monto');
 
         $egresos = (float) $transacciones
             ->where('tipo_transaccion', 'egreso')
-            ->filter(function ($t) use ($transacciones, $idsTrasladoASesion) {
-                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                    return true;
-                }
-
-                if (in_array($t->referencia_id, $idsTrasladoASesion, true)) {
-                    return false;
-                }
-
-                return !$transacciones->contains(function ($i) use ($t) {
-                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                        && $i->tipo_transaccion === 'ingreso'
-                        && $i->referencia_id === $t->referencia_id
-                        && $i->user_id === $t->user_id
-                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                });
-            })
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
             ->sum('monto');
 
-        return $montoInicial + $ingresos - $egresos;
+        // El traslado a bóveda no está en el libro (no sale de la caja principal),
+        // pero sí sale de las manos del vendedor: se descuenta desde su tabla.
+        $boveda = $this->trasladosBovedaActivos(
+            $subCaja->id,
+            [$apertura->id],
+            $userId,
+            $desplieguePagoId
+        );
+
+        return $montoInicial + $ingresos - $egresos - $boveda;
     }
 
     /**

@@ -9,6 +9,7 @@ use App\Models\SubCaja;
 use App\Models\DespliegueDePago;
 use App\Models\TransaccionCaja;
 use App\Models\DistribucionEfectivoVendedor;
+use App\Services\Cajas\EfectivoDisponibleService;
 use App\Services\Interfaces\TrasladoBovedaServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,10 @@ use Exception;
 
 class TrasladoBovedaService implements TrasladoBovedaServiceInterface
 {
+    public function __construct(
+        private EfectivoDisponibleService $efectivoDisponibleService
+    ) {}
+
     /**
      * Registrar un nuevo traslado a bóveda
      *
@@ -84,24 +89,19 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
 
             $traslado = TrasladoBoveda::create($createData);
 
-            // 2. Registrar el egreso en la historia de transacciones (para el cálculo de saldos)
-            // Se registra como egreso pero NO resta del saldo_actual persistido de la sub-caja
-            // porque sigue siendo dinero bajo responsabilidad de la Caja Chica.
+            // 2. NO se escribe nada en `transacciones_caja`.
+            //
+            // El traslado a bóveda es solo un REGISTRO: el efectivo se queda en la
+            // Caja Chica, no se va a ningún lado. Antes se grababa un egreso acá y,
+            // como TODOS los saldos del sistema se recalculan sumando ese libro,
+            // cada calculador tenía que acordarse de excluir esas filas. Los que se
+            // acordaban daban un saldo y los que no, otro: la misma sub-caja llegó a
+            // mostrar 18,948.30 en "Saldo Cerrado" y 11,948.30 en "Mover Dinero
+            // entre Sub-Cajas", diferencia exacta de los traslados registrados.
+            //
+            // Sin la fila, todos los calculadores coinciden solos y no hace falta
+            // ningún filtro especial en ninguno.
             $subCaja = $traslado->subCaja;
-            $transaccion = \App\Models\TransaccionCaja::create([
-                'id' => (string) \Illuminate\Support\Str::ulid(),
-                'sub_caja_id' => $data['sub_caja_id'],
-                'user_id' => $data['vendedor_id'],
-                'despliegue_pago_id' => $data['despliegue_pago_id'],
-                'tipo_transaccion' => 'egreso',
-                'monto' => $data['monto'],
-                'saldo_anterior' => $subCaja->saldo_actual,
-                'saldo_nuevo' => $subCaja->saldo_actual, // No descontamos de la responsabilidad total
-                'descripcion' => "Traslado a bóveda: " . ($data['justificacion'] ?? ''),
-                'referencia_tipo' => 'traslado_boveda',
-                'referencia_id' => $traslado->id,
-                'fecha' => now(),
-            ]);
 
             // 3. Registrar el movimiento de caja (para el ticket de cierre)
             \App\Models\MovimientoCaja::create([
@@ -154,6 +154,29 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
     /**
      * Obtener todos los traslados (incluyendo anulados) - para historial
      */
+    /**
+     * Historial de traslados para un usuario, SIN depender de que tenga caja
+     * abierta: se resuelve desde su última apertura (abierta o cerrada) y de ahí
+     * se amplía a toda la caja principal.
+     *
+     * La pestaña "Traslado a Bóveda" pedía la apertura ACTIVA y, si no había,
+     * ni siquiera llamaba al backend: el historial salía vacío como si no
+     * existieran registros. Ver los movimientos ya hechos no requiere estar
+     * operando.
+     */
+    public function obtenerHistorialDelUsuario(string|int $userId): Collection
+    {
+        $apertura = AperturaCierreCaja::where('user_id', $userId)
+            ->orderByDesc('fecha_apertura')
+            ->first();
+
+        if (! $apertura) {
+            return new Collection();
+        }
+
+        return $this->obtenerTodosLosTrasladosPorCaja($apertura->id);
+    }
+
     public function obtenerTodosLosTrasladosPorCaja(string $aperturaCierreId): Collection
     {
         // "Caja General" es compartida: cada vendedor tiene su PROPIA apertura dentro
@@ -214,6 +237,17 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
             ->whereNull('fecha_cierre')
             ->first();
 
+        // SIN sesión abierta no hay nada que trasladar: si el usuario ya cerró (o
+        // nunca aperturó), su efectivo quedó consolidado en el cierre y no es dinero
+        // suyo "en mano". Antes el filtro por fecha de más abajo era condicional
+        // (`->when($aperturaActiva, ...)`), así que en ese caso la consulta salía SIN
+        // acotar y sumaba el historial completo del usuario en la sub-caja: se podía
+        // trasladar a bóveda contra meses de transacciones de sesiones ya cerradas.
+        // La ruta de traslados no exige `caja.abierta`, así que era alcanzable.
+        if (!$aperturaActiva) {
+            return 0.0;
+        }
+
         if ($subCaja->esCajaChica()) {
             $despliegue = DespliegueDePago::find($desplieguePagoId);
             if ($despliegue && $despliegue->metodoDePago) {
@@ -221,7 +255,7 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                               $despliegue->metodoDePago->cuenta_bancaria === 'SIN-CUENTA') &&
                              (stripos($despliegue->metodoDePago->name, 'efectivo') !== false);
 
-                if ($esEfectivo && $aperturaActiva) {
+                if ($esEfectivo) {
                     $montoInicial = (float) DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
                         ->where('user_id', $userId)
                         ->sum('monto');
@@ -241,38 +275,39 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                 $query->whereNull('referencia_tipo')
                       ->orWhere('referencia_tipo', '!=', 'apertura');
             })
-            ->when($aperturaActiva, fn ($q) => $q->where('created_at', '>=', $aperturaActiva->fecha_apertura))
+            ->where('created_at', '>=', $aperturaActiva->fecha_apertura)
             ->get();
 
-        // Ingresos: los de movimiento_interno (traslados de efectivo recibidos) SÍ
-        // cuentan — es efectivo nuevo que entró a la sesión abierta.
-        $ingresos = (float) $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
-        // Egresos: restan todos, incluidos los de 'movimiento_interno' cuando el
-        // traslado SALIÓ del control del vendedor (a otro usuario u otra sub-caja).
-        // Excepción: el traslado "cerrado → sesión" (mismo usuario lo recibió de
-        // vuelta en la misma sub-caja) NO debe restar, porque el ingreso ya lo suma
-        // y restarlo autocancelaría ese efectivo nuevo entrando a la sesión. Mismo
-        // criterio EXACTO que SubCajaController::calcularEfectivoDesdeApertura() —
-        // la validación de este traslado debe usar la misma lógica que el número
+        // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (con
+        // `destino_user_id`): ese sí es efectivo nuevo entrando a la sesión del
+        // vendedor. El MOVIMIENTO ENTRE CAJAS queda fuera de ambos lados — dinero ya
+        // cerrado que solo cambia de cajón. Mismo criterio que el resto del sistema:
+        // la validación de este traslado tiene que usar la misma lógica que el número
         // que se le mostró al usuario en el modal, para que nunca diverjan.
-        $egresos = (float) $transacciones
-            ->where('tipo_transaccion', 'egreso')
-            ->filter(function ($t) use ($transacciones) {
-                if (($t->referencia_tipo ?? null) !== 'movimiento_interno') {
-                    return true;
-                }
+        $idsTrasladoASesion = $this->efectivoDisponibleService->idsTrasladoASesion($transacciones);
 
-                return !$transacciones->contains(function ($i) use ($t) {
-                    return ($i->referencia_tipo ?? null) === 'movimiento_interno'
-                        && $i->tipo_transaccion === 'ingreso'
-                        && $i->referencia_id === $t->referencia_id
-                        && $i->user_id === $t->user_id
-                        && (int) $i->sub_caja_id === (int) $t->sub_caja_id;
-                });
-            })
+        $ingresos = (float) $transacciones
+            ->where('tipo_transaccion', 'ingreso')
+            ->filter(fn ($t) => ($t->referencia_tipo ?? null) !== 'movimiento_interno'
+                || in_array($t->referencia_id, $idsTrasladoASesion, true))
             ->sum('monto');
 
-        return $montoInicial + $ingresos - $egresos;
+        $egresos = (float) $transacciones
+            ->where('tipo_transaccion', 'egreso')
+            ->where('referencia_tipo', '!=', 'movimiento_interno')
+            ->sum('monto');
+
+        // Lo ya mandado a bóveda en esta sesión no se puede volver a mandar. Se lee de
+        // `traslados_boveda` porque el traslado no deja rastro en el libro; sin esto se
+        // podía trasladar el mismo dinero una y otra vez.
+        $yaEnBoveda = $this->efectivoDisponibleService->trasladosBovedaActivos(
+            $subCajaId,
+            [$aperturaActiva->id],
+            $userId,
+            $desplieguePagoId
+        );
+
+        return $montoInicial + $ingresos - $egresos - $yaEnBoveda;
     }
 
     public function validarSupervisor(string $supervisorId, string $password): bool
@@ -338,9 +373,14 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
                 ->where('concepto', 'LIKE', 'Traslado a bóveda%')
                 ->delete();
 
-            // 3. Restaurar saldo de la sub-caja
-            $subCaja->saldo_actual += $monto;
-            $subCaja->save();
+            // 3. NO se toca `saldo_actual`.
+            //
+            // Antes acá se hacía `$subCaja->saldo_actual += $monto` para "restaurar"
+            // el saldo — pero registrarTraslado() NUNCA lo restó, así que cada
+            // anulación le SUMABA plata que nunca había salido. Ese era el origen del
+            // desfase de la columna guardada (7,000 de más en la Caja Chica, igual al
+            // total de traslados). Como el traslado es solo un registro, anularlo no
+            // tiene que mover ningún saldo: basta con marcarlo.
 
             // 4. Marcar el traslado como anulado (no se elimina)
             $traslado->estado = 'anulado';

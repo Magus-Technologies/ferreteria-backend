@@ -37,6 +37,22 @@ interface MovimientoInternoServiceInterface
     public function saldosDisponibles(): array;
 
     /**
+     * Desglose del "Saldo No Cerrado" de una sub-caja, por despliegue de pago y usuario.
+     */
+    public function detalleNoCerrado(int $subCajaId): array;
+
+    /**
+     * Saldo REAL de una caja principal (Cerrado + No Cerrado de sus sub-cajas).
+     */
+    public function saldoRealCajaPrincipal(int $cajaPrincipalId): float;
+
+    /**
+     * Saldo CERRADO (movible) de una sub-caja — lo único que se puede mover a otra.
+     * Con `$desplieguePagoId` lo acota a un método de pago concreto.
+     */
+    public function saldoMovibleSubCaja(int $subCajaId, ?string $desplieguePagoId = null): float;
+
+    /**
      * Usuarios con saldo disponible de cierres cerrados, agrupado por sub-caja.
      */
     public function usuariosConSaldoDisponible(): array;
