@@ -350,6 +350,10 @@ class NotaCreditoService implements NotaCreditoServiceInterface
 
             $this->notaCreditoRepository->cambiarEstado($id, 'enviado');
 
+            // Devolver el stock de la venta al almacén si la NC anula o revierte
+            // totalmente la operación (motivos SUNAT 01 anulación / 06 devolución total).
+            $this->devolverStockVentaPorNotaCredito($notaCredito);
+
             DB::commit();
 
 
@@ -521,6 +525,89 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             'igv' => round($igv, 2),
             'total' => round($total, 2),
         ];
+    }
+
+    /**
+     * Devuelve el stock de la venta al almacén cuando la nota de crédito anula o
+     * revierte totalmente la operación. Reutiliza el mismo mecanismo que la
+     * anulación de venta (lotes + complementarios + kardex).
+     */
+    private function devolverStockVentaPorNotaCredito(NotaCredito $notaCredito): void
+    {
+        $codigo = $notaCredito->motivo->codigo_sunat ?? null;
+
+        // Solo motivos que revierten la operación completa: 01 anulación, 06 devolución total.
+        if (!in_array($codigo, ['01', '06'], true)) {
+            return;
+        }
+
+        $venta = $notaCredito->venta;
+        if (!$venta || !$venta->stock_aplicado) {
+            return;
+        }
+
+        $venta->load([
+            'productosPorAlmacen.productoAlmacen',
+            'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
+        ]);
+
+        $loteService = app(\App\Services\Producto\ProductoLoteService::class);
+
+        foreach ($venta->productosPorAlmacen as $productoAlmacenVenta) {
+            $productoAlmacen = $productoAlmacenVenta->productoAlmacen;
+            if (!$productoAlmacen) {
+                continue;
+            }
+
+            $totalFr = 0;
+            foreach ($productoAlmacenVenta->unidadesDerivadas as $unidad) {
+                $totalFr += (float) $unidad->cantidad * (float) $unidad->factor;
+            }
+            $loteService->revertirConsumoOReingresar($productoAlmacen, 'venta', $venta->id, $totalFr);
+
+            // Revertir producto complementario (por unidad).
+            foreach ($productoAlmacenVenta->unidadesDerivadas as $unidad) {
+                \App\Services\Producto\ComplementarioStockService::procesarComplementarioPorFactor(
+                    $productoAlmacen->id,
+                    (float) $unidad->factor,
+                    (float) $unidad->cantidad,
+                    $venta->almacen_id,
+                    true
+                );
+            }
+        }
+
+        // Registrar en kardex facturación (mismo criterio que anular venta).
+        try {
+            $kardex = app(\App\Services\Kardex\KardexFacturacionService::class);
+            foreach ($venta->productosPorAlmacen as $detalle) {
+                $productoAlmacen = $detalle->productoAlmacen;
+                if (!$productoAlmacen) {
+                    continue;
+                }
+                foreach ($detalle->unidadesDerivadas as $ud) {
+                    if (!$ud->unidadDerivadaInmutable) {
+                        continue;
+                    }
+                    $unidadObj = new \stdClass();
+                    $unidadObj->unidadDerivadaInmutable = $ud->unidadDerivadaInmutable;
+                    $unidadObj->cantidad = (float) $ud->cantidad;
+                    $unidadObj->factor = (float) $ud->factor;
+                    $unidadObj->precio = (float) $ud->precio;
+                    $kardex->registrarDevolucionVenta($venta, $productoAlmacen, $unidadObj, (float) $detalle->costo);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Error registrando devolución en kardex por nota de crédito: ' . $e->getMessage());
+        }
+
+        // Marcar la venta como anulada por nota de crédito (para bloquear edición
+        // y excluirla de "recuperar anulada") y evitar doble reposición de stock.
+        $venta->update([
+            'estado_de_venta' => \App\Enums\EstadoDeVenta::Anulado,
+            'anulado_por_nota_credito' => true,
+            'stock_aplicado' => false,
+        ]);
     }
 
     private function validarYObtenerVenta(string $ventaId): Venta

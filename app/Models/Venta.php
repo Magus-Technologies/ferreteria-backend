@@ -39,6 +39,7 @@ class Venta extends Model
         'canal',
         'stock_aplicado',
         'descuenta_stock',
+        'anulado_por_nota_credito',
         'cliente_id',
         'direccion_seleccionada', // ✅ Agregar campo
         'recomendado_por_id',
@@ -57,6 +58,7 @@ class Venta extends Model
             'tipo_de_cambio' => 'decimal:4',
             'stock_aplicado' => 'boolean',
             'descuenta_stock' => 'boolean',
+            'anulado_por_nota_credito' => 'boolean',
             'numero_dias' => 'integer',
             'fecha_vencimiento' => 'datetime',
             'fecha' => 'datetime',

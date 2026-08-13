@@ -94,6 +94,11 @@ class VentaController extends Controller
                 // entradas del historial (cambios de estado, anulación, etc.).
                 $q->where('accion', 'edicion');
             }])
+            // Notas de crédito activas (no canceladas) — para bloquear el botón
+            // "Crear Nota de Crédito" cuando ya existe una.
+            ->withCount(['notasCredito as notas_credito_activas_count' => function ($q) {
+                $q->where('estado', '!=', 'cancelado');
+            }])
             ->withSum('despliegueDePagoVentas as total_pagado', 'monto')
             ->withSum([
                 'cobrosVenta as total_cobrado' => function ($query) {
