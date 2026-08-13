@@ -13,6 +13,7 @@ use App\Services\Interfaces\XmlStorageServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Encoding\Encoding;
@@ -145,6 +146,23 @@ class FacturaService implements FacturaServiceInterface
 
             DB::commit();
 
+            // Envío automático INMEDIATO si está habilitado y "after_days" = 0.
+            // Si after_days >= 1, el comprobante se envía luego vía el job programado
+            // (sunat:enviar-facturas, diario a las 2:00 AM).
+            $enviadoSunat = false;
+            $tipoAutoSend = $tipoDocumento === '01' ? 'factura' : 'boleta';
+            $autoEnabled = (bool) Cache::get("sunat_api_auto_send_{$tipoAutoSend}_enabled", false);
+            $autoAfterDays = (int) Cache::get("sunat_api_auto_send_{$tipoAutoSend}_after_days", 3);
+            if ($autoEnabled && $autoAfterDays === 0) {
+                try {
+                    $this->enviarASunat($venta->id, 'automatico');
+                    $enviadoSunat = true;
+                } catch (\Exception $e) {
+                    // No fallar la creación de la venta si el envío falla; queda PENDIENTE.
+                    Log::error("Error enviando {$tipoAutoSend} {$venta->id} al momento de generar: " . $e->getMessage());
+                }
+            }
+
 
             return [
                 'success' => true,
@@ -152,7 +170,7 @@ class FacturaService implements FacturaServiceInterface
                 'comprobante' => $comprobante,
                 'venta' => $venta,
                 'xml_generado' => true,
-                'enviado_sunat' => false,
+                'enviado_sunat' => $enviadoSunat,
             ];
 
         } catch (FacturaException $e) {
