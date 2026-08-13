@@ -72,9 +72,9 @@ class NotaDebitoResource extends JsonResource
                             'unidad_medida' => $detalle->unidad_medida,
                             'cantidad' => $detalle->cantidad,
                             'precio_unitario' => $detalle->precio_unitario,
-                            'subtotal' => $detalle->subtotal,
-                            'igv' => $detalle->igv,
-                            'total' => $detalle->total,
+                            'subtotal' => (float) $detalle->valor_venta,
+                            'igv' => (float) $detalle->igv,
+                            'total' => (float) $detalle->total,
                         ];
                     })->toArray(),
                 ];

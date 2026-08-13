@@ -85,7 +85,8 @@ class ComprobanteElectronicoResource extends JsonResource
                         'id' => $detalle->id,
                         'codigo_producto' => $detalle->codigo_producto, // ✅ Usar campo directo de la tabla
                         'descripcion' => $detalle->descripcion,
-                        'unidad_medida' => $detalle->unidad_medida, // ✅ Usar campo directo de la tabla
+                        'unidad_medida' => $detalle->unidad_medida, // ✅ Código SUNAT (ej. RO, NIU)
+                        'unidad_medida_nombre' => $this->resolverUnidadMedidaNombre($detalle->unidad_medida),
                         'cantidad' => (float) $detalle->cantidad,
                         'precio_unitario' => (float) $detalle->precio_unitario,
                         'subtotal' => (float) $detalle->valor_venta,
@@ -110,6 +111,29 @@ class ComprobanteElectronicoResource extends JsonResource
         ];
     }
     
+    /**
+     * Cache estático codigo_sunat => nombre legible de unidad de medida.
+     */
+    private static ?array $unidadMedidaMap = null;
+
+    /**
+     * Resuelve el nombre legible de la unidad (ej. "RO" => "ROLLO", "NIU" => "UNIDAD")
+     * usando el catálogo `unidadmedida`. Evita N+1 con un mapa cacheado en memoria.
+     */
+    private function resolverUnidadMedidaNombre(?string $codigo): string
+    {
+        $codigo = $codigo ?: 'NIU';
+
+        if (self::$unidadMedidaMap === null) {
+            self::$unidadMedidaMap = \App\Models\UnidadMedida::query()
+                ->whereNotNull('codigo_sunat')
+                ->pluck('name', 'codigo_sunat')
+                ->toArray();
+        }
+
+        return self::$unidadMedidaMap[$codigo] ?? $codigo;
+    }
+
     private function getTipoComprobanteName(): string
     {
         return match($this->tipo_comprobante) {

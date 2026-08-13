@@ -140,10 +140,10 @@ class NotaCreditoResource extends JsonResource
                             'unidad_medida' => $detalle->unidad_medida,
                             'cantidad' => $detalle->cantidad,
                             'precio_unitario' => $detalle->precio_unitario,
-                            'valor_venta' => $detalle->subtotal, // Valor sin IGV
-                            'subtotal' => $detalle->subtotal,
-                            'igv' => $detalle->igv,
-                            'total' => $detalle->total,
+                            'valor_venta' => (float) $detalle->valor_venta,
+                            'subtotal' => (float) $detalle->valor_venta,
+                            'igv' => (float) $detalle->igv,
+                            'total' => (float) $detalle->total,
                         ];
                     })->toArray(),
                 ];

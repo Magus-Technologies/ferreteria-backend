@@ -70,6 +70,7 @@ class NotaDebitoService implements NotaDebitoServiceInterface
                 'serie' => $serie->serie,
                 'numero' => $numero,
                 'venta_id' => $venta->id,
+                'comprobante_id_referencia' => $venta->comprobanteElectronico?->id,
                 'motivo_id' => $motivo->id,
                 'descripcion' => $dto->descripcion,
                 'monto_total' => $dto->montoTotal ?? $totales['total'],
