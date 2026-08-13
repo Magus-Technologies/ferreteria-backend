@@ -1120,13 +1120,16 @@ class VentaController extends Controller
                 : $venta->tipo_documento;
 
 
+            $enviadoSunat = false;
+
             if (in_array($tipoDocumento, ['01', '03']) && $estadoVentaStr !== 'ee') {
                 try {
                     $dto = new FacturaDTO(
                         ventaId: $venta->id,
                         usuarioId: $validated['user_id']
                     );
-                    $this->facturaService->generarComprobanteDesdeVenta($dto);
+                    $resultado = $this->facturaService->generarComprobanteDesdeVenta($dto);
+                    $enviadoSunat = !empty($resultado['enviado_sunat']);
                 } catch (\Exception $e) {
                     // No fallar la venta si hay error al generar comprobante, pero
                     // SIEMPRE loguearlo: un error silencioso deja ventas sin XML
@@ -1154,6 +1157,7 @@ class VentaController extends Controller
                     'valesAplicados.valeCompra',
                 ]),
                 'message' => 'Venta creada exitosamente',
+                'enviado_sunat' => $enviadoSunat,
             ], 201);
         });
     }
