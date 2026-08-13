@@ -550,8 +550,8 @@ class NotaCreditoService implements NotaCreditoServiceInterface
         // Guardar el estado original ANTES de marcarla, para decidir si se repone stock.
         $stockAplicado = (bool) $venta->stock_aplicado;
 
-        // Marcar SIEMPRE la venta como anulada por nota de crédito (bloquear edición
-        // y excluirla de "recuperar anulada"), independientemente del stock.
+        // Marcar SIEMPRE la venta como anulada por nota de crédito al ENVIAR
+        // (bloquear edición y excluirla de "recuperar anulada"), independientemente del stock.
         $venta->update([
             'estado_de_venta' => \App\Enums\EstadoDeVenta::Anulado,
             'anulado_por_nota_credito' => true,
@@ -617,6 +617,9 @@ class NotaCreditoService implements NotaCreditoServiceInterface
         } catch (\Exception $e) {
             Log::error('Error registrando devolución en kardex por nota de crédito: ' . $e->getMessage());
         }
+
+        // Evitar doble reposición si la venta se anula después.
+        $venta->update(['stock_aplicado' => false]);
     }
 
     private function validarYObtenerVenta(string $ventaId): Venta
