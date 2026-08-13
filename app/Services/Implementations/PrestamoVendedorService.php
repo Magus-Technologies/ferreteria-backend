@@ -453,10 +453,7 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
                             ->where('referencia_tipo', 'venta');
                       });
             })
-            ->where(function ($query) {
-                $query->whereNull('referencia_tipo')
-                      ->orWhere('referencia_tipo', '!=', 'apertura');
-            })
+            ->sinFilasBase()
             ->where('created_at', '>=', $aperturaActiva->fecha_apertura)
             ->get();
 

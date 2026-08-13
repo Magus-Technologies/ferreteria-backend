@@ -98,10 +98,7 @@ trait ManejaFlujoCajaExtra
                 $transaccionesSesion = TransaccionCaja::where('sub_caja_id', $subCajaId)
                     ->where('user_id', Auth::id())
                     ->where('fecha', '>=', $aperturaAbierta->fecha_apertura)
-                    ->where(function ($q) {
-                        $q->whereNull('referencia_tipo')
-                            ->orWhere('referencia_tipo', '!=', 'apertura');
-                    })
+                    ->sinFilasBase()
                     ->get();
 
                 // De los `movimiento_interno` solo cuenta el TRASLADO DE EFECTIVO (el

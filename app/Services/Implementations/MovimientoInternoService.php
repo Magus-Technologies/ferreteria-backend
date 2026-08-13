@@ -466,6 +466,10 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
         // 50,000 de saldo inicial se le atribuía entero a quien lo configuró. Es dinero
         // consolidado: va a CERRADO. Mismo criterio que ClasificadorMovimientos, que ya
         // lo excluye de los ingresos del cierre.
+        //
+        // OJO: acá NO se usa `scopeSinFilasBase()` a propósito. Ese scope también saca
+        // la fila `apertura`, y este cálculo la necesita: el monto de apertura tiene que
+        // contar como No Cerrado hasta que el usuario cierre caja.
         return TransaccionCaja::where('sub_caja_id', $subCaja->id)
             ->when($desplieguePagoId, fn ($q) => $q->where('despliegue_pago_id', $desplieguePagoId))
             ->where('fecha', '>=', min($cortePorUsuario))
@@ -762,6 +766,26 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                 // calcularSaldoRealSubCaja()).
                 $noCerrado = round(max($saldoReal - $cerrado, 0), 2);
 
+                // Mismo cálculo acotado a CADA despliegue de pago. El total de la
+                // sub-caja mezcla efectivo, bancos y billeteras; para elegir un
+                // origen de traslado hay que ver el saldo del método puntual, o
+                // "bcp" mostraría también el efectivo que hay en la misma caja.
+                $porDespliegue = collect($subCaja->getDesplieguePagos())
+                    ->map(function ($despliegue) use ($subCaja) {
+                        $real = $this->calcularSaldoRealSubCaja($subCaja, $despliegue->id);
+                        $cerradoD = round(max($this->calcularSaldoMovible($subCaja, $despliegue->id), 0), 2);
+
+                        return [
+                            'despliegue_pago_id' => $despliegue->id,
+                            'nombre' => $despliegue->name,
+                            'saldo_actual' => round($real, 2),
+                            'saldo_disponible' => $cerradoD,
+                            'saldo_no_cerrado' => round(max($real - $cerradoD, 0), 2),
+                        ];
+                    })
+                    ->values()
+                    ->toArray();
+
                 return [
                     'sub_caja_id' => $subCaja->id,
                     'nombre' => $subCaja->nombre,
@@ -769,6 +793,7 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
                     'saldo_actual' => round($saldoReal, 2),
                     'saldo_disponible' => $cerrado,
                     'saldo_no_cerrado' => $noCerrado,
+                    'despliegues' => $porDespliegue,
                 ];
             })
             ->toArray();

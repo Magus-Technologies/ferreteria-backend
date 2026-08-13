@@ -217,10 +217,7 @@ class AuthController extends Controller
             // Calcular transacciones de efectivo del vendedor en estas Cajas Chicas
             $transacciones = \App\Models\TransaccionCaja::whereIn('sub_caja_id', $cajasChicas)
                 ->where('user_id', $userId)
-                ->where(function ($query) {
-                    $query->whereNull('referencia_tipo')
-                          ->orWhere('referencia_tipo', '!=', 'apertura');
-                })
+                ->sinFilasBase()
                 ->get();
 
             $ingresos = $transacciones->where('tipo_transaccion', 'ingreso')->sum('monto');
