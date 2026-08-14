@@ -33,7 +33,10 @@ class PlantillaImpresion extends Model
         'color_tema' => '#fadc06',
         'color_borde' => '#fadc06',
         'color_texto' => '#000000',
-        'fuente' => 'Helvetica',
+        // Fuente por defecto de todos los PDF. Se instala con la migracion
+        // 2026_08_14_180000 y se registra en Dompdf desde FuentePersonalizada.
+        // Si el archivo faltara, el CSS cae a Arial y el PDF igual se emite.
+        'fuente' => 'tahoma-bold',
         'tamano_base' => 8,
         'grosor_borde' => 2,
         'densidad' => 'normal',

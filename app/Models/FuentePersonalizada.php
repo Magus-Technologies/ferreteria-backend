@@ -41,6 +41,11 @@ class FuentePersonalizada extends Model
      */
     public static function generarFontFaceCss(int $empresaId, ?array $nombresUsados = null): string
     {
+        // Dompdf ignora el @font-face con URL file:/// (resolve_url devuelve
+        // "none" y la descarta en silencio), asi que la fuente se registra
+        // ademas por API, que es lo unico que funciona de verdad.
+        self::registrarEnDompdf($empresaId, $nombresUsados);
+
         $query = self::where('empresa_id', $empresaId);
 
         if (is_array($nombresUsados)) {
@@ -80,6 +85,83 @@ class FuentePersonalizada extends Model
             $css .= "@font-face { font-family: '{$fuente->nombre}'; src: url('{$url}') format('{$format}'); font-weight: normal; font-style: italic; }\n";
         }
         return $css;
+    }
+
+    /**
+     * Registra las fuentes de la empresa en el directorio de fuentes de Dompdf.
+     *
+     * Dompdf guarda ahi un installed-fonts.json global: una vez registrada, la
+     * familia queda disponible para cualquier instancia posterior, sin tocar
+     * los servicios de PDF uno por uno.
+     *
+     * Es idempotente y barato: si la familia ya figura en el cache, no hace nada.
+     */
+    public static function registrarEnDompdf(int $empresaId, ?array $nombresUsados = null): void
+    {
+        $query = self::where('empresa_id', $empresaId);
+
+        if (is_array($nombresUsados)) {
+            if (empty($nombresUsados)) return;
+            $lower = array_map('strtolower', $nombresUsados);
+            $query->whereRaw('LOWER(nombre) IN (' . implode(',', array_fill(0, count($lower), '?')) . ')', $lower);
+        }
+
+        $fuentes = $query->get();
+        if ($fuentes->isEmpty()) return;
+
+        $fontDir = config('dompdf.options.font_dir') ?: storage_path('fonts');
+        $instaladas = self::familiasInstaladas($fontDir);
+
+        $pendientes = $fuentes->filter(function ($f) use ($instaladas) {
+            return !isset($instaladas[strtolower($f->nombre)]);
+        });
+
+        if ($pendientes->isEmpty()) return;
+
+        if (!is_dir($fontDir) && !@mkdir($fontDir, 0775, true) && !is_dir($fontDir)) {
+            // Sin directorio escribible no se puede registrar; el PDF saldra con
+            // la fuente de respaldo, pero no se rompe.
+            return;
+        }
+
+        try {
+            $dompdf = new \Dompdf\Dompdf(new \Dompdf\Options([
+                'fontDir'   => $fontDir,
+                'fontCache' => $fontDir,
+                'chroot'    => realpath(base_path()),
+            ]));
+            $metrics = $dompdf->getFontMetrics();
+
+            foreach ($pendientes as $fuente) {
+                $ext = strtolower(pathinfo($fuente->archivo_path, PATHINFO_EXTENSION));
+                if (!in_array($ext, ['ttf', 'otf'], true)) continue;
+
+                $path = Storage::disk('public')->path($fuente->archivo_path);
+                if (!is_file($path)) continue;
+
+                foreach ([['normal','normal'], ['bold','normal'], ['normal','italic']] as [$peso, $estilo]) {
+                    $metrics->registerFont(
+                        ['family' => $fuente->nombre, 'weight' => $peso, 'style' => $estilo],
+                        $path
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            // Un problema con una fuente nunca debe tumbar la emision de un PDF
+            report($e);
+        }
+    }
+
+    /**
+     * Lee las familias ya registradas en el cache de Dompdf.
+     */
+    private static function familiasInstaladas(string $fontDir): array
+    {
+        $archivo = rtrim($fontDir, "/\\") . DIRECTORY_SEPARATOR . 'installed-fonts.json';
+        if (!is_file($archivo)) return [];
+        $json = json_decode((string) file_get_contents($archivo), true);
+        if (!is_array($json)) return [];
+        return array_change_key_case($json, CASE_LOWER);
     }
 
     /**
