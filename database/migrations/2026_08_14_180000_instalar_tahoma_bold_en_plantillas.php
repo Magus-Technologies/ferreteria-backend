@@ -32,9 +32,51 @@ return new class extends Migration
             return;
         }
 
+        $this->prepararDirectorioDeFuentes();
+
         foreach (DB::table('empresa')->pluck('id') as $empresaId) {
             $this->instalarArchivo((int) $empresaId, $origen);
             $this->alinearDetalles((int) $empresaId);
+        }
+    }
+
+    /**
+     * Dompdf escribe el cache de cada fuente (.ufm) en su font_dir. El deploy
+     * corre como root, asi que si el directorio se crea aqui queda a nombre de
+     * root y despues php-fpm (nginx/www-data) no puede escribir: los PDF
+     * revientan con "Permission denied".
+     *
+     * Se crea el directorio y se le copia dueno y permisos de storage/, que ya
+     * pertenece al usuario correcto.
+     */
+    private function prepararDirectorioDeFuentes(): void
+    {
+        $fontDir = config('dompdf.options.font_dir') ?: storage_path('fonts');
+        $referencia = storage_path();
+
+        if (!is_dir($fontDir)) {
+            @mkdir($fontDir, 0775, true);
+        }
+
+        if (!is_dir($fontDir) || !is_dir($referencia)) {
+            return;
+        }
+
+        // Solo tiene efecto si el proceso puede cambiar el dueno (root).
+        if (function_exists('fileowner') && function_exists('chown')) {
+            $uid = @fileowner($referencia);
+            $gid = @filegroup($referencia);
+            if ($uid !== false) @chown($fontDir, $uid);
+            if ($gid !== false) @chgrp($fontDir, $gid);
+        }
+
+        @chmod($fontDir, 0775);
+
+        // Los .ufm ya escritos por root tambien deben quedar accesibles
+        foreach (glob(rtrim($fontDir, '/\\') . DIRECTORY_SEPARATOR . '*') ?: [] as $archivo) {
+            if (isset($uid) && $uid !== false) @chown($archivo, $uid);
+            if (isset($gid) && $gid !== false) @chgrp($archivo, $gid);
+            @chmod($archivo, 0664);
         }
     }
 
