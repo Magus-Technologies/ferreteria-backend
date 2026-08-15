@@ -190,15 +190,13 @@ class PrestamoController extends Controller
         try {
             DB::beginTransaction();
 
-            // Calcular monto_total como SUMA DE CANTIDADES (no monto monetario)
-            // El cliente NO maneja precios en préstamos, solo cantidades
+            // Calcular monto_total como SUMA DE CANTIDADES (unidades derivadas que
+            // ingresa el usuario). El factor NO se incluye en el monto; solo sirve
+            // para el movimiento de stock (cantidad * factor en stock_fraccion).
             if (!isset($validated['monto_total']) || $validated['monto_total'] === null) {
                 $validated['monto_total'] = 0;
                 foreach ($validated['productos'] as $productoData) {
-                    $cantidad = $productoData['cantidad'] ?? 0;
-                    $factor = $productoData['unidad_derivada_factor'] ?? 1;
-                    // Sumar cantidades en unidad base (cantidad * factor)
-                    $validated['monto_total'] += $cantidad * $factor;
+                    $validated['monto_total'] += $productoData['cantidad'] ?? 0;
                 }
             }
 
@@ -1013,11 +1011,11 @@ $prestamo->load([
                 ProductoAlmacenPrestamo::whereIn('id', $papIds)->delete();
             }
 
-            // 3. Recalcular monto_total (suma de cantidades en unidad base)
+            // 3. Recalcular monto_total (suma de cantidades derivadas ingresadas, sin factor)
             if (!isset($validated['monto_total']) || $validated['monto_total'] === null) {
                 $validated['monto_total'] = 0;
                 foreach ($validated['productos'] as $productoData) {
-                    $validated['monto_total'] += ($productoData['cantidad'] ?? 0) * ($productoData['unidad_derivada_factor'] ?? 1);
+                    $validated['monto_total'] += $productoData['cantidad'] ?? 0;
                 }
             }
 
@@ -1349,7 +1347,9 @@ $prestamo->load([
                     $ingresoSalida
                 );
 
-                $totalDevuelto += $cantidadFraccion;
+                // El monto de la devolución es la CANTIDAD derivada que ingresó el
+                // usuario (sin factor). El factor solo aplica al stock (arriba).
+                $totalDevuelto += $cantidad;
             }
 
             // Crear PagoPrestamo para tracking (legacy support)
