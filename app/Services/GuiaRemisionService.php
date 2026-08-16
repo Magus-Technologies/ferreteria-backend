@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\GuiaRemision;
 use App\Models\DetalleGuiaRemision;
 use App\Models\ProductoAlmacen;
+use App\Models\SerieDocumento;
 use App\Models\Transportista;
 use App\Services\Interfaces\SunatApiServiceInterface;
 use App\Services\Interfaces\XmlStorageServiceInterface;
@@ -31,17 +32,41 @@ class GuiaRemisionService
             // Generar ULID para la guía
             $guiaId = (string) Str::ulid();
 
-            // Auto-generar serie y número si no se proporcionan
+            // Auto-generar serie y número si no se proporcionan.
             if (empty($data['serie']) || empty($data['numero'])) {
                 $tipoGuia = $data['tipo_guia'] ?? 'ELECTRONICA_REMITENTE';
-                $serie = match ($tipoGuia) {
-                    'ELECTRONICA_TRANSPORTISTA' => 'V001',
-                    'FISICA' => 'TF01',
-                    default => 'T001', // ELECTRONICA_REMITENTE
+
+                // Si hay una serie configurada para guía (gr = remitente, gt = transportista)
+                // en el almacén de origen, usarla; si no, caer a los defaults históricos.
+                $tipoSerie = match ($tipoGuia) {
+                    'ELECTRONICA_TRANSPORTISTA' => 'gt',
+                    'ELECTRONICA_REMITENTE' => 'gr',
+                    default => null, // FISICA no usa series electrónicas
                 };
-                $maxNumero = GuiaRemision::where('serie', $serie)->max('numero') ?? 0;
-                $data['serie'] = $serie;
-                $data['numero'] = $maxNumero + 1;
+
+                $serieDoc = null;
+                if ($tipoSerie && !empty($data['almacen_origen_id'])) {
+                    $serieDoc = SerieDocumento::where('tipo_documento', $tipoSerie)
+                        ->where('almacen_id', $data['almacen_origen_id'])
+                        ->where('activo', true)
+                        ->orderBy('created_at', 'desc')
+                        ->first();
+                }
+
+                if ($serieDoc) {
+                    $data['serie'] = $serieDoc->serie;
+                    $data['numero'] = $serieDoc->correlativo + 1;
+                    $serieDoc->increment('correlativo');
+                } else {
+                    $serie = match ($tipoGuia) {
+                        'ELECTRONICA_TRANSPORTISTA' => 'V001',
+                        'FISICA' => 'TF01',
+                        default => 'T001', // ELECTRONICA_REMITENTE
+                    };
+                    $maxNumero = GuiaRemision::where('serie', $serie)->max('numero') ?? 0;
+                    $data['serie'] = $serie;
+                    $data['numero'] = $maxNumero + 1;
+                }
             }
 
             // Crear guía de remisión

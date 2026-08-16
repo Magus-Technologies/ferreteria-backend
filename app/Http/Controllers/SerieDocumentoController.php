@@ -48,7 +48,7 @@ class SerieDocumentoController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'tipo_documento' => 'required|string|in:01,03,nv,in,sa,rc',
+            'tipo_documento' => 'required|string|in:01,03,nv,in,sa,rc,nd,nc,gr,gt',
             'serie' => [
                 'required',
                 'string',
@@ -118,7 +118,7 @@ class SerieDocumentoController extends Controller
         $serie = SerieDocumento::findOrFail($id);
 
         $validator = Validator::make($request->all(), [
-            'tipo_documento' => 'string|in:01,03,nv,in,sa,rc',
+            'tipo_documento' => 'string|in:01,03,nv,in,sa,rc,nd,nc,gr,gt',
             'serie' => [
                 'string',
                 'regex:/^[A-Z0-9]{4}$/',
@@ -172,7 +172,7 @@ class SerieDocumentoController extends Controller
     public function siguienteNumero(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'tipo_documento' => 'required|string|in:01,03,nv,in,sa,rc',
+            'tipo_documento' => 'required|string|in:01,03,nv,in,sa,rc,nd,nc,gr,gt',
             'almacen_id' => 'required|integer|exists:almacen,id',
         ]);
 
