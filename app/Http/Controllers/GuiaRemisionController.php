@@ -6,6 +6,7 @@ use App\Http\Requests\StoreGuiaRemisionRequest;
 use App\Http\Requests\UpdateGuiaRemisionRequest;
 use App\Http\Requests\AnularGuiaRemisionRequest;
 use App\Models\GuiaRemision;
+use App\Models\SerieDocumento;
 use App\QueryBuilders\GuiaRemisionQueryBuilder;
 use App\Services\GuiaRemisionService;
 use Illuminate\Http\Request;
@@ -29,21 +30,45 @@ class GuiaRemisionController extends Controller
     {
         $request->validate([
             'tipo_guia' => 'sometimes|string|in:ELECTRONICA_REMITENTE,ELECTRONICA_TRANSPORTISTA,FISICA',
+            'almacen_origen_id' => 'sometimes|integer|exists:almacen,id',
         ]);
 
         $tipoGuia = $request->input('tipo_guia', 'ELECTRONICA_REMITENTE');
-        $serie = match ($tipoGuia) {
-            'ELECTRONICA_TRANSPORTISTA' => 'V001',
-            'FISICA' => 'TF01',
-            default => 'T001',
+        $almacenOrigenId = $request->input('almacen_origen_id');
+
+        // Serie configurada para guía (gr = remitente, gt = transportista).
+        $tipoSerie = match ($tipoGuia) {
+            'ELECTRONICA_TRANSPORTISTA' => 'gt',
+            'ELECTRONICA_REMITENTE' => 'gr',
+            default => null,
         };
 
-        $maxNumero = GuiaRemision::where('serie', $serie)->max('numero') ?? 0;
+        $serieDoc = null;
+        if ($tipoSerie && $almacenOrigenId) {
+            $serieDoc = SerieDocumento::where('tipo_documento', $tipoSerie)
+                ->where('almacen_id', $almacenOrigenId)
+                ->where('activo', true)
+                ->orderBy('created_at', 'desc')
+                ->first();
+        }
+
+        if ($serieDoc) {
+            $serie = $serieDoc->serie;
+            $numero = $serieDoc->correlativo + 1;
+        } else {
+            $serie = match ($tipoGuia) {
+                'ELECTRONICA_TRANSPORTISTA' => 'V001',
+                'FISICA' => 'TF01',
+                default => 'T001',
+            };
+            $maxNumero = GuiaRemision::where('serie', $serie)->max('numero') ?? 0;
+            $numero = $maxNumero + 1;
+        }
 
         return response()->json([
             'data' => [
                 'serie' => $serie,
-                'numero' => $maxNumero + 1,
+                'numero' => $numero,
             ],
         ]);
     }
