@@ -236,12 +236,8 @@ class CajaService implements CajaServiceInterface
                 continue;
             }
 
-            // Verificar que sea un método digital (no efectivo)
-            $esEfectivo = $this->esMetodoEfectivo($metodoPago);
-            
-            if ($esEfectivo) {
-                continue;
-            }
+            // El efectivo NO se excluye: su monto inicial se asienta igual que el de
+            // cualquier banco (ver sincronizarMontoInicialBanco).
 
             // Verificar si ya se registró este banco
             if (isset($bancosConMontoInicial[$metodoPago->id])) {
@@ -329,12 +325,13 @@ class CajaService implements CajaServiceInterface
      */
     public function sincronizarMontoInicialBanco(\App\Models\MetodoDePago $metodoPago): float
     {
-        // El efectivo no lleva monto inicial de banco: ese dinero entra por la
-        // apertura de caja, no por la configuración del método de pago.
-        if ($this->esMetodoEfectivo($metodoPago)) {
-            return 0.0;
-        }
-
+        // El EFECTIVO también entra acá. Antes se excluía por nombre, con el
+        // argumento de que ese dinero llega por la apertura de caja — pero son dos
+        // cosas distintas: la apertura es el efectivo de una sesión, y el monto
+        // inicial es el saldo con el que arranca el cajón. Al excluirlo, escribir
+        // 50,620 en "efectivo" o "efectivo black" guardaba la columna del método y
+        // no asentaba nada en el libro: el número se veía en la ficha y la caja
+        // seguía igual. Ahora se asienta como cualquier otro método.
         $desplieguesDelBanco = DespliegueDePago::where('metodo_de_pago_id', $metodoPago->id)
             ->pluck('id')
             ->all();
@@ -397,25 +394,6 @@ class CajaService implements CajaServiceInterface
         $subCaja->save();
 
         return $diferencia;
-    }
-
-    /**
-     * ¿Este método de pago es EFECTIVO?
-     *
-     * Solo cuenta el nombre: si dice "efectivo", lo es. El efectivo se excluye del
-     * monto inicial porque ese dinero entra por la apertura de caja, no por la
-     * configuración del método.
-     *
-     * Antes, cuando el método no tenía cuenta bancaria, se adivinaba por palabras
-     * sueltas del nombre — "caja", "cash", "sin banco". Eso marcaba como efectivo a
-     * cualquier método que llevara "caja" en el nombre: un banco llamado "caja
-     * prueba" quedaba excluido y su monto inicial nunca se registraba, mientras que
-     * otro igual de "sin cuenta" pero llamado distinto sí entraba. La ausencia de
-     * cuenta bancaria no lo vuelve efectivo — hay métodos digitales sin cuenta.
-     */
-    private function esMetodoEfectivo(\App\Models\MetodoDePago $metodoPago): bool
-    {
-        return str_contains(strtolower($metodoPago->name ?? ''), 'efectivo');
     }
 
     public function actualizarSubCaja(int $subCajaId, array $data): SubCaja
