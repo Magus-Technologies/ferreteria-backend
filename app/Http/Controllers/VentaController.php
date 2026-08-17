@@ -1348,6 +1348,23 @@ class VentaController extends Controller
             // final del update). El usuario asume el riesgo de inconsistencia
             // si quita productos que ya fueron entregados físicamente.
 
+            // Caso C: boleta (03) y factura (01) no pueden cambiar de tipo de
+            // documento — la venta ya pertenece a su serie documental (BT01/
+            // FT01) y el cambio implicaría reemitir el comprobante. Solo la
+            // nota de venta (nv) puede convertirse a boleta o factura.
+            $tipoDocActualValor = $venta->tipo_documento instanceof \BackedEnum
+                ? $venta->tipo_documento->value
+                : $venta->tipo_documento;
+            if (isset($validated['tipo_documento'])
+                && $validated['tipo_documento'] !== $tipoDocActualValor
+                && in_array($tipoDocActualValor, ['01', '03'], true)
+            ) {
+                return response()->json([
+                    'message' => 'No se puede cambiar el tipo de documento de una boleta o factura. Solo las notas de venta pueden convertirse a boleta o factura.',
+                    'error' => 'VENTA_TIPO_DOCUMENTO_BLOQUEADO',
+                ], 422);
+            }
+
             // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente (si se está cambiando)
             if (isset($validated['cliente_id']) || isset($validated['tipo_documento'])) {
                 $clienteId = $validated['cliente_id'] ?? $venta->cliente_id;
