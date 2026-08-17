@@ -313,8 +313,16 @@ class GananciasQueryFilter
         // Se filtra por serie y/o número de forma independiente (antes exigía ambos, así
         // que escribir solo el número no filtraba nada). El número puede ser el correlativo
         // del comprobante electrónico o el número de la venta (para notas de venta sin CE).
+        // Se busca en las DOS series: la de la venta y la del comprobante electrónico.
+        // La columna que se muestra ahora sale de `v.serie`, así que filtrar solo por
+        // `ce.serie` no encontraría lo que el usuario tiene delante; y a la inversa,
+        // quien busque por la serie del comprobante viejo también debe encontrarla.
         if (!empty($this->filtros['serie'])) {
-            $query->where('ce.serie', $this->filtros['serie']);
+            $serie = $this->filtros['serie'];
+            $query->where(function ($q) use ($serie) {
+                $q->where('v.serie', $serie)
+                    ->orWhere('ce.serie', $serie);
+            });
         }
 
         if (!empty($this->filtros['numero'])) {

@@ -59,8 +59,23 @@ class GananciasQueryBuilder
                 DB::raw("TIME_FORMAT(v.fecha, '%H:%i:%s') as hora_emision"),
                 DB::raw("DATE_FORMAT(v.fecha_vencimiento, '%d/%m/%Y') as fecha_vencimiento"),
                 DB::raw("v.tipo_documento as tipo_doc"),
-                DB::raw("CASE 
-                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
+                // El número sale de la PROPIA venta, que es lo que el usuario ve en el
+                // documento y lo único que se actualiza al editarlo.
+                //
+                // Antes se prefería `ce.serie`/`ce.correlativo` del comprobante
+                // electrónico. Al editar una boleta a nota de venta, la venta pasaba a
+                // NT01-64 pero su comprobante conservaba la serie vieja, así que
+                // Ganancias mostraba BT01-00000002: una serie de boleta en una fila que
+                // en la columna Tipo decía NOTA DE VENTA.
+                //
+                // La rama de respaldo tampoco servía: inventaba la serie a partir del
+                // número (NT01-70 salía como "NV070-00000070") teniendo `v.serie`
+                // disponible y correcta. El comprobante solo se usa si la venta no
+                // tiene serie propia.
+                DB::raw("CASE
+                    WHEN v.serie IS NOT NULL AND v.serie <> ''
+                    THEN CONCAT(v.serie, '-', LPAD(v.numero, 8, '0'))
+                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL
                     THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
                     ELSE CONCAT('NV', LPAD(v.numero, 3, '0'), '-', LPAD(v.numero, 8, '0'))
                 END as numero"),
@@ -135,31 +150,29 @@ class GananciasQueryBuilder
                 'p.name as producto',
                 DB::raw("'VENTA BAJO COSTO' as motivo"),
                 DB::raw("((" . self::COSTO_UNIT_EXPR . ") - udiv.precio) * udiv.cantidad as monto"),
-                DB::raw("CASE 
-                    WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL 
-                    THEN CONCAT(
-                        CASE v.tipo_documento 
-                            WHEN 'fa' THEN '[FACTURA] ' 
-                            WHEN '01' THEN '[FACTURA] ' 
-                            WHEN 'bv' THEN '[BOLETA] ' 
-                            WHEN '03' THEN '[BOLETA] ' 
-                            ELSE '[DOC] ' 
-                        END,
-                        ce.serie, '-', LPAD(ce.correlativo, 8, '0')
-                    )
-                    ELSE CONCAT(
-                        CASE v.tipo_documento 
-                            WHEN 'fa' THEN '[FACTURA] ' 
-                            WHEN '01' THEN '[FACTURA] ' 
-                            WHEN 'bv' THEN '[BOLETA] ' 
-                            WHEN '03' THEN '[BOLETA] ' 
-                            WHEN 'nv' THEN '[N.VENTA] ' 
-                            WHEN '00' THEN '[N.VENTA] '
-                            ELSE '[DOC] ' 
-                        END,
-                        LPAD(v.numero, 8, '0')
-                    )
-                END as comprobante"),
+                // Mismo criterio que la columna `numero` del reporte detallado: manda la
+                // serie de la venta, no la del comprobante electrónico, que se queda
+                // desactualizada cuando el documento se edita a otro tipo.
+                // La etiqueta también sale de `v.tipo_documento`, así que el prefijo y
+                // la serie ya no pueden contradecirse.
+                DB::raw("CONCAT(
+                    CASE v.tipo_documento
+                        WHEN 'fa' THEN '[FACTURA] '
+                        WHEN '01' THEN '[FACTURA] '
+                        WHEN 'bv' THEN '[BOLETA] '
+                        WHEN '03' THEN '[BOLETA] '
+                        WHEN 'nv' THEN '[N.VENTA] '
+                        WHEN '00' THEN '[N.VENTA] '
+                        ELSE '[DOC] '
+                    END,
+                    CASE
+                        WHEN v.serie IS NOT NULL AND v.serie <> ''
+                        THEN CONCAT(v.serie, '-', LPAD(v.numero, 8, '0'))
+                        WHEN ce.serie IS NOT NULL AND ce.correlativo IS NOT NULL
+                        THEN CONCAT(ce.serie, '-', LPAD(ce.correlativo, 8, '0'))
+                        ELSE LPAD(v.numero, 8, '0')
+                    END
+                ) as comprobante"),
                 DB::raw("CONCAT(v.tipo_documento, ' ', v.numero) as referencia"),
                 'udiv.cantidad'
             ])
