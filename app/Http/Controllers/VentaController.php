@@ -1127,6 +1127,7 @@ class VentaController extends Controller
 
 
             $enviadoSunat = false;
+            $comprobanteError = null;
 
             if (in_array($tipoDocumento, ['01', '03']) && $estadoVentaStr !== 'ee') {
                 try {
@@ -1138,13 +1139,14 @@ class VentaController extends Controller
                     $enviadoSunat = !empty($resultado['enviado_sunat']);
                 } catch (\Exception $e) {
                     // No fallar la venta si hay error al generar comprobante, pero
-                    // SIEMPRE loguearlo: un error silencioso deja ventas sin XML
-                    // y el usuario cree que no se generó.
+                    // SIEMPRE loguearlo y exponer el motivo al cliente: un error
+                    // silencioso deja ventas sin XML y el usuario cree que no se generó.
+                    $comprobanteError = $e->getMessage();
                     \Illuminate\Support\Facades\Log::error('[VentaController::store] Error al generar comprobante', [
                         'venta_id' => $venta->id,
                         'serie' => $venta->serie,
                         'numero' => $venta->numero,
-                        'error' => $e->getMessage(),
+                        'error' => $comprobanteError,
                     ]);
                 }
             }
@@ -1164,6 +1166,7 @@ class VentaController extends Controller
                 ]),
                 'message' => 'Venta creada exitosamente',
                 'enviado_sunat' => $enviadoSunat,
+                'comprobante_error' => $comprobanteError,
             ], 201);
         });
     }
