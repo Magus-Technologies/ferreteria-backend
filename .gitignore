@@ -21,6 +21,10 @@
 /storage/pail
 /storage/firebase-credentials.json
 /storage/certificates/*.pem
+# Caché de fuentes que dompdf genera/regenera en runtime al armar PDFs
+# (hash cambia según la fuente instalada en el server) — nunca debe versionarse.
+/storage/fonts/*
+!/storage/fonts/.gitkeep
 /vendor
 Homestead.json
 Homestead.yaml
