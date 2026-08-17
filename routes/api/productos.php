@@ -101,6 +101,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::prefix('detalle-precios')->middleware('broadcast:productos')->group(function () {
         Route::post('/import', [DetallePreciosController::class, 'import']);
+        Route::post('/import-update', [DetallePreciosController::class, 'importUpdate']);
         Route::post('/get-producto-almacen', [DetallePreciosController::class, 'getProductoAlmacenByCodProducto']);
         Route::post('/importar-unidades-derivadas', [DetallePreciosController::class, 'importarUnidadesDerivadas']);
     });

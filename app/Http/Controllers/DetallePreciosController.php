@@ -399,6 +399,120 @@ class DetallePreciosController extends Controller
     }
 
     /**
+     * Actualizar detalles de precios (unidades derivadas) existentes desde Excel.
+     * A diferencia de `import`, NO crea filas ni ingresos: solo actualiza los
+     * campos que vienen en cada fila (celda vacía = no tocar).
+     */
+    public function importUpdate(Request $request): JsonResponse
+    {
+        // Aumentar timeout y memoria para importaciones grandes
+        set_time_limit(300); // 5 minutos
+        ini_set('memory_limit', '512M');
+
+        $validated = $request->validate([
+            'data' => 'required|array|min:1',
+            'data.*.cod_producto' => 'required|string',
+            'data.*.formato' => 'required|string',
+            'data.*.factor' => 'nullable|numeric',
+            'data.*.precio_publico' => 'nullable|numeric',
+            'data.*.comision_publico' => 'nullable|numeric',
+            'data.*.precio_especial' => 'nullable|numeric',
+            'data.*.comision_especial' => 'nullable|numeric',
+            'data.*.activador_especial' => 'nullable|numeric',
+            'data.*.precio_minimo' => 'nullable|numeric',
+            'data.*.comision_minimo' => 'nullable|numeric',
+            'data.*.activador_minimo' => 'nullable|numeric',
+            'data.*.precio_ultimo' => 'nullable|numeric',
+            'data.*.comision_ultimo' => 'nullable|numeric',
+            'data.*.activador_ultimo' => 'nullable|numeric',
+            'almacen_id' => 'required|integer|exists:almacen,id',
+        ]);
+
+        $almacenId = (int) $validated['almacen_id'];
+
+        $camposEditables = [
+            'factor',
+            'precio_publico', 'comision_publico',
+            'precio_especial', 'comision_especial', 'activador_especial',
+            'precio_minimo', 'comision_minimo', 'activador_minimo',
+            'precio_ultimo', 'comision_ultimo', 'activador_ultimo',
+        ];
+
+        // 1. Resolver ProductoAlmacen por cod_producto + almacen (una sola query)
+        $codigos = array_unique(array_map(fn($i) => trim($i['cod_producto']), $validated['data']));
+        $productos = Producto::whereIn('cod_producto', $codigos)->pluck('id', 'cod_producto');
+        $productoAlmacenes = ProductoAlmacen::whereIn('producto_id', $productos->values())
+            ->where('almacen_id', $almacenId)
+            ->get()
+            ->keyBy('producto_id');
+
+        // 2. Resolver UnidadDerivada por name — SIN crear (solo actualizar existentes)
+        $formatos = array_unique(array_map(fn($i) => trim($i['formato']), $validated['data']));
+        $unidadesDerivadas = UnidadDerivada::whereIn('name', $formatos)->get()->keyBy('name');
+
+        $notFound = [];
+        $errors = [];
+        $updated = 0;
+
+        foreach ($validated['data'] as $index => $item) {
+            $cod = trim($item['cod_producto']);
+            $formato = trim($item['formato']);
+
+            $productoId = $productos->get($cod);
+            $productoAlmacen = $productoId ? $productoAlmacenes->get($productoId) : null;
+            $unidadDerivada = $unidadesDerivadas->get($formato);
+
+            if (!$productoAlmacen || !$unidadDerivada) {
+                $notFound[] = "{$cod}|{$formato}";
+                continue;
+            }
+
+            $update = [];
+            foreach ($camposEditables as $campo) {
+                if (array_key_exists($campo, $item) && $item[$campo] !== null && $item[$campo] !== '') {
+                    $update[$campo] = (float) $item[$campo];
+                }
+            }
+
+            if (empty($update)) {
+                $errors[] = "Fila " . ($index + 2) . ": {$cod}|{$formato} no tiene campos para actualizar";
+                continue;
+            }
+
+            $fila = ProductoAlmacenUnidadDerivada::where('producto_almacen_id', $productoAlmacen->id)
+                ->where('unidad_derivada_id', $unidadDerivada->id)
+                ->first();
+
+            if (!$fila) {
+                $notFound[] = "{$cod}|{$formato}";
+                continue;
+            }
+
+            // updateQuietly: sin disparar observer (la caché se invalida una vez al final)
+            $fila->updateQuietly($update);
+            $updated++;
+        }
+
+        // Invalidar caché de productos para el almacén afectado
+        $cacheService = app(ProductoCacheService::class);
+        $cacheService->invalidateProductosAlmacen($almacenId);
+        \Illuminate\Support\Facades\Cache::forget("productos_listado_ligero_{$almacenId}");
+        \Illuminate\Support\Facades\Cache::forget("productos_listado_completo_{$almacenId}");
+
+        return response()->json([
+            'data' => [
+                'total' => count($validated['data']),
+                'updated' => $updated,
+                'not_found' => $notFound,
+                'not_found_count' => count($notFound),
+                'errors' => $errors,
+                'errors_count' => count($errors),
+            ],
+            'message' => "{$updated} unidades derivadas actualizadas",
+        ]);
+    }
+
+    /**
      * Obtener ProductoAlmacen por cod_producto y almacen_id
      */
     public function getProductoAlmacenByCodProducto(Request $request): JsonResponse
