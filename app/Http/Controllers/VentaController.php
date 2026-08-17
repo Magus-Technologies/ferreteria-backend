@@ -425,16 +425,35 @@ class VentaController extends Controller
             // Usa SerieDocumentoService que garantiza atomicidad (sin race conditions).
             $estadoVentaTmp = $validated['estado_de_venta'] ?? 'cr';
             if ($estadoVentaTmp !== 'ee' && (empty($validated['serie']) || empty($validated['numero']))) {
-                try {
-                    $correlativo = $this->serieDocumentoService->reservarCorrelativoSimple(
-                        $validated['tipo_documento'],
-                        $validated['almacen_id']
-                    );
-                } catch (\Exception $e) {
-                    abort(422, $e->getMessage());
+                // La reserva del correlativo es atómica, pero si la serie quedó
+                // desincronizada (una venta ocupa un número que la serie aún no
+                // registra), el primer intento choca con una venta existente.
+                // Reintentar reservando el siguiente hasta encontrar uno libre.
+                $correlativoAsignado = false;
+                for ($intento = 0; $intento < 5; $intento++) {
+                    try {
+                        $correlativo = $this->serieDocumentoService->reservarCorrelativoSimple(
+                            $validated['tipo_documento'],
+                            $validated['almacen_id']
+                        );
+                    } catch (\Exception $e) {
+                        abort(422, $e->getMessage());
+                    }
+                    $validated['serie']  = $correlativo['serie'];
+                    $validated['numero'] = $correlativo['numero'];
+
+                    $yaExiste = \App\Models\Venta::where('serie', $validated['serie'])
+                        ->whereRaw('CAST(numero AS UNSIGNED) = ?', [(int) $validated['numero']])
+                        ->exists();
+
+                    if (! $yaExiste) {
+                        $correlativoAsignado = true;
+                        break;
+                    }
                 }
-                $validated['serie']  = $correlativo['serie'];
-                $validated['numero'] = $correlativo['numero'];
+                if (! $correlativoAsignado) {
+                    abort(409, 'No se pudo asignar un correlativo libre para la serie seleccionada. Sincroniza el correlativo de la serie en Configuración → Series.');
+                }
             }
 
             // ✅ VALIDACIÓN CRÍTICA: Tipo de documento vs tipo de cliente
