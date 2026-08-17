@@ -190,13 +190,14 @@ class PrestamoController extends Controller
         try {
             DB::beginTransaction();
 
-            // Calcular monto_total como SUMA DE CANTIDADES (unidades derivadas que
-            // ingresa el usuario). El factor NO se incluye en el monto; solo sirve
-            // para el movimiento de stock (cantidad * factor en stock_fraccion).
+            // Calcular monto_total en FRACCIÓN BASE (cantidad * factor), para poder
+            // devolver en la unidad derivada o en la base y llevar un saldo exacto.
             if (!isset($validated['monto_total']) || $validated['monto_total'] === null) {
                 $validated['monto_total'] = 0;
                 foreach ($validated['productos'] as $productoData) {
-                    $validated['monto_total'] += $productoData['cantidad'] ?? 0;
+                    $cantidad = $productoData['cantidad'] ?? 0;
+                    $factor = $productoData['unidad_derivada_factor'] ?? 1;
+                    $validated['monto_total'] += $cantidad * $factor;
                 }
             }
 
@@ -505,6 +506,7 @@ $prestamo->load([
             },
             'almacen',
             'productosPorAlmacen.productoAlmacen.producto.marca',
+            'productosPorAlmacen.productoAlmacen.producto.unidadMedida',
             'productosPorAlmacen.unidadesDerivadas',
             'pagos.user',
             'devoluciones.user:id,name',
@@ -1011,11 +1013,11 @@ $prestamo->load([
                 ProductoAlmacenPrestamo::whereIn('id', $papIds)->delete();
             }
 
-            // 3. Recalcular monto_total (suma de cantidades derivadas ingresadas, sin factor)
+            // 3. Recalcular monto_total en fracción base (cantidad * factor)
             if (!isset($validated['monto_total']) || $validated['monto_total'] === null) {
                 $validated['monto_total'] = 0;
                 foreach ($validated['productos'] as $productoData) {
-                    $validated['monto_total'] += $productoData['cantidad'] ?? 0;
+                    $validated['monto_total'] += ($productoData['cantidad'] ?? 0) * ($productoData['unidad_derivada_factor'] ?? 1);
                 }
             }
 
@@ -1188,7 +1190,8 @@ $prestamo->load([
         $validated = $request->validate([
             'productos' => 'required|array|min:1',
             'productos.*.producto_almacen_prestamo_id' => 'required|integer|exists:productoalmacenprestamo,id',
-            'productos.*.cantidad' => 'required|numeric|min:0.001',
+            'productos.*.cantidad' => 'required|numeric|min:0',
+            'productos.*.cantidad_base' => 'nullable|numeric|min:0',
             'productos.*.factor' => 'required|numeric|min:0',
             'fecha_devolucion' => 'required|date',
             'observaciones' => 'nullable|string',
@@ -1259,7 +1262,9 @@ $prestamo->load([
                 $productoAlmacen = ProductoAlmacen::find($productoAlmacenPrestamo->producto_almacen_id);
                 $factor = $productoData['factor'];
                 $cantidad = $productoData['cantidad'];
-                $cantidadFraccion = $factor * $cantidad;
+                $cantidadBase = $productoData['cantidad_base'] ?? 0;
+                // Fracción base = (unidades derivadas * factor) + unidades base.
+                $cantidadFraccion = ($factor * $cantidad) + $cantidadBase;
 
                 // Crear PrestamoProductoDevuelto
                 $unidadDerivadaInmutablePrestamo = $productoAlmacenPrestamo->unidadesDerivadas->first();
@@ -1347,9 +1352,9 @@ $prestamo->load([
                     $ingresoSalida
                 );
 
-                // El monto de la devolución es la CANTIDAD derivada que ingresó el
-                // usuario (sin factor). El factor solo aplica al stock (arriba).
-                $totalDevuelto += $cantidad;
+                // El monto de la devolución se acumula en FRACCIÓN BASE para que el
+                // trigger mantenga monto_pagado/pendiente consistentes con monto_total.
+                $totalDevuelto += $cantidadFraccion;
             }
 
             // Crear PagoPrestamo para tracking (legacy support)
