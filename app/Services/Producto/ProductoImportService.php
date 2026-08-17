@@ -9,6 +9,7 @@ use App\Models\ProductoAlmacen;
 use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\UnidadMedida;
+use App\Models\Ubicacion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
@@ -95,6 +96,239 @@ class ProductoImportService implements ProductoImportServiceInterface
                 ],
                 500,
             );
+        }
+    }
+
+    /**
+     * Update existing products from Excel data (partial update).
+     *
+     * Each row must identify an existing product by cod_producto (or cod_barra).
+     * Only the fields present in the row are updated; missing columns leave the
+     * current value untouched. Products not found are reported as not_found.
+     *
+     * Supported fields:
+     *  - Producto: name, name_ticket, cod_barra, stock_min, stock_max,
+     *    unidades_contenidas, accion_tecnica, permitido, categoria, marca,
+     *    unidad_medida (catalog names resolved with firstOrCreate)
+     *  - ProductoAlmacen: ubicacion (name -> id), stock_fraccion, costo
+     *    (cost is divided by unidades_contenidas, same semantics as import)
+     *
+     * @param array $data Array of rows from Excel
+     * @return JsonResponse
+     */
+    public function updateFromExcel(array $data): JsonResponse
+    {
+        @set_time_limit(0);
+        @ini_set('max_execution_time', '0');
+        @ini_set('memory_limit', '1G');
+
+        $updated = 0;
+        $notFound = [];
+        $errors = [];
+        $almacenesAfectados = [];
+
+        try {
+            if (empty($data)) {
+                return response()->json(["error" => "No hay datos para actualizar"], 422);
+            }
+
+            $user = auth()->user();
+            if (!$user) {
+                return response()->json(["error" => "Usuario no autenticado"], 401);
+            }
+
+            // 1) Indexar productos existentes por cod_producto / cod_barra (1 query).
+            $cods = collect($data)->pluck('cod_producto')->filter()->unique()->values()->all();
+            $barras = collect($data)->pluck('cod_barra')->filter()->unique()->values()->all();
+
+            $existentes = Producto::query()
+                ->where(function ($q) use ($cods, $barras) {
+                    if ($cods) $q->orWhereIn('cod_producto', $cods);
+                    if ($barras) $q->orWhereIn('cod_barra', $barras);
+                })
+                ->get();
+
+            $porCodigo = $existentes->keyBy('cod_producto')->filter(fn ($p) => $p->cod_producto !== null);
+            $porBarra = $existentes->keyBy('cod_barra')->filter(fn ($p) => $p->cod_barra !== null);
+
+            // 2) Pre-cargar ubicaciones existentes por almacén (name => id).
+            $ubicacionesCache = [];
+            $almacenesConUbicacion = collect($data)
+                ->pluck('ubicacion')
+                ->filter()
+                ->unique()
+                ->map(fn ($n) => strtoupper(trim((string) $n)))
+                ->values()
+                ->all();
+
+            if ($almacenesConUbicacion) {
+                $ubicacionesExistentes = Ubicacion::whereIn('name', $almacenesConUbicacion)
+                    ->get(['id', 'name', 'almacen_id']);
+                foreach ($ubicacionesExistentes as $u) {
+                    $key = $u->almacen_id . '|' . strtoupper(trim($u->name));
+                    $ubicacionesCache[$key] = $u->id;
+                }
+            }
+
+            // 3) Procesar cada fila (sin eventos de modelo; se invalida cache al final).
+            Producto::withoutEvents(function () use (
+                $data,
+                $porCodigo,
+                $porBarra,
+                &$ubicacionesCache,
+                &$updated,
+                &$notFound,
+                &$errors,
+                &$almacenesAfectados
+            ) {
+                foreach ($data as $index => $item) {
+                    try {
+                        $rowNum = $index + 2;
+
+                        if (empty($item['cod_producto']) && empty($item['cod_barra'])) {
+                            $errors[] = "Fila {$rowNum}: falta 'Código de Producto' o 'Código de Barra'";
+                            continue;
+                        }
+
+                        $producto = null;
+                        if (!empty($item['cod_producto'])) {
+                            $producto = $porCodigo[$item['cod_producto']] ?? null;
+                        }
+                        if (!$producto && !empty($item['cod_barra'])) {
+                            $producto = $porBarra[$item['cod_barra']] ?? null;
+                        }
+
+                        if (!$producto) {
+                            $notFound[] = (string) ($item['cod_producto'] ?: $item['cod_barra']);
+                            continue;
+                        }
+
+                        $almacenId = $item['almacen_id'] ?? null;
+                        if (!$almacenId) {
+                            $errors[] = "Fila {$rowNum}: falta almacén";
+                            continue;
+                        }
+
+                        // --- Campos del producto (solo los presentes) ---
+                        $productoUpdate = [];
+                        if (isset($item['name']) && $item['name'] !== '') {
+                            $productoUpdate['name'] = $item['name'];
+                        }
+                        if (isset($item['name_ticket']) && $item['name_ticket'] !== '') {
+                            $productoUpdate['name_ticket'] = $item['name_ticket'];
+                        }
+                        if (isset($item['cod_barra']) && $item['cod_barra'] !== '') {
+                            $productoUpdate['cod_barra'] = $item['cod_barra'];
+                        }
+                        if (isset($item['stock_min']) && is_numeric($item['stock_min'])) {
+                            $productoUpdate['stock_min'] = (float) $item['stock_min'];
+                        }
+                        if (isset($item['stock_max']) && is_numeric($item['stock_max'])) {
+                            $productoUpdate['stock_max'] = (float) $item['stock_max'];
+                        }
+                        if (isset($item['unidades_contenidas']) && is_numeric($item['unidades_contenidas'])) {
+                            $productoUpdate['unidades_contenidas'] = (float) $item['unidades_contenidas'];
+                        }
+                        if (isset($item['accion_tecnica']) && $item['accion_tecnica'] !== '') {
+                            $productoUpdate['accion_tecnica'] = $item['accion_tecnica'];
+                        }
+                        if (isset($item['permitido'])) {
+                            $productoUpdate['permitido'] = $item['permitido'] ? 1 : 0;
+                        }
+
+                        // Catálogos por nombre (firstOrCreate, mismos criterios que el import)
+                        if (isset($item['categoria']) && $item['categoria'] !== '') {
+                            $productoUpdate['categoria_id'] = Categoria::firstOrCreate(['name' => $item['categoria']])->id;
+                        }
+                        if (isset($item['marca']) && $item['marca'] !== '') {
+                            $productoUpdate['marca_id'] = Marca::firstOrCreate(['name' => $item['marca'], 'estado' => true])->id;
+                        }
+                        if (isset($item['unidad_medida']) && $item['unidad_medida'] !== '') {
+                            $productoUpdate['unidad_medida_id'] = UnidadMedida::firstOrCreate(['name' => $item['unidad_medida'], 'estado' => true])->id;
+                        }
+
+                        if ($productoUpdate) {
+                            $producto->update($productoUpdate);
+                        }
+
+                        // --- Campos del producto_almacen ---
+                        $almacenUpdate = [];
+                        $ubicacionNombre = $item['ubicacion'] ?? null;
+                        if ($ubicacionNombre !== null && $ubicacionNombre !== '') {
+                            $nombreNormalizado = strtoupper(trim((string) $ubicacionNombre));
+                            $cacheKey = $almacenId . '|' . $nombreNormalizado;
+                            if (!isset($ubicacionesCache[$cacheKey])) {
+                                $ubicacion = Ubicacion::firstOrCreate([
+                                    'name' => $nombreNormalizado,
+                                    'almacen_id' => $almacenId,
+                                ], ['estado' => true]);
+                                $ubicacionesCache[$cacheKey] = $ubicacion->id;
+                            }
+                            $almacenUpdate['ubicacion_id'] = $ubicacionesCache[$cacheKey];
+                        }
+
+                        if (isset($item['stock_fraccion']) && is_numeric($item['stock_fraccion'])) {
+                            $almacenUpdate['stock_fraccion'] = (float) $item['stock_fraccion'];
+                        }
+
+                        if (isset($item['costo']) && is_numeric($item['costo'])) {
+                            $unidadesContenidas = isset($item['unidades_contenidas']) && is_numeric($item['unidades_contenidas'])
+                                ? (float) $item['unidades_contenidas']
+                                : (float) ($producto->unidades_contenidas ?: 1);
+                            $divisor = $unidadesContenidas > 0 ? $unidadesContenidas : 1;
+                            $almacenUpdate['costo'] = (float) $item['costo'] / $divisor;
+                        }
+
+                        if ($almacenUpdate) {
+                            ProductoAlmacen::updateOrCreate(
+                                [
+                                    'producto_id' => $producto->id,
+                                    'almacen_id' => $almacenId,
+                                ],
+                                $almacenUpdate,
+                            );
+                        }
+
+                        $updated++;
+                        $almacenesAfectados[$almacenId] = true;
+                    } catch (\Exception $e) {
+                        Log::error("Error updating product from Excel", [
+                            'row' => $index + 2,
+                            'error' => $e->getMessage(),
+                        ]);
+                        $errors[] = "Fila " . ($index + 2) . ": " . $e->getMessage();
+                    }
+                }
+            });
+
+            // 4) Invalidar cache de almacenes afectados (1 vez).
+            $cacheService = app(\App\Services\Cache\ProductoCacheService::class);
+            foreach (array_keys($almacenesAfectados) as $almacenId) {
+                $cacheService->invalidateProductosAlmacen($almacenId);
+                Cache::forget("productos_listado_ligero_{$almacenId}");
+                Cache::forget("productos_listado_completo_{$almacenId}");
+            }
+
+            return response()->json([
+                'message' => 'Actualización completada exitosamente',
+                'data' => [
+                    'total' => count($data),
+                    'updated' => $updated,
+                    'not_found' => $notFound,
+                    'not_found_count' => count($notFound),
+                    'errors' => $errors,
+                    'errors_count' => count($errors),
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Critical error updating products from Excel', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'error' => 'Error crítico al actualizar: ' . $e->getMessage(),
+            ], 500);
         }
     }
 

@@ -34,6 +34,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ============================================
     Route::prefix('productos')->group(function () {
         Route::post('/import', [ProductoImportController::class, 'import']);
+        Route::post('/import-update', [ProductoImportController::class, 'importUpdate']);
         Route::get('/import-progress/{importId}', [ProductoImportController::class, 'progress']);
         Route::post('/import-cancel/{importId}', [ProductoImportController::class, 'cancel']);
         Route::get('/import-results/{importId}', [ProductoImportController::class, 'results']);

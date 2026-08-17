@@ -41,6 +41,22 @@ class ProductoImportController extends Controller
     }
 
     /**
+     * Update existing products from Excel data.
+     *
+     * POST /api/productos/import-update
+     *
+     * Updates products found by cod_producto (or cod_barra) using only the
+     * columns present in each Excel row. Rows without a match are reported
+     * as not_found, never created.
+     *
+     * @return JsonResponse
+     */
+    public function importUpdate(ImportProductoRequest $request): JsonResponse
+    {
+        return $this->importService->updateFromExcel($request->validated()['data']);
+    }
+
+    /**
      * Get import progress status.
      *
      * GET /api/productos/import-progress/{importId}
