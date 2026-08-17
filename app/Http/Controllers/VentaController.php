@@ -60,7 +60,8 @@ class VentaController extends Controller
             'hasta' => 'sometimes|date',
             'search' => 'sometimes|string',
             'entrega' => 'sometimes|string|in:pendiente,completa',
-            'per_page' => 'sometimes|integer|min:1|max:100',
+            // min:-1 permite '-1' = "traer todo sin paginar" (ver más abajo).
+            'per_page' => 'sometimes|integer|min:-1|max:100',
             'page' => 'sometimes|integer|min:1',
         ]);
 
@@ -249,11 +250,16 @@ class VentaController extends Controller
             }
         }
 
-        $perPage = $request->input('per_page', 50);
+        // (int) cast: $request->input() devuelve string desde la query string
+        // ("-1", no -1) — la comparación estricta de abajo nunca matcheaba y
+        // caía en paginate("-1"), que generaba `offset 0` sin `limit` (MySQL
+        // lo rechaza con error de sintaxis).
+        $perPage = (int) $request->input('per_page', 50);
 
         if ($perPage === -1) {
-            // Return all without pagination
-            $items = $query->orderBy('fecha', 'desc')->orderBy('numero', 'desc')->limit(100)->get();
+            // Return all without pagination — mismo criterio que el listado
+            // completo de productos (sin límite artificial).
+            $items = $query->orderBy('fecha', 'desc')->orderBy('numero', 'desc')->get();
             $items->each(fn ($venta) => $this->rellenarTipoDespacho($venta));
 
             return response()->json([
