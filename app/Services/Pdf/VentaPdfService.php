@@ -212,7 +212,9 @@ class VentaPdfService
             $data,
             $filename,
             'portrait',
-            [], // auto-height: ver @page en vale-generado-ticket.blade.php
+            // Contenido de tamaño constante (logo + un vale) — no necesita
+            // alto dinámico, a diferencia del ticket de venta.
+            [0, 0, 226.77, 841.89],
         );
     }
 
@@ -403,8 +405,44 @@ class VentaPdfService
             $data,
             $filename,
             'portrait',
-            [], // auto-height: ver @page en venta-ticket.blade.php
+            $this->calcularAlturaTicket($productos, $metodosPago, $sinVales ? [] : $vales, $valesDescuento),
         );
+    }
+
+    /**
+     * Alto del PDF del ticket (80mm), calculado según el contenido en vez de
+     * un valor fijo. dompdf ignora el `@page { size: 80mm auto }` del blade
+     * en cuanto se llama a setPaper() con un array explícito — pero setPaper
+     * SIN array (dejando que dompdf lea el @page del CSS) resultó en A4
+     * completo en este entorno, así que el alto dinámico se calcula acá en
+     * vez de confiar en el auto-height del CSS.
+     *
+     * Estimación generosa a propósito: quedarse corto vuelve a cortar el
+     * ticket en 2 páginas (el bug original); quedarse largo solo deja
+     * espacio en blanco al final, inofensivo para una impresora térmica.
+     */
+    private function calcularAlturaTicket(array $productos, array $metodosPago, array $vales, array $valesDescuento): array
+    {
+        $lineasDescuento = count(array_filter(
+            $productos,
+            fn ($p) => ($p['descuento'] ?? 0) > 0 && empty($p['es_gratis'])
+        ));
+        $cabecerasPaquete = count(array_unique(array_filter(array_column($productos, 'paquete_id'))));
+
+        // Base: logo + datos empresa + doc + cliente + separadores + bloque
+        // de totales fijo (OP.GRAVADA/IGV/TOTAL) + total en letras +
+        // observaciones + leyenda de consulta + despedida + márgenes.
+        $altura = 560
+            + (count($productos) * 22)
+            + ($lineasDescuento * 12)
+            + ($cabecerasPaquete * 14)
+            + (count($metodosPago) * 12)
+            + (count($valesDescuento) * 20)
+            // Cada vale generado imprime un bloque separado con QR + código
+            // de barras + textos — mucho más alto que una línea normal.
+            + (count($vales) * 320);
+
+        return [0, 0, 226.77, max($altura, 600)];
     }
 
     /**
