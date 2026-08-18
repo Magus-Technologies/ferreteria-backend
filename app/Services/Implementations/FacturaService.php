@@ -66,6 +66,23 @@ class FacturaService implements FacturaServiceInterface
                 ];
             }
 
+            // findBySerieCorrelativo (arriba) usa el scope normal de Eloquent,
+            // que EXCLUYE soft-deletes — así que no ve una fila soft-deleted
+            // con esta misma serie+correlativo (ej. de un intento anterior
+            // que se "borró" con delete() en vez de forceDelete(), ver
+            // VentaController::update()). El índice único de la base SÍ ve
+            // esa fila (sigue físicamente ahí), así que el insert de abajo
+            // fallaba con "Duplicate entry" en vez de generar de nuevo.
+            // Se purga acá cualquier resto soft-deleted antes de insertar.
+            \App\Models\ComprobanteElectronico::onlyTrashed()
+                ->where('serie', $venta->serie)
+                ->where('correlativo', $venta->numero)
+                ->get()
+                ->each(function ($fila) {
+                    \App\Models\DetalleComprobanteElectronico::where('comprobante_electronico_id', $fila->id)->delete();
+                    $fila->forceDelete();
+                });
+
             // Preparar datos para generar XML
             $dataGreenter = $this->prepararDatosParaGreenter($venta, false); // false = NO validar aún (solo generar XML)
 
