@@ -483,34 +483,44 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
 
                 return $corte !== null && $t->fecha >= $corte;
             })
-            ->pipe(fn ($tx) => $this->descartarPagosAnulados($tx));
+            ->pipe(fn ($tx) => $this->descartarMovimientosAnulados($tx));
     }
 
     /**
-     * Quita los pagos de compra ANULADOS junto con su reversión.
+     * Quita los movimientos ANULADOS junto con su reversión.
      *
-     * Anular un pago no borra el egreso: crea un `anulacion_pago_compra` que lo
-     * compensa. El neto ya daba cero, pero el detalle del "Saldo No Cerrado" seguía
-     * mostrando el egreso del pago anulado como si el vendedor hubiera gastado ese
-     * dinero.
+     * Anular no borra el movimiento: se crea una transacción del signo contrario con
+     * `referencia_tipo = 'anulacion_<tipo original>'` y el mismo `referencia_id`. El
+     * neto ya daba cero, pero el detalle del "Saldo No Cerrado" seguía mostrando el
+     * pago de compra, el gasto extra o el ingreso extra anulados como si el vendedor
+     * hubiera movido ese dinero.
      *
-     * Se descartan LOS DOS: quitar solo el egreso dejaría suelto el ingreso de la
-     * reversión y el No Cerrado subiría por dinero que nunca entró.
+     * Se descartan LOS DOS: quitar solo una pata dejaría suelta la otra y el No
+     * Cerrado se movería por dinero que nunca entró ni salió.
      *
-     * El emparejamiento es por CANTIDAD: si hubo dos pagos iguales a la misma compra
-     * y solo se anuló uno, se descarta uno solo y el otro sigue contando. No se
-     * compara el `user_id` a propósito — si el pago y su anulación quedaron a nombre
-     * de usuarios distintos (dato viejo), igual se cancelan dentro de la sub-caja.
+     * El emparejamiento es por CANTIDAD: si hubo dos movimientos iguales sobre la
+     * misma referencia y solo se anuló uno, se descarta uno solo y el otro sigue
+     * contando. No se compara el `user_id` a propósito — si el movimiento y su
+     * anulación quedaron a nombre de usuarios distintos (dato viejo), igual se
+     * cancelan dentro de la sub-caja.
      */
-    private function descartarPagosAnulados(Collection $transacciones): Collection
+    private function descartarMovimientosAnulados(Collection $transacciones): Collection
     {
-        $clave = fn ($t) => ($t->referencia_id ?? '') . '|'
+        $prefijo = 'anulacion_';
+        $esAnulacion = fn ($t) => str_starts_with((string) ($t->referencia_tipo ?? ''), $prefijo);
+        // El tipo ORIGINAL entra en la clave para no cruzar dos operaciones distintas
+        // que casualmente compartan referencia, despliegue y monto.
+        $clave = fn (?string $tipo, $t) => $tipo . '|'
+            . ($t->referencia_id ?? '') . '|'
             . ($t->despliegue_pago_id ?? '') . '|'
             . number_format((float) $t->monto, 2, '.', '');
 
         $pendientes = [];
-        foreach ($transacciones->where('referencia_tipo', 'anulacion_pago_compra') as $a) {
-            $k = $clave($a);
+        foreach ($transacciones as $t) {
+            if (!$esAnulacion($t)) {
+                continue;
+            }
+            $k = $clave(substr($t->referencia_tipo, strlen($prefijo)), $t);
             $pendientes[$k] = ($pendientes[$k] ?? 0) + 1;
         }
 
@@ -518,18 +528,12 @@ class MovimientoInternoService implements MovimientoInternoServiceInterface
             return $transacciones;
         }
 
-        return $transacciones->reject(function ($t) use (&$pendientes, $clave) {
-            $tipo = $t->referencia_tipo ?? null;
-
-            if ($tipo === 'anulacion_pago_compra') {
+        return $transacciones->reject(function ($t) use (&$pendientes, $clave, $esAnulacion) {
+            if ($esAnulacion($t)) {
                 return true;
             }
 
-            if ($tipo !== 'pago_compra') {
-                return false;
-            }
-
-            $k = $clave($t);
+            $k = $clave($t->referencia_tipo ?? null, $t);
             if (($pendientes[$k] ?? 0) > 0) {
                 $pendientes[$k]--;
 

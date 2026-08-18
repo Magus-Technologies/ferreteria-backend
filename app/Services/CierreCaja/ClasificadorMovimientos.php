@@ -95,8 +95,8 @@ class ClasificadorMovimientos
         // 4. GASTOS (egresos del vendedor)
         $gastosYPagos = $this->obtenerGastosVendedor($subCajasIds, $apertura, $userId, $fechaInicio, $fechaFin);
 
-        // 4.5 Descartar los pagos de compra ANULADOS junto con su reversión.
-        [$otrosIngresos, $gastosYPagos] = $this->descartarPagosAnulados($otrosIngresos, $gastosYPagos);
+        // 4.5 Descartar los movimientos ANULADOS junto con su reversión.
+        [$otrosIngresos, $gastosYPagos] = $this->descartarMovimientosAnulados($otrosIngresos, $gastosYPagos);
 
         // 5. PRÉSTAMOS RECIBIDOS (de otros vendedores)
         $prestamosRecibidos = $this->obtenerPrestamosRecibidosVendedor($apertura, $userId, $fechaInicio, $fechaFin);
@@ -298,58 +298,67 @@ class ClasificadorMovimientos
      * Los montos iniciales de bancos NO deben aparecer aquí
      */
     /**
-     * Quita del cierre los pagos de compra ANULADOS y su transacción de reversión.
+     * Quita del cierre TODO movimiento anulado junto con su transacción de reversión.
      *
-     * Anular un pago no borra el egreso: crea un `anulacion_pago_compra` que lo
-     * compensa. El neto ya daba cero, pero el cierre seguía listando el gasto anulado
-     * en "Detalle de Gastos" —y la devolución en "Otros Ingresos"— como si la
-     * operación hubiera ocurrido.
+     * Anular no borra el movimiento: `ManejaFlujoCajaExtra::reversarEnCajaActiva()` (y
+     * el equivalente de pagos de compra) crea una transacción del signo contrario con
+     * `referencia_tipo = 'anulacion_<tipo original>'` y el MISMO `referencia_id`. El
+     * neto ya daba cero, pero el cierre seguía listando ambas patas como si la
+     * operación hubiera ocurrido: un gasto extra anulado aparecía en "Gastos Extras" y
+     * su devolución en "Otros Ingresos"; un ingreso extra anulado, al revés.
      *
-     * Se descartan LOS DOS: quitar solo el gasto dispararía el monto esperado por el
-     * importe de la reversión que quedaría suelta.
+     * Sirve para cualquier par (pago de compra, ingreso extra, gasto extra, …) y en las
+     * dos direcciones, porque el original puede ser el ingreso o el egreso según el
+     * tipo. Se descartan LOS DOS: quitar solo uno dejaría la otra pata suelta y
+     * movería el monto esperado por un dinero que nunca cambió de manos.
      *
-     * El emparejamiento es por CANTIDAD, no por existencia: si hubo dos pagos iguales
-     * a la misma compra y solo se anuló uno, se oculta uno solo y el otro sigue
-     * contando.
+     * El emparejamiento es por CANTIDAD, no por existencia: si hubo dos movimientos
+     * iguales sobre la misma referencia y solo se anuló uno, se oculta uno solo y el
+     * otro sigue contando.
      *
      * @return array{0: Collection, 1: Collection} [otrosIngresos, gastos] ya filtrados
      */
-    private function descartarPagosAnulados(Collection $otrosIngresos, Collection $gastos): array
+    private function descartarMovimientosAnulados(Collection $otrosIngresos, Collection $gastos): array
     {
-        $clave = fn ($t) => ($t->referencia_id ?? '') . '|' . number_format((float) $t->monto, 2, '.', '');
+        $prefijo = 'anulacion_';
+        $esAnulacion = fn ($t) => str_starts_with((string) ($t->referencia_tipo ?? ''), $prefijo);
+        // La clave incluye el tipo ORIGINAL para no cruzar, por ejemplo, un gasto extra
+        // con un pago de compra que casualmente compartan referencia_id y monto.
+        $clave = fn (?string $tipo, $t) => $tipo . '|' . ($t->referencia_id ?? '') . '|' . number_format((float) $t->monto, 2, '.', '');
 
-        $anulaciones = $otrosIngresos->where('referencia_tipo', 'anulacion_pago_compra');
-
-        if ($anulaciones->isEmpty()) {
-            return [$otrosIngresos, $gastos];
-        }
-
-        // Cuántos pagos hay que ocultar por cada (compra + monto).
+        // Cuántos originales hay que ocultar por cada (tipo + referencia + monto).
         $pendientes = [];
-        foreach ($anulaciones as $a) {
-            $k = $clave($a);
+        foreach ($otrosIngresos->merge($gastos) as $t) {
+            if (!$esAnulacion($t)) {
+                continue;
+            }
+            $k = $clave(substr($t->referencia_tipo, strlen($prefijo)), $t);
             $pendientes[$k] = ($pendientes[$k] ?? 0) + 1;
         }
 
-        $gastosFiltrados = $gastos->reject(function ($g) use (&$pendientes, $clave) {
-            if (($g->referencia_tipo ?? null) !== 'pago_compra') {
+        if ($pendientes === []) {
+            return [$otrosIngresos, $gastos];
+        }
+
+        $filtrar = function (Collection $movimientos) use (&$pendientes, $clave, $esAnulacion) {
+            return $movimientos->reject(function ($m) use (&$pendientes, $clave, $esAnulacion) {
+                // Las reversiones salen todas: su original ya no está, así que dejarlas
+                // sumaría o restaría dinero que nadie movió.
+                if ($esAnulacion($m)) {
+                    return true;
+                }
+
+                $k = $clave($m->referencia_tipo ?? null, $m);
+                if (($pendientes[$k] ?? 0) > 0) {
+                    $pendientes[$k]--;
+                    return true;
+                }
+
                 return false;
-            }
+            });
+        };
 
-            $k = $clave($g);
-            if (($pendientes[$k] ?? 0) > 0) {
-                $pendientes[$k]--;
-                return true;
-            }
-
-            return false;
-        });
-
-        // Las reversiones salen todas: su gasto ya no está, así que dejarlas sumaría
-        // dinero que nadie recibió.
-        $ingresosFiltrados = $otrosIngresos->where('referencia_tipo', '!=', 'anulacion_pago_compra');
-
-        return [$ingresosFiltrados, $gastosFiltrados];
+        return [$filtrar($otrosIngresos), $filtrar($gastos)];
     }
 
     private function obtenerOtrosIngresosVendedor($subCajasIds, $apertura, string $userId, $fechaInicio, $fechaFin): Collection
@@ -652,6 +661,23 @@ class ClasificadorMovimientos
             ->where('tc.user_id', $userId)
             ->where('tc.tipo_transaccion', 'egreso')
             ->where('tc.referencia_tipo', '!=', 'monto_inicial')
+            // Mismo criterio que descartarMovimientosAnulados(): fuera las reversiones
+            // y fuera los originales que ya fueron anulados. Sin esto el banco restaba
+            // dos veces la misma plata — el egreso anulado y, además, la reversión de un
+            // ingreso anulado — y el saldo final del banco salía por debajo del real.
+            // OJO con el NULL: `not like` sobre NULL da NULL y descartaría los egresos
+            // sin referencia_tipo, que son gastos legítimos.
+            ->where(function ($q) {
+                $q->whereNull('tc.referencia_tipo')
+                    ->orWhere('tc.referencia_tipo', 'not like', 'anulacion\_%');
+            })
+            ->whereNotExists(function ($sub) {
+                $sub->select(DB::raw(1))
+                    ->from('transacciones_caja as anu')
+                    ->whereColumn('anu.referencia_id', 'tc.referencia_id')
+                    ->whereColumn('anu.monto', 'tc.monto')
+                    ->whereRaw("anu.referencia_tipo = CONCAT('anulacion_', tc.referencia_tipo)");
+            })
             ->where('tc.fecha', '>=', $fechaInicio)
             ->where('tc.fecha', '<=', $fechaFin)
             ->select([
