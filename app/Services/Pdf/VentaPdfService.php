@@ -432,17 +432,24 @@ class VentaPdfService
         // Base: logo + datos empresa + doc + cliente + separadores + bloque
         // de totales fijo (OP.GRAVADA/IGV/TOTAL) + total en letras +
         // observaciones + leyenda de consulta + despedida + márgenes.
-        $altura = 560
-            + (count($productos) * 22)
-            + ($lineasDescuento * 12)
-            + ($cabecerasPaquete * 14)
-            + (count($metodosPago) * 12)
-            + (count($valesDescuento) * 20)
+        //
+        // El nombre del producto ocupa TODO el ancho de la columna a 6pt en
+        // 74mm — con los nombres largos típicos de ferretería (ej. "TUBO PVC
+        // DSG 4" X 3M - EUROTUBO") casi siempre envuelve a 2-3 líneas, no 1.
+        // La primera estimación (22pt/producto) asumía ~1 línea y se quedó
+        // corta con facturas grandes — se sube fuerte + un margen de
+        // seguridad del 25% al final para no volver a cortar.
+        $altura = 700
+            + (count($productos) * 48)
+            + ($lineasDescuento * 16)
+            + ($cabecerasPaquete * 18)
+            + (count($metodosPago) * 14)
+            + (count($valesDescuento) * 26)
             // Cada vale generado imprime un bloque separado con QR + código
             // de barras + textos — mucho más alto que una línea normal.
-            + (count($vales) * 320);
+            + (count($vales) * 340);
 
-        return [0, 0, 226.77, max($altura, 600)];
+        return [0, 0, 226.77, max($altura * 1.25, 700)];
     }
 
     /**
