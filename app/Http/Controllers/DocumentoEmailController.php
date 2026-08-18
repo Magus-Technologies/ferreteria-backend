@@ -12,7 +12,9 @@ use App\Services\Pdf\PrestamoPdfService;
 use App\Services\Pdf\VentaPdfService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 class DocumentoEmailController extends Controller
 {
@@ -52,14 +54,30 @@ class DocumentoEmailController extends Controller
         $empresa = Empresa::first();
         $empresaNombre = $empresa->razon_social ?? 'Nuestra Empresa';
 
-        Mail::to($email)->send(new DocumentoPdfMail(
-            tipoDocumento: $tipo,
-            nombreDocumento: $id,
-            pdfContent: $pdfContent,
-            fileName: $fileName,
-            empresaNombre: $empresaNombre,
-            mensajePersonalizado: $mensaje,
-        ));
+        try {
+            Mail::to($email)->send(new DocumentoPdfMail(
+                tipoDocumento: $tipo,
+                nombreDocumento: $id,
+                pdfContent: $pdfContent,
+                fileName: $fileName,
+                empresaNombre: $empresaNombre,
+                mensajePersonalizado: $mensaje,
+            ));
+        } catch (TransportExceptionInterface $e) {
+            // No exponer detalles del transporte SMTP (host, puerto, stack
+            // trace) al usuario final — solo queda en el log del servidor
+            // para diagnóstico.
+            Log::error('Error al enviar documento por correo', [
+                'tipo' => $tipo,
+                'id' => $id,
+                'email' => $email,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'No se pudo enviar el correo. El servicio de correo no está disponible en este momento — intenta de nuevo más tarde o contacta a soporte.',
+            ], 502);
+        }
 
         return response()->json([
             'message' => 'Documento enviado exitosamente por correo',
