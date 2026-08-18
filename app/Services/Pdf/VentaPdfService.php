@@ -212,7 +212,7 @@ class VentaPdfService
             $data,
             $filename,
             'portrait',
-            [0, 0, 226.77, 841.89],
+            [], // auto-height: ver @page en vale-generado-ticket.blade.php
         );
     }
 
@@ -403,7 +403,7 @@ class VentaPdfService
             $data,
             $filename,
             'portrait',
-            [0, 0, 226.77, 841.89],
+            [], // auto-height: ver @page en venta-ticket.blade.php
         );
     }
 

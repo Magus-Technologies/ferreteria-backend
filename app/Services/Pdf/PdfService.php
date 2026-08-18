@@ -91,10 +91,18 @@ class PdfService
         array $data,
         string $filename,
         string $orientation = 'portrait',
+        // Array vacío ([]) = NO llamar a setPaper(): deja que dompdf use el
+        // `@page { size: ... }` declarado en el CSS de la vista (ej. tickets
+        // de 80mm con `size: 80mm auto` para que el alto se ajuste al
+        // contenido). setPaper() explícito SIEMPRE pisa el @page del CSS —
+        // pasar un array fijo acá anulaba el auto-height y cortaba tickets
+        // largos en varias páginas.
         ?array $paperSize = null,
     ): Response {
-        $pdf = Pdf::loadView($view, $data)
-            ->setPaper($paperSize ?? 'a4', $orientation);
+        $pdf = Pdf::loadView($view, $data);
+        if ($paperSize !== []) {
+            $pdf->setPaper($paperSize ?? 'a4', $orientation);
+        }
 
         return $pdf->stream($filename);
     }
@@ -106,10 +114,13 @@ class PdfService
         string $view,
         array $data,
         string $orientation = 'portrait',
+        // Ver nota en render() sobre el array vacío ([]).
         ?array $paperSize = null,
     ): string {
-        $pdf = Pdf::loadView($view, $data)
-            ->setPaper($paperSize ?? 'a4', $orientation);
+        $pdf = Pdf::loadView($view, $data);
+        if ($paperSize !== []) {
+            $pdf->setPaper($paperSize ?? 'a4', $orientation);
+        }
 
         return $pdf->output();
     }
