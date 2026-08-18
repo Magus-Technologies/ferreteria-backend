@@ -67,7 +67,7 @@ class VentaController extends Controller
 
         $query = Venta::query()
             ->with([
-                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,celular,email',
                 'cliente.direcciones',
                 'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
                 'productosPorAlmacen.productoAlmacen.producto.marca',
@@ -1196,7 +1196,7 @@ class VentaController extends Controller
     public function show(string $id)
     {
         $venta = Venta::with([
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,celular,email',
             'cliente.direcciones',
             'recomendadoPor:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social',
             'productosPorAlmacen.productoAlmacen.producto.marca',
@@ -3389,7 +3389,7 @@ class VentaController extends Controller
 
         $query = Venta::query()
             ->with([
-                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+                'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,celular,email',
                 'productosPorAlmacen.productoAlmacen.producto.marca',
                 'productosPorAlmacen.unidadesDerivadas.unidadDerivadaInmutable',
                 'user:id,name',

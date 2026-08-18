@@ -22,7 +22,7 @@ class CotizacionController extends Controller
  public function index(Request $request): JsonResponse
 {
     $query = Cotizacion::with([
-      'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+      'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,celular,email',
       'cliente.direcciones',
         'user:id,name',
         'almacen:id,name',

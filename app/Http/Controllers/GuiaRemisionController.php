@@ -152,7 +152,7 @@ class GuiaRemisionController extends Controller
             'venta:id,serie,numero,cliente_id,almacen_id',
             'venta.cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono',
             'venta.cliente.direcciones',
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,celular,email',
             'cliente.direcciones',
             'motivoTraslado:id,codigo,descripcion',
             'chofer:id,dni,name,licencia',
@@ -258,7 +258,7 @@ class GuiaRemisionController extends Controller
     {
         $guia = GuiaRemision::with([
             'venta:id,serie,numero',
-            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,email',
+            'cliente:id,tipo_cliente,numero_documento,nombres,apellidos,razon_social,telefono,celular,email',
             'cliente.direcciones',
             'motivoTraslado:id,codigo,descripcion',
             'chofer:id,dni,name,licencia',
