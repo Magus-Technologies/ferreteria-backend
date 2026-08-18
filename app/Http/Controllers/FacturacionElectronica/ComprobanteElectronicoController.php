@@ -5,6 +5,7 @@ namespace App\Http\Controllers\FacturacionElectronica;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\FacturacionElectronica\ComprobanteElectronicoResource;
 use App\Models\ComprobanteElectronico;
+use App\Models\Venta;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -280,9 +281,68 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
                 ->orderBy('fecha_emision', 'asc')
                 ->get();
 
+            // Ventas facturables (01/03) que NUNCA llegaron a tener fila en
+            // comprobantes_electronicos — la generación falló al guardar
+            // (ej. microservicio SUNAT caído) y quedó silenciada en el log,
+            // sin ninguna alerta visible. Antes esta lista solo mostraba
+            // comprobantes YA generados y pendientes de ENVIAR; estos casos
+            // ni siquiera llegaron a esa etapa. Mismo criterio de ventana
+            // que arriba (evita alertar ventas de hace segundos que capaz
+            // están recién guardándose) más un margen post-vencimiento para
+            // que no desaparezcan solas sin que nadie se entere.
+            $sinGenerar = Venta::whereIn('tipo_documento', ['01', '03'])
+                ->whereNotIn('estado_de_venta', ['an', 'ee'])
+                ->whereDoesntHave('comprobanteElectronico')
+                ->where('fecha', '<=', $now->copy()->subMinutes(10))
+                ->where('fecha', '>=', $now->copy()->subDays(15))
+                ->with(['cliente', 'productosPorAlmacen.unidadesDerivadas'])
+                ->orderBy('fecha', 'asc')
+                ->get()
+                ->map(function (Venta $venta) {
+                    $total = $venta->productosPorAlmacen->sum(
+                        fn ($ppa) => $ppa->unidadesDerivadas->sum(
+                            fn ($ud) => (float) $ud->precio * (float) $ud->cantidad + (float) ($ud->recargo ?? 0)
+                        )
+                    );
+                    $tipoDoc = $venta->tipo_documento instanceof \BackedEnum
+                        ? $venta->tipo_documento->value
+                        : $venta->tipo_documento;
+
+                    return [
+                        'id' => "venta-{$venta->id}",
+                        'venta_id' => $venta->id,
+                        'tipo_comprobante' => $tipoDoc,
+                        'tipo_comprobante_nombre' => $tipoDoc === '01' ? 'Factura' : 'Boleta',
+                        'serie' => $venta->serie,
+                        'numero' => $venta->numero,
+                        'correlativo' => $venta->numero,
+                        'serie_numero' => "{$venta->serie}-{$venta->numero}",
+                        'fecha_emision' => $venta->fecha->format('Y-m-d'),
+                        'cliente_razon_social' => $venta->cliente?->razon_social
+                            ?? trim(($venta->cliente?->nombres ?? '') . ' ' . ($venta->cliente?->apellidos ?? ''))
+                            ?: 'Cliente',
+                        'total' => round($total, 2),
+                        'importe_total' => round($total, 2),
+                        // Conceptualmente estos casos también están
+                        // "pendientes" (de generarse, no de enviarse) — se
+                        // usa el mismo valor para que el front no necesite
+                        // un estado nuevo, y se distinguen por `sin_generar`.
+                        'estado_sunat' => 'PENDIENTE',
+                        // El front distingue este caso ("nunca se generó") del
+                        // normal ("generado, falta enviar") para mostrar un
+                        // mensaje y una acción distintos.
+                        'sin_generar' => true,
+                    ];
+                });
+
+            $data = array_merge(
+                ComprobanteElectronicoResource::collection($pendientes)->resolve(),
+                $sinGenerar->all()
+            );
+
             return response()->json([
                 'success' => true,
-                'data' => ComprobanteElectronicoResource::collection($pendientes),
+                'data' => $data,
             ]);
         } catch (\Exception $e) {
             return response()->json([

@@ -67,7 +67,7 @@ class FirebaseNotificationService
 
                 if ($response->successful()) {
                     $data = $response->json();
-                    Log::channel('firebase')->info('Firebase: Access token obtenido exitosamente');
+                    // Log::channel('firebase')->info('Firebase: Access token obtenido exitosamente');
                     return $data['access_token'] ?? null;
                 }
 
@@ -115,10 +115,10 @@ class FirebaseNotificationService
                 ->post($this->fcmUrl, $payload);
 
             if ($response->successful()) {
-                Log::channel('firebase')->info('Firebase: Notificación enviada exitosamente', [
-                    'token' => substr($fcmToken, 0, 20) . '...',
-                    'title' => $title,
-                ]);
+                // Log::channel('firebase')->info('Firebase: Notificación enviada exitosamente', [
+                //     'token' => substr($fcmToken, 0, 20) . '...',
+                //     'title' => $title,
+                // ]);
                 return true;
             }
 
@@ -134,7 +134,7 @@ class FirebaseNotificationService
                         ->post($this->fcmUrl, $payload);
 
                     if ($retry->successful()) {
-                        Log::channel('firebase')->info('Firebase: Notificación enviada tras refrescar token');
+                        // Log::channel('firebase')->info('Firebase: Notificación enviada tras refrescar token');
                         return true;
                     }
                     $response = $retry;
@@ -254,11 +254,11 @@ class FirebaseNotificationService
         }
 
         $exitosos = count(array_filter($results));
-        Log::channel('firebase')->info('Firebase: envío múltiple completado', [
-            'total' => count($tokens),
-            'exitosos' => $exitosos,
-            'fallidos' => count($tokens) - $exitosos,
-        ]);
+        // Log::channel('firebase')->info('Firebase: envío múltiple completado', [
+        //     'total' => count($tokens),
+        //     'exitosos' => $exitosos,
+        //     'fallidos' => count($tokens) - $exitosos,
+        // ]);
 
         return $results;
     }
@@ -335,10 +335,10 @@ class FirebaseNotificationService
         array $data = [],
         array $excludeTokens = []
     ): int {
-        Log::channel('firebase')->info('sendToUsersWithModuleAccess iniciado', [
-            'modulePermission' => $modulePermission,
-            'title' => $title,
-        ]);
+        // Log::channel('firebase')->info('sendToUsersWithModuleAccess iniciado', [
+        //     'modulePermission' => $modulePermission,
+        //     'title' => $title,
+        // ]);
 
         $users = User::with(['restrictions', 'roles.restrictions'])
             ->whereNotNull('fcm_token')
@@ -353,12 +353,12 @@ class FirebaseNotificationService
 
         $tokens = array_diff($conAcceso->pluck('fcm_token')->toArray(), $excludeTokens);
 
-        Log::channel('firebase')->info('sendToUsersWithModuleAccess: resultado consulta', [
-            'total_usuarios_con_token' => $totalConToken,
-            'sin_acceso_modulo' => $sinAcceso,
-            'excluidos_ya_notificados' => count($excludeTokens),
-            'destinatarios_finales' => count($tokens),
-        ]);
+        // Log::channel('firebase')->info('sendToUsersWithModuleAccess: resultado consulta', [
+        //     'total_usuarios_con_token' => $totalConToken,
+        //     'sin_acceso_modulo' => $sinAcceso,
+        //     'excluidos_ya_notificados' => count($excludeTokens),
+        //     'destinatarios_finales' => count($tokens),
+        // ]);
 
         if (empty($tokens)) {
             Log::channel('firebase')->warning('sendToUsersWithModuleAccess: 0 destinatarios, no se envió nada');
@@ -367,10 +367,10 @@ class FirebaseNotificationService
 
         $results = $this->sendToMultiple(array_values($tokens), $title, $body, $data);
         $exitosos = count(array_filter($results));
-        Log::channel('firebase')->info('sendToUsersWithModuleAccess: completado', [
-            'enviados' => $exitosos,
-            'total_destinatarios' => count($tokens),
-        ]);
+        // Log::channel('firebase')->info('sendToUsersWithModuleAccess: completado', [
+        //     'enviados' => $exitosos,
+        //     'total_destinatarios' => count($tokens),
+        // ]);
         return $exitosos;
     }
 
