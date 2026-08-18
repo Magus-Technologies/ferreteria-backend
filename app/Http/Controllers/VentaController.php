@@ -2017,11 +2017,20 @@ class VentaController extends Controller
             $this->procesoPostVenta($validated);
 
             // Comprobante electrónico (Boleta 03 / Factura 01) automático en update.
-            // Solo si el estado nuevo NO es En Espera. Si ya existe → regenerar.
-            // Si no existe y la venta sale de En Espera → generar nuevo.
+            // Solo si el estado nuevo NO es En Espera. Se genera si: ya existía
+            // uno (regenerar), la venta sale de En Espera, o el tipo_documento
+            // cambió de uno no facturable (ej. Nota de Venta) a uno facturable
+            // (01/03) — este último caso faltaba: una Nota de Venta editada a
+            // Boleta/Factura nunca disparaba la generación porque nunca tuvo
+            // comprobante previo NI vino de 'ee', así que quedaba sin XML para
+            // siempre (la serie/número SÍ se reasignaba bien más arriba, solo
+            // faltaba esto).
             $tipoDocumento = $venta->tipo_documento instanceof \BackedEnum
                 ? $venta->tipo_documento->value
                 : $venta->tipo_documento;
+            $cambioANoFacturableAFacturable = isset($tipoDocAnterior)
+                && $tipoDocAnterior !== $tipoDocumento
+                && !in_array($tipoDocAnterior, ['01', '03'], true);
 
             if (in_array($tipoDocumento, ['01', '03']) && $estadoNuevo !== 'ee') {
                 try {
@@ -2029,10 +2038,17 @@ class VentaController extends Controller
 
                     if ($comprobanteExistente) {
                         \App\Models\DetalleComprobanteElectronico::where('comprobante_electronico_id', $comprobanteExistente->id)->delete();
-                        $comprobanteExistente->delete();
+                        // forceDelete, no delete(): ComprobanteElectronico usa SoftDeletes,
+                        // así que delete() solo marca `deleted_at` y la fila sigue physically
+                        // ahí. El índice único (serie, correlativo) no sabe nada de soft
+                        // deletes, así que el insert de más abajo (generarComprobanteDesdeVenta,
+                        // para la MISMA serie-correlativo) siempre chocaba con
+                        // "Duplicate entry ... comprobantes_electronicos_serie_correlativo_unique"
+                        // — la regeneración nunca llegaba a aplicarse.
+                        $comprobanteExistente->forceDelete();
                     }
 
-                    if ($comprobanteExistente || $estadoAnterior === 'ee') {
+                    if ($comprobanteExistente || $estadoAnterior === 'ee' || $cambioANoFacturableAFacturable) {
                         $dto = new FacturaDTO(
                             ventaId: $venta->id,
                             usuarioId: $venta->user_id
