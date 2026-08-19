@@ -1504,6 +1504,17 @@ class VentaController extends Controller
 
             // Si cambió el tipo_documento, re-asignar correlativo para que
             // la serie corresponda al nuevo tipo (B001→Boleta, F001→Factura).
+            //
+            // Antes esto se saltaba si la venta estaba "en espera" (asumiendo
+            // que un borrador no tiene serie/número reservado todavía), pero
+            // en la práctica el frontend SÍ manda un correlativo ya reservado
+            // desde que se crea la venta en espera (store() solo evita
+            // generar uno nuevo si el body llega vacío, no bloquea el que ya
+            // viene armado). Con esa exclusión, cambiar boleta→factura en una
+            // venta en espera dejaba la serie vieja (B001) pegada al nuevo
+            // tipo_documento (01) — inconsistencia que además NO se corregía
+            // después, porque el bloque que reserva correlativo al salir de
+            // "en espera" (más abajo) solo actúa si serie/número están vacíos.
             $tipoDocAnterior = $datosAnteriores['tipo_documento'];
             $tipoDocNuevoVal = $venta->tipo_documento instanceof \BackedEnum
                 ? $venta->tipo_documento->value
@@ -1511,7 +1522,6 @@ class VentaController extends Controller
 
             if ($tipoDocAnterior !== $tipoDocNuevoVal
                 && in_array($tipoDocNuevoVal, ['01', '03', 'nv'], true)
-                && ($estadoAnterior ?? 'cr') !== 'ee'
             ) {
                 try {
                     $nuevoCorrelativo = $this->serieDocumentoService->reservarCorrelativoSimple(
