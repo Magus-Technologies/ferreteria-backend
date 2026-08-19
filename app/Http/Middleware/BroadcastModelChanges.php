@@ -17,6 +17,16 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class BroadcastModelChanges
 {
+    private bool $shouldBroadcast = false;
+
+    private string $module = '';
+
+    private string $action = 'updated';
+
+    private ?string $recordId = null;
+
+    private ?string $userId = null;
+
     public function handle(Request $request, Closure $next, string $module): Response
     {
         $response = $next($request);
@@ -31,14 +41,6 @@ class BroadcastModelChanges
         if ($statusCode < 200 || $statusCode >= 300) {
             return $response;
         }
-
-        // Determinar la acción según el método HTTP
-        $action = match ($request->method()) {
-            'POST' => 'created',
-            'PUT', 'PATCH' => 'updated',
-            'DELETE' => 'deleted',
-            default => 'updated',
-        };
 
         // Intentar extraer el ID del registro del response body
         $recordId = null;
@@ -55,25 +57,49 @@ class BroadcastModelChanges
             // No importa si no podemos extraer el ID
         }
 
+        // Guardamos los datos para emitir el evento en terminate() en vez de
+        // acá. ModelChanged es ShouldBroadcastNow (síncrono, sin necesitar un
+        // queue worker), así que antes esto abría la conexión a Reverb DENTRO
+        // del ciclo request-response — el usuario esperaba ese round-trip
+        // para cualquier escritura (crear, editar, anular, etc.). Al moverlo
+        // a terminate(), Laravel ya mandó la respuesta al navegador
+        // (fastcgi_finish_request bajo PHP-FPM) antes de emitir el evento, así
+        // que el broadcast deja de sumar latencia percibida.
+        $this->shouldBroadcast = true;
+        $this->module = $module;
+        $this->action = match ($request->method()) {
+            'POST' => 'created',
+            'PUT', 'PATCH' => 'updated',
+            'DELETE' => 'deleted',
+            default => 'updated',
+        };
+        $this->recordId = $recordId;
         $userId = auth()->id();
+        $this->userId = $userId ? (string) $userId : null;
 
-        // El broadcast es "best effort": si el servidor de WebSockets (Reverb) está
-        // caído, NO debe romper la operación (crear venta/vale/etc.). ModelChanged es
-        // ShouldBroadcastNow, así que se emite síncrono y podría lanzar cURL/Pusher;
-        // lo capturamos y solo lo logueamos.
+        return $response;
+    }
+
+    public function terminate(Request $request, Response $response): void
+    {
+        if (!$this->shouldBroadcast) {
+            return;
+        }
+
+        // El broadcast es "best effort": si el servidor de WebSockets (Reverb)
+        // está caído, no debe romper nada — la respuesta ya se envió. Solo
+        // logueamos.
         try {
             event(new ModelChanged(
-                module: $module,
-                action: $action,
-                recordId: $recordId,
-                userId: $userId ? (string) $userId : null,
+                module: $this->module,
+                action: $this->action,
+                recordId: $this->recordId,
+                userId: $this->userId,
             ));
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning(
-                "Broadcast ModelChanged falló (módulo {$module}); ¿Reverb caído? " . $e->getMessage()
+                "Broadcast ModelChanged falló (módulo {$this->module}); ¿Reverb caído? " . $e->getMessage()
             );
         }
-
-        return $response;
     }
 }

@@ -129,12 +129,16 @@ class EntregaService
             // después NO vuelve a descontar, y anular lo revierte.
             $this->stock->aplicar($entrega->fresh());
 
-            // Notificar tras el commit (no dentro de la transacción) y solo
-            // entregas accionables. Sin guard chofer/cargo: el broadcast al
-            // módulo aplica también a entregas de almacén sin chofer.
+            // Notificar tras el commit y, además, diferido a terminate() vía
+            // app()->terminating(): así el push FCM (que puede encadenar una
+            // llamada OAuth a Google + varias llamadas HTTP a FCM) corre DESPUÉS
+            // de que la respuesta ya se envió al navegador — no suma latencia
+            // percibida al programar la entrega.
             if (in_array($estadoInicial->value, ['pe', 'ec'], true)) {
                 DB::afterCommit(function () use ($entrega) {
-                    $this->notificacion->notificarAsignacion($entrega->load('venta'));
+                    app()->terminating(function () use ($entrega) {
+                        $this->notificacion->notificarAsignacion($entrega->load('venta'));
+                    });
                 });
             }
 
@@ -157,8 +161,11 @@ class EntregaService
             return $entrega->fresh($this->eagerLoadDefault());
         });
 
-        // Notificar a usuarios con acceso al módulo/calendario
-        $this->notificacion->notificarCompletada($result);
+        // Notificar a usuarios con acceso al módulo/calendario — diferido a
+        // después de enviar la respuesta (ver comentario en crear()).
+        app()->terminating(function () use ($result) {
+            $this->notificacion->notificarCompletada($result);
+        });
 
         return $result;
     }
@@ -176,7 +183,9 @@ class EntregaService
             return $entrega->fresh($this->eagerLoadDefault());
         });
 
-        $this->notificacion->notificarEnCamino($result);
+        app()->terminating(function () use ($result) {
+            $this->notificacion->notificarEnCamino($result);
+        });
 
         return $result;
     }
@@ -218,7 +227,10 @@ class EntregaService
             'vehiculo_id' => $nuevoVehiculoId,
         ]);
 
-        $this->notificacion->notificarReasignacion($entrega->fresh('venta'), $anteriorChoferId);
+        $entregaConVenta = $entrega->fresh('venta');
+        app()->terminating(function () use ($entregaConVenta, $anteriorChoferId) {
+            $this->notificacion->notificarReasignacion($entregaConVenta, $anteriorChoferId);
+        });
 
         return $entrega->fresh($this->eagerLoadDefault());
     }
@@ -337,14 +349,16 @@ class EntregaService
         // confirmó (si corre fuera de transacción, ejecuta inmediato).
         if (in_array($data['estado_entrega'], ['pe', 'ec'], true)) {
             DB::afterCommit(function () use ($entrega) {
-                try {
-                    $this->notificacion->notificarAsignacion($entrega->load('venta'));
-                } catch (\Throwable $e) {
-                    Log::error('[Firebase] Error al enviar notificación de nueva entrega', [
-                        'entrega_id' => $entrega->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+                app()->terminating(function () use ($entrega) {
+                    try {
+                        $this->notificacion->notificarAsignacion($entrega->load('venta'));
+                    } catch (\Throwable $e) {
+                        Log::error('[Firebase] Error al enviar notificación de nueva entrega', [
+                            'entrega_id' => $entrega->id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                });
             });
         }
 
