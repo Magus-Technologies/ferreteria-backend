@@ -1706,10 +1706,15 @@ class CompraController extends Controller
      */
     private function registrarTransaccionCajaParaPagoCompra(PagoDeCompra $pago, Compra $compra): void
     {
+        // Los dos `return` mudos que había acá dejaban el pago guardado en
+        // `pagodecompra` sin tocar la caja: el saldo no bajaba, el egreso no
+        // aparecía en el cierre y la respuesta era igual de éxito. Mismo problema
+        // que tenían los cobros de venta. Si el dinero no puede salir de ninguna
+        // caja, el pago no debe existir: abort(422) revierte toda la transacción.
         $despliegue = DespliegueDePago::with('metodoDePago')->find($pago->despliegue_de_pago_id);
         if (!$despliegue) {
             \Log::warning('PagoCompra sin despliegue de pago válido', ['pago_id' => $pago->id]);
-            return;
+            abort(422, 'El método de pago seleccionado ya no existe o está inactivo. Elija otro método para registrar el pago.');
         }
 
         // Buscar sub-caja que acepta este método de pago
@@ -1724,7 +1729,9 @@ class CompraController extends Controller
             \Log::warning('No se encontró sub-caja para el pago de compra', [
                 'despliegue_pago_id' => $pago->despliegue_de_pago_id,
             ]);
-            return;
+            $metodo = $despliegue->name ?? $despliegue->metodoDePago->name ?? 'el método elegido';
+            abort(422, "El método de pago \"{$metodo}\" no está asignado a ninguna caja activa, así que el dinero no puede salir de ningún lado. "
+                . 'Asigne ese método a una caja o elija otro método para pagar.');
         }
 
         $monto = (float) $pago->monto;

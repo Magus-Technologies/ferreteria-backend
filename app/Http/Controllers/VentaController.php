@@ -2796,17 +2796,32 @@ class VentaController extends Controller
                     $tipoComprobante
                 );
                 if (! $subCaja) {
+                    // El respaldo a Caja Chica solo vale si esa caja realmente
+                    // maneja el método elegido. Sin esta condición, cobrar una
+                    // boleta con "efectivo black" caía acá y el dinero entraba a
+                    // Caja Chica con `despliegue_pago_id` de la caja black: el
+                    // saldo por método quedaba cruzado entre dos cajas y el
+                    // "efectivo disponible" de cada una salía mal.
                     $subCaja = SubCaja::where('caja_principal_id', $apertura->caja_principal_id)
                         ->where('tipo_caja', 'CC')
                         ->whereJsonContains('tipos_comprobante', $tipoComprobante)
-                        ->first();
+                        ->get()
+                        ->first(fn ($s) => $s->aceptaMetodoPago($desplieguePagoId));
                 }
             }
             if (! $subCaja) {
                 $subCaja = $this->buscarSubCajaGlobalParaMetodoPago($desplieguePagoId, $tipoComprobante);
             }
+            // El método elegido tiene que caer en una sub-caja que acepte el
+            // comprobante de la venta. Antes acá había un `return` mudo: el cobro
+            // quedaba guardado en `cobroventa`, no entraba a ninguna caja, y el
+            // endpoint igual respondía 201 "Cobro registrado correctamente". Así se
+            // perdieron cobros de notas de venta pagadas con "efectivo" (cuya Caja
+            // Chica solo acepta 01/03) — plata cobrada que no figuraba ni en el
+            // saldo ni en el cierre. Cortar acá con 422 revierte la transacción
+            // completa, incluido el cobro, y el usuario se entera en el momento.
             if (! $subCaja || ! $subCaja->aceptaComprobante($tipoComprobante)) {
-                return;
+                abort(422, $this->mensajeComprobanteNoAceptado($despliegue, $subCaja, $tipoComprobante));
             }
 
             // 3. Subir el saldo de la sub-caja.
@@ -2855,12 +2870,54 @@ class VentaController extends Controller
                     'referencia_tipo' => 'cobro',
                 ]);
             }
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            // Los abort() de más arriba son validaciones deliberadas dirigidas al
+            // usuario, no fallas inesperadas: tienen que subir para que la
+            // transacción se revierta y el frontend muestre el mensaje. Si se
+            // quedaran en el catch genérico volveríamos al bug original — cobro
+            // guardado, caja intacta y respuesta de éxito.
+            throw $e;
         } catch (\Throwable $e) {
             \Log::warning('No se pudo registrar el cobro en caja', [
                 'cobro_id' => $cobro->id ?? null,
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Mensaje del 422 cuando el método de pago elegido no puede recibir el dinero
+     * de ese comprobante. Dice el porqué y qué hacer, porque el usuario no tiene
+     * cómo saber qué comprobantes acepta cada sub-caja.
+     */
+    private function mensajeComprobanteNoAceptado($despliegue, ?SubCaja $subCaja, string $tipoComprobante): string
+    {
+        $comprobante = \App\Enums\TipoDocumento::etiquetaDe($tipoComprobante);
+        $metodo = $despliegue->name ?? $despliegue->metodoDePago->name ?? 'el método elegido';
+
+        // Métodos que SÍ sirven para este comprobante, para no dejarlo adivinando.
+        $alternativas = SubCaja::where('estado', true)
+            ->get()
+            ->filter(fn ($s) => $s->aceptaComprobante($tipoComprobante))
+            ->flatMap(fn ($s) => collect($s->getDesplieguePagos())->pluck('name'))
+            ->filter()
+            ->unique()
+            ->values();
+
+        $mensaje = "El método de pago \"{$metodo}\" no puede recibir dinero de una {$comprobante}";
+
+        if ($subCaja) {
+            $acepta = collect($subCaja->tipos_comprobante ?? [])
+                ->map(fn ($c) => \App\Enums\TipoDocumento::etiquetaDe($c))
+                ->implode(', ');
+            $mensaje .= ": su caja (\"{$subCaja->nombre}\") solo acepta " . ($acepta !== '' ? $acepta : 'otros comprobantes');
+        } else {
+            $mensaje .= ': no hay ninguna caja configurada que lo acepte para ese comprobante';
+        }
+
+        return $alternativas->isNotEmpty()
+            ? $mensaje . '. Elija uno de estos: ' . $alternativas->implode(', ') . '.'
+            : $mensaje . '. Configure una caja que acepte ese comprobante antes de cobrar.';
     }
 
     /**
