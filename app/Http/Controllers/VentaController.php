@@ -2886,6 +2886,46 @@ class VentaController extends Controller
     }
 
     /**
+     * Deja registrado el SOBRECARGO de un cobro donde el resto del sistema ya lo
+     * busca: `desplieguedepagoventa.sobrecargo_aplicado`, que es lo que suman la
+     * columna "Sobrecargo" de Mis Ventas y el PDF de la venta.
+     *
+     * `cobroventa` no tiene columna para el recargo, así que hasta ahora el modal
+     * lo calculaba, lo mostraba en "Total a Cobrar" y al guardar se perdía: una
+     * venta a crédito cobrada con un método con recargo salía en guion, mientras
+     * que la misma venta al contado lo mostraba bien.
+     *
+     * La fila va con `monto = 0` A PROPÓSITO. El cobro ya se contabiliza por
+     * `cobroventa`; si acá se repitiera el monto, la venta quedaría pagada el
+     * doble en todo lo que suma `desplieguedepagoventa.monto` — el total pagado
+     * del listado, la deuda del cliente, el dashboard contable, el cierre de caja
+     * y el resumen de bancos. Con monto 0 esas sumas no cambian y solo se suma el
+     * recargo, que es lo único que faltaba.
+     *
+     * No se crea nada si el método no tiene recargo: sin esto quedarían filas
+     * vacías por cada cobro, ensuciando el detalle de pagos del cierre.
+     */
+    private function registrarSobrecargoDeCobro($venta, $cobro, DespliegueDePago $despliegue, float $monto, string $userId): void
+    {
+        $sobrecargo = \App\Models\NumeroOperacionPago::calcularSobrecargo($despliegue, $monto);
+
+        if ($sobrecargo <= 0) {
+            return;
+        }
+
+        DespliegueDePagoVenta::create([
+            'venta_id' => $venta->id,
+            'despliegue_de_pago_id' => $despliegue->id,
+            'monto' => 0,
+            'tipo' => 'cobro',
+            'sobrecargo_aplicado' => $sobrecargo,
+            'referencia' => $cobro->id,
+            'fecha' => $cobro->fecha ?? now(),
+            'user_id' => $userId,
+        ]);
+    }
+
+    /**
      * Mensaje del 422 cuando el método de pago elegido no puede recibir el dinero
      * de ese comprobante. Dice el porqué y qué hacer, porque el usuario no tiene
      * cómo saber qué comprobantes acepta cada sub-caja.
@@ -3759,6 +3799,15 @@ class VentaController extends Controller
                 $validated['user_id']
             );
 
+            // Sobrecargo del método, calculado sobre lo que se está cobrando ahora.
+            $this->registrarSobrecargoDeCobro(
+                $venta,
+                $cobro,
+                DespliegueDePago::findOrFail($validated['despliegue_de_pago_id']),
+                (float) $validated['monto'],
+                $validated['user_id']
+            );
+
             // El estado de la venta permanece en Creado; el saldo se calcula
             // dinámicamente a partir del total cobrado vs. el total de la venta.
 
@@ -3848,6 +3897,16 @@ class VentaController extends Controller
                     $validated['user_id']
                 );
 
+                // Y el sobrecargo, también igual que en el cobro individual: se
+                // calcula por venta, sobre lo que le tocó a cada una en el reparto.
+                $this->registrarSobrecargoDeCobro(
+                    $venta,
+                    $cobro,
+                    DespliegueDePago::findOrFail($desplieguePagoId),
+                    (float) $item['monto'],
+                    $validated['user_id']
+                );
+
                 // El estado de la venta permanece en Creado; el saldo se calcula
                 // dinámicamente a partir del total cobrado vs. el total de la venta.
 
@@ -3908,6 +3967,13 @@ class VentaController extends Controller
 
             // Revertir el ingreso en caja (baja el saldo y borra los rastros del cobro).
             $this->revertirCobroEnCaja($cobro);
+
+            // Y borrar el sobrecargo que había dejado ese cobro, si no la venta
+            // seguiría mostrando en Mis Ventas el recargo de un cobro anulado.
+            DespliegueDePagoVenta::where('venta_id', $venta->id)
+                ->where('tipo', 'cobro')
+                ->where('referencia', $cobro->id)
+                ->delete();
 
             // Recalcular el total cobrado (solo cobros activos)
             $totalVenta = $this->getTotalVenta($venta);
