@@ -410,46 +410,48 @@ class VentaPdfService
     }
 
     /**
-     * Alto del PDF del ticket (80mm), calculado según el contenido en vez de
-     * un valor fijo. dompdf ignora el `@page { size: 80mm auto }` del blade
-     * en cuanto se llama a setPaper() con un array explícito — pero setPaper
-     * SIN array (dejando que dompdf lea el @page del CSS) resultó en A4
-     * completo en este entorno, así que el alto dinámico se calcula acá en
-     * vez de confiar en el auto-height del CSS.
+     * Alto del PDF del ticket (80mm). dompdf ignora el `@page { size: 80mm
+     * auto }` del blade en cuanto se llama a setPaper() con un array
+     * explícito — pero setPaper() SIN array (dejando que dompdf lea el
+     * @page del CSS) resultó en A4 completo en este entorno, así que el
+     * alto se calcula acá.
      *
-     * Estimación generosa a propósito: quedarse corto vuelve a cortar el
-     * ticket en 2 páginas (el bug original); quedarse largo solo deja
-     * espacio en blanco al final, inofensivo para una impresora térmica.
+     * IMPORTANTE: el alto de referencia (841.89, el fijo que ya andaba bien
+     * para tickets normales) es el PISO, no un promedio. Un ticket dentro de
+     * $productosBase sale con EXACTAMENTE ese alto — cero cambio de
+     * comportamiento — porque un ticket más alto de lo necesario no es
+     * "inofensivo": si la impresora tiene el largo de papel configurado
+     * fijo (no automático), QZ Tray escala el PDF para que entre, y al
+     * escalar alto también achica el ancho — eso generaba un margen en
+     * blanco a la derecha en tickets chicos. Solo se agrega alto extra
+     * cuando el contenido realmente supera lo que entra en el piso.
      */
     private function calcularAlturaTicket(array $productos, array $metodosPago, array $vales, array $valesDescuento): array
     {
+        $alturaPiso = 841.89;
+
         $lineasDescuento = count(array_filter(
             $productos,
             fn ($p) => ($p['descuento'] ?? 0) > 0 && empty($p['es_gratis'])
         ));
         $cabecerasPaquete = count(array_unique(array_filter(array_column($productos, 'paquete_id'))));
 
-        // Base: logo + datos empresa + doc + cliente + separadores + bloque
-        // de totales fijo (OP.GRAVADA/IGV/TOTAL) + total en letras +
-        // observaciones + leyenda de consulta + despedida + márgenes.
-        //
-        // El nombre del producto ocupa TODO el ancho de la columna a 6pt en
-        // 74mm — con los nombres largos típicos de ferretería (ej. "TUBO PVC
-        // DSG 4" X 3M - EUROTUBO") casi siempre envuelve a 2-3 líneas, no 1.
-        // La primera estimación (22pt/producto) asumía ~1 línea y se quedó
-        // corta con facturas grandes — se sube fuerte + un margen de
-        // seguridad del 25% al final para no volver a cortar.
-        $altura = 700
-            + (count($productos) * 48)
+        // Cantidad de productos que entran cómodos en el piso (nombres
+        // largos de ferretería envuelven 2-3 líneas a 6pt en 74mm).
+        $productosBase = 8;
+        $extraProductos = max(0, count($productos) - $productosBase);
+        $extraMetodosPago = max(0, count($metodosPago) - 1);
+
+        $extra = ($extraProductos * 48)
             + ($lineasDescuento * 16)
             + ($cabecerasPaquete * 18)
-            + (count($metodosPago) * 14)
+            + ($extraMetodosPago * 14)
             + (count($valesDescuento) * 26)
             // Cada vale generado imprime un bloque separado con QR + código
             // de barras + textos — mucho más alto que una línea normal.
             + (count($vales) * 340);
 
-        return [0, 0, 226.77, max($altura * 1.25, 700)];
+        return [0, 0, 226.77, $alturaPiso + $extra];
     }
 
     /**
