@@ -681,12 +681,17 @@ class SubCajaController extends Controller
         $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
         
         
-        // Filtrar solo los que son efectivo
-        // Efectivo = sin cuenta bancaria (NULL o "SIN-CUENTA") Y nombre contiene "efectivo"
+        // Filtrar solo los que son efectivo. Misma regla que MetodoDePago::esEfectivo():
+        // "sin cuenta" se guardó de varias formas según cómo se creó el método (NULL,
+        // vacío, 'SIN-CUENTA' o un guion escrito a mano). Faltaba el guion, que es
+        // justamente como está "efectivo" en producción, así que este filtro no
+        // devolvía ningún despliegue y la sub-caja aparecía sin efectivo.
         $desplieguePagoEfectivoIds = \App\Models\DespliegueDePago::whereIn('id', $desplieguePagoIds)
             ->whereHas('metodoDePago', function ($query) {
                 $query->where(function ($q) {
                     $q->whereNull('cuenta_bancaria')
+                      ->orWhere('cuenta_bancaria', '')
+                      ->orWhere('cuenta_bancaria', '-')
                       ->orWhere('cuenta_bancaria', 'SIN-CUENTA');
                 })
                 ->where(function ($q) {
