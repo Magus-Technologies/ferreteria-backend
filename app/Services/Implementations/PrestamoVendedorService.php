@@ -671,10 +671,15 @@ class PrestamoVendedorService implements PrestamoVendedorServiceInterface
     {
         $desplieguePagoIds = $subCaja->despliegues_pago_ids ?? [];
 
+        // Misma regla que MetodoDePago::esEfectivo(): "sin cuenta" puede ser NULL,
+        // vacío, 'SIN-CUENTA' o un guion. Faltaba el guion, que es como está guardado
+        // "efectivo" en producción.
         $desplieguePago = DespliegueDePago::whereIn('id', $desplieguePagoIds)
             ->whereHas('metodoDePago', function ($query) {
                 $query->where(function ($q) {
                     $q->whereNull('cuenta_bancaria')
+                      ->orWhere('cuenta_bancaria', '')
+                      ->orWhere('cuenta_bancaria', '-')
                       ->orWhere('cuenta_bancaria', 'SIN-CUENTA');
                 })
                 ->where(function ($q) {

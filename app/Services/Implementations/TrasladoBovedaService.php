@@ -251,11 +251,12 @@ class TrasladoBovedaService implements TrasladoBovedaServiceInterface
         if ($subCaja->esCajaChica()) {
             $despliegue = DespliegueDePago::find($desplieguePagoId);
             if ($despliegue && $despliegue->metodoDePago) {
-                $esEfectivo = (empty($despliegue->metodoDePago->cuenta_bancaria) ||
-                              $despliegue->metodoDePago->cuenta_bancaria === 'SIN-CUENTA') &&
-                             (stripos($despliegue->metodoDePago->name, 'efectivo') !== false);
-
-                if ($esEfectivo) {
+                // Regla única en MetodoDePago::esEfectivo(). La copia que había acá no
+                // aceptaba el guion '-' como "sin cuenta", y así está guardado
+                // "efectivo" en producción: el método no se reconocía como efectivo,
+                // el monto de apertura quedaba en 0 y el disponible salía por debajo
+                // del real (S/4,749.80 en vez de S/8,359.50 = justo la apertura menos).
+                if ($despliegue->metodoDePago->esEfectivo()) {
                     $montoInicial = (float) DistribucionEfectivoVendedor::where('apertura_cierre_caja_id', $aperturaActiva->id)
                         ->where('user_id', $userId)
                         ->sum('monto');
