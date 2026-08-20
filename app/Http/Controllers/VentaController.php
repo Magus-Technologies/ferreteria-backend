@@ -1418,6 +1418,40 @@ class VentaController extends Controller
                 ], 422);
             }
 
+            // CRÉDITO → CONTADO. Los abonos de una venta a crédito viven en
+            // `cobroventa`, no en `desplieguedepagoventa`, así que $yaTienePagoPrevio
+            // (que solo mira la segunda) daba 0 y la guarda de arriba no los veía:
+            // se aceptaba el total completo como pago al contado mientras los abonos
+            // seguían activos, y la caja terminaba con el dinero DUPLICADO — el de
+            // los cobros más el total de la venta.
+            //
+            // Los reversores de esta misma función no ayudan: revertirCajaDeVenta() y
+            // devolverDineroDeVenta() filtran `referencia_tipo = 'venta'`, y cada
+            // cobro escribe la suya con `referencia_tipo = 'cobro'`.
+            $cobrosActivos = $venta->cobrosVenta()->where('estado', true)->get();
+
+            if (isset($validated['despliegue_de_pago_ventas']) && $cobrosActivos->isNotEmpty()) {
+                $enSesionCerrada = $this->cobrosEnSesionCerrada($cobrosActivos);
+
+                if ($enSesionCerrada->isNotEmpty()) {
+                    $detalle = $enSesionCerrada
+                        ->map(fn ($c) => 'S/ ' . number_format((float) $c->monto, 2) . ' del ' . \Carbon\Carbon::parse($c->fecha)->format('d/m/Y'))
+                        ->implode(', ');
+
+                    return response()->json([
+                        'message' => 'Esta venta tiene abonos cobrados en cajas ya cerradas (' . $detalle . '). '
+                            . 'Convertirla a contado los anularía y descuadraría esos cierres. '
+                            . 'Anula esos cobros a mano desde Ventas por Cobrar y luego convierte la venta.',
+                        'error' => 'COBROS_EN_CAJA_CERRADA',
+                    ], 422);
+                }
+
+                // Todos los abonos son de la sesión abierta: se anulan acá, antes de
+                // registrar el pago al contado, para que la caja no vea nunca los dos
+                // montos a la vez.
+                $this->anularCobrosDeVenta($venta, 'Venta convertida a contado');
+            }
+
             // Validar nueva venta
             $this->validarNuevaVenta($validated, $yaTienePagoPrevio);
 
@@ -1997,7 +2031,15 @@ class VentaController extends Controller
                 // cierre de caja. El frontend ya no envía métodos al poner en espera,
                 // pero si quedaron de una edición previa se eliminan aquí.
                 $this->devolverDineroDeVenta($venta);
-                DespliegueDePagoVenta::where('venta_id', $id)->delete();
+
+                // Solo las filas de pago al contado. Las de `tipo = 'cobro'` no son
+                // pagos: son el recargo de un cobro que sigue vivo, y borrarlas acá
+                // haría desaparecer ese recargo de Mis Ventas y del PDF.
+                DespliegueDePagoVenta::where('venta_id', $id)
+                    ->where(function ($q) {
+                        $q->whereNull('tipo')->orWhere('tipo', '!=', 'cobro');
+                    })
+                    ->delete();
             }
 
             // If servicios_venta is provided, update them
@@ -2891,6 +2933,86 @@ class VentaController extends Controller
             \Log::warning('No se pudo registrar el cobro en caja', [
                 'cobro_id' => $cobro->id ?? null,
                 'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * De un lote de cobros, cuáles se registraron en una sesión de caja YA CERRADA.
+     *
+     * Anular un cobro le baja el saldo a la sub-caja y borra su transacción. Si ese
+     * abono se cobró en una apertura que ya se cerró y se arqueó, anularlo ahora
+     * reescribe hacia atrás un cierre firmado: le saca plata a un día que ya cuadró
+     * y la vuelve a registrar en la sesión de hoy, como si el cliente la hubiera
+     * traído hoy. Por eso la conversión a contado solo se permite cuando todos los
+     * abonos son de la sesión abierta.
+     *
+     * El vínculo fiable es `movimiento_caja.apertura_cierre_id`, que
+     * registrarCobroEnCaja() graba junto al cobro. Si no hay movimiento se cae a
+     * comparar la fecha de la transacción contra la apertura abierta del usuario.
+     * Un cobro que no movió caja (no tiene transacción) no descuadra nada al
+     * anularse, así que no cuenta como cerrado.
+     */
+    private function cobrosEnSesionCerrada($cobros)
+    {
+        return collect($cobros)->filter(function ($cobro) {
+            $movimiento = MovimientoCaja::where('referencia_tipo', 'cobro')
+                ->where('referencia_id', $cobro->id)
+                ->first();
+
+            if ($movimiento && $movimiento->apertura_cierre_id) {
+                $apertura = AperturaCierreCaja::find($movimiento->apertura_cierre_id);
+
+                return $apertura ? $apertura->fecha_cierre !== null : true;
+            }
+
+            $transaccion = TransaccionCaja::where('referencia_tipo', 'cobro')
+                ->where('referencia_id', $cobro->id)
+                ->first();
+
+            if (! $transaccion) {
+                return false;
+            }
+
+            $abierta = AperturaCierreCaja::where('user_id', $transaccion->user_id)
+                ->whereNull('fecha_cierre')
+                ->orderByDesc('fecha_apertura')
+                ->first();
+
+            return ! ($abierta && $transaccion->created_at >= $abierta->fecha_apertura);
+        })->values();
+    }
+
+    /**
+     * Anula todos los cobros activos de una venta y deshace su efecto en caja.
+     *
+     * Se apoya en revertirCobroEnCaja(), que ya borra las `transacciones_caja` del
+     * cobro, le baja el saldo a la sub-caja y borra su `movimiento_caja`.
+     *
+     * NO toca `MetodoDePago.monto` a propósito. destroy() sí lo decrementa al
+     * anular cobros, pero ningún camino lo INCREMENTA al registrarlos
+     * (registrarCobroEnCaja no lo hace, anularCobro tampoco), así que ese
+     * decremento deja el contador por debajo de lo real. Es un bug de destroy()
+     * que no conviene replicar acá.
+     */
+    private function anularCobrosDeVenta($venta, string $motivo): void
+    {
+        $cobros = $venta->cobrosVenta()->where('estado', true)->get();
+
+        foreach ($cobros as $cobro) {
+            $this->revertirCobroEnCaja($cobro);
+
+            // El recargo que había dejado ese cobro se va con él; si no, la venta
+            // seguiría mostrando en Mis Ventas el recargo de un cobro anulado.
+            DespliegueDePagoVenta::where('venta_id', $venta->id)
+                ->where('tipo', 'cobro')
+                ->where('referencia', $cobro->id)
+                ->delete();
+
+            $cobro->update([
+                'estado' => false,
+                'fecha_anulacion' => now()->format('Y-m-d H:i:s'),
+                'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '') . 'ANULADO: ' . $motivo,
             ]);
         }
     }
