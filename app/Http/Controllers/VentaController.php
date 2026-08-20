@@ -60,6 +60,10 @@ class VentaController extends Controller
             'hasta' => 'sometimes|date',
             'search' => 'sometimes|string',
             'entrega' => 'sometimes|string|in:pendiente,completa',
+            // Estado del comprobante frente a SUNAT. 'sin_emitir' no es un estado
+            // de la tabla: son boletas/facturas que ni siquiera tienen comprobante
+            // generado. 'no_aplica' son las notas de venta, que no se declaran.
+            'estado_sunat' => 'sometimes|string|in:PENDIENTE,PROCESANDO,ACEPTADO,ACEPTADO_CON_OBSERVACIONES,RECHAZADO,ANULADO,BAJA_PENDIENTE,BAJA_ACEPTADA,sin_emitir,no_aplica',
             // min:-1 permite '-1' = "traer todo sin paginar" (ver más abajo).
             'per_page' => 'sometimes|integer|min:-1|max:100',
             'page' => 'sometimes|integer|min:1',
@@ -156,6 +160,24 @@ class VentaController extends Controller
             $formaPagoEnum = FormaDePago::tryFrom($request->forma_de_pago);
             if ($formaPagoEnum) {
                 $query->where('forma_de_pago', $formaPagoEnum->value);
+            }
+        }
+
+        // Filter by estado_sunat (estado del comprobante electronico)
+        if ($request->filled('estado_sunat')) {
+            $estadoSunat = $request->estado_sunat;
+
+            if ($estadoSunat === 'no_aplica') {
+                // Notas de venta: no son comprobantes electronicos.
+                $query->whereNotIn('tipo_documento', ['01', '03']);
+            } elseif ($estadoSunat === 'sin_emitir') {
+                // Boleta o factura a la que nunca se le genero el comprobante.
+                $query->whereIn('tipo_documento', ['01', '03'])
+                    ->whereDoesntHave('comprobanteElectronico');
+            } else {
+                $query->whereHas('comprobanteElectronico', function ($q) use ($estadoSunat) {
+                    $q->where('estado_sunat', $estadoSunat);
+                });
             }
         }
 
