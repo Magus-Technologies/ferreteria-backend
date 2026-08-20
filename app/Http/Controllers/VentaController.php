@@ -1240,6 +1240,21 @@ class VentaController extends Controller
             'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
         ])
             ->withSum('despliegueDePagoVentas as total_pagado', 'monto')
+            // `total_cobrado` (cobros activos) tiene que venir acá igual que en
+            // index(), porque el front usa esta respuesta para REEMPLAZAR la fila
+            // de la tabla — por ejemplo al enviar a SUNAT
+            // (cell-acciones-venta-dropdown: getById + node.setData).
+            //
+            // Sin este withSum la fila se quedaba sin el dato, la columna hacía
+            // `Number(total_cobrado ?? 0)` = 0, y una venta a crédito YA PAGADA
+            // pasaba de "Pagado" (verde) a "Deuda" (roja) apenas se enviaba el
+            // comprobante. En la base nunca cambió nada: al recargar la pantalla
+            // volvía a verse bien, porque el listado sí lo traía.
+            ->withSum([
+                'cobrosVenta as total_cobrado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto')
             ->findOrFail($id);
 
         // Reshapear las entregas (tabla nueva) a la forma plana que el front ya
