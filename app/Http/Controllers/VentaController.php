@@ -1352,12 +1352,23 @@ class VentaController extends Controller
             // documento — la venta ya pertenece a su serie documental (BT01/
             // FT01) y el cambio implicaría reemitir el comprobante. Solo la
             // nota de venta (nv) puede convertirse a boleta o factura.
+            //
+            // ...pero eso vale recién cuando el documento existe de verdad. Una
+            // venta EN ESPERA no tiene serie ni comprobante: la serie se asigna
+            // al confirmarla. Bloquearla ahí era impedir corregir el tipo de
+            // documento justo en el único momento en que todavía no cuesta nada,
+            // sin ninguna serie que respetar ni comprobante que reemitir.
+            // Se mira el estado real de la venta y no `estado_de_venta`, para que
+            // siga bloqueando aunque en el futuro aparezca otro estado sin serie.
             $tipoDocActualValor = $venta->tipo_documento instanceof \BackedEnum
                 ? $venta->tipo_documento->value
                 : $venta->tipo_documento;
+            $documentoYaEmitido = (! empty($venta->serie) && $venta->numero !== null)
+                || (bool) $comprobante;
             if (isset($validated['tipo_documento'])
                 && $validated['tipo_documento'] !== $tipoDocActualValor
                 && in_array($tipoDocActualValor, ['01', '03'], true)
+                && $documentoYaEmitido
             ) {
                 return response()->json([
                     'message' => 'No se puede cambiar el tipo de documento de una boleta o factura. Solo las notas de venta pueden convertirse a boleta o factura.',
