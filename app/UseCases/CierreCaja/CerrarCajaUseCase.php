@@ -80,8 +80,10 @@ class CerrarCajaUseCase
                 $supervisorValidado = true;
             }
 
-            // 5. Validar diferencia (Comentado a pedido del usuario: el faltante ahora genera deuda)
-            // $this->validarDiferencia($resumen, $dto);
+            // 5. Validar diferencia. Estaba comentada entera "porque el faltante ahora
+            // genera deuda", y eso dejó también al SOBRANTE sin ningún control: se
+            // guardaba cualquier monto. Ahora solo frena sobrantes (ver el método).
+            $this->validarDiferencia($resumen, $dto);
 
             // 6. Calcular diferencias ANTES de actualizar
             $diferencia = $resumen->diferencia ?? 0;
@@ -162,8 +164,25 @@ class CerrarCajaUseCase
         });
     }
 
+    /**
+     * Un SOBRANTE grande casi nunca es plata de más: es un monto mal tipeado.
+     * El caso que motivó esto fue un cierre por S/16,700 cinco minutos después de
+     * trasladar S/16,700 a la bóveda — el cajero declaró lo que acababa de sacar
+     * en vez de lo que quedaba (S/6,599.20), y quedó grabado un sobrante de
+     * S/10,100.80 que nunca existió.
+     *
+     * Solo aplica a sobrantes. El FALTANTE sigue pasando sin fricción porque ya
+     * tiene su propio camino: genera una `DeudaPersonal` a nombre del cajero.
+     * Esa fue la razón por la que en su momento se desactivó esta validación
+     * entera — pero desactivarla también dejó sin control el otro lado, que no
+     * genera deuda ni nada: simplemente se guarda.
+     */
     private function validarDiferencia(ResumenCajaDTO $resumen, CierreCajaDTO $dto): void
     {
+        if (($resumen->diferencia ?? 0) <= 0) {
+            return;
+        }
+
         $diferencia = abs($resumen->diferencia);
         $limiteDiferencia = config('caja.limite_diferencia', 5);
         $limiteMaximo = config('caja.limite_maximo_diferencia', 50);

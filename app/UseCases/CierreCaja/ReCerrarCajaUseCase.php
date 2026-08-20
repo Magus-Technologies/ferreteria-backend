@@ -82,8 +82,11 @@ class ReCerrarCajaUseCase
                 $supervisorValidado = true;
             }
 
-            // 5. Validar diferencia (Comentado a pedido del usuario: el faltante ahora genera deuda)
-            // $this->validarDiferencia($resumen, $dto);
+            // 5. Validar diferencia. Mismo criterio que el cierre normal: solo frena
+            // SOBRANTES. Se valida también acá para que re-cerrar no sea una puerta
+            // trasera al control — un re-cierre correctivo cierra con diferencia ~0
+            // y no lo toca; uno con un sobrante grande sigue necesitando supervisor.
+            $this->validarDiferencia($resumen, $dto);
 
             // 6. Calcular diferencias ANTES de actualizar
             $diferencia = $resumen->diferencia ?? 0;
@@ -176,8 +179,16 @@ class ReCerrarCajaUseCase
         });
     }
 
+    /**
+     * Solo sobrantes; el faltante ya genera `DeudaPersonal`. Ver el comentario
+     * extendido en CerrarCajaUseCase::validarDiferencia().
+     */
     private function validarDiferencia(ResumenCajaDTO $resumen, CierreCajaDTO $dto): void
     {
+        if (($resumen->diferencia ?? 0) <= 0) {
+            return;
+        }
+
         $diferencia = abs($resumen->diferencia);
         $limiteDiferencia = config('caja.limite_diferencia', 5);
         $limiteMaximo = config('caja.limite_maximo_diferencia', 50);
