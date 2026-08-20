@@ -1386,18 +1386,16 @@ class VentaController extends Controller
                     throw new \Exception("Cliente no encontrado");
                 }
 
-                // Validar que Facturas (01) solo se emitan a clientes con RUC
-                $clienteTipoDoc = $cliente->tipo_documento;
-                // Inferir tipo_documento del número si es null
-                if (!$clienteTipoDoc) {
-                    $numDoc = $cliente->numero_documento ?? '';
-                    $clienteTipoDoc = strlen($numDoc) === 11 ? 'ruc' : (strlen($numDoc) === 8 ? 'dni' : null);
-                }
-                if ($tipoDocumento === '01' && $clienteTipoDoc !== 'ruc') {
+                // Validar que Facturas (01) solo se emitan a clientes con RUC.
+                // La inferencia por longitud que había acá ahora vive en el modelo:
+                // `cliente` no tiene columna `tipo_documento`, así que leerla directo
+                // devuelve siempre null (por eso el envío a SUNAT rechazaba TODAS las
+                // facturas: allá no había inferencia y todos caían como DNI).
+                if ($tipoDocumento === '01' && ! $cliente->esRuc()) {
                     return response()->json([
                         'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
                         'error' => 'TIPO_DOCUMENTO_INVALIDO',
-                        'cliente_tipo_documento' => $cliente->tipo_documento,
+                        'cliente_numero_documento' => $cliente->numero_documento,
                         'tipo_comprobante_solicitado' => '01',
                     ], 422);
                 }

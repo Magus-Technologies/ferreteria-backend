@@ -515,7 +515,11 @@ class FacturaService implements FacturaServiceInterface
         
         // ✅ VALIDACIÓN CRÍTICA: DNI vs RUC según tipo de comprobante
         // Solo validar cuando se va a enviar a SUNAT, no al crear la venta
-        $clienteTipoDoc = $cliente->tipo_documento === 'ruc' ? '6' : '1';
+        // Antes comparaba `$cliente->tipo_documento === 'ruc'`, pero esa columna no
+        // existe en la tabla `cliente`: la propiedad siempre valía null, así que
+        // TODO cliente quedaba como DNI y ninguna factura pasaba la validación de
+        // abajo, tuviera RUC o no. La regla vive ahora en el modelo.
+        $clienteTipoDoc = $cliente->tipoDocumentoSunat();
         
         if ($validarParaSunat) {
             // Si es Factura (01) y el cliente tiene DNI, lanzar error
@@ -858,13 +862,9 @@ class FacturaService implements FacturaServiceInterface
             return ['0', '0'];
         }
 
-        $tipoDoc = match ($cliente->tipo_documento) {
-            'ruc' => '6',
-            'pasaporte' => '7',
-            'carnet_extranjeria' => '4',
-            default => '1', // DNI
-        };
-
-        return [$tipoDoc, $numDoc];
+        // Mismo problema que arriba: este `match` iba siempre al default porque
+        // `tipo_documento` no existe, y los comprobantes salían con schemeID="1"
+        // (DNI) incluso para clientes con RUC de 11 dígitos.
+        return [$cliente->tipoDocumentoSunat(), $numDoc];
     }
 }
