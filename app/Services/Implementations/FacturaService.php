@@ -484,7 +484,24 @@ class FacturaService implements FacturaServiceInterface
             : $venta->tipo_documento;
 
         if (!in_array($tipoDocumento, ['01', '03'])) {
-            throw FacturaException::ventaNoValida('Solo facturas (01) y boletas (03) son válidas');
+            throw FacturaException::ventaNoValida('Las notas de venta no se declaran a SUNAT. Solo facturas (01) y boletas (03).');
+        }
+
+        // EN ESPERA: la venta todavía no está confirmada. No tiene serie ni
+        // correlativo asignados (se asignan al confirmarla), así que no hay
+        // comprobante que enviar — y si igual se intentara, se estaría
+        // declarando a SUNAT una venta que puede no llegar a existir.
+        //
+        // El check de estado que había acá estaba comentado "temporalmente para
+        // pruebas", y con él apagado el envío aceptaba cualquier estado. Se
+        // reactiva solo para 'ee', que es el caso problemático; el resto sigue
+        // pasando como hasta ahora para no romper flujos existentes.
+        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum
+            ? $venta->estado_de_venta->value
+            : $venta->estado_de_venta;
+
+        if ($estadoVenta === 'ee') {
+            throw FacturaException::ventaNoValida('La venta está En Espera: confírmala antes de enviarla a SUNAT.');
         }
 
         // ✅ Validar que la serie coincida con el tipo de documento
