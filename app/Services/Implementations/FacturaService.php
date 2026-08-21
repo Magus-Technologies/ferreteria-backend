@@ -580,9 +580,14 @@ class FacturaService implements FacturaServiceInterface
             $cantidadTotal = 0;
             $precioUnitarioPromedio = 0;
             
+            // El RECARGO va dentro del precio unitario: es parte de lo que paga el
+            // cliente, así que tiene que declararse. Acá se leía solo `precio`, de
+            // modo que el comprobante salía SIN recargo — en FT01-15 se le cobraron
+            // S/25 de recargo al cliente y a SUNAT se declararon S/0. Es por unidad,
+            // igual que en getTotalVenta() y en la pantalla de crear venta.
             foreach ($unidadesDerivadas as $unidad) {
                 $cantidadTotal += $unidad->cantidad;
-                $precioUnitarioPromedio += $unidad->precio;
+                $precioUnitarioPromedio += (float) $unidad->precio + (float) ($unidad->recargo ?? 0);
             }
             
             // Si hay múltiples unidades, promediar el precio

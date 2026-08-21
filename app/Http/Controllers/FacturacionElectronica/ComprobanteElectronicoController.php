@@ -301,7 +301,8 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
                 ->map(function (Venta $venta) {
                     $total = $venta->productosPorAlmacen->sum(
                         fn ($ppa) => $ppa->unidadesDerivadas->sum(
-                            fn ($ud) => (float) $ud->precio * (float) $ud->cantidad + (float) ($ud->recargo ?? 0)
+                            // Recargo POR UNIDAD, igual que getTotalVenta() y el comprobante.
+                            fn ($ud) => ((float) $ud->precio + (float) ($ud->recargo ?? 0)) * (float) $ud->cantidad
                         )
                     );
                     $tipoDoc = $venta->tipo_documento instanceof \BackedEnum

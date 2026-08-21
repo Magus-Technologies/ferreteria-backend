@@ -2506,9 +2506,15 @@ class VentaController extends Controller
 
                     if ($bonificacion) continue;
 
-                    // precio ya es por unidad derivada (no multiplicar por factor)
-                    $subtotal = $precio * $cantidad;
-                    $subtotalConRecargo = $subtotal + $recargo;
+                    // precio ya es por unidad derivada (no multiplicar por factor).
+                    //
+                    // El RECARGO es POR UNIDAD: se suma al precio y recién ahí se
+                    // multiplica por la cantidad. Antes se sumaba una sola vez por
+                    // línea (`$precio * $cantidad + $recargo`), que es lo que hacía
+                    // que Ventas por Cobrar mostrara menos que Mis Ventas — la
+                    // diferencia era exactamente `recargo × (cantidad − 1)`.
+                    // Con cantidad 1 daban igual, por eso pasó desapercibido.
+                    $subtotalConRecargo = ($precio + $recargo) * $cantidad;
 
                     if ($u->descuento_tipo === 'porcentaje') {
                         $montoLinea = $subtotalConRecargo - ($subtotalConRecargo * $descuento / 100);
@@ -2536,9 +2542,15 @@ class VentaController extends Controller
 
                     if ($bonificacion) continue;
 
-                    // precio ya es por unidad derivada (no multiplicar por factor)
-                    $subtotal = $precio * $cantidad;
-                    $subtotalConRecargo = $subtotal + $recargo;
+                    // precio ya es por unidad derivada (no multiplicar por factor).
+                    //
+                    // El RECARGO es POR UNIDAD: se suma al precio y recién ahí se
+                    // multiplica por la cantidad. Antes se sumaba una sola vez por
+                    // línea (`$precio * $cantidad + $recargo`), que es lo que hacía
+                    // que Ventas por Cobrar mostrara menos que Mis Ventas — la
+                    // diferencia era exactamente `recargo × (cantidad − 1)`.
+                    // Con cantidad 1 daban igual, por eso pasó desapercibido.
+                    $subtotalConRecargo = ($precio + $recargo) * $cantidad;
 
                     if ($descuentoTipo === 'porcentaje') {
                         $montoLinea = $subtotalConRecargo - ($subtotalConRecargo * $descuento / 100);
