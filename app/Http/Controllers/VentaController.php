@@ -2259,10 +2259,21 @@ class VentaController extends Controller
                 }
             }
 
+            // Confirmar una venta EN ESPERA no es una edición: es su primer guardado
+            // real (recién ahí se le asigna serie y número). Registrarlo como
+            // 'edicion' hacía que la columna "Editada" de Mis Ventas dijera Sí en
+            // una venta que nunca se editó, solo se confirmó.
+            //
+            // Se deja la entrada en el historial igual, con otra acción, para no
+            // perder la trazabilidad de quién la confirmó y cuándo.
+            $esConfirmacionDeEspera = $estadoAnterior === 'ee' && $estadoNuevo !== 'ee';
+
             VentaHistorial::registrar(
                 ventaId: $id,
-                accion: 'edicion',
-                descripcion: "Venta {$ventaFresh->serie}-{$ventaFresh->numero} editada",
+                accion: $esConfirmacionDeEspera ? 'confirmacion' : 'edicion',
+                descripcion: $esConfirmacionDeEspera
+                    ? "Venta {$ventaFresh->serie}-{$ventaFresh->numero} confirmada desde En Espera"
+                    : "Venta {$ventaFresh->serie}-{$ventaFresh->numero} editada",
                 datosAnteriores: $datosAnteriores,
                 datosNuevos: $datosNuevos,
                 userId: $validated['user_id'] ?? auth()->id(),
