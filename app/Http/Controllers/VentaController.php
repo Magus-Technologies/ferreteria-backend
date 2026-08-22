@@ -1343,7 +1343,10 @@ class VentaController extends Controller
             // cuadra con la diferencia real, toda la edición se revierte
             // (atómico: no queda una edición guardada sin su cobro).
             'diferencia_pago' => 'sometimes|array',
-            'diferencia_pago.tipo' => 'required_with:diferencia_pago|string|in:diferencia,devolucion',
+            // 'cambio_metodo': la venta se cobra por el MISMO monto pero con otro
+            // método de pago. No mueve el total, solo mueve el dinero de una caja
+            // a otra (ver más abajo, donde se resuelve como devolución + cobro).
+            'diferencia_pago.tipo' => 'required_with:diferencia_pago|string|in:diferencia,devolucion,cambio_metodo',
             'diferencia_pago.despliegue_de_pago_ventas' => 'required_with:diferencia_pago|array|min:1',
             'diferencia_pago.despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required_with:diferencia_pago|string',
             'diferencia_pago.despliegue_de_pago_ventas.*.monto' => 'required_with:diferencia_pago|numeric',
@@ -2212,7 +2215,68 @@ class VentaController extends Controller
                 $nuevoTotal = $this->getTotalVenta($ventaFresh);
                 $diferenciaCalculada = round($nuevoTotal - $totalPagadoPrevio, 2);
 
-                if (abs($diferenciaCalculada) > 0.01) {
+                // CAMBIO DE MÉTODO DE PAGO sin cambio de monto. El vendedor se
+                // equivocó de método al cobrar (puso efectivo y fue yape, por
+                // ejemplo) y lo corrige al editar. No hay diferencia que cobrar
+                // ni devolver: hay que ANULAR el pago anterior y registrar el
+                // nuevo, para que el dinero salga de una caja y entre a la otra.
+                //
+                // Se resuelve con las dos mitades que ya existen: una devolución
+                // por los métodos actuales y un cobro por los nuevos. Cada una
+                // ajusta `MetodoDePago.monto` y deja su rastro en caja, así que
+                // el neto es cero pero los saldos por método quedan correctos.
+                $tipoPagoSolicitado = $validated['diferencia_pago']['tipo'] ?? null;
+
+                if ($tipoPagoSolicitado === 'cambio_metodo') {
+                    if (abs($diferenciaCalculada) > 0.01) {
+                        throw new \Exception(
+                            'No se puede cambiar solo el método de pago: esta edición cambió el total de la venta '
+                            . '(diferencia de S/ ' . number_format(abs($diferenciaCalculada), 2) . '). '
+                            . 'Cobra o devuelve la diferencia en su lugar.'
+                        );
+                    }
+
+                    $filasNuevas = $validated['diferencia_pago']['despliegue_de_pago_ventas'];
+                    $sumaNueva = round(array_sum(array_column($filasNuevas, 'monto')), 2);
+
+                    if (abs($sumaNueva - $totalPagadoPrevio) > 0.01) {
+                        throw new \Exception(
+                            'El nuevo pago (S/ ' . number_format($sumaNueva, 2) . ') debe ser por el mismo monto ya '
+                            . 'cobrado (S/ ' . number_format($totalPagadoPrevio, 2) . ').'
+                        );
+                    }
+
+                    // Devolver por el saldo NETO de cada método, no por cada fila
+                    // positiva.
+                    //
+                    // Una venta puede acumular varios cambios de método: cada uno
+                    // deja su cobro y su devolución. Si se devolviera por toda fila
+                    // con monto > 0, el segundo cambio devolvería también el cobro
+                    // original —ya anulado por el primero— y la venta terminaría con
+                    // total pagado NEGATIVO. Pasó con BT01-344: quedó en 0.00
+                    // habiendo cobrado 136.
+                    //
+                    // Agrupando por método y quedándose con los netos positivos, se
+                    // devuelve exactamente lo que hoy está cobrado.
+                    $filasADevolver = $venta->despliegueDePagoVentas
+                        ->groupBy('despliegue_de_pago_id')
+                        ->map(fn ($filas) => round($filas->sum(fn ($f) => (float) $f->monto), 4))
+                        ->filter(fn ($neto) => $neto > 0.001)
+                        ->map(fn ($neto, $despliegueId) => [
+                            'despliegue_de_pago_id' => $despliegueId,
+                            'monto' => $neto,
+                        ])
+                        ->values()
+                        ->toArray();
+
+                    $userIdPago = $validated['user_id'] ?? auth()->id();
+
+                    if ($filasADevolver !== []) {
+                        $this->aplicarPagosVenta($ventaFresh, $filasADevolver, 'devolucion', $userIdPago);
+                    }
+
+                    $this->aplicarPagosVenta($ventaFresh, $filasNuevas, 'diferencia', $userIdPago);
+                } elseif (abs($diferenciaCalculada) > 0.01) {
                     if (!isset($validated['diferencia_pago'])) {
                         $accion = $diferenciaCalculada > 0 ? 'cobrar' : 'devolver';
                         throw new \Exception(
@@ -3516,6 +3580,48 @@ class VentaController extends Controller
             ->with(['user:id,name', 'despliegueDePago:id,name'])
             ->orderBy('fecha')
             ->get();
+
+        // Estado de cada cobro: ACTIVO o ANULADO.
+        //
+        // `desplieguedepagoventa` no guarda un estado — un cobro se anula
+        // registrando una DEVOLUCIÓN por el mismo método y monto (así funciona
+        // "devolver diferencia" y el cambio de método de pago). Así que el estado
+        // se deduce emparejando cada devolución con el cobro que cancela.
+        //
+        // Se emparejan de a uno y en orden: si hubo dos cobros iguales y una sola
+        // devolución, se anula el primero y el segundo sigue activo. Por eso se
+        // lleva un contador por método+monto en vez de marcar todos los que
+        // coincidan.
+        $devolucionesPendientes = [];
+        foreach ($cobros as $fila) {
+            if ((float) $fila->monto >= 0) {
+                continue;
+            }
+            $clave = $fila->despliegue_de_pago_id . '|' . number_format(abs((float) $fila->monto), 4, '.', '');
+            $devolucionesPendientes[$clave] = ($devolucionesPendientes[$clave] ?? 0) + 1;
+        }
+
+        $cobros = $cobros->map(function ($fila) use (&$devolucionesPendientes) {
+            $monto = (float) $fila->monto;
+
+            // La devolución en sí no se "anula": es el movimiento que anula a otro.
+            if ($monto < 0) {
+                $fila->estado = 'activo';
+
+                return $fila;
+            }
+
+            $clave = $fila->despliegue_de_pago_id . '|' . number_format($monto, 4, '.', '');
+
+            if (($devolucionesPendientes[$clave] ?? 0) > 0) {
+                $devolucionesPendientes[$clave]--;
+                $fila->estado = 'anulado';
+            } else {
+                $fila->estado = 'activo';
+            }
+
+            return $fila;
+        });
 
         return response()->json(['data' => ['ediciones' => $ediciones, 'cobros' => $cobros]]);
     }
