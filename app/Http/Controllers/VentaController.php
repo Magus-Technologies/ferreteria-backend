@@ -484,9 +484,13 @@ class VentaController extends Controller
                 throw new \Exception("Cliente no encontrado");
             }
 
-            // Validar que Facturas (01) solo se emitan a clientes con RUC (11 dígitos)
+            // Validar que Facturas (01) solo se emitan a clientes con RUC (11 dígitos).
+            // No aplica a una venta EN ESPERA: es un borrador sin serie ni número,
+            // el tipo de documento todavía se puede cambiar al confirmarla — y ahí
+            // (update) sí se valida.
             $esRuc = strlen($cliente->numero_documento) === 11;
-            if ($validated['tipo_documento'] === '01' && !$esRuc) {
+            $quedaEnEspera = ($validated['estado_de_venta'] ?? null) === EstadoDeVenta::EnEspera->value;
+            if ($validated['tipo_documento'] === '01' && !$esRuc && !$quedaEnEspera) {
                 return response()->json([
                     'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC (11 dígitos). Para clientes con DNI (8 dígitos) debe emitir una Boleta (03).',
                     'error' => 'TIPO_DOCUMENTO_INVALIDO',
@@ -1431,7 +1435,15 @@ class VentaController extends Controller
                 // `cliente` no tiene columna `tipo_documento`, así que leerla directo
                 // devuelve siempre null (por eso el envío a SUNAT rechazaba TODAS las
                 // facturas: allá no había inferencia y todos caían como DNI).
-                if ($tipoDocumento === '01' && ! $cliente->esRuc()) {
+                //
+                // Mientras la venta SIGA en espera no aplica: es un borrador sin
+                // serie, el tipo de documento se puede corregir hasta confirmarla.
+                // Al confirmar (estado pasa a creado) sí se exige.
+                $estadoActualValor = $venta->estado_de_venta instanceof \BackedEnum
+                    ? $venta->estado_de_venta->value
+                    : $venta->estado_de_venta;
+                $sigueEnEspera = ($validated['estado_de_venta'] ?? $estadoActualValor) === EstadoDeVenta::EnEspera->value;
+                if ($tipoDocumento === '01' && ! $cliente->esRuc() && ! $sigueEnEspera) {
                     return response()->json([
                         'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
                         'error' => 'TIPO_DOCUMENTO_INVALIDO',
