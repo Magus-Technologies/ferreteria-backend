@@ -717,15 +717,39 @@ class ProductoRepository implements ProductoRepositoryInterface
      */
     private function applyFilters($query, array $filters, ?int $almacenId): void
     {
-        // Search filter - busca coincidencias parciales (contains)
+        // Search filter — por PALABRAS, no por frase completa.
+        //
+        // Antes era `name LIKE '%frase%'`: buscar `TUBO PVC DSG"` no encontraba
+        // `TUBO PVC DSG 4" X 3M` porque entre DSG y la comilla hay un " 4".
+        //
+        // Reglas (espejo de lib/utils/filtro-texto-producto.ts en el front, que
+        // filtra el modal de búsqueda — si se toca uno hay que tocar el otro):
+        //  - Todas las palabras tienen que coincidir (AND), en cualquier orden.
+        //  - Comillas y comas en los bordes se ignoran: `4"` y `4` dan lo mismo.
+        //  - En nombre / nombre de ticket la palabra va al INICIO de una
+        //    palabra (inicio del texto o después de espacio, /, -, paréntesis…):
+        //    "TUBO" no debe traer "EUROTUBO". Y es prefijo: "TUB" sí da "TUBO".
+        //  - En los códigos basta con que esté contenida.
         if (isset($filters['search'])) {
-            $search = $filters['search'];
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('cod_producto', 'like', "%{$search}%")
-                    ->orWhere('cod_barra', 'like', "%{$search}%")
-                    ->orWhere('name_ticket', 'like', "%{$search}%");
-            });
+            $palabras = preg_split('/\s+/', trim((string) $filters['search'])) ?: [];
+            $palabras = array_values(array_filter(array_map(
+                fn ($p) => trim($p, "\"',;"),
+                $palabras
+            )));
+
+            $iniciosDePalabra = ['', ' ', '/', '-', '(', '.', ',', '+', '"'];
+
+            foreach ($palabras as $palabra) {
+                $query->where(function ($q) use ($palabra, $iniciosDePalabra) {
+                    foreach ($iniciosDePalabra as $inicio) {
+                        $patron = $inicio === '' ? "{$palabra}%" : "%{$inicio}{$palabra}%";
+                        $q->orWhere('name', 'like', $patron)
+                            ->orWhere('name_ticket', 'like', $patron);
+                    }
+                    $q->orWhere('cod_producto', 'like', "%{$palabra}%")
+                        ->orWhere('cod_barra', 'like', "%{$palabra}%");
+                });
+            }
         }
 
         // Status filter
