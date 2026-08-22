@@ -294,13 +294,20 @@ class FacturaService implements FacturaServiceInterface
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, $tipoDoc, $venta->serie, $venta->numero);
 
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
-            $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
 
-            // ✅ Decodificar CDR si viene en base64 (modo simulación)
+            // Decodificar CDR si viene en base64 (modo simulación) ANTES de
+            // guardar el .zip a disco. Antes se guardaba $resultado['cdr']
+            // (todavía en base64) directamente como el archivo .zip, y el
+            // decode de acá abajo solo alimentaba la columna cdr_xml de la
+            // BD — el archivo descargable quedaba siendo texto base64 con
+            // extensión .zip, así que Windows/WinRAR lo veían como "formato
+            // desconocido o dañado" en TODOS los CDR, no solo algunos.
             $cdrContent = $resultado['cdr'];
             if (base64_decode($cdrContent, true) !== false) {
                 $cdrContent = base64_decode($cdrContent);
             }
+
+            $cdrPath = $this->xmlStorageService->guardarCdr($cdrContent, $nombreCdr);
 
             // Regenerar QR con el hash actualizado de SUNAT
             $dataGreenter = $this->prepararDatosParaGreenter($venta, false);

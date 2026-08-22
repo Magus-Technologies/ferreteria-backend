@@ -532,7 +532,18 @@ class GuiaRemisionService
             );
 
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
-            $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
+
+            // Decodificar CDR (si viene en base64) ANTES de guardar el .zip:
+            // guardarCdr() se llamaba con $resultado['cdr'] sin decodificar,
+            // dejando el archivo descargable como texto base64 con extensión
+            // .zip (mismo bug de FacturaService.php, acá sin siquiera el
+            // intento de decode que sí tenían factura/NC/ND).
+            $cdrContent = $resultado['cdr'];
+            if (base64_decode($cdrContent, true) !== false) {
+                $cdrContent = base64_decode($cdrContent);
+            }
+
+            $cdrPath = $this->xmlStorageService->guardarCdr($cdrContent, $nombreCdr);
 
             // Regenerar QR con hash actualizado
             $codigoQr = $this->generarCodigoQR($guia, $resultado['hash_cpe']);
@@ -542,7 +553,7 @@ class GuiaRemisionService
                 'sunat_estado' => 'ACEPTADO',
                 'sunat_codigo_hash' => $resultado['hash_cpe'],
                 'sunat_xml_path' => $xmlPath,
-                'sunat_cdr_xml' => $resultado['cdr'],
+                'sunat_cdr_xml' => $cdrContent,
                 'sunat_cdr_path' => $cdrPath,
                 'sunat_codigo_qr' => $codigoQr,
                 'sunat_fecha_envio' => now(),

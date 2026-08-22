@@ -298,13 +298,17 @@ class NotaDebitoService implements NotaDebitoServiceInterface
             $nombreCdr = $this->xmlStorageService->generarNombreCdr($ruc, '08', $notaDebito->serie, $notaDebito->numero);
 
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
-            $cdrPath = $this->xmlStorageService->guardarCdr($resultado['cdr'], $nombreCdr);
 
-            // ✅ Decodificar CDR si viene en base64 (modo simulación)
+            // Decodificar CDR (si viene en base64) ANTES de guardar el .zip:
+            // guardarCdr() se llamaba con $resultado['cdr'] sin decodificar,
+            // dejando el archivo descargable como texto base64 con extensión
+            // .zip (ver mismo bug en FacturaService.php).
             $cdrContent = $resultado['cdr'];
             if (base64_decode($cdrContent, true) !== false) {
                 $cdrContent = base64_decode($cdrContent);
             }
+
+            $cdrPath = $this->xmlStorageService->guardarCdr($cdrContent, $nombreCdr);
 
             // Crear o actualizar comprobante electrónico
             $comprobante = ComprobanteElectronico::where('serie', $notaDebito->serie)
