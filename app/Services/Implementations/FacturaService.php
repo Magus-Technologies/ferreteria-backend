@@ -13,7 +13,6 @@ use App\Services\Interfaces\XmlStorageServiceInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Endroid\QrCode\Builder\Builder;
 use Endroid\QrCode\Encoding\Encoding;
@@ -168,8 +167,9 @@ class FacturaService implements FacturaServiceInterface
             // (sunat:enviar-facturas, diario a las 2:00 AM).
             $enviadoSunat = false;
             $tipoAutoSend = $tipoDocumento === '01' ? 'factura' : 'boleta';
-            $autoEnabled = (bool) Cache::get("sunat_api_auto_send_{$tipoAutoSend}_enabled", false);
-            $autoAfterDays = (int) Cache::get("sunat_api_auto_send_{$tipoAutoSend}_after_days", 3);
+            $empresaAutoSend = \App\Models\Empresa::first();
+            $autoEnabled = (bool) ($empresaAutoSend?->{"sunat_auto_send_{$tipoAutoSend}_enabled"} ?? false);
+            $autoAfterDays = (int) ($empresaAutoSend?->{"sunat_auto_send_{$tipoAutoSend}_after_days"} ?? 3);
             if ($autoEnabled && $autoAfterDays === 0) {
                 try {
                     $this->enviarASunat($venta->id, 'automatico');
