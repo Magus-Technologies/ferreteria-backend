@@ -227,6 +227,10 @@ class EntregaProductoController extends Controller
             'chofer_id' => 'nullable|string',
             'vehiculo_id' => 'nullable|integer|exists:vehiculo,id',
             'quien_entrega' => 'nullable|string|in:vendedor,almacen,chofer',
+            // Al reprogramar una entrega desde la edición de la venta también
+            // puede cambiar si va con un chofer propio o a un cargo externo.
+            'tipo_pedido' => 'nullable|string|in:interno,externo',
+            'cargo_destino' => 'nullable|string',
             'productos_entregados' => 'sometimes|array',
             'productos_entregados.*.unidad_derivada_venta_id' => 'required_with:productos_entregados|integer',
             'productos_entregados.*.cantidad_entregada' => 'required_with:productos_entregados|numeric|min:0',
@@ -248,6 +252,26 @@ class EntregaProductoController extends Controller
             $tipoEntregaCod = $codDe($entrega->tipoEntrega);
             $tipoDespachoCod = $codDe($entrega->tipoDespacho);
             $quienEntregaCod = $codDe($entrega->quienEntrega);
+            $estadoEntregaCod = $codDe($entrega->estadoEntrega);
+
+            // Reprogramación de una entrega que todavía no salió: sigue
+            // pendiente y el request no la pasa a "en camino" ni "entregado".
+            // Es lo que hace la edición de la venta al cambiar el despacho
+            // ("de estas 4 varillas, 2 van a domicilio"). Ahí las cantidades
+            // que llegan son lo NUEVO comprometido en esta entrega, no un
+            // despacho real — se reescribe el detalle y el resto vuelve a
+            // quedar pendiente para otra entrega.
+            $esReprogramacionPendiente =
+                $estadoEntregaCod === 'pe' &&
+                ! in_array($validated['estado_entrega'] ?? null, ['ec', 'en'], true);
+
+            // Tramo que NO reservó nada al crearse (recojo en tienda / parcial
+            // inmediato por almacén): su stock y su pendiente se consumen recién
+            // al confirmar. Códigos de ANTES del update, a propósito.
+            $esTramoPendienteSinReserva =
+                in_array($tipoEntregaCod, ['pa', 'rt'], true) &&
+                $tipoDespachoCod === 'in' &&
+                $quienEntregaCod === 'almacen';
 
             // Detalles para el EntregaEvento que se crea al final del loop.
             $eventDetalles = [];
@@ -277,7 +301,51 @@ class EntregaProductoController extends Controller
                     // (same moment store() would consume it for regular deliveries).
                     $esPlaceholderOmitido = ($cantidadProgramadaOriginal === 0.0);
 
-                    if ($esPlaceholderOmitido) {
+                    if ($esReprogramacionPendiente) {
+                        // Va ANTES que la rama de placeholder: un detalle que
+                        // quedó en 0 por un split previo y ahora se reprograma
+                        // a 3 tiene que quedar en 3, no en "todo el pendiente"
+                        // como hace esa rama al despachar.
+                        //
+                        // Tope: lo que esta entrega ya tenía más lo que la venta
+                        // aún no asignó a ninguna. `cantidad_pendiente` lo
+                        // recalcula sincronizar() al final a partir de los
+                        // detalles, así que con reescribir el detalle alcanza.
+                        $udv = $detalleExistente->unidadDerivadaVenta;
+                        $maxPermitido = $cantidadProgramadaOriginal + ($udv ? (float) $udv->cantidad_pendiente : 0.0);
+                        if ($cantidadNueva > $maxPermitido) {
+                            throw ValidationException::withMessages([
+                                'productos_entregados' => [
+                                    "La cantidad a entregar ({$cantidadNueva}) supera la cantidad disponible ({$maxPermitido})",
+                                ],
+                            ]);
+                        }
+
+                        // Venta con stock diferido (creada con "Omitir
+                        // entrega"): el stock se descuenta al comprometer
+                        // cantidades en una entrega, así que se ajusta por la
+                        // diferencia con lo ya comprometido — consume si sube,
+                        // devuelve si baja. El tramo sin reserva no entra: su
+                        // stock se consume al confirmar, no acá.
+                        $delta = $cantidadNueva - $cantidadProgramadaOriginal;
+                        if ($udv && abs($delta) > 0.0001 && ! $esTramoPendienteSinReserva && ! ($venta?->stock_aplicado ?? false)) {
+                            $productoAlmacen = $udv->productoAlmacenVenta?->productoAlmacen;
+                            if ($productoAlmacen) {
+                                $productoAlmacen->decrement('stock_fraccion', $delta * (float) $udv->factor);
+
+                                ComplementarioStockService::procesarComplementarioPorFactor(
+                                    $productoAlmacen->id,
+                                    (float) $udv->factor,
+                                    abs($delta),
+                                    $entrega->almacen_salida_id,
+                                    $delta < 0 // entrada si devuelve, salida si consume
+                                );
+                            }
+                        }
+
+                        $detalleExistente->cantidad = $cantidadNueva;
+                        $detalleExistente->save();
+                    } elseif ($esPlaceholderOmitido) {
                         $udv = $detalleExistente->unidadDerivadaVenta;
                         $maxPermitido = $udv ? (float) $udv->cantidad_pendiente : 0.0;
                         if ($cantidadNueva > $maxPermitido) {
@@ -327,10 +395,6 @@ class EntregaProductoController extends Controller
 
                     // Placeholder: nothing was reserved before, so nothing to release.
                     $cantidadLiberada = $esPlaceholderOmitido ? 0.0 : ($cantidadProgramadaOriginal - $cantidadNueva);
-                    $esTramoPendienteSinReserva =
-                        in_array($tipoEntregaCod, ['pa', 'rt'], true) &&
-                        $tipoDespachoCod === 'in' &&
-                        $quienEntregaCod === 'almacen';
 
                     if ($cantidadLiberada > 0 && ! $esTramoPendienteSinReserva) {
                         UnidadDerivadaInmutableVenta::whereKey($unidadDerivadaVentaId)
@@ -357,7 +421,7 @@ class EntregaProductoController extends Controller
             // productos (Call 2 del flujo Domicilio), el evento ya existe.
             $estadoEventoNuevo = $validated['estado_entrega'] ?? null;
             if (! empty($eventDetalles) && in_array($estadoEventoNuevo, ['ec', 'en'])) {
-                $userId = auth()->id() ?? $entrega->user_id;
+                $userId = auth()->id() ?? $entrega->user_creador_id;
                 $evento = EntregaEvento::create([
                     'entrega_id'          => $entrega->id,
                     'estado'              => $estadoEventoNuevo,
@@ -402,7 +466,7 @@ class EntregaProductoController extends Controller
                         ->latest()
                         ->first();
                     if ($eventoEc) {
-                        $userId = auth()->id() ?? $entrega->user_id;
+                        $userId = auth()->id() ?? $entrega->user_creador_id;
                         $eventoEc->update([
                             'estado'            => 'en',
                             'user_entregado_id' => $userId,
@@ -478,6 +542,7 @@ class EntregaProductoController extends Controller
                 'fecha_programada', 'hora_inicio', 'hora_fin', 'direccion_entrega',
                 'referencia_entrega', 'latitud', 'longitud', 'observaciones',
                 'almacen_salida_id', 'chofer_id', 'vehiculo_id', 'user_entregado_id',
+                'tipo_pedido', 'cargo_destino',
                 'fecha_anulacion', 'motivo_anulacion', 'user_anulacion_id',
             ] as $f) {
                 if (array_key_exists($f, $validated)) {
@@ -515,7 +580,11 @@ class EntregaProductoController extends Controller
                     'almacenSalida:id,name',
                     'chofer:id,name',
                     'vehiculo:id,name,tipo,placa',
-                    'user:id,name',
+                    // El modelo no tiene relación `user`: se llama `userCreador`.
+                    // Con el nombre viejo, `fresh()` lanzaba RelationNotFound
+                    // DENTRO de la transacción y TODO el update se revertía —
+                    // el endpoint devolvía 500 y nunca guardaba nada.
+                    'userCreador:id,name',
                     'userEntregado:id,name',
                     'detalles.unidadDerivadaVenta.productoAlmacenVenta.productoAlmacen.producto.marca',
                     'detalles.unidadDerivadaVenta.unidadDerivadaInmutable',
