@@ -60,6 +60,10 @@ class VentaController extends Controller
             'hasta' => 'sometimes|date',
             'search' => 'sometimes|string',
             'entrega' => 'sometimes|string|in:pendiente,completa',
+            // Estado del comprobante frente a SUNAT. 'sin_emitir' no es un estado
+            // de la tabla: son boletas/facturas que ni siquiera tienen comprobante
+            // generado. 'no_aplica' son las notas de venta, que no se declaran.
+            'estado_sunat' => 'sometimes|string|in:PENDIENTE,PROCESANDO,ACEPTADO,ACEPTADO_CON_OBSERVACIONES,RECHAZADO,ANULADO,BAJA_PENDIENTE,BAJA_ACEPTADA,sin_emitir,no_aplica',
             // min:-1 permite '-1' = "traer todo sin paginar" (ver más abajo).
             'per_page' => 'sometimes|integer|min:-1|max:100',
             'page' => 'sometimes|integer|min:1',
@@ -156,6 +160,24 @@ class VentaController extends Controller
             $formaPagoEnum = FormaDePago::tryFrom($request->forma_de_pago);
             if ($formaPagoEnum) {
                 $query->where('forma_de_pago', $formaPagoEnum->value);
+            }
+        }
+
+        // Filter by estado_sunat (estado del comprobante electronico)
+        if ($request->filled('estado_sunat')) {
+            $estadoSunat = $request->estado_sunat;
+
+            if ($estadoSunat === 'no_aplica') {
+                // Notas de venta: no son comprobantes electronicos.
+                $query->whereNotIn('tipo_documento', ['01', '03']);
+            } elseif ($estadoSunat === 'sin_emitir') {
+                // Boleta o factura a la que nunca se le genero el comprobante.
+                $query->whereIn('tipo_documento', ['01', '03'])
+                    ->whereDoesntHave('comprobanteElectronico');
+            } else {
+                $query->whereHas('comprobanteElectronico', function ($q) use ($estadoSunat) {
+                    $q->where('estado_sunat', $estadoSunat);
+                });
             }
         }
 
@@ -462,9 +484,13 @@ class VentaController extends Controller
                 throw new \Exception("Cliente no encontrado");
             }
 
-            // Validar que Facturas (01) solo se emitan a clientes con RUC (11 dígitos)
+            // Validar que Facturas (01) solo se emitan a clientes con RUC (11 dígitos).
+            // No aplica a una venta EN ESPERA: es un borrador sin serie ni número,
+            // el tipo de documento todavía se puede cambiar al confirmarla — y ahí
+            // (update) sí se valida.
             $esRuc = strlen($cliente->numero_documento) === 11;
-            if ($validated['tipo_documento'] === '01' && !$esRuc) {
+            $quedaEnEspera = ($validated['estado_de_venta'] ?? null) === EstadoDeVenta::EnEspera->value;
+            if ($validated['tipo_documento'] === '01' && !$esRuc && !$quedaEnEspera) {
                 return response()->json([
                     'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC (11 dígitos). Para clientes con DNI (8 dígitos) debe emitir una Boleta (03).',
                     'error' => 'TIPO_DOCUMENTO_INVALIDO',
@@ -1218,6 +1244,21 @@ class VentaController extends Controller
             'comprobanteElectronico:id,venta_id,tipo_comprobante,serie,correlativo,fecha_emision,estado_sunat,xml_path,xml_firmado,cdr_path,pdf_path,moneda,operacion_gravada,total_igv,importe_total',
         ])
             ->withSum('despliegueDePagoVentas as total_pagado', 'monto')
+            // `total_cobrado` (cobros activos) tiene que venir acá igual que en
+            // index(), porque el front usa esta respuesta para REEMPLAZAR la fila
+            // de la tabla — por ejemplo al enviar a SUNAT
+            // (cell-acciones-venta-dropdown: getById + node.setData).
+            //
+            // Sin este withSum la fila se quedaba sin el dato, la columna hacía
+            // `Number(total_cobrado ?? 0)` = 0, y una venta a crédito YA PAGADA
+            // pasaba de "Pagado" (verde) a "Deuda" (roja) apenas se enviaba el
+            // comprobante. En la base nunca cambió nada: al recargar la pantalla
+            // volvía a verse bien, porque el listado sí lo traía.
+            ->withSum([
+                'cobrosVenta as total_cobrado' => function ($query) {
+                    $query->where('estado', true);
+                }
+            ], 'monto')
             ->findOrFail($id);
 
         // Reshapear las entregas (tabla nueva) a la forma plana que el front ya
@@ -1306,7 +1347,10 @@ class VentaController extends Controller
             // cuadra con la diferencia real, toda la edición se revierte
             // (atómico: no queda una edición guardada sin su cobro).
             'diferencia_pago' => 'sometimes|array',
-            'diferencia_pago.tipo' => 'required_with:diferencia_pago|string|in:diferencia,devolucion',
+            // 'cambio_metodo': la venta se cobra por el MISMO monto pero con otro
+            // método de pago. No mueve el total, solo mueve el dinero de una caja
+            // a otra (ver más abajo, donde se resuelve como devolución + cobro).
+            'diferencia_pago.tipo' => 'required_with:diferencia_pago|string|in:diferencia,devolucion,cambio_metodo',
             'diferencia_pago.despliegue_de_pago_ventas' => 'required_with:diferencia_pago|array|min:1',
             'diferencia_pago.despliegue_de_pago_ventas.*.despliegue_de_pago_id' => 'required_with:diferencia_pago|string',
             'diferencia_pago.despliegue_de_pago_ventas.*.monto' => 'required_with:diferencia_pago|numeric',
@@ -1352,12 +1396,23 @@ class VentaController extends Controller
             // documento — la venta ya pertenece a su serie documental (BT01/
             // FT01) y el cambio implicaría reemitir el comprobante. Solo la
             // nota de venta (nv) puede convertirse a boleta o factura.
+            //
+            // ...pero eso vale recién cuando el documento existe de verdad. Una
+            // venta EN ESPERA no tiene serie ni comprobante: la serie se asigna
+            // al confirmarla. Bloquearla ahí era impedir corregir el tipo de
+            // documento justo en el único momento en que todavía no cuesta nada,
+            // sin ninguna serie que respetar ni comprobante que reemitir.
+            // Se mira el estado real de la venta y no `estado_de_venta`, para que
+            // siga bloqueando aunque en el futuro aparezca otro estado sin serie.
             $tipoDocActualValor = $venta->tipo_documento instanceof \BackedEnum
                 ? $venta->tipo_documento->value
                 : $venta->tipo_documento;
+            $documentoYaEmitido = (! empty($venta->serie) && $venta->numero !== null)
+                || (bool) $comprobante;
             if (isset($validated['tipo_documento'])
                 && $validated['tipo_documento'] !== $tipoDocActualValor
                 && in_array($tipoDocActualValor, ['01', '03'], true)
+                && $documentoYaEmitido
             ) {
                 return response()->json([
                     'message' => 'No se puede cambiar el tipo de documento de una boleta o factura. Solo las notas de venta pueden convertirse a boleta o factura.',
@@ -1375,18 +1430,24 @@ class VentaController extends Controller
                     throw new \Exception("Cliente no encontrado");
                 }
 
-                // Validar que Facturas (01) solo se emitan a clientes con RUC
-                $clienteTipoDoc = $cliente->tipo_documento;
-                // Inferir tipo_documento del número si es null
-                if (!$clienteTipoDoc) {
-                    $numDoc = $cliente->numero_documento ?? '';
-                    $clienteTipoDoc = strlen($numDoc) === 11 ? 'ruc' : (strlen($numDoc) === 8 ? 'dni' : null);
-                }
-                if ($tipoDocumento === '01' && $clienteTipoDoc !== 'ruc') {
+                // Validar que Facturas (01) solo se emitan a clientes con RUC.
+                // La inferencia por longitud que había acá ahora vive en el modelo:
+                // `cliente` no tiene columna `tipo_documento`, así que leerla directo
+                // devuelve siempre null (por eso el envío a SUNAT rechazaba TODAS las
+                // facturas: allá no había inferencia y todos caían como DNI).
+                //
+                // Mientras la venta SIGA en espera no aplica: es un borrador sin
+                // serie, el tipo de documento se puede corregir hasta confirmarla.
+                // Al confirmar (estado pasa a creado) sí se exige.
+                $estadoActualValor = $venta->estado_de_venta instanceof \BackedEnum
+                    ? $venta->estado_de_venta->value
+                    : $venta->estado_de_venta;
+                $sigueEnEspera = ($validated['estado_de_venta'] ?? $estadoActualValor) === EstadoDeVenta::EnEspera->value;
+                if ($tipoDocumento === '01' && ! $cliente->esRuc() && ! $sigueEnEspera) {
                     return response()->json([
                         'message' => 'Las Facturas (01) solo pueden emitirse a clientes con RUC. Para clientes con DNI debe emitir una Boleta (03).',
                         'error' => 'TIPO_DOCUMENTO_INVALIDO',
-                        'cliente_tipo_documento' => $cliente->tipo_documento,
+                        'cliente_numero_documento' => $cliente->numero_documento,
                         'tipo_comprobante_solicitado' => '01',
                     ], 422);
                 }
@@ -1416,6 +1477,40 @@ class VentaController extends Controller
                     'message' => 'Esta venta ya tiene cobros registrados. Usa "Cobrar diferencia" o "Devolver diferencia" para ajustar el monto cobrado.',
                     'error' => 'VENTA_YA_COBRADA',
                 ], 422);
+            }
+
+            // CRÉDITO → CONTADO. Los abonos de una venta a crédito viven en
+            // `cobroventa`, no en `desplieguedepagoventa`, así que $yaTienePagoPrevio
+            // (que solo mira la segunda) daba 0 y la guarda de arriba no los veía:
+            // se aceptaba el total completo como pago al contado mientras los abonos
+            // seguían activos, y la caja terminaba con el dinero DUPLICADO — el de
+            // los cobros más el total de la venta.
+            //
+            // Los reversores de esta misma función no ayudan: revertirCajaDeVenta() y
+            // devolverDineroDeVenta() filtran `referencia_tipo = 'venta'`, y cada
+            // cobro escribe la suya con `referencia_tipo = 'cobro'`.
+            $cobrosActivos = $venta->cobrosVenta()->where('estado', true)->get();
+
+            if (isset($validated['despliegue_de_pago_ventas']) && $cobrosActivos->isNotEmpty()) {
+                $enSesionCerrada = $this->cobrosEnSesionCerrada($cobrosActivos);
+
+                if ($enSesionCerrada->isNotEmpty()) {
+                    $detalle = $enSesionCerrada
+                        ->map(fn ($c) => 'S/ ' . number_format((float) $c->monto, 2) . ' del ' . \Carbon\Carbon::parse($c->fecha)->format('d/m/Y'))
+                        ->implode(', ');
+
+                    return response()->json([
+                        'message' => 'Esta venta tiene abonos cobrados en cajas ya cerradas (' . $detalle . '). '
+                            . 'Convertirla a contado los anularía y descuadraría esos cierres. '
+                            . 'Anula esos cobros a mano desde Ventas por Cobrar y luego convierte la venta.',
+                        'error' => 'COBROS_EN_CAJA_CERRADA',
+                    ], 422);
+                }
+
+                // Todos los abonos son de la sesión abierta: se anulan acá, antes de
+                // registrar el pago al contado, para que la caja no vea nunca los dos
+                // montos a la vez.
+                $this->anularCobrosDeVenta($venta, 'Venta convertida a contado');
             }
 
             // Validar nueva venta
@@ -1997,7 +2092,15 @@ class VentaController extends Controller
                 // cierre de caja. El frontend ya no envía métodos al poner en espera,
                 // pero si quedaron de una edición previa se eliminan aquí.
                 $this->devolverDineroDeVenta($venta);
-                DespliegueDePagoVenta::where('venta_id', $id)->delete();
+
+                // Solo las filas de pago al contado. Las de `tipo = 'cobro'` no son
+                // pagos: son el recargo de un cobro que sigue vivo, y borrarlas acá
+                // haría desaparecer ese recargo de Mis Ventas y del PDF.
+                DespliegueDePagoVenta::where('venta_id', $id)
+                    ->where(function ($q) {
+                        $q->whereNull('tipo')->orWhere('tipo', '!=', 'cobro');
+                    })
+                    ->delete();
             }
 
             // If servicios_venta is provided, update them
@@ -2124,7 +2227,68 @@ class VentaController extends Controller
                 $nuevoTotal = $this->getTotalVenta($ventaFresh);
                 $diferenciaCalculada = round($nuevoTotal - $totalPagadoPrevio, 2);
 
-                if (abs($diferenciaCalculada) > 0.01) {
+                // CAMBIO DE MÉTODO DE PAGO sin cambio de monto. El vendedor se
+                // equivocó de método al cobrar (puso efectivo y fue yape, por
+                // ejemplo) y lo corrige al editar. No hay diferencia que cobrar
+                // ni devolver: hay que ANULAR el pago anterior y registrar el
+                // nuevo, para que el dinero salga de una caja y entre a la otra.
+                //
+                // Se resuelve con las dos mitades que ya existen: una devolución
+                // por los métodos actuales y un cobro por los nuevos. Cada una
+                // ajusta `MetodoDePago.monto` y deja su rastro en caja, así que
+                // el neto es cero pero los saldos por método quedan correctos.
+                $tipoPagoSolicitado = $validated['diferencia_pago']['tipo'] ?? null;
+
+                if ($tipoPagoSolicitado === 'cambio_metodo') {
+                    if (abs($diferenciaCalculada) > 0.01) {
+                        throw new \Exception(
+                            'No se puede cambiar solo el método de pago: esta edición cambió el total de la venta '
+                            . '(diferencia de S/ ' . number_format(abs($diferenciaCalculada), 2) . '). '
+                            . 'Cobra o devuelve la diferencia en su lugar.'
+                        );
+                    }
+
+                    $filasNuevas = $validated['diferencia_pago']['despliegue_de_pago_ventas'];
+                    $sumaNueva = round(array_sum(array_column($filasNuevas, 'monto')), 2);
+
+                    if (abs($sumaNueva - $totalPagadoPrevio) > 0.01) {
+                        throw new \Exception(
+                            'El nuevo pago (S/ ' . number_format($sumaNueva, 2) . ') debe ser por el mismo monto ya '
+                            . 'cobrado (S/ ' . number_format($totalPagadoPrevio, 2) . ').'
+                        );
+                    }
+
+                    // Devolver por el saldo NETO de cada método, no por cada fila
+                    // positiva.
+                    //
+                    // Una venta puede acumular varios cambios de método: cada uno
+                    // deja su cobro y su devolución. Si se devolviera por toda fila
+                    // con monto > 0, el segundo cambio devolvería también el cobro
+                    // original —ya anulado por el primero— y la venta terminaría con
+                    // total pagado NEGATIVO. Pasó con BT01-344: quedó en 0.00
+                    // habiendo cobrado 136.
+                    //
+                    // Agrupando por método y quedándose con los netos positivos, se
+                    // devuelve exactamente lo que hoy está cobrado.
+                    $filasADevolver = $venta->despliegueDePagoVentas
+                        ->groupBy('despliegue_de_pago_id')
+                        ->map(fn ($filas) => round($filas->sum(fn ($f) => (float) $f->monto), 4))
+                        ->filter(fn ($neto) => $neto > 0.001)
+                        ->map(fn ($neto, $despliegueId) => [
+                            'despliegue_de_pago_id' => $despliegueId,
+                            'monto' => $neto,
+                        ])
+                        ->values()
+                        ->toArray();
+
+                    $userIdPago = $validated['user_id'] ?? auth()->id();
+
+                    if ($filasADevolver !== []) {
+                        $this->aplicarPagosVenta($ventaFresh, $filasADevolver, 'devolucion', $userIdPago);
+                    }
+
+                    $this->aplicarPagosVenta($ventaFresh, $filasNuevas, 'diferencia', $userIdPago);
+                } elseif (abs($diferenciaCalculada) > 0.01) {
                     if (!isset($validated['diferencia_pago'])) {
                         $accion = $diferenciaCalculada > 0 ? 'cobrar' : 'devolver';
                         throw new \Exception(
@@ -2171,10 +2335,21 @@ class VentaController extends Controller
                 }
             }
 
+            // Confirmar una venta EN ESPERA no es una edición: es su primer guardado
+            // real (recién ahí se le asigna serie y número). Registrarlo como
+            // 'edicion' hacía que la columna "Editada" de Mis Ventas dijera Sí en
+            // una venta que nunca se editó, solo se confirmó.
+            //
+            // Se deja la entrada en el historial igual, con otra acción, para no
+            // perder la trazabilidad de quién la confirmó y cuándo.
+            $esConfirmacionDeEspera = $estadoAnterior === 'ee' && $estadoNuevo !== 'ee';
+
             VentaHistorial::registrar(
                 ventaId: $id,
-                accion: 'edicion',
-                descripcion: "Venta {$ventaFresh->serie}-{$ventaFresh->numero} editada",
+                accion: $esConfirmacionDeEspera ? 'confirmacion' : 'edicion',
+                descripcion: $esConfirmacionDeEspera
+                    ? "Venta {$ventaFresh->serie}-{$ventaFresh->numero} confirmada desde En Espera"
+                    : "Venta {$ventaFresh->serie}-{$ventaFresh->numero} editada",
                 datosAnteriores: $datosAnteriores,
                 datosNuevos: $datosNuevos,
                 userId: $validated['user_id'] ?? auth()->id(),
@@ -2418,9 +2593,15 @@ class VentaController extends Controller
 
                     if ($bonificacion) continue;
 
-                    // precio ya es por unidad derivada (no multiplicar por factor)
-                    $subtotal = $precio * $cantidad;
-                    $subtotalConRecargo = $subtotal + $recargo;
+                    // precio ya es por unidad derivada (no multiplicar por factor).
+                    //
+                    // El RECARGO es POR UNIDAD: se suma al precio y recién ahí se
+                    // multiplica por la cantidad. Antes se sumaba una sola vez por
+                    // línea (`$precio * $cantidad + $recargo`), que es lo que hacía
+                    // que Ventas por Cobrar mostrara menos que Mis Ventas — la
+                    // diferencia era exactamente `recargo × (cantidad − 1)`.
+                    // Con cantidad 1 daban igual, por eso pasó desapercibido.
+                    $subtotalConRecargo = ($precio + $recargo) * $cantidad;
 
                     if ($u->descuento_tipo === 'porcentaje') {
                         $montoLinea = $subtotalConRecargo - ($subtotalConRecargo * $descuento / 100);
@@ -2448,9 +2629,15 @@ class VentaController extends Controller
 
                     if ($bonificacion) continue;
 
-                    // precio ya es por unidad derivada (no multiplicar por factor)
-                    $subtotal = $precio * $cantidad;
-                    $subtotalConRecargo = $subtotal + $recargo;
+                    // precio ya es por unidad derivada (no multiplicar por factor).
+                    //
+                    // El RECARGO es POR UNIDAD: se suma al precio y recién ahí se
+                    // multiplica por la cantidad. Antes se sumaba una sola vez por
+                    // línea (`$precio * $cantidad + $recargo`), que es lo que hacía
+                    // que Ventas por Cobrar mostrara menos que Mis Ventas — la
+                    // diferencia era exactamente `recargo × (cantidad − 1)`.
+                    // Con cantidad 1 daban igual, por eso pasó desapercibido.
+                    $subtotalConRecargo = ($precio + $recargo) * $cantidad;
 
                     if ($descuentoTipo === 'porcentaje') {
                         $montoLinea = $subtotalConRecargo - ($subtotalConRecargo * $descuento / 100);
@@ -2896,6 +3083,126 @@ class VentaController extends Controller
     }
 
     /**
+     * De un lote de cobros, cuáles se registraron en una sesión de caja YA CERRADA.
+     *
+     * Anular un cobro le baja el saldo a la sub-caja y borra su transacción. Si ese
+     * abono se cobró en una apertura que ya se cerró y se arqueó, anularlo ahora
+     * reescribe hacia atrás un cierre firmado: le saca plata a un día que ya cuadró
+     * y la vuelve a registrar en la sesión de hoy, como si el cliente la hubiera
+     * traído hoy. Por eso la conversión a contado solo se permite cuando todos los
+     * abonos son de la sesión abierta.
+     *
+     * El vínculo fiable es `movimiento_caja.apertura_cierre_id`, que
+     * registrarCobroEnCaja() graba junto al cobro. Si no hay movimiento se cae a
+     * comparar la fecha de la transacción contra la apertura abierta del usuario.
+     * Un cobro que no movió caja (no tiene transacción) no descuadra nada al
+     * anularse, así que no cuenta como cerrado.
+     */
+    private function cobrosEnSesionCerrada($cobros)
+    {
+        return collect($cobros)->filter(function ($cobro) {
+            $movimiento = MovimientoCaja::where('referencia_tipo', 'cobro')
+                ->where('referencia_id', $cobro->id)
+                ->first();
+
+            if ($movimiento && $movimiento->apertura_cierre_id) {
+                $apertura = AperturaCierreCaja::find($movimiento->apertura_cierre_id);
+
+                return $apertura ? $apertura->fecha_cierre !== null : true;
+            }
+
+            $transaccion = TransaccionCaja::where('referencia_tipo', 'cobro')
+                ->where('referencia_id', $cobro->id)
+                ->first();
+
+            if (! $transaccion) {
+                return false;
+            }
+
+            $abierta = AperturaCierreCaja::where('user_id', $transaccion->user_id)
+                ->whereNull('fecha_cierre')
+                ->orderByDesc('fecha_apertura')
+                ->first();
+
+            return ! ($abierta && $transaccion->created_at >= $abierta->fecha_apertura);
+        })->values();
+    }
+
+    /**
+     * Anula todos los cobros activos de una venta y deshace su efecto en caja.
+     *
+     * Se apoya en revertirCobroEnCaja(), que ya borra las `transacciones_caja` del
+     * cobro, le baja el saldo a la sub-caja y borra su `movimiento_caja`.
+     *
+     * NO toca `MetodoDePago.monto` a propósito. destroy() sí lo decrementa al
+     * anular cobros, pero ningún camino lo INCREMENTA al registrarlos
+     * (registrarCobroEnCaja no lo hace, anularCobro tampoco), así que ese
+     * decremento deja el contador por debajo de lo real. Es un bug de destroy()
+     * que no conviene replicar acá.
+     */
+    private function anularCobrosDeVenta($venta, string $motivo): void
+    {
+        $cobros = $venta->cobrosVenta()->where('estado', true)->get();
+
+        foreach ($cobros as $cobro) {
+            $this->revertirCobroEnCaja($cobro);
+
+            // El recargo que había dejado ese cobro se va con él; si no, la venta
+            // seguiría mostrando en Mis Ventas el recargo de un cobro anulado.
+            DespliegueDePagoVenta::where('venta_id', $venta->id)
+                ->where('tipo', 'cobro')
+                ->where('referencia', $cobro->id)
+                ->delete();
+
+            $cobro->update([
+                'estado' => false,
+                'fecha_anulacion' => now()->format('Y-m-d H:i:s'),
+                'observacion' => ($cobro->observacion ? $cobro->observacion . ' | ' : '') . 'ANULADO: ' . $motivo,
+            ]);
+        }
+    }
+
+    /**
+     * Deja registrado el SOBRECARGO de un cobro donde el resto del sistema ya lo
+     * busca: `desplieguedepagoventa.sobrecargo_aplicado`, que es lo que suman la
+     * columna "Sobrecargo" de Mis Ventas y el PDF de la venta.
+     *
+     * `cobroventa` no tiene columna para el recargo, así que hasta ahora el modal
+     * lo calculaba, lo mostraba en "Total a Cobrar" y al guardar se perdía: una
+     * venta a crédito cobrada con un método con recargo salía en guion, mientras
+     * que la misma venta al contado lo mostraba bien.
+     *
+     * La fila va con `monto = 0` A PROPÓSITO. El cobro ya se contabiliza por
+     * `cobroventa`; si acá se repitiera el monto, la venta quedaría pagada el
+     * doble en todo lo que suma `desplieguedepagoventa.monto` — el total pagado
+     * del listado, la deuda del cliente, el dashboard contable, el cierre de caja
+     * y el resumen de bancos. Con monto 0 esas sumas no cambian y solo se suma el
+     * recargo, que es lo único que faltaba.
+     *
+     * No se crea nada si el método no tiene recargo: sin esto quedarían filas
+     * vacías por cada cobro, ensuciando el detalle de pagos del cierre.
+     */
+    private function registrarSobrecargoDeCobro($venta, $cobro, DespliegueDePago $despliegue, float $monto, string $userId): void
+    {
+        $sobrecargo = \App\Models\NumeroOperacionPago::calcularSobrecargo($despliegue, $monto);
+
+        if ($sobrecargo <= 0) {
+            return;
+        }
+
+        DespliegueDePagoVenta::create([
+            'venta_id' => $venta->id,
+            'despliegue_de_pago_id' => $despliegue->id,
+            'monto' => 0,
+            'tipo' => 'cobro',
+            'sobrecargo_aplicado' => $sobrecargo,
+            'referencia' => $cobro->id,
+            'fecha' => $cobro->fecha ?? now(),
+            'user_id' => $userId,
+        ]);
+    }
+
+    /**
      * Mensaje del 422 cuando el método de pago elegido no puede recibir el dinero
      * de ese comprobante. Dice el porqué y qué hacer, porque el usuario no tiene
      * cómo saber qué comprobantes acepta cada sub-caja.
@@ -3285,6 +3592,48 @@ class VentaController extends Controller
             ->with(['user:id,name', 'despliegueDePago:id,name'])
             ->orderBy('fecha')
             ->get();
+
+        // Estado de cada cobro: ACTIVO o ANULADO.
+        //
+        // `desplieguedepagoventa` no guarda un estado — un cobro se anula
+        // registrando una DEVOLUCIÓN por el mismo método y monto (así funciona
+        // "devolver diferencia" y el cambio de método de pago). Así que el estado
+        // se deduce emparejando cada devolución con el cobro que cancela.
+        //
+        // Se emparejan de a uno y en orden: si hubo dos cobros iguales y una sola
+        // devolución, se anula el primero y el segundo sigue activo. Por eso se
+        // lleva un contador por método+monto en vez de marcar todos los que
+        // coincidan.
+        $devolucionesPendientes = [];
+        foreach ($cobros as $fila) {
+            if ((float) $fila->monto >= 0) {
+                continue;
+            }
+            $clave = $fila->despliegue_de_pago_id . '|' . number_format(abs((float) $fila->monto), 4, '.', '');
+            $devolucionesPendientes[$clave] = ($devolucionesPendientes[$clave] ?? 0) + 1;
+        }
+
+        $cobros = $cobros->map(function ($fila) use (&$devolucionesPendientes) {
+            $monto = (float) $fila->monto;
+
+            // La devolución en sí no se "anula": es el movimiento que anula a otro.
+            if ($monto < 0) {
+                $fila->estado = 'activo';
+
+                return $fila;
+            }
+
+            $clave = $fila->despliegue_de_pago_id . '|' . number_format($monto, 4, '.', '');
+
+            if (($devolucionesPendientes[$clave] ?? 0) > 0) {
+                $devolucionesPendientes[$clave]--;
+                $fila->estado = 'anulado';
+            } else {
+                $fila->estado = 'activo';
+            }
+
+            return $fila;
+        });
 
         return response()->json(['data' => ['ediciones' => $ediciones, 'cobros' => $cobros]]);
     }
@@ -3769,6 +4118,15 @@ class VentaController extends Controller
                 $validated['user_id']
             );
 
+            // Sobrecargo del método, calculado sobre lo que se está cobrando ahora.
+            $this->registrarSobrecargoDeCobro(
+                $venta,
+                $cobro,
+                DespliegueDePago::findOrFail($validated['despliegue_de_pago_id']),
+                (float) $validated['monto'],
+                $validated['user_id']
+            );
+
             // El estado de la venta permanece en Creado; el saldo se calcula
             // dinámicamente a partir del total cobrado vs. el total de la venta.
 
@@ -3858,6 +4216,16 @@ class VentaController extends Controller
                     $validated['user_id']
                 );
 
+                // Y el sobrecargo, también igual que en el cobro individual: se
+                // calcula por venta, sobre lo que le tocó a cada una en el reparto.
+                $this->registrarSobrecargoDeCobro(
+                    $venta,
+                    $cobro,
+                    DespliegueDePago::findOrFail($desplieguePagoId),
+                    (float) $item['monto'],
+                    $validated['user_id']
+                );
+
                 // El estado de la venta permanece en Creado; el saldo se calcula
                 // dinámicamente a partir del total cobrado vs. el total de la venta.
 
@@ -3918,6 +4286,13 @@ class VentaController extends Controller
 
             // Revertir el ingreso en caja (baja el saldo y borra los rastros del cobro).
             $this->revertirCobroEnCaja($cobro);
+
+            // Y borrar el sobrecargo que había dejado ese cobro, si no la venta
+            // seguiría mostrando en Mis Ventas el recargo de un cobro anulado.
+            DespliegueDePagoVenta::where('venta_id', $venta->id)
+                ->where('tipo', 'cobro')
+                ->where('referencia', $cobro->id)
+                ->delete();
 
             // Recalcular el total cobrado (solo cobros activos)
             $totalVenta = $this->getTotalVenta($venta);

@@ -484,7 +484,24 @@ class FacturaService implements FacturaServiceInterface
             : $venta->tipo_documento;
 
         if (!in_array($tipoDocumento, ['01', '03'])) {
-            throw FacturaException::ventaNoValida('Solo facturas (01) y boletas (03) son válidas');
+            throw FacturaException::ventaNoValida('Las notas de venta no se declaran a SUNAT. Solo facturas (01) y boletas (03).');
+        }
+
+        // EN ESPERA: la venta todavía no está confirmada. No tiene serie ni
+        // correlativo asignados (se asignan al confirmarla), así que no hay
+        // comprobante que enviar — y si igual se intentara, se estaría
+        // declarando a SUNAT una venta que puede no llegar a existir.
+        //
+        // El check de estado que había acá estaba comentado "temporalmente para
+        // pruebas", y con él apagado el envío aceptaba cualquier estado. Se
+        // reactiva solo para 'ee', que es el caso problemático; el resto sigue
+        // pasando como hasta ahora para no romper flujos existentes.
+        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum
+            ? $venta->estado_de_venta->value
+            : $venta->estado_de_venta;
+
+        if ($estadoVenta === 'ee') {
+            throw FacturaException::ventaNoValida('La venta está En Espera: confírmala antes de enviarla a SUNAT.');
         }
 
         // ✅ Validar que la serie coincida con el tipo de documento
@@ -515,7 +532,11 @@ class FacturaService implements FacturaServiceInterface
         
         // ✅ VALIDACIÓN CRÍTICA: DNI vs RUC según tipo de comprobante
         // Solo validar cuando se va a enviar a SUNAT, no al crear la venta
-        $clienteTipoDoc = $cliente->tipo_documento === 'ruc' ? '6' : '1';
+        // Antes comparaba `$cliente->tipo_documento === 'ruc'`, pero esa columna no
+        // existe en la tabla `cliente`: la propiedad siempre valía null, así que
+        // TODO cliente quedaba como DNI y ninguna factura pasaba la validación de
+        // abajo, tuviera RUC o no. La regla vive ahora en el modelo.
+        $clienteTipoDoc = $cliente->tipoDocumentoSunat();
         
         if ($validarParaSunat) {
             // Si es Factura (01) y el cliente tiene DNI, lanzar error
@@ -559,9 +580,14 @@ class FacturaService implements FacturaServiceInterface
             $cantidadTotal = 0;
             $precioUnitarioPromedio = 0;
             
+            // El RECARGO va dentro del precio unitario: es parte de lo que paga el
+            // cliente, así que tiene que declararse. Acá se leía solo `precio`, de
+            // modo que el comprobante salía SIN recargo — en FT01-15 se le cobraron
+            // S/25 de recargo al cliente y a SUNAT se declararon S/0. Es por unidad,
+            // igual que en getTotalVenta() y en la pantalla de crear venta.
             foreach ($unidadesDerivadas as $unidad) {
                 $cantidadTotal += $unidad->cantidad;
-                $precioUnitarioPromedio += $unidad->precio;
+                $precioUnitarioPromedio += (float) $unidad->precio + (float) ($unidad->recargo ?? 0);
             }
             
             // Si hay múltiples unidades, promediar el precio
@@ -858,13 +884,9 @@ class FacturaService implements FacturaServiceInterface
             return ['0', '0'];
         }
 
-        $tipoDoc = match ($cliente->tipo_documento) {
-            'ruc' => '6',
-            'pasaporte' => '7',
-            'carnet_extranjeria' => '4',
-            default => '1', // DNI
-        };
-
-        return [$tipoDoc, $numDoc];
+        // Mismo problema que arriba: este `match` iba siempre al default porque
+        // `tipo_documento` no existe, y los comprobantes salían con schemeID="1"
+        // (DNI) incluso para clientes con RUC de 11 dígitos.
+        return [$cliente->tipoDocumentoSunat(), $numDoc];
     }
 }

@@ -87,7 +87,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
                         'correlativo' => $notaCredito->numero, // ⚠️ En la tabla se llama 'correlativo'
                         'fecha_emision' => $notaCredito->fecha->format('Y-m-d'),
                         'cliente_id' => $cliente->id,
-                        'cliente_tipo_documento' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
+                        'cliente_tipo_documento' => $cliente->tipoDocumentoSunat(),
                         'cliente_numero_documento' => $cliente->numero_documento,
                         'cliente_razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'Cliente',
                         'cliente_direccion' => $cliente->direccion,
@@ -301,7 +301,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
                     'correlativo' => $notaCredito->numero, // ✅ Campo requerido
                     'fecha_emision' => $notaCredito->fecha->format('Y-m-d'),
                     'cliente_id' => $cliente->id,
-                    'cliente_tipo_documento' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
+                    'cliente_tipo_documento' => $cliente->tipoDocumentoSunat(),
                     'cliente_numero_documento' => $cliente->numero_documento,
                     'cliente_razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'Cliente',
                     'cliente_direccion' => $cliente->direccion,
@@ -839,7 +839,7 @@ class NotaCreditoService implements NotaCreditoServiceInterface
             'total' => $notaCredito->monto_total,
             'monto_en_letras' => $this->convertirNumeroALetras($notaCredito->monto_total),
             'cliente' => [
-                'tipo_doc' => $cliente->tipo_documento === 'ruc' ? '6' : '1',
+                'tipo_doc' => $cliente->tipoDocumentoSunat(),
                 'num_doc' => $cliente->numero_documento,
                 'razon_social' => $cliente->razon_social ?? trim(($cliente->nombres ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: 'Cliente',
                 'direccion' => $cliente->direccion ?? '',

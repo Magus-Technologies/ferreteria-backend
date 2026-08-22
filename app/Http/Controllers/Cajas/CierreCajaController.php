@@ -853,6 +853,19 @@ class CierreCajaController extends Controller
             'fecha_arqueo' => $arqueo->fecha_arqueo,
             'monto_apertura' => $distribucion ? $distribucion->monto : ($apertura?->monto_apertura ?? 0),
             'monto_cierre' => $arqueo->monto_cierre,
+            // Lo que el cajero DECLARÓ de efectivo al cerrar, separado del total.
+            // `monto_cierre` mezcla efectivo + cuentas, así que no sirve para
+            // detectar un monto mal tipeado. `monto_esperado` se reconstruye de la
+            // diferencia, que es como se calculó en el momento del cierre — no se
+            // recalcula, porque el libro pudo cambiar después y entonces la columna
+            // dejaría de reflejar lo que el cajero vio en pantalla.
+            'monto_cierre_efectivo' => $arqueo->monto_cierre_efectivo,
+            'monto_cierre_cuentas' => $arqueo->monto_cierre_cuentas,
+            'monto_esperado' => $arqueo->monto_cierre_efectivo !== null
+                ? round((float) $arqueo->monto_cierre_efectivo - (float) $arqueo->diferencia_efectivo, 2)
+                : null,
+            // Si viene null, el monto se tipeó a mano sin desglosar billetes.
+            'tuvo_conteo_billetes' => ! empty($arqueo->conteo_billetes_monedas),
             'estado' => 'cerrada',
             'estado_cierre' => $arqueo->estado_cierre,
             'diferencia_efectivo' => $arqueo->diferencia_efectivo,
