@@ -33,6 +33,10 @@ class Empresa extends Model
         'sunat_client_id',
         'sunat_secret_client',
         'sunat_modo',
+        'sunat_auto_send_factura_enabled',
+        'sunat_auto_send_factura_after_days',
+        'sunat_auto_send_boleta_enabled',
+        'sunat_auto_send_boleta_after_days',
     ];
 
     protected $appends = [
@@ -52,6 +56,10 @@ class Empresa extends Model
             'serie_recepcion_almacen' => 'integer',
             'imprimir_impuestos_boleta' => 'boolean',
             'sunat_modo' => 'string',
+            'sunat_auto_send_factura_enabled' => 'boolean',
+            'sunat_auto_send_factura_after_days' => 'integer',
+            'sunat_auto_send_boleta_enabled' => 'boolean',
+            'sunat_auto_send_boleta_after_days' => 'integer',
         ];
     }
 

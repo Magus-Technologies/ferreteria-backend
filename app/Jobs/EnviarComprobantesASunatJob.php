@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\ComprobanteElectronico;
+use App\Models\Empresa;
 use App\Services\Interfaces\FacturaServiceInterface;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -10,7 +11,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
 
 /**
@@ -36,21 +36,19 @@ class EnviarComprobantesASunatJob implements ShouldQueue
 
     public function handle(FacturaServiceInterface $facturaService): void
     {
+        $empresa = Empresa::first();
 
         // 1. PROCESAR FACTURAS (01)
-        if (Cache::get('sunat_api_auto_send_factura_enabled', config('sunat-api.auto_send_factura_enabled', false))) {
-            $afterDays = (int) Cache::get('sunat_api_auto_send_factura_after_days', config('sunat-api.auto_send_factura_after_days', 3));
+        if ($empresa?->sunat_auto_send_factura_enabled) {
+            $afterDays = (int) $empresa->sunat_auto_send_factura_after_days;
             $this->procesarTipoDocumento($facturaService, '01', 'factura', $afterDays);
-        } else {
         }
 
         // 2. PROCESAR BOLETAS (03)
-        if (Cache::get('sunat_api_auto_send_boleta_enabled', config('sunat-api.auto_send_boleta_enabled', false))) {
-            $afterDays = (int) Cache::get('sunat_api_auto_send_boleta_after_days', config('sunat-api.auto_send_boleta_after_days', 0));
+        if ($empresa?->sunat_auto_send_boleta_enabled) {
+            $afterDays = (int) $empresa->sunat_auto_send_boleta_after_days;
             $this->procesarTipoDocumento($facturaService, '03', 'boleta', $afterDays);
-        } else {
         }
-
     }
 
     private function procesarTipoDocumento(FacturaServiceInterface $facturaService, string $tipoDoc, string $configKey, int $diasAntiguedad): void

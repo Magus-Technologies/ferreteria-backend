@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Empresa;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 class ConfiguracionController extends Controller
 {
@@ -12,14 +12,16 @@ class ConfiguracionController extends Controller
      */
     public function getAutoSendStatus()
     {
+        $empresa = Empresa::first();
+
         return response()->json([
             'factura' => [
-                'enabled' => Cache::get('sunat_api_auto_send_factura_enabled', config('sunat-api.auto_send_factura_enabled', false)),
-                'after_days' => (int) Cache::get('sunat_api_auto_send_factura_after_days', config('sunat-api.auto_send_factura_after_days', 3)),
+                'enabled' => (bool) ($empresa->sunat_auto_send_factura_enabled ?? false),
+                'after_days' => (int) ($empresa->sunat_auto_send_factura_after_days ?? 3),
             ],
             'boleta' => [
-                'enabled' => Cache::get('sunat_api_auto_send_boleta_enabled', config('sunat-api.auto_send_boleta_enabled', false)),
-                'after_days' => (int) Cache::get('sunat_api_auto_send_boleta_after_days', config('sunat-api.auto_send_boleta_after_days', 0)),
+                'enabled' => (bool) ($empresa->sunat_auto_send_boleta_enabled ?? false),
+                'after_days' => (int) ($empresa->sunat_auto_send_boleta_after_days ?? 0),
             ],
         ]);
     }
@@ -37,27 +39,36 @@ class ConfiguracionController extends Controller
             'configs' => 'required_if:type,all|array',
         ]);
 
+        $empresa = Empresa::firstOrFail();
         $type = $request->input('type');
 
         if ($type === 'all') {
             $configs = $request->input('configs');
             foreach (['factura', 'boleta'] as $t) {
                 if (isset($configs[$t])) {
-                    $this->saveToCache($t, $configs[$t]);
+                    $this->saveToEmpresa($empresa, $t, $configs[$t]);
                 }
             }
         } else {
-            $this->saveToCache($type, $request->input('config'));
+            $this->saveToEmpresa($empresa, $type, $request->input('config'));
         }
 
         return response()->json([
-            'message' => 'Configuración actualizada correctamente en cache persistente',
+            'message' => 'Configuración actualizada correctamente',
         ]);
     }
 
-    private function saveToCache($type, $config)
+    /**
+     * Persiste en la tabla `empresa`, no en cache: el deploy corre
+     * `php artisan cache:clear` (ver .github/workflows/deploy.yml), así que
+     * un `Cache::forever()` acá se borraba en cada deploy — el toggle
+     * volvía a su default silenciosamente sin que nadie lo desactivara.
+     */
+    private function saveToEmpresa(Empresa $empresa, string $type, array $config): void
     {
-        Cache::forever("sunat_api_auto_send_{$type}_enabled", $config['enabled']);
-        Cache::forever("sunat_api_auto_send_{$type}_after_days", $config['after_days']);
+        $empresa->update([
+            "sunat_auto_send_{$type}_enabled" => $config['enabled'],
+            "sunat_auto_send_{$type}_after_days" => $config['after_days'],
+        ]);
     }
 }
