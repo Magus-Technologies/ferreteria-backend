@@ -564,7 +564,7 @@ class KardexFacturacionService
 
         // Obtener filas de entregas hechas y anuladas
         $entregaRows = $this->getEntregasParaKardex($productoId, $almacenId, $desde, $hasta, $clienteId);
-        $entregaRows = $this->expandirEntregasPorMovimiento($entregaRows, $kardexRows);
+        $entregaRows = $this->expandirEntregasPorMovimiento($entregaRows, $hasta);
 
         // Combinar y ordenar por fecha asc para acumular el stock cronológicamente.
         // En caso de empate de fecha (venta + su entrega automática), la VENTA
@@ -728,70 +728,200 @@ class KardexFacturacionService
     }
 
     /**
-     * Reparte cada fila de ENTREGA en una fila por movimiento real de la venta.
+     * Reparte cada fila de ENTREGA (vigente) entre los movimientos reales de la venta.
      *
      * `entrega_detalle` NO es un libro histórico: al editar una venta se borra y se
      * recrea con la cantidad NUEVA, bajo la misma cabecera `entrega` (que conserva su
-     * `created_at` original). Eso producía dos defectos en el kardex:
+     * `created_at` original). El kardex (`kardex_facturacions`) sí es inmutable: guarda
+     * VENTA 50 y luego AJUSTE POR EDICIÓN 5. Para que la ENTREGA de 55 no se
+     * contradiga con la VENTA de 50 (ni nazca antes que el ajuste que la creó), se
+     * parte en una fila espejo por movimiento: 50 con la fecha de la venta y 5 con la
+     * del ajuste.
      *
-     *  - La ENTREGA de un producto que subió de 50 a 55 mostraba `cantidad = 55` pero
-     *    arrastraba el stock del movimiento de 50 (255 → 205). La fila se contradecía,
-     *    y leída junto al AJUSTE los 5 aparecían dos veces.
-     *  - La ENTREGA de un producto AGREGADO en la edición nacía con la fecha de la
-     *    venta original, o sea antes de existir, y se ordenaba encima del ajuste que
-     *    la creó.
+     * La versión anterior clonaba cada entrega por movimiento copiándole la CANTIDAD y
+     * la FECHA del movimiento, asumiendo una sola entrega por venta. Al cambiar o
+     * partir la entrega desde Mis Ventas (varias entregas reales por producto) cada una
+     * salía con la cantidad total de la venta y la hora de la venta: NT01-289, 3 tubos
+     * vendidos, 4 entregas → 12 "entregados", todas a la hora de la venta. Y en una
+     * venta editada 4 → 8 → 4 la única entrega salía como 4 + 4 + 4.
      *
-     * El kardex (`kardexfacturacion`) sí es inmutable: guarda VENTA 50 y luego
-     * AJUSTE POR EDICIÓN 5. Así que la entrega se deriva de ahí — una fila espejo por
-     * movimiento, con la fecha y la cantidad de ese movimiento.
+     * Ahora la cantidad siempre sale de la ENTREGA (`entrega_detalle`, en fracción) y
+     * se reparte FIFO —por orden de creación de las entregas— sobre lo que dejó cada
+     * movimiento de la venta (ver saldosPorMovimientoDeVenta()). La fecha de cada
+     * parte es la del movimiento o la de creación de la entrega, la que sea posterior;
+     * así una entrega parcial creada después conserva su propia hora. Lo que ningún
+     * movimiento cubre (p. ej. varias entregas activas reescritas con el total tras
+     * editar la venta) se muestra igual, a la fecha de la entrega, para no perder
+     * cantidad. Las partes que caen después de `hasta` (un ajuste posterior al rango
+     * consultado) se omiten: pertenecen a ese otro día.
      *
      * Las ENTREGAS ANULADAS no se tocan: `fecha_anulacion` es un hecho propio, no el
      * reflejo de un movimiento de venta.
      */
-    private function expandirEntregasPorMovimiento(array $entregaRows, array $kardexRows): array
+    protected function expandirEntregasPorMovimiento(array $entregaRows, ?string $hasta = null): array
     {
         if (empty($entregaRows)) {
             return $entregaRows;
         }
 
-        // Movimientos de venta agrupados por venta+producto, en orden cronológico.
-        $movimientosPorVentaProducto = [];
-        foreach ($kardexRows as $k) {
-            if (($k->tipo ?? null) !== 'venta' || empty($k->producto_id)) {
+        $expandidas = [];
+        $vigentes = [];
+        foreach ($entregaRows as $row) {
+            if (($row->movimiento ?? null) === 'ENTREGA ANULADA' || empty($row->producto_id)) {
+                $expandidas[] = $row;
                 continue;
             }
-            $movimientosPorVentaProducto["{$k->referencia_id}_{$k->producto_id}"][] = $k;
+            $vigentes[] = $row;
+        }
+        if (empty($vigentes)) {
+            return $expandidas;
         }
 
-        $expandidas = [];
-        foreach ($entregaRows as $row) {
-            $movimientos = $movimientosPorVentaProducto["{$row->referencia_id}_{$row->producto_id}"] ?? [];
+        // FIFO por orden de creación de la entrega (id como desempate).
+        usort($vigentes, function ($a, $b) {
+            $fa = strtotime($a->fecha ?? '1970-01-01');
+            $fb = strtotime($b->fecha ?? '1970-01-01');
+            if ($fa !== $fb) return $fa <=> $fb;
+            return ((int) ($a->id ?? 0)) <=> ((int) ($b->id ?? 0));
+        });
 
-            if (($row->movimiento ?? null) === 'ENTREGA ANULADA' || empty($movimientos)) {
-                // Sin movimientos que reflejar (entrega legacy, o venta fuera del rango
-                // de fechas consultado): se deja tal cual para no perder la fila.
+        $ventaIds = array_values(array_unique(array_map(fn ($r) => (string) $r->referencia_id, $vigentes)));
+        $saldos = $this->saldosPorMovimientoDeVenta($ventaIds);
+
+        $limite = $hasta ? strtotime($hasta . ' 23:59:59') : null;
+        $eps = 0.0001;
+
+        foreach ($vigentes as $row) {
+            $key = "{$row->referencia_id}_{$row->producto_id}";
+            if (empty($saldos[$key])) {
+                // Sin movimientos de venta (entrega legacy): se deja tal cual.
                 $expandidas[] = $row;
                 continue;
             }
 
-            foreach ($movimientos as $mov) {
+            $factor = (float) ($row->factor ?? 1) ?: 1.0;
+            $restante = (float) ($row->cantidad_fraccion ?? 0);
+            if ($restante <= $eps) {
+                $restante = (float) ($row->cantidad ?? 0) * $factor;
+            }
+            if ($restante <= $eps) {
+                $expandidas[] = $row;
+                continue;
+            }
+
+            $creada = strtotime($row->fecha ?? '1970-01-01');
+
+            // Partes de esta entrega, indexadas por fecha: si dos movimientos caen en la
+            // misma fecha resultante se funden en una sola fila.
+            $partes = [];
+            $agregar = function ($mov, float $fraccion) use (&$partes, $creada, $row) {
+                $fechaMov = strtotime($mov->fecha ?? '1970-01-01');
+                $fecha = $fechaMov > $creada ? $mov->fecha : $row->fecha;
+                if (isset($partes[$fecha])) {
+                    $partes[$fecha]['fraccion'] += $fraccion;
+                    $partes[$fecha]['mov'] = $mov;
+                } else {
+                    $partes[$fecha] = ['mov' => $mov, 'fraccion' => $fraccion];
+                }
+            };
+
+            foreach ($saldos[$key] as &$saldo) {
+                if ($restante <= $eps) break;
+                if ($saldo['disponible'] <= $eps) continue;
+                $toma = min($saldo['disponible'], $restante);
+                $saldo['disponible'] -= $toma;
+                $restante -= $toma;
+                $agregar($saldo['mov'], $toma);
+            }
+            unset($saldo);
+
+            if ($restante > $eps) {
+                $ultimo = $saldos[$key][count($saldos[$key]) - 1]['mov'];
+                $agregar($ultimo, $restante);
+            }
+
+            foreach ($partes as $fecha => $parte) {
+                if ($limite !== null && strtotime($fecha) > $limite) {
+                    continue;
+                }
                 $clon = clone $row;
-                $clon->fecha = $mov->fecha;
-                // `cantidad` de una VENTA puede ser solo el excedente sobre una reserva
-                // de cotización; se suma lo reservado para que la entrega muestre el
-                // total real (la rama de entrega más abajo ya no le vuelve a sumar).
-                $clon->cantidad = (float) ($mov->cantidad ?? 0) + (float) ($mov->cantidad_reservada ?? 0);
-                $clon->cantidad_fraccion = $clon->cantidad * (float) ($row->factor ?? 1);
+                $clon->fecha = $fecha;
+                $clon->cantidad_fraccion = $parte['fraccion'];
+                $clon->cantidad = $parte['fraccion'] / $factor;
                 // Las ENTREGAS van todas juntas encima del bloque de movimientos, no
                 // pegada cada una al suyo. El -100 las manda debajo de cualquier `orden`
                 // real; conservar el del movimiento como decimal mantiene entre ellas el
                 // mismo orden que tienen sus movimientos.
-                $clon->orden = (float) ($mov->orden ?? 1) - 100;
+                $clon->orden = (float) ($parte['mov']->orden ?? 1) - 100;
                 $expandidas[] = $clon;
             }
         }
 
         return $expandidas;
+    }
+
+    /**
+     * Cuánto dejó pendiente de entregar cada movimiento de venta, por venta+producto,
+     * en fracción y en orden cronológico. Se lee TODA la historia de esas ventas (no
+     * solo el rango consultado) para que el reparto sea el mismo sin importar el filtro.
+     *
+     * @return array<string, array<int, array{mov: object, disponible: float}>>
+     */
+    protected function saldosPorMovimientoDeVenta(array $ventaIds): array
+    {
+        if (empty($ventaIds)) {
+            return [];
+        }
+
+        $movimientos = DB::table('kardex_facturacions')
+            ->where('tipo', 'venta')
+            ->whereIn('referencia_id', $ventaIds)
+            ->orderBy('fecha')
+            ->orderBy('orden')
+            ->orderBy('id')
+            ->get();
+
+        return $this->armarSaldos($movimientos->all());
+    }
+
+    /**
+     * Las salidas (VENTA, AJUSTE de salida) abren saldo; las entradas (AJUSTE de
+     * entrada, producto eliminado) lo descuentan del movimiento más reciente que aún
+     * tenga (LIFO), así una venta editada 50 → 55 → 50 queda con un solo saldo de 50 y
+     * no con 50 + 5.
+     *
+     * @param object[] $movimientos  filas de kardex_facturacions tipo 'venta', cronológicas
+     */
+    protected function armarSaldos(array $movimientos): array
+    {
+        $eps = 0.0001;
+        $saldos = [];
+        foreach ($movimientos as $k) {
+            if (empty($k->producto_id)) {
+                continue;
+            }
+            $key = "{$k->referencia_id}_{$k->producto_id}";
+            $factor = (float) ($k->factor ?? 1) ?: 1.0;
+            $fraccion = (float) ($k->cantidad_fraccion ?? 0);
+            if ($fraccion <= $eps) {
+                $fraccion = (float) ($k->cantidad ?? 0) * $factor;
+            }
+            // `cantidad`/`cantidad_fraccion` de una VENTA es solo el excedente sobre la
+            // reserva de cotización (ver registrarVenta()); lo reservado también salió.
+            $fraccion += (float) ($k->cantidad_reservada ?? 0) * $factor;
+
+            $esEntrada = (float) ($k->entrada ?? 0) > $eps && (float) ($k->salida ?? 0) <= $eps;
+            if ($esEntrada) {
+                for ($i = count($saldos[$key] ?? []) - 1; $i >= 0 && $fraccion > $eps; $i--) {
+                    $quita = min($saldos[$key][$i]['disponible'], $fraccion);
+                    $saldos[$key][$i]['disponible'] -= $quita;
+                    $fraccion -= $quita;
+                }
+                continue;
+            }
+            $saldos[$key][] = ['mov' => $k, 'disponible' => $fraccion];
+        }
+        return $saldos;
     }
 
     private function getEntregasParaKardex(
@@ -872,6 +1002,10 @@ class KardexFacturacionService
                 if ($desde) $q->whereDate('e.fecha_anulacion', '>=', $desde);
                 if ($hasta) $q->whereDate('e.fecha_anulacion', '<=', $hasta);
             } else {
+                // Solo entregas vigentes: una anulada ya sale como "ENTREGA ANULADA" (rama
+                // de arriba); mostrarla también como "ENTREGA" la duplicaba (NT01-289: 2
+                // entregas reemplazadas → 14 filas de más).
+                $q->whereNull('e.fecha_anulacion');
                 $q->whereNotNull('e.fecha_creacion');
                 if ($desde) $q->whereDate('e.fecha_creacion', '>=', $desde);
                 if ($hasta) $q->whereDate('e.fecha_creacion', '<=', $hasta);
