@@ -46,6 +46,7 @@ Route::middleware(['auth:sanctum'])->prefix('facturacion-electronica')->middlewa
     Route::prefix('comprobantes')->group(function () {
         Route::get('/buscar', [ComprobanteElectronicoController::class, 'buscar']);
         Route::get('/pendientes-alerta', [ComprobanteElectronicoController::class, 'pendientesAlerta']);
+        Route::get('/pendientes-baja', [ComprobanteElectronicoController::class, 'pendientesBaja']);
         Route::get('/ayuda-motivos', [ComprobanteElectronicoController::class, 'getAyudaMotivos']);
         Route::get('/{id}', [ComprobanteElectronicoController::class, 'show']);
     });

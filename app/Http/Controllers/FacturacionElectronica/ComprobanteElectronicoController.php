@@ -353,4 +353,64 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
             ], 500);
         }
     }
+
+    /**
+     * Facturas/boletas de ventas ANULADAS (estado_de_venta='an') cuyo
+     * comprobante SUNAT sigue ACEPTADO/PENDIENTE — el desfase real donde el
+     * sistema dice "anulada" pero SUNAT sigue teniendo el comprobante
+     * vigente. Alimenta la pantalla de Comunicación de Baja: antes esa
+     * pantalla arrancaba en blanco y había que tipear "." y buscar a mano;
+     * ahora carga esto por default.
+     *
+     * `dentro_de_plazo_baja` marca si todavía entra en la ventana legal de
+     * SUNAT (3 días factura / 7 boleta) para Comunicación de Baja — pasado
+     * eso, ya no corresponde baja, sino Nota de Crédito.
+     */
+    public function pendientesBaja(): JsonResponse
+    {
+        try {
+            $hoy = \Carbon\Carbon::now()->startOfDay();
+
+            $anuladas = ComprobanteElectronico::whereIn('tipo_comprobante', ['01', '03'])
+                ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
+                ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
+                ->orderBy('fecha_emision', 'asc')
+                ->get()
+                ->map(function (ComprobanteElectronico $c) use ($hoy) {
+                    $plazoMaximo = $c->tipo_comprobante === '01' ? 3 : 7;
+                    $dias = (int) \Carbon\Carbon::parse($c->fecha_emision)->startOfDay()->diffInDays($hoy);
+
+                    return [
+                        'id' => $c->id,
+                        'venta_id' => $c->venta_id,
+                        'tipo_comprobante' => $c->tipo_comprobante,
+                        'tipo_comprobante_nombre' => $c->tipo_comprobante === '01' ? 'Factura' : 'Boleta',
+                        'serie' => $c->serie,
+                        'correlativo' => $c->correlativo,
+                        'serie_numero' => "{$c->serie}-{$c->correlativo}",
+                        'fecha_emision' => $c->fecha_emision,
+                        'cliente_razon_social' => $c->cliente_razon_social,
+                        'importe_total' => $c->importe_total,
+                        'estado_sunat' => $c->estado_sunat,
+                        'dias_desde_emision' => $dias,
+                        'plazo_maximo_dias' => $plazoMaximo,
+                        'dentro_de_plazo_baja' => $dias <= $plazoMaximo,
+                    ];
+                })
+                // Más urgentes primero: las que están más cerca de perder el plazo.
+                ->sortBy(fn ($c) => $c['plazo_maximo_dias'] - $c['dias_desde_emision'])
+                ->values();
+
+            return response()->json([
+                'success' => true,
+                'data' => $anuladas,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener comprobantes anulados pendientes de baja',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 }

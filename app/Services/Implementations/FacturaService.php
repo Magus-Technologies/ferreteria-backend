@@ -517,7 +517,7 @@ class FacturaService implements FacturaServiceInterface
         // (o el botón manual) la mandaría igual como si fuera una venta
         // válida mientras siguiera PENDIENTE y dentro del plazo configurado.
         if ($estadoVenta === 'an') {
-            throw FacturaException::ventaNoValida('La venta está Anulada: no se puede enviar a SUNAT. Si ya fue aceptada, corresponde Nota de Crédito o Comunicación de Baja.');
+            throw FacturaException::ventaNoValida('La venta está Anulada: no se puede enviar a SUNAT como si fuera válida. Si el comprobante nunca se envió, usa Comunicación de Baja (Facturación Electrónica → Comunicación de Baja). Si SUNAT ya lo había aceptado antes de anular, corresponde Nota de Crédito.');
         }
 
         // ✅ Validar que la serie coincida con el tipo de documento
