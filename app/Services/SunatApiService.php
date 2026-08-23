@@ -408,10 +408,17 @@ class SunatApiService implements SunatApiServiceInterface
 
             $payload = [
                 'endpoint' => $empresa['modo'],
-                // Correlativo interno del RESUMEN (no de la boleta). SUNAT no
-                // lo valida contra una secuencia previa como sí hace con los
-                // correlativos de comprobantes.
-                'correlativo' => now()->format('His'),
+                // Correlativo del RESUMEN. Se probó con un valor tipo
+                // "hora:min:seg" (único, pero sin relación con una secuencia)
+                // y SUNAT rechazó igual con "[99] nombre del archivo ZIP
+                // incorrecto" en los 3 intentos, variando fecha y longitud —
+                // sospecha fuerte: SUNAT exige que el correlativo del
+                // Resumen sea secuencial empezando en 1 para este RUC (nunca
+                // mandó un Resumen antes, sus boletas van individuales), no
+                // solo "único". TODO: si sigue fallando con "1" fijo,
+                // habría que trackear un correlativo real incremental por
+                // RUC en una tabla propia en vez de un valor fijo/derivado.
+                'correlativo' => '1',
                 'fecha_generacion' => now()->format('Y-m-d'),
                 // Antes iba la fecha de emisión de la BOLETA (ej. hace 4
                 // días) — el nombre del ZIP la usa (RC-{fecha_resumen}-...)
