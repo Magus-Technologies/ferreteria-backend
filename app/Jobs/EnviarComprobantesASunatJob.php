@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ComprobanteElectronico;
 use App\Models\Empresa;
+use App\Services\ComunicacionBajaService;
 use App\Services\Interfaces\FacturaServiceInterface;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -14,13 +15,15 @@ use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 /**
- * Job para enviar FACTURAS y BOLETAS a SUNAT automáticamente.
+ * Job para enviar FACTURAS y BOLETAS a SUNAT automáticamente, y para dar de
+ * baja automáticamente las que correspondan a ventas ANULADAS.
  *
  * - Días de espera y plazo máximo: configurables en Mi Empresa → SUNAT
  *   (por defecto Facturas 3 días / Boletas 0 días; tope legal SUNAT 3 y 7).
  * - Las Notas de Débito y Crédito se envían MANUALMENTE.
  * - Se ejecuta 5 veces al día (ver routes/console.php), cada comprobante
- *   además reintenta hasta 3 veces en el momento si falla (enviarConReintentos).
+ *   además reintenta hasta 3 veces en el momento si falla (enviarConReintentos
+ *   / darDeBajaConReintentos).
  */
 class EnviarComprobantesASunatJob implements ShouldQueue
 {
@@ -37,7 +40,7 @@ class EnviarComprobantesASunatJob implements ShouldQueue
         //
     }
 
-    public function handle(FacturaServiceInterface $facturaService): void
+    public function handle(FacturaServiceInterface $facturaService, ComunicacionBajaService $comunicacionBajaService): void
     {
         $empresa = Empresa::first();
 
@@ -45,12 +48,66 @@ class EnviarComprobantesASunatJob implements ShouldQueue
         if ($empresa?->sunat_auto_send_factura_enabled) {
             $afterDays = (int) $empresa->sunat_auto_send_factura_after_days;
             $this->procesarTipoDocumento($facturaService, '01', 'factura', $afterDays);
+            $this->procesarBajasAutomaticas($comunicacionBajaService, '01', 'factura');
         }
 
         // 2. PROCESAR BOLETAS (03)
         if ($empresa?->sunat_auto_send_boleta_enabled) {
             $afterDays = (int) $empresa->sunat_auto_send_boleta_after_days;
             $this->procesarTipoDocumento($facturaService, '03', 'boleta', $afterDays);
+            $this->procesarBajasAutomaticas($comunicacionBajaService, '03', 'boleta');
+        }
+    }
+
+    /**
+     * Da de baja automáticamente ventas ANULADAS cuyo comprobante SUNAT
+     * sigue ACEPTADO/PENDIENTE — el desfase donde el sistema dice "anulada"
+     * pero SUNAT sigue teniendo el comprobante vigente. Reusa el mismo
+     * cálculo de plazo que la pantalla manual de Comunicación de Baja
+     * (`ComprobanteElectronicoController::pendientesBaja`): 3 días factura,
+     * 7 boleta, contados desde la emisión. Se activa/desactiva junto con el
+     * envío automático normal de ese tipo de documento — no hay un toggle
+     * separado para esto en Mi Empresa → SUNAT.
+     */
+    private function procesarBajasAutomaticas(ComunicacionBajaService $comunicacionBajaService, string $tipoDoc, string $configKey): void
+    {
+        $hoy = Carbon::now()->startOfDay();
+        $plazoMaximo = $tipoDoc === '01' ? 3 : 7;
+
+        $pendientesBaja = ComprobanteElectronico::where('tipo_comprobante', $tipoDoc)
+            ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
+            ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
+            ->get()
+            ->filter(function (ComprobanteElectronico $c) use ($hoy, $plazoMaximo) {
+                $dias = (int) Carbon::parse($c->fecha_emision)->startOfDay()->diffInDays($hoy);
+                return $dias <= $plazoMaximo;
+            });
+
+        foreach ($pendientesBaja as $comprobante) {
+            $this->darDeBajaConReintentos($comunicacionBajaService, $comprobante, $configKey);
+        }
+    }
+
+    private function darDeBajaConReintentos(ComunicacionBajaService $comunicacionBajaService, ComprobanteElectronico $comprobante, string $configKey): void
+    {
+        $maxIntentos = 3;
+        $segundosEntreIntentos = 5;
+
+        for ($intento = 1; $intento <= $maxIntentos; $intento++) {
+            $result = $comunicacionBajaService->darDeBaja($comprobante, 'Venta anulada (envío automático)');
+            if ($result['success']) {
+                return;
+            }
+
+            $esUltimoIntento = $intento === $maxIntentos;
+            Log::error("Error en baja automática de {$configKey} {$comprobante->serie}-{$comprobante->correlativo} (intento {$intento}/{$maxIntentos}): " . ($result['mensaje_sunat'] ?? 'desconocido'), [
+                'comprobante_id' => $comprobante->id,
+                'ultimo_intento' => $esUltimoIntento,
+            ]);
+
+            if (!$esUltimoIntento) {
+                sleep($segundosEntreIntentos);
+            }
         }
     }
 
