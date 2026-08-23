@@ -21,10 +21,17 @@ class ComunicacionBajaController extends Controller
         try {
             $validated = $request->validate([
                 'detalles' => 'required|array|min:1',
-                'detalles.*.tipo_doc' => 'required|in:01,03',
+                // Solo Facturas (01): SUNAT rechaza VoidedDocuments para
+                // boletas ("DocumentTypeCode inválido", código 2308) — las
+                // boletas se anulan corrigiendo el Resumen Diario, no por
+                // Comunicación de Baja. Ese flujo no está implementado acá,
+                // así que se bloquea antes de que SUNAT lo rechace.
+                'detalles.*.tipo_doc' => 'required|in:01',
                 'detalles.*.serie' => 'required|string',
                 'detalles.*.correlativo' => 'required|string',
                 'detalles.*.motivo' => 'required|string',
+            ], [
+                'detalles.*.tipo_doc.in' => 'Las boletas no se pueden dar de baja por Comunicación de Baja (SUNAT solo lo permite para facturas). Usa Nota de Crédito.',
             ]);
 
             $xml = $this->sunatApiService->generarXmlComunicacionBaja($validated);
@@ -49,10 +56,13 @@ class ComunicacionBajaController extends Controller
         try {
             $validated = $request->validate([
                 'detalles' => 'required|array|min:1',
-                'detalles.*.tipo_doc' => 'required|in:01,03',
+                // Ver comentario en generarXml(): solo Facturas (01).
+                'detalles.*.tipo_doc' => 'required|in:01',
                 'detalles.*.serie' => 'required|string',
                 'detalles.*.correlativo' => 'required|string',
                 'detalles.*.motivo' => 'required|string',
+            ], [
+                'detalles.*.tipo_doc.in' => 'Las boletas no se pueden dar de baja por Comunicación de Baja (SUNAT solo lo permite para facturas). Usa Nota de Crédito.',
             ]);
 
             $result = $this->sunatApiService->generarYEnviarComunicacionBaja($validated);
