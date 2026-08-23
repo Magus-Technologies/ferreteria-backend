@@ -511,6 +511,15 @@ class FacturaService implements FacturaServiceInterface
             throw FacturaException::ventaNoValida('La venta está En Espera: confírmala antes de enviarla a SUNAT.');
         }
 
+        // Una venta anulada (botón "Anular Venta", sin nota de crédito) no
+        // debe declararse a SUNAT: nada acá marca su comprobante como
+        // dado de baja al anular, así que sin este check el job automático
+        // (o el botón manual) la mandaría igual como si fuera una venta
+        // válida mientras siguiera PENDIENTE y dentro del plazo configurado.
+        if ($estadoVenta === 'an') {
+            throw FacturaException::ventaNoValida('La venta está Anulada: no se puede enviar a SUNAT. Si ya fue aceptada, corresponde Nota de Crédito o Comunicación de Baja.');
+        }
+
         // ✅ Validar que la serie coincida con el tipo de documento
         $primerCaracterSerie = substr($venta->serie, 0, 1);
         if ($tipoDocumento === '01' && $primerCaracterSerie !== 'F') {
