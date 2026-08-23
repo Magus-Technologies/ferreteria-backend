@@ -335,25 +335,49 @@ class SunatApiService implements SunatApiServiceInterface
         return $result['data']['contenido_xml'] ?? '';
     }
 
+    /**
+     * Comunicación de Baja (VoidedDocuments) es un flujo ASÍNCRONO en SUNAT:
+     * se manda, se recibe un ticket, y hay que consultar getStatus() con
+     * reintentos hasta que el CDR esté listo. El microservicio ya tiene un
+     * endpoint dedicado (`/enviar/comunicacion/baja`) que hace exactamente
+     * eso (ticket + polling con backoff). Antes esto pasaba por el flujo de
+     * facturas/boletas (`/generar/comunicacion/baja` + `/enviar/documento/
+     * electronico`, ese último pensado para el envío SÍNCRONO de un CPE) —
+     * alimentarlo con un XML de baja (RA) no es lo que espera, y SUNAT lo
+     * rechazaba con un error genérico sin detalle.
+     */
     public function generarYEnviarComunicacionBaja(array $data): array
     {
         try {
-            $xmlResult = $this->callGenerarComunicacionBaja($data);
-            $sendResult = $this->callEnviarDocumento(
-                $xmlResult['nombre_archivo'],
-                $xmlResult['contenido_xml']
-            );
+            $payload = $this->buildComunicacionBajaPayload($data);
+            // Timeout generoso: el microservicio ya hace polling interno con
+            // hasta 5 reintentos (3+5+8+10+15 = 41s) esperando el CDR de SUNAT.
+            $response = Http::timeout(120)->post("{$this->baseUrl}/enviar/comunicacion/baja", $payload);
 
-            $cdrContent = $sendResult['cdr'] ?? '';
+            if ($response->failed()) {
+                throw new \Exception('Error al enviar comunicación de baja: ' . $response->body());
+            }
+
+            $result = $response->json();
+            if (!($result['estado'] ?? false)) {
+                $mensaje = $result['mensaje'] ?? 'Error desconocido al enviar comunicación de baja';
+                if ($result['pendiente'] ?? false) {
+                    $mensaje .= ' (SUNAT todavía está procesando el ticket; reintentar en unos minutos)';
+                }
+                throw new \Exception($mensaje);
+            }
+
+            $xml = $result['contenido_xml'] ?? '';
+            $cdrContent = $result['cdr'] ?? '';
 
             return [
                 'success' => true,
-                'xml' => $xmlResult['contenido_xml'],
+                'xml' => $xml,
                 'cdr' => $cdrContent,
-                'hash_cpe' => $xmlResult['hash'],
+                'hash_cpe' => $xml ? hash('sha256', $xml) : '',
                 'hash_cdr' => hash('sha256', base64_decode($cdrContent) ?: $cdrContent),
                 'codigo_sunat' => '0',
-                'mensaje_sunat' => $sendResult['mensaje'] ?: 'Comunicación de Baja aceptada',
+                'mensaje_sunat' => $result['mensaje'] ?: 'Comunicación de Baja aceptada',
                 'modo' => strtoupper($this->getEmpresa()['modo']),
             ];
         } catch (\Exception $e) {
@@ -610,23 +634,6 @@ class SunatApiService implements SunatApiServiceInterface
         }
 
         return $payload;
-    }
-
-    private function callGenerarComunicacionBaja(array $data): array
-    {
-        $payload = $this->buildComunicacionBajaPayload($data);
-        $response = Http::timeout(60)->post("{$this->baseUrl}/generar/comunicacion/baja", $payload);
-
-        if ($response->failed()) {
-            throw new \Exception("Error al generar comunicación de baja: " . $response->body());
-        }
-
-        $result = $response->json();
-        if (!($result['estado'] ?? false)) {
-            throw new \Exception($result['mensaje'] ?? 'Error desconocido');
-        }
-
-        return $result['data'];
     }
 
     private function buildComunicacionBajaPayload(array $data): array
