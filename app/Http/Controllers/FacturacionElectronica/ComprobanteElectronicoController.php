@@ -374,11 +374,14 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
             $anuladas = ComprobanteElectronico::whereIn('tipo_comprobante', ['01', '03'])
                 ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
                 ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
+                ->with(['venta:id,estado_de_venta'])
                 ->orderBy('fecha_emision', 'asc')
                 ->get()
                 ->map(function (ComprobanteElectronico $c) use ($hoy) {
                     $plazoMaximo = $c->tipo_comprobante === '01' ? 3 : 7;
                     $dias = (int) \Carbon\Carbon::parse($c->fecha_emision)->startOfDay()->diffInDays($hoy);
+                    $estadoVenta = $c->venta?->estado_de_venta;
+                    $estadoVenta = $estadoVenta instanceof \BackedEnum ? $estadoVenta->value : $estadoVenta;
 
                     return [
                         'id' => $c->id,
@@ -392,6 +395,8 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
                         'cliente_razon_social' => $c->cliente_razon_social,
                         'importe_total' => $c->importe_total,
                         'estado_sunat' => $c->estado_sunat,
+                        'estado_venta' => $estadoVenta,
+                        'estado_venta_nombre' => $estadoVenta === 'an' ? 'Anulada' : $estadoVenta,
                         'dias_desde_emision' => $dias,
                         'plazo_maximo_dias' => $plazoMaximo,
                         'dentro_de_plazo_baja' => $dias <= $plazoMaximo,
