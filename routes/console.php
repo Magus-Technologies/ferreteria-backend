@@ -12,11 +12,19 @@ Artisan::command('inspire', function () {
 // TAREAS PROGRAMADAS (CRON)
 // ========================================
 
-// Enviar FACTURAS a SUNAT automáticamente después de 5 días
-// IMPORTANTE: Solo envía facturas (01, 03), NO notas de débito/crédito
-// Se ejecuta diariamente a las 2:00 AM
+// Enviar FACTURAS/BOLETAS a SUNAT automáticamente según los días configurados
+// en Mi Empresa → SUNAT. IMPORTANTE: Solo envía facturas (01) y boletas (03),
+// NO notas de débito/crédito.
+//
+// Corre 5 veces por día (2am, 11am, 2pm, 6pm, 8pm) en vez de
+// una sola vez de madrugada: si UN comprobante falla al enviarse (SUNAT caída,
+// etc.) queda esperando hasta la PRÓXIMA corrida de este mismo cron — antes
+// eso significaba esperar hasta el día siguiente a las 2 AM, sin que nadie
+// se entere a tiempo para reintentarlo a mano antes de que se pase del plazo
+// legal. Repetirlo cada ~3h reduce ese riesgo sin peligro de duplicar envíos:
+// el job solo toca comprobantes que siguen `PENDIENTE` sin fecha_envio_sunat.
 Schedule::command('sunat:enviar-facturas')
-    ->dailyAt('02:00')
+    ->cron('0 2,11,14,18,20 * * *')
     ->withoutOverlapping()
     ->onOneServer()
     ->runInBackground();

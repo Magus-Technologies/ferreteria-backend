@@ -13,8 +13,7 @@ class EnviarComprobantesASunat extends Command
     public function handle(): int
     {
         $this->info('Iniciando envío automático de comprobantes a SUNAT...');
-        $this->info('Facturas (01): se envían después de 3 días calendario');
-        $this->info('Boletas (03): se envían después de 5 MINUTOS (TESTING)');
+        $this->info('Días de espera configurados en Mi Empresa → SUNAT (por defecto: Facturas 3 días, Boletas 0 días).');
         $this->warn('NOTA: Las notas de débito/crédito se envían manualmente.');
 
         EnviarComprobantesASunatJob::dispatch();
