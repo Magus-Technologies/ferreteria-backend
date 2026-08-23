@@ -410,13 +410,17 @@ class SunatApiService implements SunatApiServiceInterface
                 'endpoint' => $empresa['modo'],
                 // Correlativo interno del RESUMEN (no de la boleta). SUNAT no
                 // lo valida contra una secuencia previa como sí hace con los
-                // correlativos de comprobantes. Un correlativo de 8 dígitos
-                // (día+hora:min:seg) siguió dando "[99] nombre del archivo
-                // ZIP es incorrecto" — se prueba con uno más corto (solo
-                // hora:min:seg, 6 dígitos), sigue siendo único por acción manual.
+                // correlativos de comprobantes.
                 'correlativo' => now()->format('His'),
                 'fecha_generacion' => now()->format('Y-m-d'),
-                'fecha_resumen' => \Carbon\Carbon::parse($comprobante->fecha_emision)->format('Y-m-d'),
+                // Antes iba la fecha de emisión de la BOLETA (ej. hace 4
+                // días) — el nombre del ZIP la usa (RC-{fecha_resumen}-...)
+                // y SUNAT lo rechazaba con "[99] nombre del archivo ZIP
+                // incorrecto" sin importar el correlativo. La boleta ya se
+                // identifica sola por su serie-número dentro del detalle;
+                // fecha_resumen es la fecha de ESTE resumen corrector (hoy),
+                // no la fecha original de la boleta que se está corrigiendo.
+                'fecha_resumen' => now()->format('Y-m-d'),
                 'empresa' => [
                     'ruc' => (int) $empresa['ruc'],
                     'usuario' => $empresa['usuario'],
