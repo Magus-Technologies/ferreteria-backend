@@ -391,6 +391,96 @@ class SunatApiService implements SunatApiServiceInterface
         }
     }
 
+    /**
+     * Dar de baja una BOLETA vía Resumen Diario corrector.
+     *
+     * SUNAT no acepta boletas (03) en Comunicación de Baja (VoidedDocuments)
+     * — solo facturas/notas. Para boletas, la baja se hace mandando un
+     * Resumen Diario que incluye SOLO esa boleta con `estado=3` (de baja).
+     * No hace falta referenciar el resumen original en el que se declaró: el
+     * detalle se identifica por su propia serie-número, así que un resumen
+     * "corrector" de un solo ítem alcanza.
+     */
+    public function generarYEnviarResumenBaja(\App\Models\ComprobanteElectronico $comprobante): array
+    {
+        try {
+            $empresa = $this->getEmpresa();
+
+            $payload = [
+                'endpoint' => $empresa['modo'],
+                // Correlativo interno del RESUMEN (no de la boleta) — SUNAT
+                // no lo valida contra una secuencia previa como sí hace con
+                // los correlativos de comprobantes, así que un identificador
+                // único por envío alcanza.
+                'correlativo' => now()->format('YmdHis'),
+                'fecha_generacion' => now()->format('Y-m-d'),
+                'fecha_resumen' => \Carbon\Carbon::parse($comprobante->fecha_emision)->format('Y-m-d'),
+                'empresa' => [
+                    'ruc' => (int) $empresa['ruc'],
+                    'usuario' => $empresa['usuario'],
+                    'clave' => $empresa['clave'],
+                    'razon_social' => $empresa['razon_social'],
+                    'direccion' => $empresa['direccion'],
+                    'ubigeo' => $empresa['ubigeo'],
+                    'distrito' => $empresa['distrito'],
+                    'provincia' => $empresa['provincia'],
+                    'departamento' => $empresa['departamento'],
+                ],
+                'detalles' => [[
+                    'tipo_doc' => $comprobante->tipo_comprobante,
+                    'serie_numero' => "{$comprobante->serie}-{$comprobante->correlativo}",
+                    'estado' => 3, // 1=válido, 2=observado, 3=baja
+                    'tipo_doc_cliente' => (int) $comprobante->cliente_tipo_documento,
+                    'num_doc_cliente' => (string) $comprobante->cliente_numero_documento,
+                    'total' => (float) $comprobante->importe_total,
+                    'mto_oper_gravadas' => (float) $comprobante->operacion_gravada,
+                    'mto_igv' => (float) $comprobante->total_igv,
+                    'mto_oper_exoneradas' => (float) $comprobante->operacion_exonerada,
+                    'mto_oper_inafectas' => (float) $comprobante->operacion_inafecta,
+                    'mto_otros_cargos' => (float) $comprobante->total_cargos,
+                ]],
+            ];
+
+            // Timeout generoso: SUNAT procesa resúmenes de forma asíncrona
+            // (ticket + consulta de estado) igual que la Comunicación de Baja.
+            $response = Http::timeout(90)->post("{$this->baseUrl}/enviar/resumen", $payload);
+
+            if ($response->failed()) {
+                throw new \Exception('Error al enviar resumen de baja: ' . $response->body());
+            }
+
+            $result = $response->json();
+            if (!($result['estado'] ?? false)) {
+                throw new \Exception($result['mensaje'] ?? 'Error desconocido al enviar resumen de baja');
+            }
+
+            $xml = $result['contenido_xml'] ?? '';
+            $cdrContent = $result['cdr'] ?? '';
+
+            return [
+                'success' => true,
+                'xml' => $xml,
+                'cdr' => $cdrContent,
+                'hash_cpe' => $xml ? hash('sha256', $xml) : '',
+                'hash_cdr' => hash('sha256', base64_decode($cdrContent) ?: $cdrContent),
+                'codigo_sunat' => '0',
+                'mensaje_sunat' => $result['mensaje'] ?: 'Boleta dada de baja vía Resumen Diario',
+                'modo' => strtoupper($empresa['modo']),
+            ];
+        } catch (\Exception $e) {
+            Log::error('[SunatApiService] Error generarYEnviarResumenBaja', [
+                'comprobante_id' => $comprobante->id,
+                'error' => $e->getMessage(),
+            ]);
+            return [
+                'success' => false, 'xml' => '', 'cdr' => '',
+                'hash_cpe' => '', 'hash_cdr' => '',
+                'codigo_sunat' => '98', 'mensaje_sunat' => $e->getMessage(),
+                'modo' => strtoupper($this->getEmpresa()['modo']),
+            ];
+        }
+    }
+
     public function esModoSimulacion(): bool
     {
         return false;
