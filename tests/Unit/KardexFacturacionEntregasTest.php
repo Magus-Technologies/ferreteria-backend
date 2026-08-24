@@ -156,6 +156,37 @@ class KardexFacturacionEntregasTest extends TestCase
         $this->assertSame([[3, '2026-08-22 08:20:32', 10.0, 10.0]], $this->resumen($rows));
     }
 
+    /** Línea de entrega con cantidad 0 (producto no incluido en la entrega parcial): no se muestra. */
+    public function test_linea_de_entrega_en_cero_se_omite(): void
+    {
+        $svc = $this->servicio([
+            $this->mov(['cantidad' => 6, 'cantidad_fraccion' => 6, 'salida' => 6]),
+        ]);
+
+        $rows = $svc->expandir([
+            $this->entrega(['id' => 1441, 'cantidad' => 0, 'cantidad_fraccion' => 0]),
+        ], '2026-08-22');
+
+        $this->assertSame([], $rows);
+    }
+
+    /** Entrega de una venta fuera del rango consultado: hereda el stock guardado del movimiento. */
+    public function test_entrega_hereda_stock_guardado_del_movimiento(): void
+    {
+        $svc = $this->servicio([
+            $this->mov(['fecha' => '2026-08-20 09:00:00', 'cantidad' => 40, 'cantidad_fraccion' => 40, 'salida' => 40, 'stock_anterior' => 500, 'stock_actual' => 460]),
+        ]);
+
+        $rows = $svc->expandir([
+            $this->entrega(['id' => 9, 'fecha' => '2026-08-22 08:29:51', 'cantidad' => 40, 'cantidad_fraccion' => 40]),
+        ], '2026-08-22');
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('2026-08-22 08:29:51', $rows[0]->fecha);
+        $this->assertEquals(500, $rows[0]->stock_anterior);
+        $this->assertEquals(460, $rows[0]->stock_actual);
+    }
+
     /** Las anuladas y las entregas sin movimiento de venta (legacy) pasan intactas. */
     public function test_anuladas_y_legacy_pasan_intactas(): void
     {

@@ -764,16 +764,31 @@ class KardexFacturacionService
             return $entregaRows;
         }
 
+        $eps = 0.0001;
         $expandidas = [];
         $vigentes = [];
+        $anuladas = [];
         foreach ($entregaRows as $row) {
-            if (($row->movimiento ?? null) === 'ENTREGA ANULADA' || empty($row->producto_id)) {
+            $fraccion = (float) ($row->cantidad_fraccion ?? 0);
+            if ($fraccion <= $eps) {
+                $fraccion = (float) ($row->cantidad ?? 0) * ((float) ($row->factor ?? 1) ?: 1.0);
+            }
+            // Línea en 0 = producto que NO se incluyó en esta entrega (entrega
+            // parcial programada): no entrega nada, no se muestra.
+            if ($fraccion <= $eps) {
+                continue;
+            }
+            if (empty($row->producto_id)) {
                 $expandidas[] = $row;
+                continue;
+            }
+            if (($row->movimiento ?? null) === 'ENTREGA ANULADA') {
+                $anuladas[] = $row;
                 continue;
             }
             $vigentes[] = $row;
         }
-        if (empty($vigentes)) {
+        if (empty($vigentes) && empty($anuladas)) {
             return $expandidas;
         }
 
@@ -785,11 +800,29 @@ class KardexFacturacionService
             return ((int) ($a->id ?? 0)) <=> ((int) ($b->id ?? 0));
         });
 
-        $ventaIds = array_values(array_unique(array_map(fn ($r) => (string) $r->referencia_id, $vigentes)));
+        $ventaIds = array_values(array_unique(array_map(
+            fn ($r) => (string) $r->referencia_id,
+            array_merge($vigentes, $anuladas)
+        )));
         $saldos = $this->saldosPorMovimientoDeVenta($ventaIds);
 
+        // Las ANULADAS pasan tal cual (fecha_anulacion y cantidad propias); solo
+        // heredan el stock guardado del último movimiento de su venta — si la venta
+        // quedó fuera del rango consultado, getPaginated() no tiene de dónde
+        // copiarlo y mostraba 0 → 0.
+        foreach ($anuladas as $row) {
+            $key = "{$row->referencia_id}_{$row->producto_id}";
+            if (!empty($saldos[$key])) {
+                $mov = $saldos[$key][count($saldos[$key]) - 1]['mov'];
+                if (($mov->stock_anterior ?? null) !== null && ($mov->stock_actual ?? null) !== null) {
+                    $row->stock_anterior = $mov->stock_anterior;
+                    $row->stock_actual = $mov->stock_actual;
+                }
+            }
+            $expandidas[] = $row;
+        }
+
         $limite = $hasta ? strtotime($hasta . ' 23:59:59') : null;
-        $eps = 0.0001;
 
         foreach ($vigentes as $row) {
             $key = "{$row->referencia_id}_{$row->producto_id}";
@@ -853,6 +886,13 @@ class KardexFacturacionService
                 // real; conservar el del movimiento como decimal mantiene entre ellas el
                 // mismo orden que tienen sus movimientos.
                 $clon->orden = (float) ($parte['mov']->orden ?? 1) - 100;
+                // Heredar el stock guardado del movimiento: si la venta quedó fuera
+                // del rango consultado, getPaginated() no la procesa y la entrega
+                // mostraba 0 → 0 en vez del stock real de su venta.
+                if (($parte['mov']->stock_anterior ?? null) !== null && ($parte['mov']->stock_actual ?? null) !== null) {
+                    $clon->stock_anterior = $parte['mov']->stock_anterior;
+                    $clon->stock_actual = $parte['mov']->stock_actual;
+                }
                 $expandidas[] = $clon;
             }
         }
