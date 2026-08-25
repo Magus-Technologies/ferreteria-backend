@@ -37,6 +37,10 @@ class Empresa extends Model
         'sunat_auto_send_factura_after_days',
         'sunat_auto_send_boleta_enabled',
         'sunat_auto_send_boleta_after_days',
+        'sunat_auto_send_nota_credito_enabled',
+        'sunat_auto_send_nota_credito_after_days',
+        'sunat_auto_send_guia_enabled',
+        'sunat_auto_send_guia_after_days',
     ];
 
     protected $appends = [
@@ -60,6 +64,10 @@ class Empresa extends Model
             'sunat_auto_send_factura_after_days' => 'integer',
             'sunat_auto_send_boleta_enabled' => 'boolean',
             'sunat_auto_send_boleta_after_days' => 'integer',
+            'sunat_auto_send_nota_credito_enabled' => 'boolean',
+            'sunat_auto_send_nota_credito_after_days' => 'integer',
+            'sunat_auto_send_guia_enabled' => 'boolean',
+            'sunat_auto_send_guia_after_days' => 'integer',
         ];
     }
 

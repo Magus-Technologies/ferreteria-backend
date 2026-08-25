@@ -23,6 +23,14 @@ class ConfiguracionController extends Controller
                 'enabled' => (bool) ($empresa->sunat_auto_send_boleta_enabled ?? false),
                 'after_days' => (int) ($empresa->sunat_auto_send_boleta_after_days ?? 0),
             ],
+            'nota_credito' => [
+                'enabled' => (bool) ($empresa->sunat_auto_send_nota_credito_enabled ?? false),
+                'after_days' => (int) ($empresa->sunat_auto_send_nota_credito_after_days ?? 0),
+            ],
+            'guia' => [
+                'enabled' => (bool) ($empresa->sunat_auto_send_guia_enabled ?? false),
+                'after_days' => (int) ($empresa->sunat_auto_send_guia_after_days ?? 0),
+            ],
         ]);
     }
 
@@ -32,7 +40,7 @@ class ConfiguracionController extends Controller
     public function updateAutoSendStatus(Request $request)
     {
         $request->validate([
-            'type' => 'required|in:factura,boleta,all',
+            'type' => 'required|in:factura,boleta,nota_credito,guia,all',
             'config' => 'required_unless:type,all|array',
             'config.enabled' => 'required_with:config|boolean',
             'config.after_days' => 'required_with:config|integer|min:0|max:15',
@@ -44,7 +52,7 @@ class ConfiguracionController extends Controller
 
         if ($type === 'all') {
             $configs = $request->input('configs');
-            foreach (['factura', 'boleta'] as $t) {
+            foreach (['factura', 'boleta', 'nota_credito', 'guia'] as $t) {
                 if (isset($configs[$t])) {
                     $this->saveToEmpresa($empresa, $t, $configs[$t]);
                 }

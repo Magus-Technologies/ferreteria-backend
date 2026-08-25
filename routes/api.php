@@ -254,6 +254,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/emitir', [GuiaRemisionController::class, 'emitir']);
         Route::post('/{id}/anular', [GuiaRemisionController::class, 'anular']);
         Route::post('/{id}/enviar-sunat', [GuiaRemisionController::class, 'enviarSunat']);
+        Route::post('/{id}/consultar-estado', [GuiaRemisionController::class, 'consultarEstado']);
         Route::get('/{id}/xml', [GuiaRemisionController::class, 'verXml']);
         Route::get('/{id}/cdr', [GuiaRemisionController::class, 'descargarCdr']);
         Route::get('/{id}/pdf-data', [GuiaRemisionController::class, 'getPdfData']);
