@@ -80,9 +80,9 @@ class CerrarCajaUseCase
                 $supervisorValidado = true;
             }
 
-            // 5. Validar diferencia. Estaba comentada entera "porque el faltante ahora
-            // genera deuda", y eso dejó también al SOBRANTE sin ningún control: se
-            // guardaba cualquier monto. Ahora solo frena sobrantes (ver el método).
+            // 5. Cerrar con SOBRANTE está permitido sin supervisor: la diferencia
+            // queda registrada en el arqueo y el front ya avisa "vas a cerrar con
+            // S/ X de más" (más la alerta si coincide con el traslado a bóveda).
             $this->validarDiferencia($resumen, $dto);
 
             // 6. Calcular diferencias ANTES de actualizar
@@ -179,38 +179,12 @@ class CerrarCajaUseCase
      */
     private function validarDiferencia(ResumenCajaDTO $resumen, CierreCajaDTO $dto): void
     {
-        if (($resumen->diferencia ?? 0) <= 0) {
-            return;
-        }
-
-        $diferencia = abs($resumen->diferencia);
-        $limiteDiferencia = config('caja.limite_diferencia', 5);
-        $limiteMaximo = config('caja.limite_maximo_diferencia', 50);
-
-        // Si la diferencia supera el límite básico, requiere supervisor
-        if ($diferencia > $limiteDiferencia) {
-            // Si no hay supervisor, lanzar excepción
-            if (!$dto->supervisorId) {
-                throw new \App\Exceptions\SupervisorRequeridoException(
-                    null,
-                    $diferencia,
-                    $limiteDiferencia
-                );
-            }
-
-            // Validar que el supervisor es válido
-            $this->validadorSupervisor->validar($dto->supervisorId);
-
-            // Si hay supervisor validado, permitir cualquier diferencia
-            // El supervisor asume la responsabilidad de la diferencia
-            return;
-        }
-
-        // Si la diferencia es menor al límite básico, no requiere supervisor
-        // pero aún así validamos que no exceda el límite máximo sin supervisor
-        if ($diferencia > $limiteMaximo && !$dto->supervisorId) {
-            throw new DiferenciaCajaExcedidaException($diferencia);
-        }
+        // Cerrar con SOBRANTE está permitido sin supervisor (decisión del negocio,
+        // 24/08/2026): la diferencia queda registrada en el arqueo y el front ya
+        // muestra el aviso "vas a cerrar con S/ X de más" — más la alerta especial
+        // si el monto coincide con el traslado a bóveda (el caso del docblock).
+        // El freno anterior (sobrante > S/5 exigía supervisor) bloqueaba cierres
+        // legítimos con sobrantes chicos reales.
     }
 }
 

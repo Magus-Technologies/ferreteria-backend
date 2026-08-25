@@ -82,10 +82,8 @@ class ReCerrarCajaUseCase
                 $supervisorValidado = true;
             }
 
-            // 5. Validar diferencia. Mismo criterio que el cierre normal: solo frena
-            // SOBRANTES. Se valida también acá para que re-cerrar no sea una puerta
-            // trasera al control — un re-cierre correctivo cierra con diferencia ~0
-            // y no lo toca; uno con un sobrante grande sigue necesitando supervisor.
+            // 5. Mismo criterio que el cierre normal: cerrar con SOBRANTE está
+            // permitido sin supervisor; la diferencia queda registrada en el arqueo.
             $this->validarDiferencia($resumen, $dto);
 
             // 6. Calcular diferencias ANTES de actualizar
@@ -185,37 +183,8 @@ class ReCerrarCajaUseCase
      */
     private function validarDiferencia(ResumenCajaDTO $resumen, CierreCajaDTO $dto): void
     {
-        if (($resumen->diferencia ?? 0) <= 0) {
-            return;
-        }
-
-        $diferencia = abs($resumen->diferencia);
-        $limiteDiferencia = config('caja.limite_diferencia', 5);
-        $limiteMaximo = config('caja.limite_maximo_diferencia', 50);
-
-        // Si la diferencia supera el límite básico, requiere supervisor
-        if ($diferencia > $limiteDiferencia) {
-            // Si no hay supervisor, lanzar excepción
-            if (!$dto->supervisorId) {
-                throw new \App\Exceptions\SupervisorRequeridoException(
-                    null,
-                    $diferencia,
-                    $limiteDiferencia
-                );
-            }
-
-            // Validar que el supervisor es válido
-            $this->validadorSupervisor->validar($dto->supervisorId);
-
-            // Si hay supervisor validado, permitir cualquier diferencia
-            // El supervisor asume la responsabilidad de la diferencia
-            return;
-        }
-
-        // Si la diferencia es menor al límite básico, no requiere supervisor
-        // pero aún así validamos que no exceda el límite máximo sin supervisor
-        if ($diferencia > $limiteMaximo && !$dto->supervisorId) {
-            throw new DiferenciaCajaExcedidaException($diferencia);
-        }
+        // Cerrar (y re-cerrar) con SOBRANTE está permitido sin supervisor —
+        // misma decisión que en CerrarCajaUseCase: la diferencia queda registrada
+        // en el arqueo y el front ya avisa "vas a cerrar con S/ X de más".
     }
 }
