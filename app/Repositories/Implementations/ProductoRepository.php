@@ -726,13 +726,11 @@ class ProductoRepository implements ProductoRepositoryInterface
         // filtra el modal de búsqueda — si se toca uno hay que tocar el otro):
         //  - Todas las palabras tienen que coincidir (AND), en cualquier orden.
         //  - Comillas y comas en los bordes se ignoran: `4"` y `4` dan lo mismo.
-        //  - En nombre / nombre de ticket la palabra va al INICIO de una
-        //    palabra (inicio del texto o después de espacio, /, -, paréntesis…):
-        //    "TUBO" no debe traer "EUROTUBO". Y es prefijo: "TUB" sí da "TUBO".
-        //  - EXCEPCIÓN: palabras "técnicas" (con algún dígito y de 2+ caracteres,
-        //    ej. 25A, 110, 1/2) van por CONTENIDO: "25A" debe encontrar "2X25A" y
-        //    "125A", igual que el buscador de Mi Almacén (quick filter por
-        //    contenido). Antes el modal daba 6 donde Mi Almacén daba 13.
+        //  - En nombre / nombre de ticket cada palabra busca por CONTENIDO, en
+        //    cualquier parte: "25A" encuentra "2X25A" y "125A"; "VADO" encuentra
+        //    "ELEVADO". Mismo criterio que el buscador de Mi Almacén (quick
+        //    filter de AG Grid), que es la referencia del usuario — con
+        //    inicio-de-palabra el modal daba 6 donde Mi Almacén daba 13.
         //  - En los códigos basta con que esté contenida.
         if (isset($filters['search'])) {
             $palabras = preg_split('/\s+/', trim((string) $filters['search'])) ?: [];
@@ -741,22 +739,11 @@ class ProductoRepository implements ProductoRepositoryInterface
                 $palabras
             )));
 
-            $iniciosDePalabra = ['', ' ', '/', '-', '(', '.', ',', '+', '"'];
-
             foreach ($palabras as $palabra) {
-                $esTecnica = preg_match('/\d/', $palabra) && mb_strlen($palabra) >= 2;
-                $query->where(function ($q) use ($palabra, $iniciosDePalabra, $esTecnica) {
-                    if ($esTecnica) {
-                        $q->orWhere('name', 'like', "%{$palabra}%")
-                            ->orWhere('name_ticket', 'like', "%{$palabra}%");
-                    } else {
-                        foreach ($iniciosDePalabra as $inicio) {
-                            $patron = $inicio === '' ? "{$palabra}%" : "%{$inicio}{$palabra}%";
-                            $q->orWhere('name', 'like', $patron)
-                                ->orWhere('name_ticket', 'like', $patron);
-                        }
-                    }
-                    $q->orWhere('cod_producto', 'like', "%{$palabra}%")
+                $query->where(function ($q) use ($palabra) {
+                    $q->orWhere('name', 'like', "%{$palabra}%")
+                        ->orWhere('name_ticket', 'like', "%{$palabra}%")
+                        ->orWhere('cod_producto', 'like', "%{$palabra}%")
                         ->orWhere('cod_barra', 'like', "%{$palabra}%");
                 });
             }
