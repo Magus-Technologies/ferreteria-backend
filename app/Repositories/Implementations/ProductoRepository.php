@@ -717,34 +717,28 @@ class ProductoRepository implements ProductoRepositoryInterface
      */
     private function applyFilters($query, array $filters, ?int $almacenId): void
     {
-        // Search filter — por PALABRAS, no por frase completa.
-        //
-        // Antes era `name LIKE '%frase%'`: buscar `TUBO PVC DSG"` no encontraba
-        // `TUBO PVC DSG 4" X 3M` porque entre DSG y la comilla hay un " 4".
+        // Search filter — la FRASE COMPLETA, contenida en cualquier parte.
         //
         // Reglas (espejo de lib/utils/filtro-texto-producto.ts en el front, que
         // filtra el modal de búsqueda — si se toca uno hay que tocar el otro):
-        //  - Todas las palabras tienen que coincidir (AND), en cualquier orden.
-        //  - Comillas y comas en los bordes se ignoran: `4"` y `4` dan lo mismo.
-        //  - En nombre / nombre de ticket cada palabra busca por CONTENIDO, en
-        //    cualquier parte: "25A" encuentra "2X25A" y "125A"; "VADO" encuentra
-        //    "ELEVADO". Mismo criterio que el buscador de Mi Almacén (quick
-        //    filter de AG Grid), que es la referencia del usuario — con
-        //    inicio-de-palabra el modal daba 6 donde Mi Almacén daba 13.
-        //  - En los códigos basta con que esté contenida.
+        //  - Comillas y comas en los bordes se ignoran; espacios repetidos se
+        //    colapsan a uno.
+        //  - El texto se busca tal cual, contenido en nombre / ticket / códigos:
+        //    "VADO E" encuentra "ELE(VADO E)UROTUBO" pero NO "ACTIVADOR" ni
+        //    "LAVADORA" (palabras sueltas); "25A" encuentra "2X25A" y "125A".
+        //    Mismo criterio que el buscador de Mi Almacén, que es la referencia
+        //    del usuario (24/08/2026: por-palabras traía 38 resultados cuando
+        //    esperaba los 9 tanques ELEVADO EUROTUBO).
         if (isset($filters['search'])) {
-            $palabras = preg_split('/\s+/', trim((string) $filters['search'])) ?: [];
-            $palabras = array_values(array_filter(array_map(
-                fn ($p) => trim($p, "\"',;"),
-                $palabras
-            )));
+            $frase = preg_replace('/\s+/', ' ', trim((string) $filters['search']));
+            $frase = trim($frase, "\"',;");
 
-            foreach ($palabras as $palabra) {
-                $query->where(function ($q) use ($palabra) {
-                    $q->orWhere('name', 'like', "%{$palabra}%")
-                        ->orWhere('name_ticket', 'like', "%{$palabra}%")
-                        ->orWhere('cod_producto', 'like', "%{$palabra}%")
-                        ->orWhere('cod_barra', 'like', "%{$palabra}%");
+            if ($frase !== '') {
+                $query->where(function ($q) use ($frase) {
+                    $q->orWhere('name', 'like', "%{$frase}%")
+                        ->orWhere('name_ticket', 'like', "%{$frase}%")
+                        ->orWhere('cod_producto', 'like', "%{$frase}%")
+                        ->orWhere('cod_barra', 'like', "%{$frase}%");
                 });
             }
         }
