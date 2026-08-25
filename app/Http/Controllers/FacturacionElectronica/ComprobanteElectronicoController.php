@@ -251,31 +251,38 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
     }
 
     /**
-     * Obtener comprobantes pendientes que están a 1 día de vencer (Alertas)
+     * Comprobantes que YA VENCIERON el plazo legal SUNAT (factura/nota: +3
+     * días desde la emisión; boleta: +7 días) y siguen sin enviarse.
+     *
+     * Antes esto alertaba ANTES de vencer (desde el día 1 de factura / día 5
+     * de boleta) y dejaba de mostrar el comprobante justo al llegar al día
+     * límite — quedaba al revés de lo pedido: avisaba de más mientras
+     * todavía estaba en plazo, y se callaba justo cuando ya era un problema
+     * real. El mismo criterio "vencido" (diffInDays > plazoMaximo) que ya
+     * usa `EnviarComprobantesASunatJob::procesarBajasAutomaticas` para dar
+     * de baja automáticamente — acá solo alertamos, no hay tope superior:
+     * mientras siga sin enviarse, sigue apareciendo.
      */
     public function pendientesAlerta(): JsonResponse
     {
         try {
             $now = \Carbon\Carbon::now();
 
-            // Facturas (01) y notas (07, 08): Límite 3 días. Alertamos desde el día 1 hasta el día 3.
-            $fechaFacturaAlertaInicio = $now->copy()->subDays(3)->toDateString();
-            $fechaFacturaAlertaFin = $now->copy()->subDays(1)->toDateString();
-
-            // Boletas (03): Límite 7 días. Alertamos desde el día 5 hasta el día 7.
-            $fechaBoletaAlertaInicio = $now->copy()->subDays(7)->toDateString();
-            $fechaBoletaAlertaFin = $now->copy()->subDays(5)->toDateString();
+            // Última fecha de emisión que TODAVÍA está dentro de plazo — todo
+            // lo anterior a esto ya venció.
+            $limiteFactura = $now->copy()->startOfDay()->subDays(3)->toDateString();
+            $limiteBoleta = $now->copy()->startOfDay()->subDays(7)->toDateString();
 
             $pendientes = ComprobanteElectronico::with(['cliente'])
                 ->where('estado_sunat', 'PENDIENTE')
                 ->whereNull('fecha_envio_sunat')
-                ->where(function ($query) use ($fechaFacturaAlertaInicio, $fechaFacturaAlertaFin, $fechaBoletaAlertaInicio, $fechaBoletaAlertaFin) {
-                    $query->where(function ($q) use ($fechaFacturaAlertaInicio, $fechaFacturaAlertaFin) {
+                ->where(function ($query) use ($limiteFactura, $limiteBoleta) {
+                    $query->where(function ($q) use ($limiteFactura) {
                         $q->whereIn('tipo_comprobante', ['01', '07', '08'])
-                            ->whereBetween('fecha_emision', [$fechaFacturaAlertaInicio, $fechaFacturaAlertaFin]);
-                    })->orWhere(function ($q) use ($fechaBoletaAlertaInicio, $fechaBoletaAlertaFin) {
+                            ->whereDate('fecha_emision', '<', $limiteFactura);
+                    })->orWhere(function ($q) use ($limiteBoleta) {
                         $q->where('tipo_comprobante', '03')
-                            ->whereBetween('fecha_emision', [$fechaBoletaAlertaInicio, $fechaBoletaAlertaFin]);
+                            ->whereDate('fecha_emision', '<', $limiteBoleta);
                     });
                 })
                 ->orderBy('fecha_emision', 'asc')
@@ -286,15 +293,20 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
             // (ej. microservicio SUNAT caído) y quedó silenciada en el log,
             // sin ninguna alerta visible. Antes esta lista solo mostraba
             // comprobantes YA generados y pendientes de ENVIAR; estos casos
-            // ni siquiera llegaron a esa etapa. Mismo criterio de ventana
-            // que arriba (evita alertar ventas de hace segundos que capaz
-            // están recién guardándose) más un margen post-vencimiento para
-            // que no desaparezcan solas sin que nadie se entere.
+            // ni siquiera llegaron a esa etapa. Mismo criterio "vencido" de
+            // arriba, por tipo de documento (factura +3 días, boleta +7) —
+            // sin tope superior, para que no desaparezcan solas sin
+            // resolverse.
             $sinGenerar = Venta::whereIn('tipo_documento', ['01', '03'])
                 ->whereNotIn('estado_de_venta', ['an', 'ee'])
                 ->whereDoesntHave('comprobanteElectronico')
-                ->where('fecha', '<=', $now->copy()->subMinutes(10))
-                ->where('fecha', '>=', $now->copy()->subDays(15))
+                ->where(function ($query) use ($limiteFactura, $limiteBoleta) {
+                    $query->where(function ($q) use ($limiteFactura) {
+                        $q->where('tipo_documento', '01')->whereDate('fecha', '<', $limiteFactura);
+                    })->orWhere(function ($q) use ($limiteBoleta) {
+                        $q->where('tipo_documento', '03')->whereDate('fecha', '<', $limiteBoleta);
+                    });
+                })
                 ->with(['cliente', 'productosPorAlmacen.unidadesDerivadas'])
                 ->orderBy('fecha', 'asc')
                 ->get()
