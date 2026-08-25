@@ -184,18 +184,30 @@ class EntregaRepository implements EntregaRepositoryInterface
             }
         }
 
+        // Filtro de fechas — el uso normal de "Mis Entregas" (fuera de
+        // `solo_programadas`, que es del calendario) quiere ver "qué tengo
+        // que entregar tal día". Filtrar solo por `fecha_creacion` escondía
+        // las entregas PROGRAMADAS para otro día: la venta (y su entrega) se
+        // crea hoy pero se entrega en una fecha futura, así que el día real
+        // de entrega no aparecía en ningún filtro de fecha. Y filtrar solo
+        // por `fecha_programada` tiene el problema inverso: "Despacho en
+        // Tienda" es inmediato y nunca tiene `fecha_programada` (no hay nada
+        // que programar), así que desaparecería del todo. COALESCE cubre
+        // ambos casos: usa la fecha programada cuando existe, y si no, cae a
+        // la fecha de creación (que para una entrega inmediata ES el día que
+        // se entrega).
         if (! empty($filtros['fecha_desde']) && $filtrarPorFechaProgramada) {
             $fechaDesde = $filtros['fecha_desde'];
             $query->whereDate('fecha_programada', '>=', $fechaDesde);
         } elseif (! empty($filtros['fecha_desde'])) {
-            $query->where('fecha_creacion', '>=', $filtros['fecha_desde']);
+            $query->whereRaw('COALESCE(fecha_programada, fecha_creacion) >= ?', [$filtros['fecha_desde']]);
         }
 
         if (! empty($filtros['fecha_hasta']) && $filtrarPorFechaProgramada) {
             $fechaHasta = $filtros['fecha_hasta'];
             $query->whereDate('fecha_programada', '<=', $fechaHasta);
         } elseif (! empty($filtros['fecha_hasta'])) {
-            $query->where('fecha_creacion', '<=', $filtros['fecha_hasta']);
+            $query->whereRaw('COALESCE(fecha_programada, fecha_creacion) <= ?', [$filtros['fecha_hasta']]);
         }
 
         if (! empty($filtros['search'])) {
