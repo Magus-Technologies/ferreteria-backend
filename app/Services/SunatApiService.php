@@ -406,19 +406,24 @@ class SunatApiService implements SunatApiServiceInterface
         try {
             $empresa = $this->getEmpresa();
 
+            // Correlativo del RESUMEN. Confirmado con SUNAT: el correlativo
+            // es secuencial empezando en 1, pero POR DÍA (mismo `fecha_resumen`
+            // en el nombre del ZIP) — no una secuencia única de por vida para
+            // el RUC. La prueba: dos días distintos (17/08 y 18/08) cada uno
+            // tuvo su primera baja del día aceptada con "1" fijo, pero
+            // cualquier OTRA baja del MISMO día fallaba con "[99] nombre del
+            // archivo ZIP incorrecto" — porque repetía el correlativo que
+            // SUNAT ya había aceptado esa fecha. No hay tabla propia de
+            // correlativos, así que se deriva contando cuántas bajas de
+            // boleta por Resumen Diario ya se aceptaron HOY + 1.
+            $correlativoResumen = \App\Models\ComprobanteElectronico::where('tipo_comprobante', '03')
+                ->where('estado_sunat', 'BAJA_ACEPTADA')
+                ->whereDate('fecha_respuesta_sunat', now()->toDateString())
+                ->count() + 1;
+
             $payload = [
                 'endpoint' => $empresa['modo'],
-                // Correlativo del RESUMEN. Se probó con un valor tipo
-                // "hora:min:seg" (único, pero sin relación con una secuencia)
-                // y SUNAT rechazó igual con "[99] nombre del archivo ZIP
-                // incorrecto" en los 3 intentos, variando fecha y longitud —
-                // sospecha fuerte: SUNAT exige que el correlativo del
-                // Resumen sea secuencial empezando en 1 para este RUC (nunca
-                // mandó un Resumen antes, sus boletas van individuales), no
-                // solo "único". TODO: si sigue fallando con "1" fijo,
-                // habría que trackear un correlativo real incremental por
-                // RUC en una tabla propia en vez de un valor fijo/derivado.
-                'correlativo' => '1',
+                'correlativo' => (string) $correlativoResumen,
                 'fecha_generacion' => now()->format('Y-m-d'),
                 // Antes iba la fecha de emisión de la BOLETA (ej. hace 4
                 // días) — el nombre del ZIP la usa (RC-{fecha_resumen}-...)

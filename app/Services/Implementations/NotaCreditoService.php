@@ -479,11 +479,22 @@ class NotaCreditoService implements NotaCreditoServiceInterface
         }
 
         // Obtener el valor del enum como string
-        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum 
-            ? $venta->estado_de_venta->value 
+        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum
+            ? $venta->estado_de_venta->value
             : $venta->estado_de_venta;
 
-        if ($estadoVenta !== 'cr') {
+        // 'cr' es el caso normal (venta activa, todavía no corregida). Pero
+        // también se permite 'an' cuando NO fue anulada por una nota de
+        // crédito previa (`anulado_por_nota_credito` = false): eso pasa
+        // cuando alguien anuló la venta directo (botón "Anular Venta") en
+        // vez de emitir la nota — la boleta/factura sigue ACEPTADA en SUNAT
+        // sin ninguna corrección real enviada, y la única forma de arreglar
+        // ese desfase es justamente emitiendo la nota de crédito ahora. Si
+        // ya se anuló POR una nota de crédito, sí hay que bloquear —
+        // evita duplicar la corrección sobre la misma venta.
+        $anulacionCorregible = $estadoVenta === 'an' && !$venta->anulado_por_nota_credito;
+
+        if ($estadoVenta !== 'cr' && !$anulacionCorregible) {
             return [
                 'valido' => false,
                 'mensaje' => 'La venta debe estar en estado Creado',
@@ -635,11 +646,16 @@ class NotaCreditoService implements NotaCreditoServiceInterface
         }
 
         // Obtener el valor del enum como string
-        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum 
-            ? $venta->estado_de_venta->value 
+        $estadoVenta = $venta->estado_de_venta instanceof \BackedEnum
+            ? $venta->estado_de_venta->value
             : $venta->estado_de_venta;
 
-        if ($estadoVenta !== 'cr') {
+        // Ver el mismo criterio y su motivo en validarVentaParaNotaCredito()
+        // más arriba — se mantiene igual acá para que el pre-check y la
+        // creación real no se contradigan.
+        $anulacionCorregible = $estadoVenta === 'an' && !$venta->anulado_por_nota_credito;
+
+        if ($estadoVenta !== 'cr' && !$anulacionCorregible) {
             throw NotaCreditoException::ventaNoValida(
                 'La venta debe estar en estado Creado. Estado actual: ' . $estadoVenta
             );
