@@ -536,6 +536,15 @@ class SunatApiService implements SunatApiServiceInterface
 
             $result = $response->json();
             if (!($result['estado'] ?? false)) {
+                // Loguear el payload y la respuesta CRUDA completa, no solo
+                // el mensaje resumido — para diagnosticar errores de SUNAT
+                // (como [2663]) hace falta ver exactamente qué se mandó y
+                // qué devolvió el microservicio, no solo el texto final.
+                Log::error('[SunatApiService] SUNAT rechazó el resumen de baja', [
+                    'comprobante_id' => $comprobante->id,
+                    'payload_enviado' => $payload,
+                    'respuesta_cruda' => $result,
+                ]);
                 throw new \Exception($result['mensaje'] ?? 'Error desconocido al enviar resumen de baja');
             }
 
