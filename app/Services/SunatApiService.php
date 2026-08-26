@@ -486,13 +486,17 @@ class SunatApiService implements SunatApiServiceInterface
             if (! $fueAceptadaAlgunaVez) {
                 $alta = $this->enviarResumen($comprobante, $empresa, 1, $fechaReferencia, $hoy);
 
-                // [2282] "Existe documento ya informado anteriormente" NO es un
-                // fallo en este paso: significa que la boleta ya está declarada
-                // en SUNAT (por un envío anterior que sí llegó a procesarse,
-                // aunque nosotros no lo hayamos registrado). Esa es exactamente
-                // la precondición que este paso busca conseguir, así que se
-                // sigue derecho al paso de baja en vez de abortar.
-                $yaInformada = ! $alta['success'] && str_contains($alta['mensaje'], '2282');
+                // Dos respuestas de SUNAT que NO son un fallo en este paso:
+                //   [2282] "Existe documento ya informado anteriormente" → la
+                //          boleta ya está declarada, que es justo la
+                //          precondición que este paso busca conseguir.
+                //   [2987] "ya fue informado y se encuentra anulado o
+                //          rechazado" → más todavía: ya está anulada. Se sigue
+                //          igual para que el paso de baja devuelva ese mismo
+                //          diagnóstico y lo cierre como resuelto.
+                // En ambos casos se va derecho al paso de baja en vez de abortar.
+                $yaInformada = ! $alta['success']
+                    && (str_contains($alta['mensaje'], '2282') || str_contains($alta['mensaje'], '2987'));
 
                 if (! $alta['success'] && ! $yaInformada) {
                     throw new \Exception(
@@ -508,7 +512,15 @@ class SunatApiService implements SunatApiServiceInterface
 
             $baja = $this->enviarResumen($comprobante, $empresa, 3, $fechaReferencia, $hoy);
 
-            if (! $baja['success']) {
+            // [2987] "El comprobante ya fue informado y se encuentra anulado o
+            // rechazado": no es un fallo — SUNAT ya no tiene ese comprobante
+            // como válido, que es justamente el objetivo de la baja. Pasa
+            // cuando un envío anterior quedó "en proceso" (estado 98) y
+            // terminó aceptándose sin que alcanzáramos a registrarlo de este
+            // lado. Insistir solo generaría más envíos al pedo.
+            $yaAnuladaEnSunat = ! $baja['success'] && str_contains($baja['mensaje'], '2987');
+
+            if (! $baja['success'] && ! $yaAnuladaEnSunat) {
                 throw new \Exception($baja['mensaje']);
             }
 
@@ -520,9 +532,11 @@ class SunatApiService implements SunatApiServiceInterface
                 'xml' => $xml,
                 'cdr' => $cdrContent,
                 'hash_cpe' => $xml ? hash('sha256', $xml) : '',
-                'hash_cdr' => hash('sha256', base64_decode($cdrContent) ?: $cdrContent),
+                'hash_cdr' => $cdrContent ? hash('sha256', base64_decode($cdrContent) ?: $cdrContent) : '',
                 'codigo_sunat' => '0',
-                'mensaje_sunat' => $baja['mensaje'] ?: 'Boleta dada de baja vía Resumen Diario',
+                'mensaje_sunat' => $yaAnuladaEnSunat
+                    ? 'SUNAT ya tenía este comprobante anulado: ' . $baja['mensaje']
+                    : ($baja['mensaje'] ?: 'Boleta dada de baja vía Resumen Diario'),
                 'modo' => strtoupper($empresa['modo']),
             ];
         } catch (\Exception $e) {
