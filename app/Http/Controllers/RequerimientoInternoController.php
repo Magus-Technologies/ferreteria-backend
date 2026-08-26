@@ -271,6 +271,72 @@ class RequerimientoInternoController extends Controller
     }
 
     /**
+     * Desaprobar requerimiento (espejo de aprobar): lo devuelve a pendiente,
+     * limpia quién/cuándo lo aprobó y deshace el bloqueo de calendario que la
+     * aprobación creó. Mismas reglas de permiso que aprobar.
+     */
+    public function desaprobar(Request $request, int $id)
+    {
+        $requerimiento = $this->service->obtenerPorId($id);
+
+        if ($requerimiento->approval_state !== 'aprobado') {
+            return response()->json(['message' => 'El requerimiento no está aprobado'], 400);
+        }
+
+        // Validar permiso por cargo: mismo criterio que aprobar()
+        $userCargo = $request->user()->cargo ?? null;
+        $requerimientoCargo = $requerimiento->cargo ?? null;
+        $isSupervisor = $request->user()->es_supervisor ?? false;
+        $isRootCargo = false;
+        if ($userCargo) {
+            $catalogoCargo = \App\Models\CatalogoCargo::whereRaw('LOWER(descripcion) = ?', [strtolower($userCargo)])->first();
+            $isRootCargo = $catalogoCargo && $catalogoCargo->parent === null;
+        }
+
+        $cargoMatch = $userCargo && $requerimientoCargo &&
+                      strtolower($userCargo) === strtolower($requerimientoCargo);
+
+        if (!$isSupervisor && !$isRootCargo && !$cargoMatch) {
+            return response()->json([
+                'message' => 'No autorizado. Solo usuarios con cargo ' . $requerimientoCargo . ' pueden desaprobar',
+                'required_cargo' => $requerimientoCargo,
+                'user_cargo' => $userCargo
+            ], 403);
+        }
+
+        DB::beginTransaction();
+        try {
+            $requerimiento->approval_state = 'pendiente';
+            $requerimiento->approved_by = null;
+            $requerimiento->approved_at = null;
+            $requerimiento->save();
+
+            // Deshacer el bloqueo de vehículo en el calendario que creó aprobar()
+            if ($requerimiento->afecta_calendario && $requerimiento->vehiculo_id) {
+                \App\Models\VehiculoMantenimiento::where('requerimiento_id', $requerimiento->id)->delete();
+            }
+
+            // Registrar en approval_history
+            \App\Models\ApprovalHistory::create([
+                'requerimiento_id' => $requerimiento->id,
+                'from_cargo_id' => $requerimiento->assigned_cargo_id,
+                'to_cargo_id' => $requerimiento->assigned_cargo_id,
+                'user_id' => $request->user()->id ?? null,
+                'action' => 'desaprobar',
+                'reason' => $request->input('reason') ?? null,
+            ]);
+
+            DB::commit();
+
+            return (new RequerimientoInternoResource($requerimiento))
+                ->additional(['message' => 'Requerimiento desaprobado: volvió a pendiente']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error al desaprobar', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Rechazar requerimiento (solo cargo asignado)
      */
     public function rechazar(Request $request, int $id)
