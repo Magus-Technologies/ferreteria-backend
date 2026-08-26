@@ -5,6 +5,7 @@ namespace App\Http\Controllers\FacturacionElectronica;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\FacturacionElectronica\ComprobanteElectronicoResource;
 use App\Models\ComprobanteElectronico;
+use App\Models\Empresa;
 use App\Models\Venta;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -251,38 +252,39 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
     }
 
     /**
-     * Comprobantes que YA VENCIERON el plazo legal SUNAT (factura/nota: +3
-     * días desde la emisión; boleta: +7 días) y siguen sin enviarse.
+     * Comprobantes 01/03 que superaron los días configurados para el envío
+     * automático y siguen sin enviarse. No usa el plazo legal fijo: la
+     * campanita debe respetar la configuración de Mi Empresa -> SUNAT.
      *
-     * Antes esto alertaba ANTES de vencer (desde el día 1 de factura / día 5
-     * de boleta) y dejaba de mostrar el comprobante justo al llegar al día
-     * límite — quedaba al revés de lo pedido: avisaba de más mientras
-     * todavía estaba en plazo, y se callaba justo cuando ya era un problema
-     * real. El mismo criterio "vencido" (diffInDays > plazoMaximo) que ya
-     * usa `EnviarComprobantesASunatJob::procesarBajasAutomaticas` para dar
-     * de baja automáticamente — acá solo alertamos, no hay tope superior:
-     * mientras siga sin enviarse, sigue apareciendo.
+     * No hay tope superior: mientras siga pendiente, continúa apareciendo.
      */
     public function pendientesAlerta(): JsonResponse
     {
         try {
             $now = \Carbon\Carbon::now();
+            $empresa = Empresa::first();
 
-            // Última fecha de emisión que TODAVÍA está dentro de plazo — todo
-            // lo anterior a esto ya venció.
-            $limiteFactura = $now->copy()->startOfDay()->subDays(3)->toDateString();
-            $limiteBoleta = $now->copy()->startOfDay()->subDays(7)->toDateString();
+            // Estos valores ya están limitados al rango permitido al guardar
+            // la configuración, pero se acotan nuevamente para proteger este
+            // endpoint si una empresa tiene datos antiguos o NULL.
+            $diasFactura = max(0, min(3, (int) ($empresa?->sunat_auto_send_factura_after_days ?? 3)));
+            $diasBoleta = max(0, min(7, (int) ($empresa?->sunat_auto_send_boleta_after_days ?? 0)));
+
+            // El mismo criterio que usa el job automático: después de N días
+            // significa que la fecha ya alcanzó el límite de N días.
+            $limiteFactura = $now->copy()->startOfDay()->subDays($diasFactura)->toDateString();
+            $limiteBoleta = $now->copy()->startOfDay()->subDays($diasBoleta)->toDateString();
 
             $pendientes = ComprobanteElectronico::with(['cliente'])
                 ->where('estado_sunat', 'PENDIENTE')
                 ->whereNull('fecha_envio_sunat')
                 ->where(function ($query) use ($limiteFactura, $limiteBoleta) {
                     $query->where(function ($q) use ($limiteFactura) {
-                        $q->whereIn('tipo_comprobante', ['01', '07', '08'])
-                            ->whereDate('fecha_emision', '<', $limiteFactura);
+                        $q->where('tipo_comprobante', '01')
+                            ->whereDate('fecha_emision', '<=', $limiteFactura);
                     })->orWhere(function ($q) use ($limiteBoleta) {
                         $q->where('tipo_comprobante', '03')
-                            ->whereDate('fecha_emision', '<', $limiteBoleta);
+                            ->whereDate('fecha_emision', '<=', $limiteBoleta);
                     });
                 })
                 ->orderBy('fecha_emision', 'asc')
@@ -302,15 +304,15 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
                 ->whereDoesntHave('comprobanteElectronico')
                 ->where(function ($query) use ($limiteFactura, $limiteBoleta) {
                     $query->where(function ($q) use ($limiteFactura) {
-                        $q->where('tipo_documento', '01')->whereDate('fecha', '<', $limiteFactura);
+                        $q->where('tipo_documento', '01')->whereDate('fecha', '<=', $limiteFactura);
                     })->orWhere(function ($q) use ($limiteBoleta) {
-                        $q->where('tipo_documento', '03')->whereDate('fecha', '<', $limiteBoleta);
+                        $q->where('tipo_documento', '03')->whereDate('fecha', '<=', $limiteBoleta);
                     });
                 })
                 ->with(['cliente', 'productosPorAlmacen.unidadesDerivadas'])
                 ->orderBy('fecha', 'asc')
                 ->get()
-                ->map(function (Venta $venta) {
+                ->map(function (Venta $venta) use ($diasFactura, $diasBoleta) {
                     $total = $venta->productosPorAlmacen->sum(
                         fn ($ppa) => $ppa->unidadesDerivadas->sum(
                             // Recargo POR UNIDAD, igual que getTotalVenta() y el comprobante.
@@ -336,6 +338,7 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
                             ?: 'Cliente',
                         'total' => round($total, 2),
                         'importe_total' => round($total, 2),
+                        'dias_alerta' => $tipoDoc === '01' ? $diasFactura : $diasBoleta,
                         // Conceptualmente estos casos también están
                         // "pendientes" (de generarse, no de enviarse) — se
                         // usa el mismo valor para que el front no necesite
@@ -348,14 +351,23 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
                     ];
                 });
 
-            $data = array_merge(
-                ComprobanteElectronicoResource::collection($pendientes)->resolve(),
-                $sinGenerar->all()
-            );
+            $pendientesData = array_map(function (array $item) use ($diasFactura, $diasBoleta) {
+                $tipoDoc = (string) ($item['tipo_comprobante'] ?? '');
+
+                return array_merge($item, [
+                    'dias_alerta' => $tipoDoc === '01' ? $diasFactura : $diasBoleta,
+                ]);
+            }, ComprobanteElectronicoResource::collection($pendientes)->resolve());
+
+            $data = array_merge($pendientesData, $sinGenerar->all());
 
             return response()->json([
                 'success' => true,
                 'data' => $data,
+                'configuracion' => [
+                    'factura_after_days' => $diasFactura,
+                    'boleta_after_days' => $diasBoleta,
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -383,8 +395,14 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
         try {
             $hoy = \Carbon\Carbon::now()->startOfDay();
 
+            // OJO: 'PENDIENTE' NO va acá. Un comprobante PENDIENTE nunca llegó
+            // a ser confirmado por SUNAT (no hay CDR de aceptación) — no hay
+            // nada que "dar de baja" del lado de SUNAT. Ofrecerlo como
+            // candidato produce el error [2663] "El documento indicado no
+            // existe" al intentar la baja, porque SUNAT literalmente no tiene
+            // ese documento en su registro.
             $anuladas = ComprobanteElectronico::whereIn('tipo_comprobante', ['01', '03'])
-                ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
+                ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES'])
                 ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
                 ->with(['venta:id,estado_de_venta'])
                 ->orderBy('fecha_emision', 'asc')
