@@ -192,10 +192,8 @@ class RequerimientoInternoController extends Controller
     {
         $requerimiento = $this->service->obtenerPorId($id);
 
-        // Validar que el requerimiento esté en estado pendiente o en revisión
-        if (!in_array($requerimiento->approval_state, ['pendiente', 'en_revision'])) {
-            return response()->json(['message' => 'El requerimiento no está en estado para ser aprobado'], 400);
-        }
+        // Sin validación de estado: aprobar/desaprobar es un interruptor libre —
+        // se puede aprobar desde cualquier estado (y deshacer con desaprobar).
 
         // Validar permiso por cargo: comparar user.cargo con requerimiento.cargo (case-insensitive)
         $userCargo = $request->user()->cargo ?? null;
@@ -208,7 +206,7 @@ class RequerimientoInternoController extends Controller
         }
 
         // Comparación case-insensitive
-        $cargoMatch = $userCargo && $requerimientoCargo && 
+        $cargoMatch = $userCargo && $requerimientoCargo &&
                       strtolower($userCargo) === strtolower($requerimientoCargo);
 
         // Solo el usuario con el cargo requerido, supervisor o cargo raíz puede aprobar
@@ -229,6 +227,10 @@ class RequerimientoInternoController extends Controller
 
             // Si afecta calendario y existe vehiculo_id -> crear bloqueo
             if ($requerimiento->afecta_calendario && $requerimiento->vehiculo_id) {
+                // Toggle aprobar/desaprobar: si quedó un bloqueo de una aprobación
+                // anterior, se reemplaza (evita duplicarlo al re-aprobar).
+                \App\Models\VehiculoMantenimiento::where('requerimiento_id', $requerimiento->id)->delete();
+
                 $bloque = \App\Support\BloqueMantenimientoCalculator::calcular($requerimiento);
 
                 if ($bloque === null) {
@@ -279,9 +281,7 @@ class RequerimientoInternoController extends Controller
     {
         $requerimiento = $this->service->obtenerPorId($id);
 
-        if ($requerimiento->approval_state !== 'aprobado') {
-            return response()->json(['message' => 'El requerimiento no está aprobado'], 400);
-        }
+        // Sin validación de estado: interruptor libre, espejo de aprobar().
 
         // Validar permiso por cargo: mismo criterio que aprobar()
         $userCargo = $request->user()->cargo ?? null;
