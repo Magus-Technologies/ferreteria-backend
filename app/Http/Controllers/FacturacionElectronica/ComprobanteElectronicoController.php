@@ -404,7 +404,13 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
             // en el payload del Resumen Diario, NO se descarta este caso.
             $anuladas = ComprobanteElectronico::whereIn('tipo_comprobante', ['01', '03'])
                 ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
-                ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
+                // Una venta anulada MEDIANTE nota de crédito ya quedó corregida
+                // ante SUNAT por esa nota: no corresponde además darla de baja
+                // (serían dos correcciones del mismo comprobante). Solo entran
+                // las anuladas por otras vías.
+                ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an')
+                    ->where(fn ($v) => $v->whereNull('anulado_por_nota_credito')
+                        ->orWhere('anulado_por_nota_credito', false)))
                 ->with(['venta:id,estado_de_venta'])
                 ->orderBy('fecha_emision', 'asc')
                 ->get()

@@ -486,13 +486,23 @@ class SunatApiService implements SunatApiServiceInterface
             if (! $fueAceptadaAlgunaVez) {
                 $alta = $this->enviarResumen($comprobante, $empresa, 1, $fechaReferencia, $hoy);
 
-                if (! $alta['success']) {
+                // [2282] "Existe documento ya informado anteriormente" NO es un
+                // fallo en este paso: significa que la boleta ya está declarada
+                // en SUNAT (por un envío anterior que sí llegó a procesarse,
+                // aunque nosotros no lo hayamos registrado). Esa es exactamente
+                // la precondición que este paso busca conseguir, así que se
+                // sigue derecho al paso de baja en vez de abortar.
+                $yaInformada = ! $alta['success'] && str_contains($alta['mensaje'], '2282');
+
+                if (! $alta['success'] && ! $yaInformada) {
                     throw new \Exception(
                         'No se pudo declarar la boleta antes de darla de baja (SUNAT exige que exista para poder anularla): '
                         . $alta['mensaje']
                     );
                 }
 
+                // En ambos caminos la boleta queda declarada ante SUNAT, que es
+                // lo que el caller necesita saber si después falla la baja.
                 $declaradaEnEstaCorrida = true;
             }
 

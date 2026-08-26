@@ -108,7 +108,11 @@ class EnviarComprobantesASunatJob implements ShouldQueue
         // bloquea el reenvío directo de una venta anulada).
         $pendientesBaja = ComprobanteElectronico::where('tipo_comprobante', $tipoDoc)
             ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
-            ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
+            // Mismo criterio que la pantalla manual: si la venta se anuló con
+            // nota de crédito, ya quedó corregida ante SUNAT y no va a baja.
+            ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an')
+                ->where(fn ($v) => $v->whereNull('anulado_por_nota_credito')
+                    ->orWhere('anulado_por_nota_credito', false)))
             ->get()
             ->filter(function (ComprobanteElectronico $c) use ($hoy, $plazoMaximo) {
                 $dias = (int) Carbon::parse($c->fecha_emision)->startOfDay()->diffInDays($hoy);
