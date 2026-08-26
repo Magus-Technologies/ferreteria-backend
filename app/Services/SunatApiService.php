@@ -553,12 +553,18 @@ class SunatApiService implements SunatApiServiceInterface
         string $fechaReferencia,
         string $fechaIssue
     ): array {
-        // Reintentos por si el contador de correlativos quedó desfasado
-        // respecto de SUNAT: cada [0402] avanza al siguiente número.
-        $maxIntentos = 5;
+        // Reintentos MUY acotados: cada intento es un envío real al servicio de
+        // SUNAT. Un bucle largo acá se convierte en una ráfaga de resúmenes
+        // (peor si la baja hace dos pasos), y SUNAT responde a eso cortando
+        // con "[HTTP] Bad Request" en TODO, no solo en el envío problemático.
+        $maxIntentos = 2;
 
         for ($intento = 1; $intento <= $maxIntentos; $intento++) {
-            $correlativo = $this->siguienteCorrelativoResumen($fechaIssue);
+            // Se RESERVA el número antes de mandar: una vez usado no se
+            // reintenta con el mismo jamás, aunque el envío falle. Los huecos
+            // en la numeración de resúmenes son aceptables para SUNAT; repetir
+            // un número no lo es (da [0402]).
+            $correlativo = $this->reservarCorrelativoResumen($fechaIssue);
 
             $payload = [
                 'endpoint' => $empresa['modo'],
@@ -606,8 +612,6 @@ class SunatApiService implements SunatApiServiceInterface
             $result = $response->json();
 
             if ($result['estado'] ?? false) {
-                $this->confirmarCorrelativoResumen($fechaIssue, $correlativo);
-
                 return [
                     'success' => true,
                     'mensaje' => $result['mensaje'] ?? '',
@@ -618,21 +622,6 @@ class SunatApiService implements SunatApiServiceInterface
 
             $mensaje = $result['mensaje'] ?? 'Error desconocido al enviar el resumen';
             $yaUsado = str_contains($mensaje, '0402');
-
-            // ¿SUNAT llegó a RECIBIR el documento? Entonces el correlativo
-            // quedó gastado aunque el resultado final no sea "aceptado", y hay
-            // que registrarlo o el próximo envío lo reusa y choca con [0402].
-            // Dos señales de que lo recibió:
-            //   - viene 'ticket': el microservicio pasó del send() y falló
-            //     recién al consultar el estado (ej. SUNAT todavía procesando,
-            //     estado 98) — el envío YA entró.
-            //   - [0402]: SUNAT dice explícitamente que ese número ya se envió.
-            // Este era el agujero que hacía derivar el contador: un resumen
-            // recibido pero no confirmado dejaba el número "libre" para el
-            // sistema y ocupado para SUNAT.
-            if ($yaUsado || ! empty($result['ticket'])) {
-                $this->confirmarCorrelativoResumen($fechaIssue, $correlativo);
-            }
 
             if ($yaUsado && $intento < $maxIntentos) {
                 Log::warning('[SunatApiService] Correlativo de resumen ya usado en SUNAT, probando el siguiente', [
@@ -670,37 +659,53 @@ class SunatApiService implements SunatApiServiceInterface
     }
 
     /**
-     * Próximo correlativo de Resumen Diario para la fecha de emisión del
-     * resumen. SUNAT lo exige único por (RUC, fecha): forma parte del nombre
-     * del ZIP (RC-{fecha}-{correlativo}) y repetirlo devuelve "[99] nombre del
-     * archivo ZIP incorrecto".
+     * Reserva (y devuelve) el próximo correlativo de Resumen Diario para la
+     * fecha de emisión del resumen. SUNAT lo exige único por (RUC, fecha):
+     * forma parte del nombre del ZIP (RC-{fecha}-{correlativo}) y repetirlo
+     * devuelve [0402] "ya ha sido enviado anteriormente".
      *
-     * No se persiste acá — se confirma con confirmarCorrelativoResumen() solo
-     * si SUNAT aceptó, para que un rechazo no queme números.
+     * Se persiste ANTES de enviar, a propósito. La versión anterior lo
+     * confirmaba solo si SUNAT aceptaba, con la idea de "no quemar números en
+     * vano" — pero un resumen puede quedar RECIBIDO por SUNAT y aun así
+     * devolver error (ej. todavía procesándose, estado 98). Ahí el número ya
+     * estaba ocupado del lado de SUNAT y libre del nuestro: el contador
+     * derivaba y cada envío siguiente chocaba con [0402]. Reservar siempre
+     * elimina esa clase de bug; los huecos en la numeración de resúmenes son
+     * aceptables, repetir un número no.
      */
-    private function siguienteCorrelativoResumen(string $fecha): int
+    private function reservarCorrelativoResumen(string $fecha): int
     {
-        $ultimo = DB::table('sunat_resumen_correlativo')->where('fecha', $fecha)->value('ultimo');
+        return DB::transaction(function () use ($fecha) {
+            $fila = DB::table('sunat_resumen_correlativo')
+                ->where('fecha', $fecha)
+                ->lockForUpdate()
+                ->first();
 
-        if ($ultimo === null) {
-            // Primera vez para esta fecha: arrancar después de los correlativos
-            // que ya se gastaron con el mecanismo viejo (una baja = un envío),
-            // contando las bajas aceptadas de ese día.
-            $ultimo = \App\Models\ComprobanteElectronico::where('tipo_comprobante', '03')
-                ->where('estado_sunat', 'BAJA_ACEPTADA')
-                ->whereDate('fecha_respuesta_sunat', $fecha)
-                ->count();
-        }
+            if ($fila === null) {
+                // Primera vez para esta fecha: arrancar después de los
+                // correlativos que ya se gastaron con el mecanismo viejo
+                // (una baja = un envío), contando las bajas aceptadas del día.
+                $base = \App\Models\ComprobanteElectronico::where('tipo_comprobante', '03')
+                    ->where('estado_sunat', 'BAJA_ACEPTADA')
+                    ->whereDate('fecha_respuesta_sunat', $fecha)
+                    ->count();
 
-        return ((int) $ultimo) + 1;
-    }
+                $nuevo = $base + 1;
+                DB::table('sunat_resumen_correlativo')->insert([
+                    'fecha' => $fecha,
+                    'ultimo' => $nuevo,
+                ]);
 
-    private function confirmarCorrelativoResumen(string $fecha, int $correlativo): void
-    {
-        DB::table('sunat_resumen_correlativo')->updateOrInsert(
-            ['fecha' => $fecha],
-            ['ultimo' => $correlativo]
-        );
+                return $nuevo;
+            }
+
+            $nuevo = ((int) $fila->ultimo) + 1;
+            DB::table('sunat_resumen_correlativo')
+                ->where('fecha', $fecha)
+                ->update(['ultimo' => $nuevo]);
+
+            return $nuevo;
+        });
     }
 
     public function esModoSimulacion(): bool
