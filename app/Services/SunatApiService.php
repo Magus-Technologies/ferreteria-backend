@@ -553,54 +553,98 @@ class SunatApiService implements SunatApiServiceInterface
         string $fechaReferencia,
         string $fechaIssue
     ): array {
-        $correlativo = $this->siguienteCorrelativoResumen($fechaIssue);
+        // Reintentos por si el contador de correlativos quedó desfasado
+        // respecto de SUNAT: cada [0402] avanza al siguiente número.
+        $maxIntentos = 5;
 
-        $payload = [
-            'endpoint' => $empresa['modo'],
-            'correlativo' => (string) $correlativo,
-            'fecha_generacion' => $fechaReferencia,
-            'fecha_resumen' => $fechaIssue,
-            'empresa' => [
-                'ruc' => (int) $empresa['ruc'],
-                'usuario' => $empresa['usuario'],
-                'clave' => $empresa['clave'],
-                'razon_social' => $empresa['razon_social'],
-                'direccion' => $empresa['direccion'],
-                'ubigeo' => $empresa['ubigeo'],
-                'distrito' => $empresa['distrito'],
-                'provincia' => $empresa['provincia'],
-                'departamento' => $empresa['departamento'],
-            ],
-            'detalles' => [[
-                'tipo_doc' => $comprobante->tipo_comprobante,
-                'serie_numero' => "{$comprobante->serie}-{$comprobante->correlativo}",
-                'estado' => $estado, // 1=declarar, 2=modificar, 3=baja
-                'tipo_doc_cliente' => (int) $comprobante->cliente_tipo_documento,
-                'num_doc_cliente' => (string) $comprobante->cliente_numero_documento,
-                'total' => (float) $comprobante->importe_total,
-                'mto_oper_gravadas' => (float) $comprobante->operacion_gravada,
-                'mto_igv' => (float) $comprobante->total_igv,
-                'mto_oper_exoneradas' => (float) $comprobante->operacion_exonerada,
-                'mto_oper_inafectas' => (float) $comprobante->operacion_inafecta,
-                'mto_otros_cargos' => (float) $comprobante->total_cargos,
-            ]],
-        ];
+        for ($intento = 1; $intento <= $maxIntentos; $intento++) {
+            $correlativo = $this->siguienteCorrelativoResumen($fechaIssue);
 
-        // Timeout generoso: SUNAT procesa resúmenes de forma asíncrona
-        // (ticket + consulta de estado) igual que la Comunicación de Baja.
-        $response = Http::timeout(90)->post("{$this->baseUrl}/enviar/resumen", $payload);
-
-        if ($response->failed()) {
-            return [
-                'success' => false,
-                'mensaje' => 'Error HTTP al enviar el resumen: ' . $response->body(),
-                'xml' => '', 'cdr' => '',
+            $payload = [
+                'endpoint' => $empresa['modo'],
+                'correlativo' => (string) $correlativo,
+                'fecha_generacion' => $fechaReferencia,
+                'fecha_resumen' => $fechaIssue,
+                'empresa' => [
+                    'ruc' => (int) $empresa['ruc'],
+                    'usuario' => $empresa['usuario'],
+                    'clave' => $empresa['clave'],
+                    'razon_social' => $empresa['razon_social'],
+                    'direccion' => $empresa['direccion'],
+                    'ubigeo' => $empresa['ubigeo'],
+                    'distrito' => $empresa['distrito'],
+                    'provincia' => $empresa['provincia'],
+                    'departamento' => $empresa['departamento'],
+                ],
+                'detalles' => [[
+                    'tipo_doc' => $comprobante->tipo_comprobante,
+                    'serie_numero' => "{$comprobante->serie}-{$comprobante->correlativo}",
+                    'estado' => $estado, // 1=declarar, 2=modificar, 3=baja
+                    'tipo_doc_cliente' => (int) $comprobante->cliente_tipo_documento,
+                    'num_doc_cliente' => (string) $comprobante->cliente_numero_documento,
+                    'total' => (float) $comprobante->importe_total,
+                    'mto_oper_gravadas' => (float) $comprobante->operacion_gravada,
+                    'mto_igv' => (float) $comprobante->total_igv,
+                    'mto_oper_exoneradas' => (float) $comprobante->operacion_exonerada,
+                    'mto_oper_inafectas' => (float) $comprobante->operacion_inafecta,
+                    'mto_otros_cargos' => (float) $comprobante->total_cargos,
+                ]],
             ];
-        }
 
-        $result = $response->json();
+            // Timeout generoso: SUNAT procesa resúmenes de forma asíncrona
+            // (ticket + consulta de estado) igual que la Comunicación de Baja.
+            $response = Http::timeout(90)->post("{$this->baseUrl}/enviar/resumen", $payload);
 
-        if (! ($result['estado'] ?? false)) {
+            if ($response->failed()) {
+                return [
+                    'success' => false,
+                    'mensaje' => 'Error HTTP al enviar el resumen: ' . $response->body(),
+                    'xml' => '', 'cdr' => '',
+                ];
+            }
+
+            $result = $response->json();
+
+            if ($result['estado'] ?? false) {
+                $this->confirmarCorrelativoResumen($fechaIssue, $correlativo);
+
+                return [
+                    'success' => true,
+                    'mensaje' => $result['mensaje'] ?? '',
+                    'xml' => $result['contenido_xml'] ?? '',
+                    'cdr' => $result['cdr'] ?? '',
+                ];
+            }
+
+            $mensaje = $result['mensaje'] ?? 'Error desconocido al enviar el resumen';
+            $yaUsado = str_contains($mensaje, '0402');
+
+            // ¿SUNAT llegó a RECIBIR el documento? Entonces el correlativo
+            // quedó gastado aunque el resultado final no sea "aceptado", y hay
+            // que registrarlo o el próximo envío lo reusa y choca con [0402].
+            // Dos señales de que lo recibió:
+            //   - viene 'ticket': el microservicio pasó del send() y falló
+            //     recién al consultar el estado (ej. SUNAT todavía procesando,
+            //     estado 98) — el envío YA entró.
+            //   - [0402]: SUNAT dice explícitamente que ese número ya se envió.
+            // Este era el agujero que hacía derivar el contador: un resumen
+            // recibido pero no confirmado dejaba el número "libre" para el
+            // sistema y ocupado para SUNAT.
+            if ($yaUsado || ! empty($result['ticket'])) {
+                $this->confirmarCorrelativoResumen($fechaIssue, $correlativo);
+            }
+
+            if ($yaUsado && $intento < $maxIntentos) {
+                Log::warning('[SunatApiService] Correlativo de resumen ya usado en SUNAT, probando el siguiente', [
+                    'comprobante_id' => $comprobante->id,
+                    'correlativo_rechazado' => $correlativo,
+                    'intento' => $intento,
+                    'mensaje' => $mensaje,
+                ]);
+
+                continue;
+            }
+
             // Loguear el payload y la respuesta CRUDA completa, no solo el
             // mensaje resumido: para diagnosticar rechazos de SUNAT hace falta
             // ver exactamente qué se mandó y qué contestaron.
@@ -613,20 +657,15 @@ class SunatApiService implements SunatApiServiceInterface
 
             return [
                 'success' => false,
-                'mensaje' => $result['mensaje'] ?? 'Error desconocido al enviar el resumen',
+                'mensaje' => $mensaje,
                 'xml' => '', 'cdr' => '',
             ];
         }
 
-        // Recién con la aceptación el correlativo queda consumido de verdad.
-        // Si SUNAT rechaza, el número sigue libre para el próximo intento.
-        $this->confirmarCorrelativoResumen($fechaIssue, $correlativo);
-
         return [
-            'success' => true,
-            'mensaje' => $result['mensaje'] ?? '',
-            'xml' => $result['contenido_xml'] ?? '',
-            'cdr' => $result['cdr'] ?? '',
+            'success' => false,
+            'mensaje' => "No se encontró un correlativo de resumen libre después de {$maxIntentos} intentos.",
+            'xml' => '', 'cdr' => '',
         ];
     }
 
