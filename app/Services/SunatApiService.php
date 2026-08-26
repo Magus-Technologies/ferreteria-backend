@@ -458,40 +458,48 @@ class SunatApiService implements SunatApiServiceInterface
         try {
             $empresa = $this->getEmpresa();
 
-            // `fecha_resumen` (FecResumen en el XML RC de Greenter) NO es "la
-            // fecha en que mandamos esto" — es la fecha de las boletas que
-            // este resumen está informando/corrigiendo (distinta de
-            // `fecha_generacion`, que sí es siempre hoy). Confirmado con
-            // SUNAT (orientacion.sunat.gob.pe/3529-operatividad):
-            //   - Boleta que SUNAT YA aceptó antes (individual, vía CPE):
-            //     la baja es una CORRECCIÓN de un resumen que, a ojos de
-            //     SUNAT, "pasó hoy" — fecha_resumen = hoy.
+            // OJO — los nombres de estos dos campos en nuestro payload/en
+            // Greenter son ENGAÑOSOS: van al revés de lo que sugieren.
+            // Confirmado leyendo el template real de Greenter
+            // (vendor/greenter/xml/.../Templates/summary.xml.twig):
+            //   <cbc:ReferenceDate>{{ doc.fecGeneracion }}</cbc:ReferenceDate>
+            //   <cbc:IssueDate>{{ doc.fecResumen }}</cbc:IssueDate>
+            // Es decir: nuestro 'fecha_resumen' termina siendo el IssueDate
+            // real del documento (SUNAT exige que sea HOY — no puede ser una
+            // fecha pasada, error [2671] "la fecha de generación... debe ser
+            // mayor o igual..."); y nuestro 'fecha_generacion' termina siendo
+            // el ReferenceDate (la fecha de las boletas que se referencian).
+            // Por eso 'fecha_resumen' abajo SIEMPRE es hoy, y la fecha
+            // variable (boleta propia vs hoy) va en 'fecha_generacion'.
+            //
+            //   - Boleta que SUNAT YA aceptó antes (individual, vía CPE): la
+            //     baja corrige un registro que para SUNAT "existe hoy" —
+            //     fecha de referencia = hoy.
             //   - Boleta que SUNAT NUNCA aceptó (PENDIENTE/RECHAZADO): esta
             //     baja es la ÚNICA declaración que SUNAT va a ver de ese
-            //     documento, y debe corresponder al día de emisión real de
-            //     la boleta — si no, SUNAT no encuentra nada que corregir y
-            //     devuelve [2663] "El documento indicado no existe" (exactamente
-            //     lo que pasaba antes de este fix).
+            //     documento, y la referencia debe ser su fecha de emisión
+            //     real — si no, SUNAT no encuentra nada que corregir y
+            //     devuelve [2663] "El documento indicado no existe".
             $fueAceptadaAlgunaVez = in_array($comprobante->estado_sunat, ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES']);
-            $fechaResumen = $fueAceptadaAlgunaVez
+            $fechaReferencia = $fueAceptadaAlgunaVez
                 ? now()->format('Y-m-d')
                 : \Illuminate\Support\Carbon::parse($comprobante->fecha_emision)->format('Y-m-d');
 
             // Correlativo del RESUMEN. Confirmado con SUNAT: es secuencial
-            // empezando en 1, pero POR `fecha_resumen` (mismo valor que arma
-            // el nombre del ZIP) — no una secuencia única de por vida para el
-            // RUC ni "por día real de envío". Se deriva contando cuántas
-            // bajas de boleta ya se aceptaron con ESA MISMA fecha_resumen + 1.
+            // empezando en 1, pero POR el IssueDate real del documento (que
+            // acá siempre es HOY, ver nota arriba) — no una secuencia única
+            // de por vida para el RUC. Se deriva contando cuántas bajas de
+            // boleta ya se aceptaron HOY + 1.
             $correlativoResumen = \App\Models\ComprobanteElectronico::where('tipo_comprobante', '03')
                 ->where('estado_sunat', 'BAJA_ACEPTADA')
-                ->whereDate('fecha_resumen_baja', $fechaResumen)
+                ->whereDate('fecha_respuesta_sunat', now()->toDateString())
                 ->count() + 1;
 
             $payload = [
                 'endpoint' => $empresa['modo'],
                 'correlativo' => (string) $correlativoResumen,
-                'fecha_generacion' => now()->format('Y-m-d'),
-                'fecha_resumen' => $fechaResumen,
+                'fecha_generacion' => $fechaReferencia,
+                'fecha_resumen' => now()->format('Y-m-d'),
                 'empresa' => [
                     'ruc' => (int) $empresa['ruc'],
                     'usuario' => $empresa['usuario'],
@@ -543,7 +551,6 @@ class SunatApiService implements SunatApiServiceInterface
                 'codigo_sunat' => '0',
                 'mensaje_sunat' => $result['mensaje'] ?: 'Boleta dada de baja vía Resumen Diario',
                 'modo' => strtoupper($empresa['modo']),
-                'fecha_resumen' => $fechaResumen,
             ];
         } catch (\Exception $e) {
             Log::error('[SunatApiService] Error generarYEnviarResumenBaja', [

@@ -48,9 +48,6 @@ class ComunicacionBajaService
                 'codigo_respuesta_sunat' => $result['codigo_sunat'] ?? null,
                 'mensaje_respuesta_sunat' => $result['mensaje_sunat'] ?? 'Comunicación de baja aceptada',
                 'motivo_anulacion' => $motivo,
-                // Solo boletas (Resumen Diario) traen 'fecha_resumen' — facturas
-                // van por Comunicación de Baja (Voided), que no la usa.
-                'fecha_resumen_baja' => $result['fecha_resumen'] ?? null,
             ]);
         }
 
