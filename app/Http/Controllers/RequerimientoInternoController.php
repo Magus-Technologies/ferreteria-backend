@@ -347,10 +347,8 @@ class RequerimientoInternoController extends Controller
 
         $requerimiento = $this->service->obtenerPorId($id);
 
-        // Validar que el requerimiento esté en estado pendiente o en revisión
-        if (!in_array($requerimiento->approval_state, ['pendiente', 'en_revision'])) {
-            return response()->json(['message' => 'El requerimiento no está en estado para ser rechazado'], 400);
-        }
+        // Sin validación de estado: mismo interruptor libre que aprobar/desaprobar —
+        // se puede rechazar esté como esté (y deshacer aprobando o desaprobando).
 
         // Validar permiso por cargo: comparar user.cargo con requerimiento.cargo (case-insensitive)
         $userCargo = $request->user()->cargo ?? null;
@@ -378,7 +376,16 @@ class RequerimientoInternoController extends Controller
         DB::beginTransaction();
         try {
             $requerimiento->approval_state = 'rechazado';
+            $requerimiento->approved_by = null;
+            $requerimiento->approved_at = null;
             $requerimiento->save();
+
+            // Si venía de estar aprobado, deshacer el bloqueo de vehículo en el
+            // calendario que creó la aprobación (sin esto, rechazar una orden
+            // aprobada dejaba el vehículo bloqueado por una orden rechazada).
+            if ($requerimiento->afecta_calendario && $requerimiento->vehiculo_id) {
+                \App\Models\VehiculoMantenimiento::where('requerimiento_id', $requerimiento->id)->delete();
+            }
 
             // Registrar en approval_history
             \App\Models\ApprovalHistory::create([
