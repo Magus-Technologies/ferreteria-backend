@@ -53,6 +53,7 @@ class GuiaRemision extends Model
         'sunat_codigo_qr',
         'sunat_fecha_envio',
         'sunat_estado',
+        'sunat_ticket',
         'sunat_mensaje',
         'user_id',
     ];

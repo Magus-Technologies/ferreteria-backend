@@ -495,7 +495,12 @@ class GuiaRemisionService
     }
 
     /**
-     * Enviar guía de remisión a SUNAT
+     * Enviar guía de remisión a SUNAT.
+     *
+     * La GRE-API de SUNAT es ASÍNCRONA: este paso solo entrega un ticket,
+     * no un CDR — recién se sabe si SUNAT aceptó/rechazó consultando ese
+     * ticket después (ver `consultarEstadoSunat`). Por eso acá NO se marca
+     * `ACEPTADO`: queda en `PENDIENTE` con el ticket guardado.
      */
     public function enviarASunat(GuiaRemision $guia): array
     {
@@ -505,6 +510,10 @@ class GuiaRemisionService
 
         if ($guia->sunat_estado === 'ACEPTADO') {
             throw new \Exception('Esta guía ya fue aceptada por SUNAT');
+        }
+
+        if ($guia->sunat_estado === 'PENDIENTE') {
+            throw new \Exception('Esta guía ya fue enviada y está pendiente de confirmación (ticket ' . $guia->sunat_ticket . '). Consultá su estado en vez de reenviarla.');
         }
 
         if ($guia->tipo_guia === 'FISICA') {
@@ -519,55 +528,35 @@ class GuiaRemisionService
             $resultado = $this->sunatApiService->generarYEnviarGuiaRemision($dataGreenter);
 
             if (!$resultado['success']) {
-                throw new \Exception('Error al enviar guía a SUNAT');
+                throw new \Exception($resultado['mensaje_sunat'] ?? 'Error al enviar guía a SUNAT');
             }
 
-            // Guardar XML y CDR
-        $ruc = \App\Models\Empresa::getRucEmisor();
+            $ruc = \App\Models\Empresa::getRucEmisor();
             $nombreXml = $this->xmlStorageService->generarNombreXml(
                 $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
             );
-            $nombreCdr = $this->xmlStorageService->generarNombreCdr(
-                $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
-            );
-
             $xmlPath = $this->xmlStorageService->guardarXml($resultado['xml'], $nombreXml);
-
-            // Decodificar CDR (si viene en base64) ANTES de guardar el .zip:
-            // guardarCdr() se llamaba con $resultado['cdr'] sin decodificar,
-            // dejando el archivo descargable como texto base64 con extensión
-            // .zip (mismo bug de FacturaService.php, acá sin siquiera el
-            // intento de decode que sí tenían factura/NC/ND).
-            $cdrContent = $resultado['cdr'];
-            if (base64_decode($cdrContent, true) !== false) {
-                $cdrContent = base64_decode($cdrContent);
-            }
-
-            $cdrPath = $this->xmlStorageService->guardarCdr($cdrContent, $nombreCdr);
 
             // Regenerar QR con hash actualizado
             $codigoQr = $this->generarCodigoQR($guia, $resultado['hash_cpe']);
 
-            // Actualizar guía
             $guia->update([
-                'sunat_estado' => 'ACEPTADO',
+                'sunat_estado' => 'PENDIENTE',
                 'sunat_codigo_hash' => $resultado['hash_cpe'],
                 'sunat_xml_path' => $xmlPath,
-                'sunat_cdr_xml' => $cdrContent,
-                'sunat_cdr_path' => $cdrPath,
+                'sunat_ticket' => $resultado['ticket'] ?? null,
                 'sunat_codigo_qr' => $codigoQr,
                 'sunat_fecha_envio' => now(),
-                'sunat_mensaje' => $resultado['mensaje_sunat'] ?? 'Aceptado',
+                'sunat_mensaje' => $resultado['mensaje_sunat'] ?? 'Enviado a SUNAT, pendiente de confirmación',
             ]);
 
             DB::commit();
 
-
             return [
                 'success' => true,
-                'mensaje' => 'Guía de remisión enviada correctamente a SUNAT',
+                'mensaje' => 'Guía enviada a SUNAT — pendiente de confirmación del ticket',
                 'modo' => $resultado['modo'],
-                'codigo_sunat' => $resultado['codigo_sunat'] ?? null,
+                'ticket' => $resultado['ticket'] ?? null,
                 'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
             ];
         } catch (\Exception $e) {
@@ -578,6 +567,69 @@ class GuiaRemisionService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Consulta en SUNAT el resultado del ticket de una guía ya enviada
+     * (`sunat_estado === 'PENDIENTE'`). Si SUNAT todavía la está
+     * procesando, `success` viene en `false` — eso NO se interpreta como
+     * rechazo: se deja en `PENDIENTE` para reintentar la consulta más
+     * tarde (el job automático la vuelve a consultar en cada corrida).
+     * Solo se marca `ACEPTADO` cuando SUNAT confirma con CDR.
+     */
+    public function consultarEstadoSunat(GuiaRemision $guia): array
+    {
+        if (empty($guia->sunat_ticket)) {
+            throw new \Exception('Esta guía no tiene un ticket SUNAT pendiente de consulta');
+        }
+
+        if ($guia->sunat_estado === 'ACEPTADO') {
+            return [
+                'success' => true,
+                'estado' => 'ACEPTADO',
+                'mensaje' => 'La guía ya estaba aceptada por SUNAT',
+            ];
+        }
+
+        $resultado = $this->sunatApiService->consultarTicketGuia($guia->sunat_ticket);
+
+        if (!$resultado['success']) {
+            $guia->update([
+                'sunat_mensaje' => $resultado['mensaje_sunat'] ?? 'SUNAT todavía está procesando el ticket',
+            ]);
+
+            return [
+                'success' => false,
+                'estado' => $guia->sunat_estado,
+                'mensaje' => $resultado['mensaje_sunat'] ?? null,
+            ];
+        }
+
+        $dataGreenter = $this->prepararDatosParaGreenter($guia);
+        $tipoDocSunat = $this->getTipoDocSunat($guia);
+        $ruc = \App\Models\Empresa::getRucEmisor();
+        $nombreCdr = $this->xmlStorageService->generarNombreCdr(
+            $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
+        );
+
+        $cdrContent = $resultado['cdr'] ?? '';
+        if ($cdrContent !== '' && base64_decode($cdrContent, true) !== false) {
+            $cdrContent = base64_decode($cdrContent);
+        }
+        $cdrPath = $cdrContent !== '' ? $this->xmlStorageService->guardarCdr($cdrContent, $nombreCdr) : null;
+
+        $guia->update([
+            'sunat_estado' => 'ACEPTADO',
+            'sunat_cdr_xml' => $cdrContent !== '' ? $cdrContent : null,
+            'sunat_cdr_path' => $cdrPath,
+            'sunat_mensaje' => $resultado['mensaje_sunat'] ?? 'Aceptado',
+        ]);
+
+        return [
+            'success' => true,
+            'estado' => 'ACEPTADO',
+            'mensaje' => $resultado['mensaje_sunat'] ?? 'Aceptado',
+        ];
     }
 
     /**

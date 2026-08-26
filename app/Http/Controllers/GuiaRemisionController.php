@@ -252,6 +252,26 @@ class GuiaRemisionController extends Controller
     }
 
     /**
+     * Consultar en SUNAT el estado del ticket de una guía ya enviada.
+     */
+    public function consultarEstado(string $id)
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+            $resultado = $this->guiaRemisionService->consultarEstadoSunat($guia);
+
+            return response()->json([
+                'data' => $resultado,
+                'message' => $resultado['mensaje'] ?? '',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
      * Obtener datos de la guía para generar PDF (incluye QR y datos empresa).
      */
     public function getPdfData(string $id)

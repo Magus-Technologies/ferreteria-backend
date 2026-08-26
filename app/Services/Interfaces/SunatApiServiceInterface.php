@@ -12,6 +12,7 @@ interface SunatApiServiceInterface
     public function generarXmlFactura(array $data): string;
     public function generarYEnviarGuiaRemision(array $data): array;
     public function generarXmlGuiaRemision(array $data): string;
+    public function consultarTicketGuia(string $ticket): array;
     public function generarXmlComunicacionBaja(array $data): string;
     public function generarYEnviarComunicacionBaja(array $data): array;
     public function generarYEnviarResumenBaja(\App\Models\ComprobanteElectronico $comprobante): array;

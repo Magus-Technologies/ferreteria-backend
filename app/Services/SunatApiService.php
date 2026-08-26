@@ -285,26 +285,78 @@ class SunatApiService implements SunatApiServiceInterface
                 throw new \Exception($sendResult['mensaje'] ?? 'Error al enviar Guía a SUNAT');
             }
 
-            $cdrContent = $sendResult['cdr'] ?? '';
-
+            // La GRE-API de SUNAT es asíncrona: `enviar/guia/remision` SOLO
+            // entrega un ticket (nunca un CDR) — SUNAT procesa aparte y hay
+            // que consultar ese ticket después (ver consultarTicketGuia) para
+            // recién ahí obtener el CDR real. Antes acá se leía
+            // `$sendResult['cdr']`, que el microservicio nunca devuelve para
+            // guías, así que quedaba vacío y el hash se calculaba sobre string
+            // vacío — parecía "aceptado" sin que SUNAT hubiera confirmado nada.
             return [
                 'success' => true,
                 'xml' => $xmlResult['data']['contenido_xml'],
-                'cdr' => $cdrContent,
                 'hash_cpe' => $xmlResult['data']['hash'],
-                'hash_cdr' => $cdrContent ? hash('sha256', base64_decode($cdrContent) ?: $cdrContent) : '',
                 'codigo_sunat' => '0',
-                'mensaje_sunat' => $sendResult['mensaje'] ?: 'Guía aceptada',
+                'mensaje_sunat' => $sendResult['mensaje'] ?: 'Ticket generado, pendiente de confirmación SUNAT',
                 'modo' => strtoupper($empresa['modo']),
-                'ticker' => $sendResult['ticker'] ?? null,
+                'ticket' => $sendResult['ticker'] ?? null,
             ];
         } catch (\Exception $e) {
             Log::error('[SunatApiService] Error generarYEnviarGuiaRemision', ['error' => $e->getMessage()]);
             return [
-                'success' => false, 'xml' => '', 'cdr' => '',
-                'hash_cpe' => '', 'hash_cdr' => '',
+                'success' => false, 'xml' => '',
+                'hash_cpe' => '',
                 'codigo_sunat' => '98', 'mensaje_sunat' => $e->getMessage(),
                 'modo' => strtoupper($this->getEmpresa()['modo']),
+            ];
+        }
+    }
+
+    /**
+     * Consulta en SUNAT el resultado de un ticket de guía de remisión
+     * (GRE-API), obtenido previamente en `generarYEnviarGuiaRemision()`.
+     * SUNAT puede tardar en procesar el ticket — mientras no esté listo,
+     * `success` viene en `false` sin que eso signifique un rechazo real.
+     */
+    public function consultarTicketGuia(string $ticket): array
+    {
+        try {
+            $empresa = $this->getEmpresa();
+
+            $payload = [
+                'endpoint' => $empresa['modo'],
+                'ruc' => (int) $empresa['ruc'],
+                'usuario' => $empresa['usuario'],
+                'clave' => $empresa['clave'],
+                'client_id' => $empresa['client_id'],
+                'secret_client' => $empresa['secret_client'],
+            ];
+
+            $response = Http::timeout(60)->post("{$this->baseUrl}/consulta/documento/ticker/{$ticket}", $payload);
+
+            if ($response->failed()) {
+                throw new \Exception('Error al consultar ticket: ' . $response->body());
+            }
+
+            $result = $response->json();
+
+            if (!($result['estado'] ?? false)) {
+                return [
+                    'success' => false,
+                    'mensaje_sunat' => $result['mensaje'] ?? 'SUNAT todavía está procesando el ticket',
+                ];
+            }
+
+            return [
+                'success' => true,
+                'cdr' => $result['cdr'] ?? '',
+                'mensaje_sunat' => $result['mensaje'] ?? 'Aceptado',
+            ];
+        } catch (\Exception $e) {
+            Log::error('[SunatApiService] Error consultarTicketGuia', ['ticket' => $ticket, 'error' => $e->getMessage()]);
+            return [
+                'success' => false,
+                'mensaje_sunat' => $e->getMessage(),
             ];
         }
     }

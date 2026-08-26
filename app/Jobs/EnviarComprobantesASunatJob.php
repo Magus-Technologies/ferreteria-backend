@@ -4,8 +4,12 @@ namespace App\Jobs;
 
 use App\Models\ComprobanteElectronico;
 use App\Models\Empresa;
+use App\Models\GuiaRemision;
+use App\Models\NotaCredito;
 use App\Services\ComunicacionBajaService;
+use App\Services\GuiaRemisionService;
 use App\Services\Interfaces\FacturaServiceInterface;
+use App\Services\Interfaces\NotaCreditoServiceInterface;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -20,7 +24,13 @@ use Carbon\Carbon;
  *
  * - Días de espera y plazo máximo: configurables en Mi Empresa → SUNAT
  *   (por defecto Facturas 3 días / Boletas 0 días; tope legal SUNAT 3 y 7).
- * - Las Notas de Débito y Crédito se envían MANUALMENTE.
+ * - Las Notas de Crédito también pueden enviarse automáticamente (mismo
+ *   plazo legal que factura: 3 días). Las Notas de Débito se envían
+ *   MANUALMENTE — no hay pedido de auto-envío para ese tipo.
+ * - Las Guías de Remisión Electrónicas también se envían automáticamente.
+ *   Como la GRE-API de SUNAT es asíncrona (envío entrega un ticket, no un
+ *   CDR), este job además CONSULTA en cada corrida el ticket de las guías
+ *   que quedaron pendientes de un envío anterior, hasta que SUNAT confirme.
  * - Se ejecuta 5 veces al día (ver routes/console.php), cada comprobante
  *   además reintenta hasta 3 veces en el momento si falla (enviarConReintentos
  *   / darDeBajaConReintentos).
@@ -40,7 +50,7 @@ class EnviarComprobantesASunatJob implements ShouldQueue
         //
     }
 
-    public function handle(FacturaServiceInterface $facturaService, ComunicacionBajaService $comunicacionBajaService): void
+    public function handle(FacturaServiceInterface $facturaService, ComunicacionBajaService $comunicacionBajaService, NotaCreditoServiceInterface $notaCreditoService, GuiaRemisionService $guiaRemisionService): void
     {
         $empresa = Empresa::first();
 
@@ -57,6 +67,24 @@ class EnviarComprobantesASunatJob implements ShouldQueue
             $this->procesarTipoDocumento($facturaService, '03', 'boleta', $afterDays);
             $this->procesarBajasAutomaticas($comunicacionBajaService, '03', 'boleta');
         }
+
+        // 3. PROCESAR NOTAS DE CRÉDITO (07)
+        if ($empresa?->sunat_auto_send_nota_credito_enabled) {
+            $afterDays = (int) $empresa->sunat_auto_send_nota_credito_after_days;
+            $this->procesarNotasCredito($notaCreditoService, $afterDays);
+        }
+
+        // 4. PROCESAR GUÍAS DE REMISIÓN ELECTRÓNICAS (09/31)
+        if ($empresa?->sunat_auto_send_guia_enabled) {
+            $afterDays = (int) $empresa->sunat_auto_send_guia_after_days;
+            $this->procesarGuiasPendientesEnvio($guiaRemisionService, $afterDays);
+        }
+
+        // La consulta de tickets pendientes corre siempre que haya alguno,
+        // sin importar el toggle: si ya se enviaron, hay que confirmarlas
+        // con SUNAT tarde o temprano (desactivar el auto-envío no debería
+        // dejar guías enviadas colgadas sin CDR para siempre).
+        $this->procesarGuiasPendientesConsulta($guiaRemisionService);
     }
 
     /**
@@ -166,6 +194,123 @@ class EnviarComprobantesASunatJob implements ShouldQueue
                 if (!$esUltimoIntento) {
                     sleep($segundosEntreIntentos);
                 }
+            }
+        }
+    }
+
+    /**
+     * A diferencia de factura/boleta, una Nota de Crédito recién creada NO
+     * tiene todavía un ComprobanteElectronico (ese registro se crea/actualiza
+     * recién dentro de `NotaCreditoService::enviarASunat()`, después del envío
+     * exitoso) — así que las pendientes se buscan por el propio estado de
+     * `nota_credito`, no por `comprobantes_electronicos`. Mismo plazo legal
+     * que factura (3 días) porque la Nota de Crédito corrige un comprobante
+     * ya emitido y SUNAT la rechaza fuera de ese plazo.
+     */
+    private function procesarNotasCredito(NotaCreditoServiceInterface $notaCreditoService, int $diasAntiguedad): void
+    {
+        $maxDiasPlazo = 3;
+
+        $fechaLimiteMin = Carbon::now()->subDays($diasAntiguedad);
+        $fechaLimiteMax = Carbon::now()->subDays($maxDiasPlazo);
+
+        $pendientes = NotaCredito::whereIn('estado', ['borrador', 'pendiente'])
+            ->whereDate('fecha', '<=', $fechaLimiteMin->toDateString())
+            ->whereDate('fecha', '>=', $fechaLimiteMax->toDateString())
+            ->get();
+
+        foreach ($pendientes as $notaCredito) {
+            $this->enviarNotaCreditoConReintentos($notaCreditoService, $notaCredito);
+        }
+    }
+
+    private function enviarNotaCreditoConReintentos(NotaCreditoServiceInterface $notaCreditoService, NotaCredito $notaCredito): void
+    {
+        $maxIntentos = 3;
+        $segundosEntreIntentos = 5;
+
+        for ($intento = 1; $intento <= $maxIntentos; $intento++) {
+            try {
+                $notaCreditoService->enviarASunat($notaCredito->id, 'automatico');
+                return;
+            } catch (\Exception $e) {
+                $esUltimoIntento = $intento === $maxIntentos;
+                Log::error("Error enviando nota_credito {$notaCredito->id} (intento {$intento}/{$maxIntentos}): {$e->getMessage()}", [
+                    'nota_credito_id' => $notaCredito->id,
+                    'ultimo_intento' => $esUltimoIntento,
+                ]);
+
+                if (!$esUltimoIntento) {
+                    sleep($segundosEntreIntentos);
+                }
+            }
+        }
+    }
+
+    /**
+     * Envía a SUNAT las guías EMITIDAS que todavía no se enviaron
+     * (`sunat_estado` nulo). No incluye guías FISICA (no llevan CPE) ni las
+     * que ya están PENDIENTE/ACEPTADO (`enviarASunat` las rechaza).
+     */
+    private function procesarGuiasPendientesEnvio(GuiaRemisionService $guiaRemisionService, int $diasAntiguedad): void
+    {
+        $fechaLimite = Carbon::now()->subDays($diasAntiguedad);
+
+        $pendientes = GuiaRemision::where('estado', 'EMITIDA')
+            ->where('tipo_guia', '!=', 'FISICA')
+            ->whereNull('sunat_estado')
+            ->whereDate('fecha_emision', '<=', $fechaLimite->toDateString())
+            ->get();
+
+        foreach ($pendientes as $guia) {
+            $this->enviarGuiaConReintentos($guiaRemisionService, $guia);
+        }
+    }
+
+    private function enviarGuiaConReintentos(GuiaRemisionService $guiaRemisionService, GuiaRemision $guia): void
+    {
+        $maxIntentos = 3;
+        $segundosEntreIntentos = 5;
+
+        for ($intento = 1; $intento <= $maxIntentos; $intento++) {
+            try {
+                $guiaRemisionService->enviarASunat($guia);
+                return;
+            } catch (\Exception $e) {
+                $esUltimoIntento = $intento === $maxIntentos;
+                Log::error("Error enviando guía {$guia->id} (intento {$intento}/{$maxIntentos}): {$e->getMessage()}", [
+                    'guia_id' => $guia->id,
+                    'ultimo_intento' => $esUltimoIntento,
+                ]);
+
+                if (!$esUltimoIntento) {
+                    sleep($segundosEntreIntentos);
+                }
+            }
+        }
+    }
+
+    /**
+     * Consulta el ticket de las guías que ya se enviaron (PENDIENTE) pero
+     * todavía no se confirmaron. A diferencia de `enviarConReintentos`, acá
+     * NO se reintenta en el momento: que SUNAT no haya terminado de procesar
+     * el ticket es el caso normal, no un error transitorio — reintentar 3
+     * veces con 5s de por medio no le da tiempo real a SUNAT. Se confirma
+     * sola en una corrida posterior del job.
+     */
+    private function procesarGuiasPendientesConsulta(GuiaRemisionService $guiaRemisionService): void
+    {
+        $pendientes = GuiaRemision::where('sunat_estado', 'PENDIENTE')
+            ->whereNotNull('sunat_ticket')
+            ->get();
+
+        foreach ($pendientes as $guia) {
+            try {
+                $guiaRemisionService->consultarEstadoSunat($guia);
+            } catch (\Exception $e) {
+                Log::error("Error consultando ticket de guía {$guia->id}: {$e->getMessage()}", [
+                    'guia_id' => $guia->id,
+                ]);
             }
         }
     }
