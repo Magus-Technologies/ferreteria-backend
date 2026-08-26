@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Empresa;
 use App\Services\Interfaces\SunatApiServiceInterface;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -444,112 +445,65 @@ class SunatApiService implements SunatApiServiceInterface
     }
 
     /**
-     * Dar de baja una BOLETA vía Resumen Diario corrector.
+     * Dar de baja una BOLETA vía Resumen Diario.
      *
      * SUNAT no acepta boletas (03) en Comunicación de Baja (VoidedDocuments)
-     * — solo facturas/notas. Para boletas, la baja se hace mandando un
-     * Resumen Diario que incluye SOLO esa boleta con `estado=3` (de baja).
-     * No hace falta referenciar el resumen original en el que se declaró: el
-     * detalle se identifica por su propia serie-número, así que un resumen
-     * "corrector" de un solo ítem alcanza.
+     * — solo facturas/notas. Para boletas la baja se comunica con un Resumen
+     * Diario que incluye esa boleta con `estado=3`.
+     *
+     * IMPORTANTE — `estado=3` es una MODIFICACIÓN: SUNAT solo puede dar de
+     * baja algo que YA tiene registrado. Si la boleta nunca fue informada
+     * (nunca llegó a ACEPTADO, ni por CPE individual ni por un resumen
+     * previo), responde [2663] "El documento indicado no existe no puede ser
+     * modificado". Por eso en ese caso este método hace DOS envíos:
+     *   1) un resumen con `estado=1`, que declara la boleta ante SUNAT, y
+     *   2) un resumen con `estado=3`, que la da de baja.
+     *
+     * El efecto tributario neto de los dos pasos es cero, pero entre uno y
+     * otro la boleta queda declarada como válida. Si el paso 2 fallara, se
+     * devuelve `declarada_previamente = true` para que el caller deje el
+     * estado real en la base (ACEPTADO) y el reintento tome el camino simple
+     * de un solo envío en vez de volver a declararla.
      */
     public function generarYEnviarResumenBaja(\App\Models\ComprobanteElectronico $comprobante): array
     {
+        $declaradaEnEstaCorrida = false;
+
         try {
             $empresa = $this->getEmpresa();
+            $hoy = now()->format('Y-m-d');
+            $fechaEmision = \Illuminate\Support\Carbon::parse($comprobante->fecha_emision)->format('Y-m-d');
 
-            // OJO — los nombres de estos dos campos en nuestro payload/en
-            // Greenter son ENGAÑOSOS: van al revés de lo que sugieren.
-            // Confirmado leyendo el template real de Greenter
-            // (vendor/greenter/xml/.../Templates/summary.xml.twig):
-            //   <cbc:ReferenceDate>{{ doc.fecGeneracion }}</cbc:ReferenceDate>
-            //   <cbc:IssueDate>{{ doc.fecResumen }}</cbc:IssueDate>
-            // Es decir: nuestro 'fecha_resumen' termina siendo el IssueDate
-            // real del documento (SUNAT exige que sea HOY — no puede ser una
-            // fecha pasada, error [2671] "la fecha de generación... debe ser
-            // mayor o igual..."); y nuestro 'fecha_generacion' termina siendo
-            // el ReferenceDate (la fecha de las boletas que se referencian).
-            // Por eso 'fecha_resumen' abajo SIEMPRE es hoy, y la fecha
-            // variable (boleta propia vs hoy) va en 'fecha_generacion'.
-            //
-            //   - Boleta que SUNAT YA aceptó antes (individual, vía CPE): la
-            //     baja corrige un registro que para SUNAT "existe hoy" —
-            //     fecha de referencia = hoy.
-            //   - Boleta que SUNAT NUNCA aceptó (PENDIENTE/RECHAZADO): esta
-            //     baja es la ÚNICA declaración que SUNAT va a ver de ese
-            //     documento, y la referencia debe ser su fecha de emisión
-            //     real — si no, SUNAT no encuentra nada que corregir y
-            //     devuelve [2663] "El documento indicado no existe".
             $fueAceptadaAlgunaVez = in_array($comprobante->estado_sunat, ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES']);
-            $fechaReferencia = $fueAceptadaAlgunaVez
-                ? now()->format('Y-m-d')
-                : \Illuminate\Support\Carbon::parse($comprobante->fecha_emision)->format('Y-m-d');
 
-            // Correlativo del RESUMEN. Confirmado con SUNAT: es secuencial
-            // empezando en 1, pero POR el IssueDate real del documento (que
-            // acá siempre es HOY, ver nota arriba) — no una secuencia única
-            // de por vida para el RUC. Se deriva contando cuántas bajas de
-            // boleta ya se aceptaron HOY + 1.
-            $correlativoResumen = \App\Models\ComprobanteElectronico::where('tipo_comprobante', '03')
-                ->where('estado_sunat', 'BAJA_ACEPTADA')
-                ->whereDate('fecha_respuesta_sunat', now()->toDateString())
-                ->count() + 1;
+            // Fecha que va al `cbc:ReferenceDate` (ver nota en enviarResumen):
+            //   - Boleta YA aceptada por CPE individual: la baja corrige un
+            //     registro que para SUNAT está vigente hoy → hoy.
+            //   - Boleta nunca informada: los dos envíos (declarar + dar de
+            //     baja) corresponden al día de emisión real de la boleta.
+            $fechaReferencia = $fueAceptadaAlgunaVez ? $hoy : $fechaEmision;
 
-            $payload = [
-                'endpoint' => $empresa['modo'],
-                'correlativo' => (string) $correlativoResumen,
-                'fecha_generacion' => $fechaReferencia,
-                'fecha_resumen' => now()->format('Y-m-d'),
-                'empresa' => [
-                    'ruc' => (int) $empresa['ruc'],
-                    'usuario' => $empresa['usuario'],
-                    'clave' => $empresa['clave'],
-                    'razon_social' => $empresa['razon_social'],
-                    'direccion' => $empresa['direccion'],
-                    'ubigeo' => $empresa['ubigeo'],
-                    'distrito' => $empresa['distrito'],
-                    'provincia' => $empresa['provincia'],
-                    'departamento' => $empresa['departamento'],
-                ],
-                'detalles' => [[
-                    'tipo_doc' => $comprobante->tipo_comprobante,
-                    'serie_numero' => "{$comprobante->serie}-{$comprobante->correlativo}",
-                    'estado' => 3, // 1=válido, 2=observado, 3=baja
-                    'tipo_doc_cliente' => (int) $comprobante->cliente_tipo_documento,
-                    'num_doc_cliente' => (string) $comprobante->cliente_numero_documento,
-                    'total' => (float) $comprobante->importe_total,
-                    'mto_oper_gravadas' => (float) $comprobante->operacion_gravada,
-                    'mto_igv' => (float) $comprobante->total_igv,
-                    'mto_oper_exoneradas' => (float) $comprobante->operacion_exonerada,
-                    'mto_oper_inafectas' => (float) $comprobante->operacion_inafecta,
-                    'mto_otros_cargos' => (float) $comprobante->total_cargos,
-                ]],
-            ];
+            if (! $fueAceptadaAlgunaVez) {
+                $alta = $this->enviarResumen($comprobante, $empresa, 1, $fechaReferencia, $hoy);
 
-            // Timeout generoso: SUNAT procesa resúmenes de forma asíncrona
-            // (ticket + consulta de estado) igual que la Comunicación de Baja.
-            $response = Http::timeout(90)->post("{$this->baseUrl}/enviar/resumen", $payload);
+                if (! $alta['success']) {
+                    throw new \Exception(
+                        'No se pudo declarar la boleta antes de darla de baja (SUNAT exige que exista para poder anularla): '
+                        . $alta['mensaje']
+                    );
+                }
 
-            if ($response->failed()) {
-                throw new \Exception('Error al enviar resumen de baja: ' . $response->body());
+                $declaradaEnEstaCorrida = true;
             }
 
-            $result = $response->json();
-            if (!($result['estado'] ?? false)) {
-                // Loguear el payload y la respuesta CRUDA completa, no solo
-                // el mensaje resumido — para diagnosticar errores de SUNAT
-                // (como [2663]) hace falta ver exactamente qué se mandó y
-                // qué devolvió el microservicio, no solo el texto final.
-                Log::error('[SunatApiService] SUNAT rechazó el resumen de baja', [
-                    'comprobante_id' => $comprobante->id,
-                    'payload_enviado' => $payload,
-                    'respuesta_cruda' => $result,
-                ]);
-                throw new \Exception($result['mensaje'] ?? 'Error desconocido al enviar resumen de baja');
+            $baja = $this->enviarResumen($comprobante, $empresa, 3, $fechaReferencia, $hoy);
+
+            if (! $baja['success']) {
+                throw new \Exception($baja['mensaje']);
             }
 
-            $xml = $result['contenido_xml'] ?? '';
-            $cdrContent = $result['cdr'] ?? '';
+            $xml = $baja['xml'];
+            $cdrContent = $baja['cdr'];
 
             return [
                 'success' => true,
@@ -558,21 +512,156 @@ class SunatApiService implements SunatApiServiceInterface
                 'hash_cpe' => $xml ? hash('sha256', $xml) : '',
                 'hash_cdr' => hash('sha256', base64_decode($cdrContent) ?: $cdrContent),
                 'codigo_sunat' => '0',
-                'mensaje_sunat' => $result['mensaje'] ?: 'Boleta dada de baja vía Resumen Diario',
+                'mensaje_sunat' => $baja['mensaje'] ?: 'Boleta dada de baja vía Resumen Diario',
                 'modo' => strtoupper($empresa['modo']),
             ];
         } catch (\Exception $e) {
             Log::error('[SunatApiService] Error generarYEnviarResumenBaja', [
                 'comprobante_id' => $comprobante->id,
+                'declarada_previamente' => $declaradaEnEstaCorrida,
                 'error' => $e->getMessage(),
             ]);
+
             return [
                 'success' => false, 'xml' => '', 'cdr' => '',
                 'hash_cpe' => '', 'hash_cdr' => '',
                 'codigo_sunat' => '98', 'mensaje_sunat' => $e->getMessage(),
                 'modo' => strtoupper($this->getEmpresa()['modo']),
+                'declarada_previamente' => $declaradaEnEstaCorrida,
             ];
         }
+    }
+
+    /**
+     * Envía UN Resumen Diario con un solo detalle para `$comprobante`, en el
+     * `$estado` pedido (1 = declarar, 2 = modificar, 3 = dar de baja).
+     *
+     * OJO con los nombres de las fechas en el payload: van al REVÉS de lo que
+     * sugieren. Confirmado leyendo el template real de Greenter
+     * (vendor/greenter/xml/src/Xml/Templates/summary.xml.twig):
+     *     <cbc:ReferenceDate>{{ doc.fecGeneracion }}</cbc:ReferenceDate>
+     *     <cbc:IssueDate>{{ doc.fecResumen }}</cbc:IssueDate>
+     * Es decir, 'fecha_generacion' termina siendo el ReferenceDate (la fecha
+     * de los documentos que el resumen informa) y 'fecha_resumen' el IssueDate
+     * (la fecha en que se emite ESTE resumen). SUNAT exige que el IssueDate
+     * sea hoy: una fecha pasada devuelve [2671].
+     */
+    private function enviarResumen(
+        \App\Models\ComprobanteElectronico $comprobante,
+        array $empresa,
+        int $estado,
+        string $fechaReferencia,
+        string $fechaIssue
+    ): array {
+        $correlativo = $this->siguienteCorrelativoResumen($fechaIssue);
+
+        $payload = [
+            'endpoint' => $empresa['modo'],
+            'correlativo' => (string) $correlativo,
+            'fecha_generacion' => $fechaReferencia,
+            'fecha_resumen' => $fechaIssue,
+            'empresa' => [
+                'ruc' => (int) $empresa['ruc'],
+                'usuario' => $empresa['usuario'],
+                'clave' => $empresa['clave'],
+                'razon_social' => $empresa['razon_social'],
+                'direccion' => $empresa['direccion'],
+                'ubigeo' => $empresa['ubigeo'],
+                'distrito' => $empresa['distrito'],
+                'provincia' => $empresa['provincia'],
+                'departamento' => $empresa['departamento'],
+            ],
+            'detalles' => [[
+                'tipo_doc' => $comprobante->tipo_comprobante,
+                'serie_numero' => "{$comprobante->serie}-{$comprobante->correlativo}",
+                'estado' => $estado, // 1=declarar, 2=modificar, 3=baja
+                'tipo_doc_cliente' => (int) $comprobante->cliente_tipo_documento,
+                'num_doc_cliente' => (string) $comprobante->cliente_numero_documento,
+                'total' => (float) $comprobante->importe_total,
+                'mto_oper_gravadas' => (float) $comprobante->operacion_gravada,
+                'mto_igv' => (float) $comprobante->total_igv,
+                'mto_oper_exoneradas' => (float) $comprobante->operacion_exonerada,
+                'mto_oper_inafectas' => (float) $comprobante->operacion_inafecta,
+                'mto_otros_cargos' => (float) $comprobante->total_cargos,
+            ]],
+        ];
+
+        // Timeout generoso: SUNAT procesa resúmenes de forma asíncrona
+        // (ticket + consulta de estado) igual que la Comunicación de Baja.
+        $response = Http::timeout(90)->post("{$this->baseUrl}/enviar/resumen", $payload);
+
+        if ($response->failed()) {
+            return [
+                'success' => false,
+                'mensaje' => 'Error HTTP al enviar el resumen: ' . $response->body(),
+                'xml' => '', 'cdr' => '',
+            ];
+        }
+
+        $result = $response->json();
+
+        if (! ($result['estado'] ?? false)) {
+            // Loguear el payload y la respuesta CRUDA completa, no solo el
+            // mensaje resumido: para diagnosticar rechazos de SUNAT hace falta
+            // ver exactamente qué se mandó y qué contestaron.
+            Log::error('[SunatApiService] SUNAT rechazó el resumen', [
+                'comprobante_id' => $comprobante->id,
+                'estado_detalle' => $estado,
+                'payload_enviado' => $payload,
+                'respuesta_cruda' => $result,
+            ]);
+
+            return [
+                'success' => false,
+                'mensaje' => $result['mensaje'] ?? 'Error desconocido al enviar el resumen',
+                'xml' => '', 'cdr' => '',
+            ];
+        }
+
+        // Recién con la aceptación el correlativo queda consumido de verdad.
+        // Si SUNAT rechaza, el número sigue libre para el próximo intento.
+        $this->confirmarCorrelativoResumen($fechaIssue, $correlativo);
+
+        return [
+            'success' => true,
+            'mensaje' => $result['mensaje'] ?? '',
+            'xml' => $result['contenido_xml'] ?? '',
+            'cdr' => $result['cdr'] ?? '',
+        ];
+    }
+
+    /**
+     * Próximo correlativo de Resumen Diario para la fecha de emisión del
+     * resumen. SUNAT lo exige único por (RUC, fecha): forma parte del nombre
+     * del ZIP (RC-{fecha}-{correlativo}) y repetirlo devuelve "[99] nombre del
+     * archivo ZIP incorrecto".
+     *
+     * No se persiste acá — se confirma con confirmarCorrelativoResumen() solo
+     * si SUNAT aceptó, para que un rechazo no queme números.
+     */
+    private function siguienteCorrelativoResumen(string $fecha): int
+    {
+        $ultimo = DB::table('sunat_resumen_correlativo')->where('fecha', $fecha)->value('ultimo');
+
+        if ($ultimo === null) {
+            // Primera vez para esta fecha: arrancar después de los correlativos
+            // que ya se gastaron con el mecanismo viejo (una baja = un envío),
+            // contando las bajas aceptadas de ese día.
+            $ultimo = \App\Models\ComprobanteElectronico::where('tipo_comprobante', '03')
+                ->where('estado_sunat', 'BAJA_ACEPTADA')
+                ->whereDate('fecha_respuesta_sunat', $fecha)
+                ->count();
+        }
+
+        return ((int) $ultimo) + 1;
+    }
+
+    private function confirmarCorrelativoResumen(string $fecha, int $correlativo): void
+    {
+        DB::table('sunat_resumen_correlativo')->updateOrInsert(
+            ['fecha' => $fecha],
+            ['ultimo' => $correlativo]
+        );
     }
 
     public function esModoSimulacion(): bool

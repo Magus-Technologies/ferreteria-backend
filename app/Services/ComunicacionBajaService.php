@@ -49,6 +49,20 @@ class ComunicacionBajaService
                 'mensaje_respuesta_sunat' => $result['mensaje_sunat'] ?? 'Comunicación de baja aceptada',
                 'motivo_anulacion' => $motivo,
             ]);
+        } elseif ($result['declarada_previamente'] ?? false) {
+            // Caso parcial: la boleta nunca informada se declaró OK ante SUNAT
+            // (paso 1 del Resumen Diario) pero la baja en sí falló. SUNAT ya la
+            // tiene como válida, así que ese es el estado REAL — dejarla en
+            // PENDIENTE sería mentirle a la base y, además, haría que el
+            // reintento volviera a declararla (duplicado). Marcándola ACEPTADO,
+            // el reintento toma el camino de un solo envío, que es el que
+            // corresponde ahora.
+            $comprobante->update([
+                'estado_sunat' => 'ACEPTADO',
+                'fecha_envio_sunat' => now(),
+                'mensaje_respuesta_sunat' => 'Declarada a SUNAT vía Resumen Diario; falta completar la baja: '
+                    . ($result['mensaje_sunat'] ?? ''),
+            ]);
         }
 
         return $result;
