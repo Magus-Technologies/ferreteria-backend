@@ -208,7 +208,9 @@ class VentaController extends Controller
 
         // Filter by numero
         if ($request->has('numero')) {
-            $query->where('numero', $request->numero);
+            // `numero` se almacena con ceros a la izquierda (00000012), pero
+            // el filtro llega como entero desde la URL.
+            $query->whereRaw('CAST(numero AS UNSIGNED) = ?', [(int) $request->numero]);
         }
 
         // Filter by fecha range (desde/hasta)

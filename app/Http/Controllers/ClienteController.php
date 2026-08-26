@@ -406,8 +406,22 @@ class ClienteController extends Controller
         $normalized = strtolower(strtr($raw, $accentMap));
         $parts = preg_split('/\s+/u', trim($normalized), -1, PREG_SPLIT_NO_EMPTY);
         // Descartamos tokens de 1 solo caracter para evitar ruido (p.ej. "y", "a", "1").
-        $parts = array_values(array_filter($parts, fn ($t) => mb_strlen($t) >= 2));
-        return $parts;
+        $significativos = array_values(array_filter($parts, fn ($t) => mb_strlen($t) >= 2));
+
+        // Si TODOS los tokens eran de 1 caracter no alcanza con descartarlos:
+        // el caller lee "sin tokens" como "sin filtro" y termina devolviendo la
+        // lista COMPLETA de contactos. Buscar "F S" traía a todo el mundo
+        // (Fiorela incluida) como si fuera un match, cuando en realidad no se
+        // estaba filtrando nada. En ese caso se usa el texto entero como un
+        // único término: es literalmente lo que el usuario escribió, y si no
+        // coincide con nadie corresponde devolver vacío, no devolver todo.
+        if (empty($significativos)) {
+            $completo = trim(preg_replace('/\s+/u', ' ', $normalized));
+
+            return $completo === '' ? [] : [$completo];
+        }
+
+        return $significativos;
     }
 
     /**
