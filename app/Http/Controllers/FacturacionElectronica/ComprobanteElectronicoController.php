@@ -395,12 +395,13 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
         try {
             $hoy = \Carbon\Carbon::now()->startOfDay();
 
-            // 'PENDIENTE' SÍ va acá: según SUNAT (orientacion.sunat.gob.pe,
-            // sección Operatividad), una boleta que NUNCA se envió también
-            // se da de baja por Resumen Diario — el plazo corre desde el día
-            // siguiente de su generación, no desde una aceptación previa que
-            // nunca existió. Ver generarYEnviarResumenBaja() para el cálculo
-            // de fecha_resumen que distingue este caso.
+            // 'PENDIENTE' SÍ va acá — por diseño: FacturaService::validarYObtenerVenta()
+            // bloquea explícitamente "Enviar a SUNAT" para ventas anuladas y
+            // redirige acá ("usa Comunicación de Baja"), sin dar ninguna otra
+            // vía. BT01-370 (caso en investigación, tickets
+            // 202621727130408/679833) sigue devolviendo [2663] incluso con la
+            // fecha de referencia corregida — falta encontrar la causa real
+            // en el payload del Resumen Diario, NO se descarta este caso.
             $anuladas = ComprobanteElectronico::whereIn('tipo_comprobante', ['01', '03'])
                 ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
                 ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))

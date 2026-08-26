@@ -103,8 +103,9 @@ class EnviarComprobantesASunatJob implements ShouldQueue
         $plazoMaximo = $tipoDoc === '01' ? 3 : 7;
 
         // 'PENDIENTE' SÍ va acá — ver el mismo comentario en
-        // ComprobanteElectronicoController::pendientesBaja(). Una boleta
-        // nunca enviada también se da de baja por Resumen Diario según SUNAT.
+        // ComprobanteElectronicoController::pendientesBaja(). Es el único
+        // camino que el sistema ofrece para estos casos (FacturaService
+        // bloquea el reenvío directo de una venta anulada).
         $pendientesBaja = ComprobanteElectronico::where('tipo_comprobante', $tipoDoc)
             ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
             ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
