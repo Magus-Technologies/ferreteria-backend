@@ -102,13 +102,11 @@ class EnviarComprobantesASunatJob implements ShouldQueue
         $hoy = Carbon::now()->startOfDay();
         $plazoMaximo = $tipoDoc === '01' ? 3 : 7;
 
-        // OJO: 'PENDIENTE' NO va acá — ver el mismo comentario en
-        // ComprobanteElectronicoController::pendientesBaja(). Un comprobante
-        // PENDIENTE nunca fue confirmado por SUNAT; intentar darlo de baja
-        // solo generaba el error [2663] "El documento indicado no existe" en
-        // cada corrida, sin ninguna forma de resolverse solo.
+        // 'PENDIENTE' SÍ va acá — ver el mismo comentario en
+        // ComprobanteElectronicoController::pendientesBaja(). Una boleta
+        // nunca enviada también se da de baja por Resumen Diario según SUNAT.
         $pendientesBaja = ComprobanteElectronico::where('tipo_comprobante', $tipoDoc)
-            ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES'])
+            ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
             ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
             ->get()
             ->filter(function (ComprobanteElectronico $c) use ($hoy, $plazoMaximo) {

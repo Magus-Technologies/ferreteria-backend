@@ -395,14 +395,14 @@ $q->whereDoesntHave('venta.notasDebito', function ($subQ) {
         try {
             $hoy = \Carbon\Carbon::now()->startOfDay();
 
-            // OJO: 'PENDIENTE' NO va acá. Un comprobante PENDIENTE nunca llegó
-            // a ser confirmado por SUNAT (no hay CDR de aceptación) — no hay
-            // nada que "dar de baja" del lado de SUNAT. Ofrecerlo como
-            // candidato produce el error [2663] "El documento indicado no
-            // existe" al intentar la baja, porque SUNAT literalmente no tiene
-            // ese documento en su registro.
+            // 'PENDIENTE' SÍ va acá: según SUNAT (orientacion.sunat.gob.pe,
+            // sección Operatividad), una boleta que NUNCA se envió también
+            // se da de baja por Resumen Diario — el plazo corre desde el día
+            // siguiente de su generación, no desde una aceptación previa que
+            // nunca existió. Ver generarYEnviarResumenBaja() para el cálculo
+            // de fecha_resumen que distingue este caso.
             $anuladas = ComprobanteElectronico::whereIn('tipo_comprobante', ['01', '03'])
-                ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES'])
+                ->whereIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'PENDIENTE'])
                 ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', 'an'))
                 ->with(['venta:id,estado_de_venta'])
                 ->orderBy('fecha_emision', 'asc')

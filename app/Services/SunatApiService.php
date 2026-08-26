@@ -458,33 +458,40 @@ class SunatApiService implements SunatApiServiceInterface
         try {
             $empresa = $this->getEmpresa();
 
-            // Correlativo del RESUMEN. Confirmado con SUNAT: el correlativo
-            // es secuencial empezando en 1, pero POR DÍA (mismo `fecha_resumen`
-            // en el nombre del ZIP) — no una secuencia única de por vida para
-            // el RUC. La prueba: dos días distintos (17/08 y 18/08) cada uno
-            // tuvo su primera baja del día aceptada con "1" fijo, pero
-            // cualquier OTRA baja del MISMO día fallaba con "[99] nombre del
-            // archivo ZIP incorrecto" — porque repetía el correlativo que
-            // SUNAT ya había aceptado esa fecha. No hay tabla propia de
-            // correlativos, así que se deriva contando cuántas bajas de
-            // boleta por Resumen Diario ya se aceptaron HOY + 1.
+            // `fecha_resumen` (FecResumen en el XML RC de Greenter) NO es "la
+            // fecha en que mandamos esto" — es la fecha de las boletas que
+            // este resumen está informando/corrigiendo (distinta de
+            // `fecha_generacion`, que sí es siempre hoy). Confirmado con
+            // SUNAT (orientacion.sunat.gob.pe/3529-operatividad):
+            //   - Boleta que SUNAT YA aceptó antes (individual, vía CPE):
+            //     la baja es una CORRECCIÓN de un resumen que, a ojos de
+            //     SUNAT, "pasó hoy" — fecha_resumen = hoy.
+            //   - Boleta que SUNAT NUNCA aceptó (PENDIENTE/RECHAZADO): esta
+            //     baja es la ÚNICA declaración que SUNAT va a ver de ese
+            //     documento, y debe corresponder al día de emisión real de
+            //     la boleta — si no, SUNAT no encuentra nada que corregir y
+            //     devuelve [2663] "El documento indicado no existe" (exactamente
+            //     lo que pasaba antes de este fix).
+            $fueAceptadaAlgunaVez = in_array($comprobante->estado_sunat, ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES']);
+            $fechaResumen = $fueAceptadaAlgunaVez
+                ? now()->format('Y-m-d')
+                : \Illuminate\Support\Carbon::parse($comprobante->fecha_emision)->format('Y-m-d');
+
+            // Correlativo del RESUMEN. Confirmado con SUNAT: es secuencial
+            // empezando en 1, pero POR `fecha_resumen` (mismo valor que arma
+            // el nombre del ZIP) — no una secuencia única de por vida para el
+            // RUC ni "por día real de envío". Se deriva contando cuántas
+            // bajas de boleta ya se aceptaron con ESA MISMA fecha_resumen + 1.
             $correlativoResumen = \App\Models\ComprobanteElectronico::where('tipo_comprobante', '03')
                 ->where('estado_sunat', 'BAJA_ACEPTADA')
-                ->whereDate('fecha_respuesta_sunat', now()->toDateString())
+                ->whereDate('fecha_resumen_baja', $fechaResumen)
                 ->count() + 1;
 
             $payload = [
                 'endpoint' => $empresa['modo'],
                 'correlativo' => (string) $correlativoResumen,
                 'fecha_generacion' => now()->format('Y-m-d'),
-                // Antes iba la fecha de emisión de la BOLETA (ej. hace 4
-                // días) — el nombre del ZIP la usa (RC-{fecha_resumen}-...)
-                // y SUNAT lo rechazaba con "[99] nombre del archivo ZIP
-                // incorrecto" sin importar el correlativo. La boleta ya se
-                // identifica sola por su serie-número dentro del detalle;
-                // fecha_resumen es la fecha de ESTE resumen corrector (hoy),
-                // no la fecha original de la boleta que se está corrigiendo.
-                'fecha_resumen' => now()->format('Y-m-d'),
+                'fecha_resumen' => $fechaResumen,
                 'empresa' => [
                     'ruc' => (int) $empresa['ruc'],
                     'usuario' => $empresa['usuario'],
@@ -536,6 +543,7 @@ class SunatApiService implements SunatApiServiceInterface
                 'codigo_sunat' => '0',
                 'mensaje_sunat' => $result['mensaje'] ?: 'Boleta dada de baja vía Resumen Diario',
                 'modo' => strtoupper($empresa['modo']),
+                'fecha_resumen' => $fechaResumen,
             ];
         } catch (\Exception $e) {
             Log::error('[SunatApiService] Error generarYEnviarResumenBaja', [
