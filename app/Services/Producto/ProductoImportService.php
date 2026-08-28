@@ -276,7 +276,31 @@ class ProductoImportService implements ProductoImportServiceInterface
                                 ? (float) $item['unidades_contenidas']
                                 : (float) ($producto->unidades_contenidas ?: 1);
                             $divisor = $unidadesContenidas > 0 ? $unidadesContenidas : 1;
-                            $almacenUpdate['costo'] = (float) $item['costo'] / $divisor;
+                            $nuevoCosto = (float) $item['costo'] / $divisor;
+                            $almacenUpdate['costo'] = $nuevoCosto;
+
+                            // El costo del Excel es una CORRECCIÓN del costo vigente.
+                            // Las pantallas y el kardex leen `costo_actual` (con
+                            // fallback a `costo`): si solo se actualiza `costo`, el
+                            // producto sigue mostrando el costo viejo después del
+                            // Excel. Se replica lo que hace una compra con costo
+                            // nuevo (ProductoCostoService): el vigente pasa a
+                            // `costo_anterior` y TODO el stock queda valorizado al
+                            // costo nuevo (un solo bucket PEPS).
+                            $paExistente = ProductoAlmacen::where('producto_id', $producto->id)
+                                ->where('almacen_id', $almacenId)
+                                ->first();
+                            $costoVigente = $paExistente
+                                ? (float) ($paExistente->costo_actual ?? $paExistente->costo ?? 0)
+                                : 0.0;
+                            if ($paExistente && $costoVigente > 0 && abs($costoVigente - $nuevoCosto) > 0.0001) {
+                                $almacenUpdate['costo_anterior'] = $costoVigente;
+                            }
+                            $almacenUpdate['costo_actual'] = $nuevoCosto;
+                            $stockFinal = $almacenUpdate['stock_fraccion']
+                                ?? (float) ($paExistente->stock_fraccion ?? 0);
+                            $almacenUpdate['stock_costo_actual'] = $stockFinal;
+                            $almacenUpdate['stock_costo_anterior'] = 0;
                         }
 
                         if ($almacenUpdate) {
@@ -661,13 +685,17 @@ class ProductoImportService implements ProductoImportServiceInterface
                 "estado" => true,
             ]);
 
-            // Create product_almacen
+            // Create product_almacen — PEPS inicializado: el costo del Excel es el
+            // vigente (costo_actual) y todo el stock queda en ese bucket. Sin esto,
+            // costo_actual quedaba NULL y las pantallas dependían del fallback.
             ProductoAlmacen::create([
                 "producto_id" => $producto->id,
                 "almacen_id" => $productoEnAlmacenesCreate["almacen_id"],
                 "stock_fraccion" =>
                     $productoEnAlmacenesCreate["stock_fraccion"],
                 "costo" => $costoAjustado,
+                "costo_actual" => $costoAjustado,
+                "stock_costo_actual" => $productoEnAlmacenesCreate["stock_fraccion"] ?? 0,
                 "ubicacion_id" => $productoEnAlmacenesCreate["ubicacion_id"],
             ]);
 
@@ -860,6 +888,10 @@ class ProductoImportService implements ProductoImportServiceInterface
                 "almacen_id" => $a["almacen_id"],
                 "stock_fraccion" => $a["stock_fraccion"],
                 "costo" => $a["costo"],
+                // PEPS inicializado: el costo del Excel es el vigente y todo el
+                // stock queda en ese bucket (igual que importSingleProduct).
+                "costo_actual" => $a["costo"],
+                "stock_costo_actual" => $a["stock_fraccion"] ?? 0,
                 "ubicacion_id" => $a["ubicacion_id"],
                 "created_at" => $now,
                 "updated_at" => $now,
