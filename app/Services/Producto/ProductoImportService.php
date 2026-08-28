@@ -285,6 +285,15 @@ class ProductoImportService implements ProductoImportServiceInterface
                         }
 
                         if ($almacenUpdate) {
+                            // Valores vigentes ANTES de escribir, para detectar si el
+                            // Excel realmente cambia algo (si trae el mismo costo y el
+                            // mismo stock, no hay que colapsar el ledger PEPS en vano).
+                            $paAntes = ProductoAlmacen::where('producto_id', $producto->id)
+                                ->where('almacen_id', $almacenId)
+                                ->first();
+                            $costoVigente = $paAntes ? (float) ($paAntes->costo_actual ?? $paAntes->costo ?? 0) : null;
+                            $stockVigente = $paAntes ? (float) ($paAntes->stock_fraccion ?? 0) : null;
+
                             $pa = ProductoAlmacen::updateOrCreate(
                                 [
                                     'producto_id' => $producto->id,
@@ -293,43 +302,26 @@ class ProductoImportService implements ProductoImportServiceInterface
                                 $almacenUpdate,
                             );
 
-                            // El Excel es una CORRECCIÓN del estado del producto, y la
-                            // fuente de la verdad del costo/stock es el LEDGER de lotes
-                            // (ProductoAlmacenLote): resyncDerivados() recalcula desde
-                            // los lotes costo, costo_actual, costo_anterior,
-                            // costo_con_flete, buckets y hasta stock_fraccion. Si el
-                            // Excel solo escribiera las columnas de productoalmacen,
-                            // la siguiente venta/compra re-sincronizaría y las pisaría
-                            // con los valores viejos de los lotes.
-                            //
-                            // Por eso acá se reescribe el ledger: se apagan los lotes
-                            // restantes y queda UN lote con el stock final valuado al
-                            // costo final. resyncDerivados() deriva todo lo demás.
+                            // La fuente de la verdad del costo/stock es el LEDGER de
+                            // lotes: resyncDerivados() recalcula desde los lotes costo,
+                            // costo_actual/anterior, costo_con_flete, buckets y hasta
+                            // stock_fraccion — si el Excel solo escribiera las columnas
+                            // de productoalmacen, la siguiente venta las pisaría con
+                            // los valores viejos. Una corrección de costo/stock debe
+                            // reescribir el ledger (ver ProductoLoteService::reescribirLedger).
                             $traeStock = isset($almacenUpdate['stock_fraccion']);
-                            if ($traeCosto || $traeStock) {
-                                $stockFinal = $traeStock
-                                    ? (float) $almacenUpdate['stock_fraccion']
-                                    : (float) ($pa->stock_fraccion ?? 0);
-                                $costoFinal = $traeCosto
-                                    ? $nuevoCosto
-                                    : (float) ($pa->costo_actual ?? $pa->costo ?? 0);
+                            $stockFinal = $traeStock
+                                ? (float) $almacenUpdate['stock_fraccion']
+                                : (float) ($pa->stock_fraccion ?? 0);
+                            $costoFinal = $traeCosto
+                                ? $nuevoCosto
+                                : (float) ($pa->costo_actual ?? $pa->costo ?? 0);
 
-                                ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
-                                    ->where('cantidad_restante', '!=', 0)
-                                    ->update(['cantidad_restante' => 0]);
+                            $cambioCosto = $traeCosto && ($costoVigente === null || abs($costoFinal - $costoVigente) > 0.0001);
+                            $cambioStock = $traeStock && ($stockVigente === null || abs($stockFinal - $stockVigente) > 0.0001);
 
-                                if (abs($stockFinal) > 0.0001) {
-                                    $secuencia = (int) (ProductoAlmacenLote::where('producto_almacen_id', $pa->id)->max('secuencia') ?? 0) + 1;
-                                    ProductoAlmacenLote::create([
-                                        'producto_almacen_id' => $pa->id,
-                                        'costo' => $costoFinal,
-                                        'cantidad_inicial' => max($stockFinal, 0),
-                                        'cantidad_restante' => $stockFinal,
-                                        'secuencia' => $secuencia,
-                                    ]);
-                                }
-
-                                app(ProductoLoteService::class)->resyncDerivados($pa);
+                            if ($cambioCosto || $cambioStock) {
+                                app(ProductoLoteService::class)->reescribirLedger($pa, $costoFinal, $stockFinal);
                             }
                         }
 

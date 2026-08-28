@@ -426,6 +426,38 @@ class ProductoLoteService
      * lotes. Mantiene la compatibilidad con todo lo que lee costo/stock_fraccion
      * y los buckets legacy.
      */
+    /**
+     * CORRECCIÓN total del ledger (Actualizar con Excel / editar costo en el
+     * modal de producto): apaga los lotes restantes y deja UN solo lote con el
+     * stock final valuado al costo final; los derivados (costo, costo_actual,
+     * costo_anterior, costo_con_flete, buckets, stock_fraccion) se recalculan.
+     * NO usar para compras/recepciones — esas agregan capas con registrarLote().
+     */
+    public function reescribirLedger(ProductoAlmacen $pa, float $costoFinal, float $stockFinal): void
+    {
+        ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
+            ->where('cantidad_restante', '!=', 0)
+            ->update(['cantidad_restante' => 0]);
+
+        if (abs($stockFinal) > 0.0001) {
+            $secuencia = (int) (ProductoAlmacenLote::where('producto_almacen_id', $pa->id)->max('secuencia') ?? 0) + 1;
+            ProductoAlmacenLote::create([
+                'producto_almacen_id' => $pa->id,
+                'costo' => $costoFinal,
+                'cantidad_inicial' => max($stockFinal, 0),
+                'cantidad_restante' => $stockFinal,
+                'secuencia' => $secuencia,
+            ]);
+        }
+
+        // Con stock 0 no queda ningún lote y resyncDerivados() caería al costo
+        // viejo de `pa->costo`; fijarlo antes conserva el costo corregido.
+        $pa->costo = $costoFinal;
+        $pa->save();
+
+        $this->resyncDerivados($pa);
+    }
+
     public function resyncDerivados(ProductoAlmacen $pa): void
     {
         $lotes = ProductoAlmacenLote::where('producto_almacen_id', $pa->id)

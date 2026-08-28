@@ -367,10 +367,22 @@ class ProductoService implements ProductoServiceInterface
                     "ubicacion_id" => $data["producto_almacen"]["ubicacion_id"],
                 ]);
 
-                // Nota: NO actualizamos el costo aquí porque el costo debe cambiar solo
-                // cuando se recibe una compra (en RecepcionAlmacenController).
-                // Editar el costo desde el formulario de producto no es la forma correcta
-                // de actualizar precios, ya que no hay cantidad asociada.
+                // El "Precio Compra" del modal de editar es una CORRECCIÓN del costo
+                // vigente (misma semántica que "Actualizar con Excel"). Antes se
+                // ignoraba a propósito ("el costo solo cambia por compra") y el
+                // usuario editaba el campo sin que pasara nada. Solo si el costo
+                // realmente cambió: se reescribe el ledger PEPS (mismo stock,
+                // revalorizado al costo nuevo) y los derivados (costo, costo_actual,
+                // costo_anterior, costo_con_flete) se recalculan desde ahí.
+                $paModel = \App\Models\ProductoAlmacen::find($productoAlmacen->id);
+                $costoVigente = (float) ($paModel->costo_actual ?? $paModel->costo ?? 0);
+                if ($paModel && $costoUnidad > 0 && abs($costoUnidad - $costoVigente) > 0.0001) {
+                    app(\App\Services\Producto\ProductoLoteService::class)->reescribirLedger(
+                        $paModel,
+                        (float) $costoUnidad,
+                        (float) ($paModel->stock_fraccion ?? 0),
+                    );
+                }
 
                 // Step 5: Replace all prices (delete and recreate)
                 $this->precioRepository->replaceAll(
