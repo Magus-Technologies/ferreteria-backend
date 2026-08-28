@@ -246,6 +246,7 @@ class ClasificadorMovimientos
                 'mp.id as metodo_pago_id',
                 'mp.name as banco',
                 'dp.name as metodo_pago',
+                'dpv.despliegue_de_pago_id',
                 'sc.nombre as sub_caja',
                 'mp.nombre_titular as titular',
                 'dpv.monto',
@@ -272,6 +273,10 @@ class ClasificadorMovimientos
                 'metodo_pago_id' => $primer->metodo_pago_id,
                 'banco' => $primer->banco,
                 'metodo_pago' => $primer->metodo_pago,
+                // Despliegue de pago del grupo: el cálculo del efectivo esperado lo
+                // cruza con `sub_cajas.despliegues_pago_ids` de la sub-caja de la
+                // apertura para no mezclar cajones físicos (efectivo vs efectivo black).
+                'despliegue_de_pago_id' => $primer->despliegue_de_pago_id,
                 'label' => $label,
                 'total' => $grupo->sum('monto'),
                 'cantidad_transacciones' => $grupo->count(),

@@ -42,10 +42,28 @@ class CalculadorResumenCaja
         // (Movimientos internos NO afectan el total)
         // (Pagos digitales NO afectan el efectivo en caja)
 
-        // Filtrar solo cobros en EFECTIVO (método de pago "Efectivo")
+        // Filtrar solo cobros en EFECTIVO (método de pago "Efectivo") y DE LA SUB-CAJA
+        // DE ESTA APERTURA (sub_cajas.despliegues_pago_ids). Antes bastaba que el
+        // método se llamara "efectivo", y el "efectivo black" (otro cajón físico, con
+        // su propia sub-caja y su propio traslado a bóveda) entraba al esperado de la
+        // Caja Chica: el cierre pedía S/ 4,619.20 cuando el cajón real tenía
+        // S/ 3,746.60 (27/08/2026, sesión de Sonia). Si la sub-caja no declara
+        // despliegues (o el grupo no trae despliegue, caso legacy), se mantiene el
+        // comportamiento por nombre para no perder montos.
+        $subCajaApertura = \App\Models\SubCaja::find($apertura->sub_caja_id);
+        $desplieguesDeLaSubCaja = $subCajaApertura
+            ? $subCajaApertura->getDesplieguePagos()->pluck('id')->all()
+            : [];
         $cobrosEfectivo = $clasificacion['cobros_por_metodo']
-            ->filter(function ($metodo) {
-                return stripos($metodo['label'], 'Efectivo') !== false;
+            ->filter(function ($metodo) use ($desplieguesDeLaSubCaja) {
+                if (stripos($metodo['label'], 'Efectivo') === false) {
+                    return false;
+                }
+                $despliegueId = $metodo['despliegue_de_pago_id'] ?? null;
+                if ($despliegueId === null || $desplieguesDeLaSubCaja === []) {
+                    return true;
+                }
+                return in_array($despliegueId, $desplieguesDeLaSubCaja, true);
             })
             ->sum('total');
 
