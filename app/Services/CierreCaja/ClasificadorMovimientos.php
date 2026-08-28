@@ -329,7 +329,19 @@ class ClasificadorMovimientos
         $esAnulacion = fn ($t) => str_starts_with((string) ($t->referencia_tipo ?? ''), $prefijo);
         // La clave incluye el tipo ORIGINAL para no cruzar, por ejemplo, un gasto extra
         // con un pago de compra que casualmente compartan referencia_id y monto.
-        $clave = fn (?string $tipo, $t) => $tipo . '|' . ($t->referencia_id ?? '') . '|' . number_format((float) $t->monto, 2, '.', '');
+        //
+        // Y TAMBIÉN el despliegue de pago: al EDITAR un gasto cambiándole solo el
+        // método (mismo monto), conviven tres patas con la misma referencia y monto —
+        // original (método viejo), reversión (método viejo) y nuevo (método nuevo).
+        // Sin el despliegue en la clave, la reversión podía "comerse" la pata NUEVA
+        // y dejar viva la vieja: el cierre seguía mostrando el gasto con el método
+        // anterior y el efectivo esperado no reflejaba el pase (gasto DYSFEYSAC,
+        // 27/08/2026: seguía como BANCO BLACK tras editarse a efectivo black). La
+        // reversión siempre copia el despliegue del original (ManejaFlujoCajaExtra),
+        // así que el par correcto comparte despliegue.
+        $clave = fn (?string $tipo, $t) => $tipo . '|' . ($t->referencia_id ?? '') . '|'
+            . number_format((float) $t->monto, 2, '.', '') . '|'
+            . ($t->despliegue_pago_id ?? '');
 
         // Cuántos originales hay que ocultar por cada (tipo + referencia + monto).
         $pendientes = [];
@@ -417,6 +429,7 @@ class ClasificadorMovimientos
                 'tc.monto',
                 'tc.descripcion',
                 'tc.referencia_tipo',
+                'tc.despliegue_pago_id',
                 'tc.created_at',
                 'sc.nombre as sub_caja',
                 'mp.name as metodo_nombre',
@@ -471,6 +484,7 @@ class ClasificadorMovimientos
                 'tc.monto',
                 'tc.descripcion',
                 'tc.referencia_tipo',
+                'tc.despliegue_pago_id',
                 'tc.created_at',
                 'sc.nombre as sub_caja',
                 'mp.name as metodo_nombre',
