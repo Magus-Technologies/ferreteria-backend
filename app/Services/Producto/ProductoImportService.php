@@ -6,6 +6,8 @@ use App\Contracts\ProductoImportServiceInterface;
 use App\Jobs\Producto\ImportProductosJob;
 use App\Models\Producto;
 use App\Models\ProductoAlmacen;
+use App\Models\ProductoAlmacenLote;
+use App\Services\Producto\ProductoLoteService;
 use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\UnidadMedida;
@@ -271,46 +273,64 @@ class ProductoImportService implements ProductoImportServiceInterface
                             $almacenUpdate['stock_fraccion'] = (float) $item['stock_fraccion'];
                         }
 
-                        if (isset($item['costo']) && is_numeric($item['costo'])) {
+                        $traeCosto = isset($item['costo']) && is_numeric($item['costo']);
+                        $nuevoCosto = null;
+                        if ($traeCosto) {
                             $unidadesContenidas = isset($item['unidades_contenidas']) && is_numeric($item['unidades_contenidas'])
                                 ? (float) $item['unidades_contenidas']
                                 : (float) ($producto->unidades_contenidas ?: 1);
                             $divisor = $unidadesContenidas > 0 ? $unidadesContenidas : 1;
                             $nuevoCosto = (float) $item['costo'] / $divisor;
                             $almacenUpdate['costo'] = $nuevoCosto;
-
-                            // El costo del Excel es una CORRECCIÓN del costo vigente.
-                            // Las pantallas y el kardex leen `costo_actual` (con
-                            // fallback a `costo`): si solo se actualiza `costo`, el
-                            // producto sigue mostrando el costo viejo después del
-                            // Excel. Se replica lo que hace una compra con costo
-                            // nuevo (ProductoCostoService): el vigente pasa a
-                            // `costo_anterior` y TODO el stock queda valorizado al
-                            // costo nuevo (un solo bucket PEPS).
-                            $paExistente = ProductoAlmacen::where('producto_id', $producto->id)
-                                ->where('almacen_id', $almacenId)
-                                ->first();
-                            $costoVigente = $paExistente
-                                ? (float) ($paExistente->costo_actual ?? $paExistente->costo ?? 0)
-                                : 0.0;
-                            if ($paExistente && $costoVigente > 0 && abs($costoVigente - $nuevoCosto) > 0.0001) {
-                                $almacenUpdate['costo_anterior'] = $costoVigente;
-                            }
-                            $almacenUpdate['costo_actual'] = $nuevoCosto;
-                            $stockFinal = $almacenUpdate['stock_fraccion']
-                                ?? (float) ($paExistente->stock_fraccion ?? 0);
-                            $almacenUpdate['stock_costo_actual'] = $stockFinal;
-                            $almacenUpdate['stock_costo_anterior'] = 0;
                         }
 
                         if ($almacenUpdate) {
-                            ProductoAlmacen::updateOrCreate(
+                            $pa = ProductoAlmacen::updateOrCreate(
                                 [
                                     'producto_id' => $producto->id,
                                     'almacen_id' => $almacenId,
                                 ],
                                 $almacenUpdate,
                             );
+
+                            // El Excel es una CORRECCIÓN del estado del producto, y la
+                            // fuente de la verdad del costo/stock es el LEDGER de lotes
+                            // (ProductoAlmacenLote): resyncDerivados() recalcula desde
+                            // los lotes costo, costo_actual, costo_anterior,
+                            // costo_con_flete, buckets y hasta stock_fraccion. Si el
+                            // Excel solo escribiera las columnas de productoalmacen,
+                            // la siguiente venta/compra re-sincronizaría y las pisaría
+                            // con los valores viejos de los lotes.
+                            //
+                            // Por eso acá se reescribe el ledger: se apagan los lotes
+                            // restantes y queda UN lote con el stock final valuado al
+                            // costo final. resyncDerivados() deriva todo lo demás.
+                            $traeStock = isset($almacenUpdate['stock_fraccion']);
+                            if ($traeCosto || $traeStock) {
+                                $stockFinal = $traeStock
+                                    ? (float) $almacenUpdate['stock_fraccion']
+                                    : (float) ($pa->stock_fraccion ?? 0);
+                                $costoFinal = $traeCosto
+                                    ? $nuevoCosto
+                                    : (float) ($pa->costo_actual ?? $pa->costo ?? 0);
+
+                                ProductoAlmacenLote::where('producto_almacen_id', $pa->id)
+                                    ->where('cantidad_restante', '!=', 0)
+                                    ->update(['cantidad_restante' => 0]);
+
+                                if (abs($stockFinal) > 0.0001) {
+                                    $secuencia = (int) (ProductoAlmacenLote::where('producto_almacen_id', $pa->id)->max('secuencia') ?? 0) + 1;
+                                    ProductoAlmacenLote::create([
+                                        'producto_almacen_id' => $pa->id,
+                                        'costo' => $costoFinal,
+                                        'cantidad_inicial' => max($stockFinal, 0),
+                                        'cantidad_restante' => $stockFinal,
+                                        'secuencia' => $secuencia,
+                                    ]);
+                                }
+
+                                app(ProductoLoteService::class)->resyncDerivados($pa);
+                            }
                         }
 
                         $updated++;
