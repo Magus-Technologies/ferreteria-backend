@@ -42,33 +42,23 @@ class CalculadorResumenCaja
         // (Movimientos internos NO afectan el total)
         // (Pagos digitales NO afectan el efectivo en caja)
 
-        // Filtrar solo cobros en EFECTIVO (método de pago "Efectivo") y DE LA SUB-CAJA
-        // DE ESTA APERTURA (sub_cajas.despliegues_pago_ids). Antes bastaba que el
-        // método se llamara "efectivo", y el "efectivo black" (otro cajón físico, con
-        // su propia sub-caja y su propio traslado a bóveda) entraba al esperado de la
-        // Caja Chica: el cierre pedía S/ 4,619.20 cuando el cajón real tenía
-        // S/ 3,746.60 (27/08/2026, sesión de Sonia). Si la sub-caja no declara
-        // despliegues (o el grupo no trae despliegue, caso legacy), se mantiene el
-        // comportamiento por nombre para no perder montos.
-        $subCajaApertura = \App\Models\SubCaja::find($apertura->sub_caja_id);
-        $desplieguesDeLaSubCaja = $subCajaApertura
-            ? $subCajaApertura->getDesplieguePagos()->pluck('id')->all()
-            : [];
+        // Filtrar solo cobros en EFECTIVO (método de pago "Efectivo").
+        //
+        // DECISIÓN DE NEGOCIO (27/08/2026): el cierre muestra TODO el efectivo que el
+        // vendedor tiene físicamente, sumando TODAS sus cajas de efectivo (Caja Chica
+        // + "efectivo black", etc.). El TRASLADO A BÓVEDA es quien separa por cajón.
+        // Ej. sesión de Sonia: cierre = 4,619.20 = bóveda Caja Chica 3,746.60 +
+        // bóveda black 872.60. NO acotar esto a la sub-caja de la apertura: se probó
+        // y el usuario lo pidió de vuelta ("me debe salir 4,619.20, no 3,746.60").
         $cobrosEfectivo = $clasificacion['cobros_por_metodo']
-            ->filter(function ($metodo) use ($desplieguesDeLaSubCaja) {
-                if (stripos($metodo['label'], 'Efectivo') === false) {
-                    return false;
-                }
-                $despliegueId = $metodo['despliegue_de_pago_id'] ?? null;
-                if ($despliegueId === null || $desplieguesDeLaSubCaja === []) {
-                    return true;
-                }
-                return in_array($despliegueId, $desplieguesDeLaSubCaja, true);
+            ->filter(function ($metodo) {
+                return stripos($metodo['label'], 'Efectivo') !== false;
             })
             ->sum('total');
 
         // ¿El movimiento es en EFECTIVO? Se detecta por el MÉTODO (sin cuenta bancaria y
-        // nombre "efectivo"), no por el nombre de la sub-caja.
+        // nombre "efectivo"), no por el nombre de la sub-caja. Así un ingreso/gasto en
+        // cualquier caja de efectivo (ej. "caja negra") sí afecta el total en caja.
         // Fallback: si no hay método (movimiento antiguo), se usa el nombre "Chica".
         $esEfectivo = function ($item): bool {
             $cuenta = $item->metodo_cuenta ?? null;
@@ -80,29 +70,16 @@ class CalculadorResumenCaja
             return stripos($item->sub_caja ?? '', 'Chica') !== false;
         };
 
-        // Mismo criterio de cajón que en los cobros: el esperado del cierre solo
-        // cuadra el cajón de ESTA apertura. Un ingreso/gasto pagado desde otra caja
-        // de efectivo (ej. "efectivo black") mueve ESE cajón —y su propio traslado a
-        // bóveda lo refleja—, no el de la Caja Chica. Movimientos legacy sin
-        // despliegue se mantienen (fallback por nombre, comportamiento anterior).
-        $perteneceALaSubCaja = function ($item) use ($desplieguesDeLaSubCaja): bool {
-            $despliegueId = $item->despliegue_pago_id ?? null;
-            if ($despliegueId === null || $desplieguesDeLaSubCaja === []) {
-                return true;
-            }
-            return in_array($despliegueId, $desplieguesDeLaSubCaja, true);
-        };
-
         // Filtrar solo otros ingresos en EFECTIVO (unir normales + extras para el cálculo de efectivo)
         $todosLosIngresosManuales = $clasificacion['otros_ingresos']->concat($clasificacion['ingresos_extras']);
         $otrosIngresosEfectivo = $todosLosIngresosManuales
-            ->filter(fn ($item) => $esEfectivo($item) && $perteneceALaSubCaja($item))
+            ->filter($esEfectivo)
             ->sum('monto');
 
         // Filtrar solo gastos en EFECTIVO (unir normales + extras para el cálculo de efectivo)
         $todosLosEgresosManuales = $clasificacion['gastos_y_pagos']->concat($clasificacion['gastos_extras']);
         $gastosEfectivo = $todosLosEgresosManuales
-            ->filter(fn ($item) => $esEfectivo($item) && $perteneceALaSubCaja($item))
+            ->filter($esEfectivo)
             ->sum('monto');
 
         // El TRASLADO A BÓVEDA resta: ese efectivo el vendedor ya lo entregó, así que
