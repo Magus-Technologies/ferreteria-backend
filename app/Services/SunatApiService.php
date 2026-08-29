@@ -298,7 +298,11 @@ class SunatApiService implements SunatApiServiceInterface
                 'xml' => $xmlResult['data']['contenido_xml'],
                 'hash_cpe' => $xmlResult['data']['hash'],
                 'codigo_sunat' => '0',
-                'mensaje_sunat' => $sendResult['mensaje'] ?: 'Ticket generado, pendiente de confirmación SUNAT',
+                // `?? null` y no acceso directo: si la respuesta del
+                // microservicio no trae 'mensaje', el acceso crudo lanza
+                // "Undefined array key" y tumba TODO el envío, aunque SUNAT lo
+                // haya aceptado y ya tengamos el ticket.
+                'mensaje_sunat' => ($sendResult['mensaje'] ?? null) ?: 'Ticket generado, pendiente de confirmación SUNAT',
                 'modo' => strtoupper($empresa['modo']),
                 'ticket' => $sendResult['ticker'] ?? null,
             ];

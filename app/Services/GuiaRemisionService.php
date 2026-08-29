@@ -679,14 +679,32 @@ class GuiaRemisionService
         $resultado = $this->sunatApiService->consultarTicketGuia($guia->sunat_ticket);
 
         if (!$resultado['success']) {
+            $mensaje = $resultado['mensaje_sunat'] ?? 'SUNAT todavía está procesando el ticket';
+
+            // Distinguir "todavía procesando" de un RECHAZO definitivo.
+            //
+            // Greenter marca con el código 98 el ticket que SUNAT aún no
+            // terminó de procesar (ExtService::isPending); cualquier otro
+            // código es una respuesta final — típicamente un rechazo, por
+            // ejemplo cuando la serie-número ya existe en SUNAT.
+            //
+            // Antes ambos casos dejaban la guía en PENDIENTE para siempre, y
+            // eso la trababa: con un ticket "en curso" no se puede editar,
+            // reenviar ni regenerar. Una guía rechazada quedaba sin salida.
+            // Marcándola RECHAZADO se vuelve a habilitar todo eso.
+            $siguePendiente = str_contains($mensaje, '[98]')
+                || str_contains($mensaje, 'aún no ha terminado')
+                || str_contains($mensaje, 'aun no ha terminado');
+
             $guia->update([
-                'sunat_mensaje' => $resultado['mensaje_sunat'] ?? 'SUNAT todavía está procesando el ticket',
+                'sunat_mensaje' => $mensaje,
+                ...($siguePendiente ? [] : ['sunat_estado' => 'RECHAZADO']),
             ]);
 
             return [
                 'success' => false,
-                'estado' => $guia->sunat_estado,
-                'mensaje' => $resultado['mensaje_sunat'] ?? null,
+                'estado' => $guia->fresh()->sunat_estado,
+                'mensaje' => $mensaje,
             ];
         }
 
