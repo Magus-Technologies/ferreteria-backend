@@ -240,6 +240,17 @@
                 <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">TOTAL</td>
                 <td style="text-align:right; font-weight:bold; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($calculos['total'], 2) }}</td>
             </tr>
+            {{-- Solo cuando hubo pago en efectivo (ver VentaPdfService) --}}
+            @if(!empty($mostrarRecibido))
+            <tr>
+                <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">RECIBIDO</td>
+                <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($totalRecibido, 2) }}</td>
+            </tr>
+            <tr>
+                <td style="{{ $bloques['total_label']['css'] ?? 'font-weight:bold;font-size:7pt;' }}">VUELTO</td>
+                <td style="text-align:right; {{ $bloques['total_valor']['css'] ?? 'font-size:7pt;' }}">{{ number_format($totalVuelto, 2) }}</td>
+            </tr>
+            @endif
         </table>
     </div>
 

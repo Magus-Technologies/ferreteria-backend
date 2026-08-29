@@ -246,6 +246,31 @@ class VentaPdfService
             ];
         }
 
+        // Efectivo recibido y vuelto.
+        //
+        // `recibe_efectivo` es lo que el cliente ENTREGA por ese método (cubre
+        // el principal + su sobrecargo) y viene NULL en tarjeta/transferencia,
+        // así que solo suman los métodos donde realmente hubo efectivo.
+        // Mismo cálculo que el modal de métodos de pago del front:
+        //   vuelto = recibido − (monto + sobrecargo), nunca negativo.
+        $totalRecibido = 0.0;
+        $totalVuelto = 0.0;
+        foreach ($venta->despliegueDePagoVentas as $dp) {
+            $recibido = (float) ($dp->recibe_efectivo ?? 0);
+
+            if ($recibido <= 0) {
+                continue;
+            }
+
+            $cubierto = (float) $dp->monto + (float) ($dp->sobrecargo_aplicado ?? 0);
+            $totalRecibido += $recibido;
+            $totalVuelto += max(0, $recibido - $cubierto);
+        }
+
+        // Si no hubo efectivo no se imprimen: en un ticket de 80mm no tiene
+        // sentido gastar dos líneas en guiones cuando se pagó con tarjeta.
+        $mostrarRecibido = $totalRecibido > 0;
+
         // Distribuir el sobrecargo de Izipay en los precios unitarios.
         // El ticket muestra el precio ajustado por unidad (ej. 2.00 → 2.06 con 3%),
         // así el total coincide con lo cobrado por el POS sin línea de comisión separada.
@@ -381,6 +406,9 @@ class VentaPdfService
             'clienteDireccion' => $this->resolverDireccionCliente($venta),
             'clienteTelefono' => $this->resolverTelefonosCliente($cliente),
             'metodosPago' => $metodosPago,
+            'mostrarRecibido' => $mostrarRecibido,
+            'totalRecibido' => $totalRecibido,
+            'totalVuelto' => $totalVuelto,
             'sobrecargoVisible' => $sobrecargoVisible,
             'productos' => $productos,
             'calculos' => $calculos,
@@ -405,7 +433,7 @@ class VentaPdfService
             $data,
             $filename,
             'portrait',
-            $this->calcularAlturaTicket($productos, $metodosPago, $sinVales ? [] : $vales, $valesDescuento),
+            $this->calcularAlturaTicket($productos, $metodosPago, $sinVales ? [] : $vales, $valesDescuento, $mostrarRecibido),
         );
     }
 
@@ -426,7 +454,7 @@ class VentaPdfService
      * blanco a la derecha en tickets chicos. Solo se agrega alto extra
      * cuando el contenido realmente supera lo que entra en el piso.
      */
-    private function calcularAlturaTicket(array $productos, array $metodosPago, array $vales, array $valesDescuento): array
+    private function calcularAlturaTicket(array $productos, array $metodosPago, array $vales, array $valesDescuento, bool $mostrarRecibido = false): array
     {
         $alturaPiso = 841.89;
 
@@ -446,6 +474,8 @@ class VentaPdfService
             + ($lineasDescuento * 16)
             + ($cabecerasPaquete * 18)
             + ($extraMetodosPago * 14)
+            // Las filas RECIBIDO y VUELTO, cuando se imprimen.
+            + ($mostrarRecibido ? 32 : 0)
             + (count($valesDescuento) * 26)
             // Cada vale generado imprime un bloque separado con QR + código
             // de barras + textos — mucho más alto que una línea normal.

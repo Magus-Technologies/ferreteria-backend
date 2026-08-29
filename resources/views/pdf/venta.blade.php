@@ -76,6 +76,11 @@
             $filasTotales[] = ['label' => 'SOBRECARGO', 'valor' => number_format($calculos['sobrecargo'], 2)];
         }
         $filasTotales[] = ['label' => 'TOTAL', 'valor' => number_format($calculos['total'], 2)];
+        // Solo cuando hubo pago en efectivo (ver VentaPdfService).
+        if (!empty($mostrarRecibido)) {
+            $filasTotales[] = ['label' => 'RECIBIDO', 'valor' => number_format($totalRecibido, 2)];
+            $filasTotales[] = ['label' => 'VUELTO', 'valor' => number_format($totalVuelto, 2)];
+        }
     @endphp
     @include('pdf.layout.totales', [
         'son' => $son,
