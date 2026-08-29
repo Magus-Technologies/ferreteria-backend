@@ -76,10 +76,7 @@ class GuiaPdfService
             $compradorDocumento = $comprador->numero_documento ?? '-';
         }
 
-        $chofer = $guia->chofer;
-        $choferNombre = $chofer?->name
-            ?: trim(($chofer?->nombres ?? '') . ' ' . ($chofer?->apellidos ?? ''))
-            ?: '-';
+        [$choferNombre, $choferDni, $vehiculoPlaca] = $this->resolverChoferYVehiculo($guia);
 
         $estilos = $this->prepararDatosPlantilla((int) $empresa->id, 'guia', 'Ticket');
 
@@ -95,9 +92,9 @@ class GuiaPdfService
             'modalidad' => $guia->modalidad_transporte === 'PRIVADO' ? 'Transporte Privado' : 'Transporte Publico',
             'puntoPartida' => $guia->punto_partida ?? '-',
             'puntoLlegada' => $guia->punto_llegada ?? '-',
-            'vehiculoPlaca' => $guia->vehiculo_placa ?? '-',
+            'vehiculoPlaca' => $vehiculoPlaca,
             'choferNombre' => $choferNombre,
-            'choferDni' => $chofer?->dni ?? '-',
+            'choferDni' => $choferDni,
             'clienteNombre' => $clienteNombre,
             'clienteDocumento' => $clienteDocumento,
             'compradorNombre' => $compradorNombre,
@@ -120,7 +117,7 @@ class GuiaPdfService
             $data,
             $filename,
             'portrait',
-            [0, 0, 226.77, 841.89],
+            $this->calcularAlturaTicket($detalles),
         );
     }
 
@@ -133,6 +130,29 @@ class GuiaPdfService
         };
     }
 
+    /**
+     * Alto del papel del ticket, en función de cuántos productos lleva.
+     *
+     * Antes era FIJO en 841.89pt: cualquier guía con muchos ítems desbordaba y
+     * dompdf la partía en una segunda hoja — que en una impresora de tickets
+     * (rollo continuo de 80mm) no tiene sentido. Mismo criterio que
+     * VentaPdfService::calcularAlturaTicket.
+     *
+     * @param  array<int, mixed>  $detalles
+     * @return array{0: int, 1: int, 2: float, 3: float}
+     */
+    private function calcularAlturaTicket(array $detalles): array
+    {
+        $alturaPiso = 841.89;
+
+        // Productos que entran cómodos en el piso: los nombres de ferretería
+        // envuelven 2-3 líneas a 6pt en 74mm de ancho útil.
+        $productosBase = 8;
+        $extraProductos = max(0, count($detalles) - $productosBase);
+
+        return [0, 0, 226.77, $alturaPiso + ($extraProductos * 48)];
+    }
+
     private function obtenerGuia(string $guiaId): GuiaRemision
     {
         return GuiaRemision::with([
@@ -141,6 +161,9 @@ class GuiaPdfService
             'comprador',
             'motivoTraslado',
             'chofer',
+            // El chofer de transporte PRIVADO es un user, y su vehículo cuelga
+            // de él (ver resolverChoferYVehiculo).
+            'userChofer.vehiculo',
             'almacenOrigen',
             'almacenDestino',
             'detalles.producto.marca',
@@ -184,10 +207,7 @@ class GuiaPdfService
             $clienteDocumento = $cliente?->numero_documento ?? '-';
         }
 
-        $chofer = $guia->chofer;
-        $choferNombre = $chofer?->name
-            ?: trim(($chofer?->nombres ?? '') . ' ' . ($chofer?->apellidos ?? ''))
-            ?: '-';
+        [$choferNombre, $choferDni, $vehiculoPlaca] = $this->resolverChoferYVehiculo($guia);
 
         $filas = [
             [
@@ -203,8 +223,8 @@ class GuiaPdfService
                 'Punto Llegada' => $guia->punto_llegada ?? '-',
             ],
             [
-                'Vehiculo' => $guia->vehiculo_placa ?? '-',
-                'Chofer' => "{$choferNombre} ({$chofer?->dni})",
+                'Vehiculo' => $vehiculoPlaca,
+                'Chofer' => "{$choferNombre} ({$choferDni})",
             ],
             [
                 'RUC / DNI' => $clienteDocumento,
@@ -241,8 +261,56 @@ class GuiaPdfService
 
     private function getConsultaUrl(): string
     {
-        $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
+        // OJO: `env()` devuelve NULL cuando la config está cacheada
+        // (`php artisan config:cache`), así que en producción caía al default
+        // y el ticket imprimía "Consulte su documento en http://localhost:3000".
+        // `config()` sí sobrevive al cacheo; se deja app.url como respaldo real.
+        $frontendUrl = rtrim(
+            config('app.frontend_url') ?: config('app.url') ?: 'http://localhost:3000',
+            '/'
+        );
 
         return "{$frontendUrl}/consulta";
+    }
+
+    /**
+     * Resuelve chofer y placa con el MISMO criterio que el XML
+     * (GuiaRemisionService::prepararDatosParaGreenter). Hay dos fuentes de
+     * chofer y los PDFs solo miraban una:
+     *
+     *   - Transporte PRIVADO → el chofer es un USER de la empresa
+     *     (`user_chofer_id`), y su vehículo cuelga de ese user
+     *     (`user.vehiculo_id`), NO de la guía.
+     *   - PÚBLICO / GRE-Transportista → chofer externo (`chofer_id`).
+     *
+     * Leyendo solo `$guia->chofer`, una guía privada imprimía "Chofer: -" y
+     * "Vehiculo: -" aunque tuviera despachador asignado.
+     *
+     * @return array{0: string, 1: string, 2: string} [nombre, documento, placa]
+     */
+    private function resolverChoferYVehiculo(GuiaRemision $guia): array
+    {
+        $esTransportePrivado = $guia->modalidad_transporte === 'PRIVADO';
+        $userChofer = $guia->userChofer;
+        $choferExterno = $guia->chofer;
+
+        $placaDelChofer = null;
+
+        if ($esTransportePrivado && $userChofer) {
+            $nombre = $userChofer->name ?: '-';
+            $documento = $userChofer->numero_documento ?: '-';
+            $placaDelChofer = $userChofer->vehiculo?->placa;
+        } else {
+            $nombre = $choferExterno?->name
+                ?: trim(($choferExterno?->nombres ?? '') . ' ' . ($choferExterno?->apellidos ?? ''))
+                ?: '-';
+            $documento = $choferExterno?->dni ?: '-';
+        }
+
+        // La placa cargada a mano en la guía manda; si no hay, se cae a la del
+        // vehículo asignado al despachador.
+        $placa = $guia->vehiculo_placa ?: ($placaDelChofer ?: '-');
+
+        return [$nombre, $documento, $placa];
     }
 }

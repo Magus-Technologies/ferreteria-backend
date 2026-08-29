@@ -965,7 +965,9 @@ class VentaPdfService
 
     private function getConsultaUrl(): string
     {
-        $frontendUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/');
+        // config() y no env(): env() devuelve NULL con la config cacheada y el
+        // ticket terminaba imprimiendo localhost en producción (ver config/app.php).
+        $frontendUrl = rtrim(config('app.frontend_url') ?: 'http://localhost:3000', '/');
 
         return "{$frontendUrl}/consulta";
     }

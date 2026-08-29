@@ -26,7 +26,9 @@ class CompraPdfService
             FuentePersonalizada::extraerFuentesUsadas($plantilla->estilos ?? [], $plantilla->estilos_secciones ?? [])
         );
         $observaciones = $compra->descripcion ?: $msg['observaciones_default'];
-        $consultaUrl = rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/') . '/consulta';
+        // config() y no env(): env() devuelve NULL con la config cacheada y el
+        // PDF terminaba imprimiendo localhost en producción (ver config/app.php).
+        $consultaUrl = rtrim(config('app.frontend_url') ?: 'http://localhost:3000', '/') . '/consulta';
 
         $data = [
             'compra' => $compra,

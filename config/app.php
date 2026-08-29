@@ -56,6 +56,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | URL pública del frontend. La usan los PDFs para imprimir el enlace de
+    | "Consulte su documento en ...". Vive acá y no suelto en un `env()` dentro
+    | de un servicio porque `env()` devuelve NULL cuando la config está cacheada
+    | (`php artisan config:cache`): en producción los tickets terminaban
+    | imprimiendo el default "http://localhost:3000".
+    |
+    */
+
+    'frontend_url' => env('FRONTEND_URL', env('APP_URL', 'http://localhost:3000')),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
