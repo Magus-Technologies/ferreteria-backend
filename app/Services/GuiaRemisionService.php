@@ -715,15 +715,29 @@ class GuiaRemisionService
             $ruc, $tipoDocSunat, $dataGreenter['serie'], $dataGreenter['correlativo']
         );
 
-        $cdrContent = $resultado['cdr'] ?? '';
-        if ($cdrContent !== '' && base64_decode($cdrContent, true) !== false) {
-            $cdrContent = base64_decode($cdrContent);
-        }
-        $cdrPath = $cdrContent !== '' ? $this->xmlStorageService->guardarCdr($cdrContent, $nombreCdr) : null;
+        // El CDR llega en base64 y así se GUARDA en `sunat_cdr_xml`.
+        //
+        // Esa columna es TEXT/utf8mb4 (no longblob como en
+        // comprobantes_electronicos), o sea que solo admite texto válido:
+        // decodificarlo antes de guardar mete bytes binarios de un ZIP y
+        // rompe por partida doble — MySQL rechaza el UPDATE, y si algo así
+        // llega a una respuesta JSON estalla con "Malformed UTF-8 characters"
+        // en CUALQUIER endpoint que devuelva el modelo.
+        //
+        // `obtenerCdr()` ya contempla esto: decodifica el base64 al momento de
+        // descargar. Al ARCHIVO sí va el ZIP decodificado, que es lo que el
+        // usuario tiene que poder abrir.
+        $cdrBase64 = $resultado['cdr'] ?? '';
+        $cdrBinario = $cdrBase64 !== '' && base64_decode($cdrBase64, true) !== false
+            ? base64_decode($cdrBase64)
+            : $cdrBase64;
+
+        $cdrPath = $cdrBinario !== '' ? $this->xmlStorageService->guardarCdr($cdrBinario, $nombreCdr) : null;
 
         $guia->update([
             'sunat_estado' => 'ACEPTADO',
-            'sunat_cdr_xml' => $cdrContent !== '' ? $cdrContent : null,
+            // Base64, no el binario: la columna es TEXT (ver nota arriba).
+            'sunat_cdr_xml' => $cdrBase64 !== '' ? $cdrBase64 : null,
             'sunat_cdr_path' => $cdrPath,
             'sunat_mensaje' => $resultado['mensaje_sunat'] ?? 'Aceptado',
         ]);

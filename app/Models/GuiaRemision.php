@@ -58,6 +58,23 @@ class GuiaRemision extends Model
         'user_id',
     ];
 
+    /**
+     * `sunat_cdr_xml` guarda el CDR de SUNAT: un ZIP BINARIO, no texto.
+     *
+     * Serializarlo a JSON revienta con "Malformed UTF-8 characters" — un ZIP
+     * trae bytes que no son UTF-8 válido — y tumba CUALQUIER endpoint que
+     * devuelva el modelo (son 7 en el controller). El síntoma es traicionero:
+     * la operación se completa bien y recién falla al armar la respuesta, así
+     * que parece que no funcionó cuando en realidad sí.
+     *
+     * No se pierde nada ocultándolo: el CDR se descarga por su endpoint
+     * dedicado (`/guias-remision/{id}/cdr`), y para saber si existe está
+     * `sunat_cdr_path`, que sí es texto.
+     */
+    protected $hidden = [
+        'sunat_cdr_xml',
+    ];
+
     protected function casts(): array
     {
         return [
