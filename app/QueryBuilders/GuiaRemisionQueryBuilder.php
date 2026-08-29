@@ -109,6 +109,28 @@ class GuiaRemisionQueryBuilder
     }
 
     /**
+     * Filtrar por estado ante SUNAT.
+     *
+     * `sin_enviar` no es un valor de la columna: son las guías electrónicas
+     * que todavía no se mandaron (`sunat_estado` NULL). Se resuelve acá y no
+     * en el front para que el filtro también sirva desde la API.
+     */
+    public function filterByEstadoSunat(?string $estadoSunat): self
+    {
+        if (! $estadoSunat) {
+            return $this;
+        }
+
+        if ($estadoSunat === 'sin_enviar') {
+            $this->query->whereNull('sunat_estado')->where('tipo_guia', '!=', 'FISICA');
+        } else {
+            $this->query->where('sunat_estado', $estadoSunat);
+        }
+
+        return $this;
+    }
+
+    /**
      * Filtrar por motivo de traslado
      */
     public function filterByMotivoTraslado(?int $motivoId): self
@@ -198,6 +220,7 @@ class GuiaRemisionQueryBuilder
             ->filterByAlmacenDestino($request->input('almacen_destino_id'))
             ->filterByTipoGuia($request->input('tipo_guia'))
             ->filterByEstado($request->input('estado'))
+            ->filterByEstadoSunat($request->input('estado_sunat'))
             ->filterByMotivoTraslado($request->input('motivo_traslado_id'))
             ->filterByModalidadTransporte($request->input('modalidad_transporte'))
             ->filterByFechaEmision(

@@ -734,17 +734,25 @@ class GuiaRemisionService
 
         $cdrPath = $cdrBinario !== '' ? $this->xmlStorageService->guardarCdr($cdrBinario, $nombreCdr) : null;
 
+        // Observaciones del CDR. El documento queda ACEPTADO igual (SUNAT
+        // responde código 0): son avisos de lo que no pudo validar contra el
+        // MTC, no un rechazo. Se guardan para poder mostrarlos en la lista sin
+        // que el usuario tenga que descargar el CDR y leer el XML.
+        $observaciones = array_values(array_filter($resultado['notas'] ?? []));
+
         $guia->update([
             'sunat_estado' => 'ACEPTADO',
             // Base64, no el binario: la columna es TEXT (ver nota arriba).
             'sunat_cdr_xml' => $cdrBase64 !== '' ? $cdrBase64 : null,
             'sunat_cdr_path' => $cdrPath,
             'sunat_mensaje' => $resultado['mensaje_sunat'] ?? 'Aceptado',
+            'sunat_observaciones' => $observaciones ?: null,
         ]);
 
         return [
             'success' => true,
             'estado' => 'ACEPTADO',
+            'observaciones' => $observaciones,
             'mensaje' => $resultado['mensaje_sunat'] ?? 'Aceptado',
         ];
     }

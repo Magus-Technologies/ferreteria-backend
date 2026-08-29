@@ -55,6 +55,7 @@ class GuiaRemision extends Model
         'sunat_estado',
         'sunat_ticket',
         'sunat_mensaje',
+        'sunat_observaciones',
         'user_id',
     ];
 
@@ -81,6 +82,7 @@ class GuiaRemision extends Model
             'fecha_emision' => 'datetime',
             'fecha_traslado' => 'date:Y-m-d',
             'afecta_stock' => 'boolean',
+            'sunat_observaciones' => 'array',
             'fecha_anulacion' => 'datetime',
             'sunat_fecha_envio' => 'datetime',
             'created_at' => 'datetime',
