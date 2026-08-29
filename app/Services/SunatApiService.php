@@ -356,6 +356,9 @@ class SunatApiService implements SunatApiServiceInterface
                 'success' => true,
                 'cdr' => $result['cdr'] ?? '',
                 'mensaje_sunat' => $result['mensaje'] ?? 'Aceptado',
+                // Código de respuesta del CDR. `success` solo indica que se
+                // pudo traer el CDR; el veredicto de SUNAT está acá.
+                'codigo_cdr' => isset($result['codigo_cdr']) ? (int) $result['codigo_cdr'] : null,
                 // Observaciones del CDR: SUNAT acepta igual, pero avisa lo que
                 // no pudo validar (placa/licencia no halladas en el MTC, etc.).
                 'notas' => $result['notas'] ?? [],

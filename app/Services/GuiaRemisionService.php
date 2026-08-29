@@ -708,6 +708,37 @@ class GuiaRemisionService
             ];
         }
 
+        // Traer el CDR NO significa que SUNAT haya aceptado.
+        //
+        // Greenter marca el resultado como exitoso apenas logra recuperar el
+        // CDR, sin mirar el `ResponseCode` de adentro (su `isExceptionCode`
+        // solo cubre 100-1999, así que un rechazo 2xxx pasa como éxito). Sin
+        // este chequeo, una guía RECHAZADA quedaba marcada ACEPTADO en el
+        // sistema — pasó de verdad con dos guías rechazadas por 2108
+        // ("Presentación fuera de fecha") que figuraban como aceptadas.
+        //
+        // Convención SUNAT del código de CDR:
+        //   0          → aceptado
+        //   2000-3999  → RECHAZADO
+        //   4000+      → aceptado CON observaciones
+        $codigoCdr = $resultado['codigo_cdr'] ?? null;
+        $fueRechazada = $codigoCdr !== null && $codigoCdr >= 2000 && $codigoCdr < 4000;
+
+        if ($fueRechazada) {
+            $mensajeRechazo = $resultado['mensaje_sunat'] ?? 'SUNAT rechazó la guía';
+
+            $guia->update([
+                'sunat_estado' => 'RECHAZADO',
+                'sunat_mensaje' => "[{$codigoCdr}] {$mensajeRechazo}",
+            ]);
+
+            return [
+                'success' => false,
+                'estado' => 'RECHAZADO',
+                'mensaje' => "[{$codigoCdr}] {$mensajeRechazo}",
+            ];
+        }
+
         $dataGreenter = $this->prepararDatosParaGreenter($guia);
         $tipoDocSunat = $this->getTipoDocSunat($guia);
         $ruc = \App\Models\Empresa::getRucEmisor();
