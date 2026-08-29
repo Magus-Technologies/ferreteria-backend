@@ -252,6 +252,53 @@ class GuiaRemisionController extends Controller
     }
 
     /**
+     * Regenerar el XML (y el QR) de una guía electrónica.
+     *
+     * Sirve para las guías cuyo XML quedó mal o pisado por otra: hasta el fix
+     * del correlativo podían existir varias guías con la misma serie-número, y
+     * como el nombre del archivo se arma con RUC-TIPO-SERIE-CORRELATIVO, todas
+     * escribían el MISMO `sunat_xml_path` y se sobreescribían entre sí.
+     */
+    public function regenerarXml(string $id)
+    {
+        try {
+            $guia = GuiaRemision::findOrFail($id);
+
+            if ($guia->tipo_guia === 'FISICA') {
+                return response()->json([
+                    'message' => 'Las guías físicas no tienen XML.',
+                ], 422);
+            }
+
+            // Con la guía ya aceptada, el XML vigente es el que SUNAT selló:
+            // regenerarlo dejaría en disco un archivo que no coincide con el
+            // que se declaró.
+            if ($guia->sunat_estado === 'ACEPTADO') {
+                return response()->json([
+                    'message' => 'La guía ya fue aceptada por SUNAT: su XML no puede regenerarse.',
+                ], 422);
+            }
+
+            if ($guia->sunat_estado === 'PENDIENTE') {
+                return response()->json([
+                    'message' => 'La guía está pendiente de confirmación en SUNAT. Consultá su estado antes de regenerar el XML.',
+                ], 422);
+            }
+
+            $guia = $this->guiaRemisionService->generarXml($guia);
+
+            return response()->json([
+                'data' => $guia,
+                'message' => 'XML regenerado correctamente',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
      * Consultar en SUNAT el estado del ticket de una guía ya enviada.
      */
     public function consultarEstado(string $id)

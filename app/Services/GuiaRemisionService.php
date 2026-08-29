@@ -32,38 +32,64 @@ class GuiaRemisionService
             // Generar ULID para la guía
             $guiaId = (string) Str::ulid();
 
-            // Auto-generar serie y número si no se proporcionan.
-            if (empty($data['serie']) || empty($data['numero'])) {
-                $tipoGuia = $data['tipo_guia'] ?? 'ELECTRONICA_REMITENTE';
+            $tipoGuia = $data['tipo_guia'] ?? 'ELECTRONICA_REMITENTE';
 
-                // Si hay una serie configurada para guía (gr = remitente, gt = transportista)
-                // en el almacén de origen, usarla; si no, caer a los defaults históricos.
-                $tipoSerie = match ($tipoGuia) {
-                    'ELECTRONICA_TRANSPORTISTA' => 'gt',
-                    'ELECTRONICA_REMITENTE' => 'gr',
-                    default => null, // FISICA no usa series electrónicas
-                };
+            // Si hay una serie configurada para guía (gr = remitente, gt = transportista)
+            // en el almacén de origen, usarla; si no, caer a los defaults históricos.
+            $tipoSerie = match ($tipoGuia) {
+                'ELECTRONICA_TRANSPORTISTA' => 'gt',
+                'ELECTRONICA_REMITENTE' => 'gr',
+                default => null, // FISICA no usa series electrónicas
+            };
 
+            // El número de una guía ELECTRÓNICA lo asigna SIEMPRE el servidor.
+            //
+            // Antes se respetaba el `numero` que mandaba el cliente y solo se
+            // generaba uno si venía vacío — pero el formulario SIEMPRE lo manda:
+            // lo toma del endpoint de preview (`siguiente-numero/preview`), que
+            // calcula el próximo número SIN reservarlo. Eso rompía de tres formas,
+            // y las tres se dieron juntas (aparecieron 3 guías con T001-1):
+            //   1. `SerieDocumento.correlativo` no se incrementaba NUNCA, porque
+            //      ese incremento vivía dentro del bloque que se salteaba. El
+            //      preview devolvía siempre el mismo número.
+            //   2. Dos formularios abiertos a la vez leían el mismo número.
+            //   3. Las guías duplicadas comparten `sunat_xml_path`
+            //      (RUC-09-SERIE-CORRELATIVO.xml): se pisaban el XML entre ellas.
+            //
+            // Las FÍSICAS sí respetan lo que se cargue a mano: son talonarios
+            // preimpresos y el número lo pone el papel, no el sistema.
+            $esFisica = $tipoGuia === 'FISICA';
+            $numeroManualValido = $esFisica && !empty($data['serie']) && !empty($data['numero']);
+
+            if (! $numeroManualValido) {
                 $serieDoc = null;
                 if ($tipoSerie && !empty($data['almacen_origen_id'])) {
+                    // lockForUpdate: dos creaciones simultáneas se serializan en
+                    // vez de leer las dos el mismo correlativo.
                     $serieDoc = SerieDocumento::where('tipo_documento', $tipoSerie)
                         ->where('almacen_id', $data['almacen_origen_id'])
                         ->where('activo', true)
                         ->orderBy('created_at', 'desc')
+                        ->lockForUpdate()
                         ->first();
                 }
 
                 if ($serieDoc) {
-                    $data['serie'] = $serieDoc->serie;
-                    $data['numero'] = $serieDoc->correlativo + 1;
+                    // Incrementar PRIMERO y usar el valor ya reservado: si se
+                    // calculaba aparte del incremento, un fallo posterior dejaba
+                    // el correlativo y la guía desalineados.
                     $serieDoc->increment('correlativo');
+                    $data['serie'] = $serieDoc->serie;
+                    $data['numero'] = (int) $serieDoc->refresh()->correlativo;
                 } else {
                     $serie = match ($tipoGuia) {
                         'ELECTRONICA_TRANSPORTISTA' => 'V001',
                         'FISICA' => 'TF01',
                         default => 'T001', // ELECTRONICA_REMITENTE
                     };
-                    $maxNumero = GuiaRemision::where('serie', $serie)->max('numero') ?? 0;
+                    $maxNumero = GuiaRemision::where('serie', $serie)
+                        ->lockForUpdate()
+                        ->max('numero') ?? 0;
                     $data['serie'] = $serie;
                     $data['numero'] = $maxNumero + 1;
                 }
