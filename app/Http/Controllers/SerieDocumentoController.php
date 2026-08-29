@@ -45,6 +45,65 @@ class SerieDocumentoController extends Controller
      * POST /api/series-documentos
      * Crea una nueva serie de documento
      */
+    /**
+     * Prefijo que SUNAT exige en la serie, por tipo de documento, cuando se
+     * emite desde el sistema del contribuyente (SEE):
+     *
+     *   01 Factura              → F###
+     *   03 Boleta               → B###
+     *   gr GRE-Remitente        → T###
+     *   gt GRE-Transportista    → V###
+     *
+     * OJO: EG07/EG02/EG03/EG04 son series del PORTAL de SUNAT y de la APP
+     * Emprender, NO sirven para documentos emitidos desde este sistema.
+     *
+     * Los tipos internos (nv, in, sa, rc) no los declara SUNAT, y las notas
+     * (nc, nd) heredan la serie del documento que afectan, así que no se
+     * validan acá.
+     */
+    private const PREFIJO_SERIE_SUNAT = [
+        '01' => 'F',
+        '03' => 'B',
+        'gr' => 'T',
+        'gt' => 'V',
+    ];
+
+    /**
+     * Regla que verifica el prefijo de la serie contra el tipo de documento.
+     *
+     * Antes solo se validaba `[A-Z0-9]{4}`, así que entraba cualquier serie de
+     * 4 caracteres. Con una serie inválida (ej. "GU01" para una guía) todo el
+     * sistema funciona normal y el error recién aparece cuando SUNAT rechaza
+     * el documento — con las guías ya emitidas y numeradas.
+     */
+    private function reglaPrefijoSerie(?string $tipoDocumento): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) use ($tipoDocumento) {
+            $prefijo = self::PREFIJO_SERIE_SUNAT[$tipoDocumento] ?? null;
+
+            if ($prefijo === null || $value === null || $value === '') {
+                return;
+            }
+
+            if (! str_starts_with((string) $value, $prefijo)) {
+                $nombres = [
+                    '01' => 'las facturas',
+                    '03' => 'las boletas',
+                    'gr' => 'las guías de remisión remitente',
+                    'gt' => 'las guías de remisión transportista',
+                ];
+
+                $fail(sprintf(
+                    'SUNAT exige que la serie de %s empiece con "%s" (ej. %s001). "%s" no es válida.',
+                    $nombres[$tipoDocumento] ?? 'este documento',
+                    $prefijo,
+                    $prefijo,
+                    $value,
+                ));
+            }
+        };
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -53,6 +112,7 @@ class SerieDocumentoController extends Controller
                 'required',
                 'string',
                 'regex:/^[A-Z0-9]{4}$/',
+                $this->reglaPrefijoSerie($request->input('tipo_documento')),
             ],
             'correlativo' => 'integer|min:0',
             'almacen_id' => 'required|integer|exists:almacen,id',
@@ -122,6 +182,9 @@ class SerieDocumentoController extends Controller
             'serie' => [
                 'string',
                 'regex:/^[A-Z0-9]{4}$/',
+                // En edición el tipo puede no venir en el payload: se cae al
+                // que ya tiene la serie guardada.
+                $this->reglaPrefijoSerie($request->input('tipo_documento', $serie->tipo_documento)),
             ],
             'correlativo' => 'integer|min:0',
             'almacen_id' => 'integer|exists:almacen,id',
