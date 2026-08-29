@@ -246,6 +246,7 @@ class ClasificadorMovimientos
                 'mp.id as metodo_pago_id',
                 'mp.name as banco',
                 'dp.name as metodo_pago',
+                'dpv.despliegue_de_pago_id',
                 'sc.nombre as sub_caja',
                 'mp.nombre_titular as titular',
                 'dpv.monto',
@@ -272,6 +273,10 @@ class ClasificadorMovimientos
                 'metodo_pago_id' => $primer->metodo_pago_id,
                 'banco' => $primer->banco,
                 'metodo_pago' => $primer->metodo_pago,
+                // Despliegue de pago del grupo: el cálculo del efectivo esperado lo
+                // cruza con `sub_cajas.despliegues_pago_ids` de la sub-caja de la
+                // apertura para no mezclar cajones físicos (efectivo vs efectivo black).
+                'despliegue_de_pago_id' => $primer->despliegue_de_pago_id,
                 'label' => $label,
                 'total' => $grupo->sum('monto'),
                 'cantidad_transacciones' => $grupo->count(),
@@ -324,7 +329,19 @@ class ClasificadorMovimientos
         $esAnulacion = fn ($t) => str_starts_with((string) ($t->referencia_tipo ?? ''), $prefijo);
         // La clave incluye el tipo ORIGINAL para no cruzar, por ejemplo, un gasto extra
         // con un pago de compra que casualmente compartan referencia_id y monto.
-        $clave = fn (?string $tipo, $t) => $tipo . '|' . ($t->referencia_id ?? '') . '|' . number_format((float) $t->monto, 2, '.', '');
+        //
+        // Y TAMBIÉN el despliegue de pago: al EDITAR un gasto cambiándole solo el
+        // método (mismo monto), conviven tres patas con la misma referencia y monto —
+        // original (método viejo), reversión (método viejo) y nuevo (método nuevo).
+        // Sin el despliegue en la clave, la reversión podía "comerse" la pata NUEVA
+        // y dejar viva la vieja: el cierre seguía mostrando el gasto con el método
+        // anterior y el efectivo esperado no reflejaba el pase (gasto DYSFEYSAC,
+        // 27/08/2026: seguía como BANCO BLACK tras editarse a efectivo black). La
+        // reversión siempre copia el despliegue del original (ManejaFlujoCajaExtra),
+        // así que el par correcto comparte despliegue.
+        $clave = fn (?string $tipo, $t) => $tipo . '|' . ($t->referencia_id ?? '') . '|'
+            . number_format((float) $t->monto, 2, '.', '') . '|'
+            . ($t->despliegue_pago_id ?? '');
 
         // Cuántos originales hay que ocultar por cada (tipo + referencia + monto).
         $pendientes = [];
@@ -412,6 +429,7 @@ class ClasificadorMovimientos
                 'tc.monto',
                 'tc.descripcion',
                 'tc.referencia_tipo',
+                'tc.despliegue_pago_id',
                 'tc.created_at',
                 'sc.nombre as sub_caja',
                 'mp.name as metodo_nombre',
@@ -466,6 +484,7 @@ class ClasificadorMovimientos
                 'tc.monto',
                 'tc.descripcion',
                 'tc.referencia_tipo',
+                'tc.despliegue_pago_id',
                 'tc.created_at',
                 'sc.nombre as sub_caja',
                 'mp.name as metodo_nombre',

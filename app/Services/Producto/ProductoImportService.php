@@ -6,6 +6,8 @@ use App\Contracts\ProductoImportServiceInterface;
 use App\Jobs\Producto\ImportProductosJob;
 use App\Models\Producto;
 use App\Models\ProductoAlmacen;
+use App\Models\ProductoAlmacenLote;
+use App\Services\Producto\ProductoLoteService;
 use App\Models\Categoria;
 use App\Models\Marca;
 use App\Models\UnidadMedida;
@@ -271,22 +273,56 @@ class ProductoImportService implements ProductoImportServiceInterface
                             $almacenUpdate['stock_fraccion'] = (float) $item['stock_fraccion'];
                         }
 
-                        if (isset($item['costo']) && is_numeric($item['costo'])) {
+                        $traeCosto = isset($item['costo']) && is_numeric($item['costo']);
+                        $nuevoCosto = null;
+                        if ($traeCosto) {
                             $unidadesContenidas = isset($item['unidades_contenidas']) && is_numeric($item['unidades_contenidas'])
                                 ? (float) $item['unidades_contenidas']
                                 : (float) ($producto->unidades_contenidas ?: 1);
                             $divisor = $unidadesContenidas > 0 ? $unidadesContenidas : 1;
-                            $almacenUpdate['costo'] = (float) $item['costo'] / $divisor;
+                            $nuevoCosto = (float) $item['costo'] / $divisor;
+                            $almacenUpdate['costo'] = $nuevoCosto;
                         }
 
                         if ($almacenUpdate) {
-                            ProductoAlmacen::updateOrCreate(
+                            // Valores vigentes ANTES de escribir, para detectar si el
+                            // Excel realmente cambia algo (si trae el mismo costo y el
+                            // mismo stock, no hay que colapsar el ledger PEPS en vano).
+                            $paAntes = ProductoAlmacen::where('producto_id', $producto->id)
+                                ->where('almacen_id', $almacenId)
+                                ->first();
+                            $costoVigente = $paAntes ? (float) ($paAntes->costo_actual ?? $paAntes->costo ?? 0) : null;
+                            $stockVigente = $paAntes ? (float) ($paAntes->stock_fraccion ?? 0) : null;
+
+                            $pa = ProductoAlmacen::updateOrCreate(
                                 [
                                     'producto_id' => $producto->id,
                                     'almacen_id' => $almacenId,
                                 ],
                                 $almacenUpdate,
                             );
+
+                            // La fuente de la verdad del costo/stock es el LEDGER de
+                            // lotes: resyncDerivados() recalcula desde los lotes costo,
+                            // costo_actual/anterior, costo_con_flete, buckets y hasta
+                            // stock_fraccion — si el Excel solo escribiera las columnas
+                            // de productoalmacen, la siguiente venta las pisaría con
+                            // los valores viejos. Una corrección de costo/stock debe
+                            // reescribir el ledger (ver ProductoLoteService::reescribirLedger).
+                            $traeStock = isset($almacenUpdate['stock_fraccion']);
+                            $stockFinal = $traeStock
+                                ? (float) $almacenUpdate['stock_fraccion']
+                                : (float) ($pa->stock_fraccion ?? 0);
+                            $costoFinal = $traeCosto
+                                ? $nuevoCosto
+                                : (float) ($pa->costo_actual ?? $pa->costo ?? 0);
+
+                            $cambioCosto = $traeCosto && ($costoVigente === null || abs($costoFinal - $costoVigente) > 0.0001);
+                            $cambioStock = $traeStock && ($stockVigente === null || abs($stockFinal - $stockVigente) > 0.0001);
+
+                            if ($cambioCosto || $cambioStock) {
+                                app(ProductoLoteService::class)->reescribirLedger($pa, $costoFinal, $stockFinal);
+                            }
                         }
 
                         $updated++;
@@ -661,13 +697,17 @@ class ProductoImportService implements ProductoImportServiceInterface
                 "estado" => true,
             ]);
 
-            // Create product_almacen
+            // Create product_almacen — PEPS inicializado: el costo del Excel es el
+            // vigente (costo_actual) y todo el stock queda en ese bucket. Sin esto,
+            // costo_actual quedaba NULL y las pantallas dependían del fallback.
             ProductoAlmacen::create([
                 "producto_id" => $producto->id,
                 "almacen_id" => $productoEnAlmacenesCreate["almacen_id"],
                 "stock_fraccion" =>
                     $productoEnAlmacenesCreate["stock_fraccion"],
                 "costo" => $costoAjustado,
+                "costo_actual" => $costoAjustado,
+                "stock_costo_actual" => $productoEnAlmacenesCreate["stock_fraccion"] ?? 0,
                 "ubicacion_id" => $productoEnAlmacenesCreate["ubicacion_id"],
             ]);
 
@@ -860,6 +900,10 @@ class ProductoImportService implements ProductoImportServiceInterface
                 "almacen_id" => $a["almacen_id"],
                 "stock_fraccion" => $a["stock_fraccion"],
                 "costo" => $a["costo"],
+                // PEPS inicializado: el costo del Excel es el vigente y todo el
+                // stock queda en ese bucket (igual que importSingleProduct).
+                "costo_actual" => $a["costo"],
+                "stock_costo_actual" => $a["stock_fraccion"] ?? 0,
                 "ubicacion_id" => $a["ubicacion_id"],
                 "created_at" => $now,
                 "updated_at" => $now,

@@ -42,7 +42,14 @@ class CalculadorResumenCaja
         // (Movimientos internos NO afectan el total)
         // (Pagos digitales NO afectan el efectivo en caja)
 
-        // Filtrar solo cobros en EFECTIVO (método de pago "Efectivo")
+        // Filtrar solo cobros en EFECTIVO (método de pago "Efectivo").
+        //
+        // DECISIÓN DE NEGOCIO (27/08/2026): el cierre muestra TODO el efectivo que el
+        // vendedor tiene físicamente, sumando TODAS sus cajas de efectivo (Caja Chica
+        // + "efectivo black", etc.). El TRASLADO A BÓVEDA es quien separa por cajón.
+        // Ej. sesión de Sonia: cierre = 4,619.20 = bóveda Caja Chica 3,746.60 +
+        // bóveda black 872.60. NO acotar esto a la sub-caja de la apertura: se probó
+        // y el usuario lo pidió de vuelta ("me debe salir 4,619.20, no 3,746.60").
         $cobrosEfectivo = $clasificacion['cobros_por_metodo']
             ->filter(function ($metodo) {
                 return stripos($metodo['label'], 'Efectivo') !== false;
