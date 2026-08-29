@@ -115,6 +115,18 @@ class GuiaRemisionService
                 'transportista_nro_mtc' => $data['transportista_nro_mtc'] ?? null,
                 'vehiculo_placa' => $data['vehiculo_placa'] ?? null,
                 'chofer_id' => $data['chofer_id'] ?? null,
+                // FALTABAN. El formulario los manda y StoreGuiaRemisionRequest
+                // los valida, pero al no estar en este array se descartaban en
+                // silencio y quedaban NULL en la base:
+                //   - user_chofer_id: el despachador en transporte PRIVADO. Sin
+                //     él, el PDF imprimía "Chofer: -" y el XML salía SIN
+                //     DriverPerson (prepararDatosParaGreenter lee esta relación).
+                //     Además el vehículo se deduce de este user, así que también
+                //     se perdía la placa.
+                //   - remitente_id: el dueño de la mercadería en GRE-Transportista,
+                //     que va al `setTercero` del XML.
+                'user_chofer_id' => $data['user_chofer_id'] ?? null,
+                'remitente_id' => $data['remitente_id'] ?? null,
                 'punto_partida' => $data['punto_partida'],
                 'punto_llegada' => $data['punto_llegada'],
                 'almacen_origen_id' => $data['almacen_origen_id'],
@@ -309,6 +321,9 @@ class GuiaRemisionService
     public function prepararDatosParaGreenter(GuiaRemision $guia): array
     {
         $guia->loadMissing([
+            // El chofer de transporte PRIVADO es un user, y su vehículo cuelga
+            // de él: sin esto se resolvía con lazy loading (o quedaba en null).
+            'userChofer.vehiculo',
             'cliente',
             'comprador',
             'motivoTraslado',
@@ -468,7 +483,12 @@ class GuiaRemisionService
             'direccion_partida' => $guia->punto_partida,
             'ubigeo_llegada' => config('sunat-api.ubigeo'),
             'direccion_llegada' => $guia->punto_llegada,
-            'vehiculo_placa' => $guia->vehiculo_placa,
+            // La placa cargada a mano manda; si no hay, se cae a la del vehículo
+            // asignado al despachador. Sin este respaldo, una guía de transporte
+            // PRIVADO (donde el vehículo se elige junto con el despachador y no
+            // se tipea aparte) salía SIN placa, y SUNAT la exige para GRE.
+            'vehiculo_placa' => $guia->vehiculo_placa
+                ?: ($guia->userChofer?->vehiculo?->placa ?: null),
             'destinatario' => $destinatario,
             'comprador' => $comprador,
             'remitente' => $remitente,
