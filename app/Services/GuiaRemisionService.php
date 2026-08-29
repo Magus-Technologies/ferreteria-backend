@@ -721,7 +721,14 @@ class GuiaRemisionService
         //   0          → aceptado
         //   2000-3999  → RECHAZADO
         //   4000+      → aceptado CON observaciones
-        $codigoCdr = $resultado['codigo_cdr'] ?? null;
+        // El código se lee del PROPIO CDR, que es el documento autoritativo.
+        // Depender solo del `codigo_cdr` que manda el microservicio hacía que
+        // el fix necesitara los DOS repos deployados: si api-sunat-laravel
+        // quedaba viejo, el campo llegaba vacío y una guía RECHAZADA caía en
+        // silencio como "aceptada" — exactamente el bug que se quería tapar.
+        $codigoCdr = $this->extraerCodigoRespuestaCdr($resultado['cdr'] ?? '')
+            ?? (isset($resultado['codigo_cdr']) ? (int) $resultado['codigo_cdr'] : null);
+
         $fueRechazada = $codigoCdr !== null && $codigoCdr >= 2000 && $codigoCdr < 4000;
 
         if ($fueRechazada) {
@@ -786,6 +793,75 @@ class GuiaRemisionService
             'observaciones' => $observaciones,
             'mensaje' => $resultado['mensaje_sunat'] ?? 'Aceptado',
         ];
+    }
+
+    /**
+     * Lee el `<cbc:ResponseCode>` del CDR que devuelve SUNAT.
+     *
+     * El CDR viaja como un ZIP en base64 con un único XML adentro. Ese código
+     * es el veredicto real:
+     *   0          → aceptado
+     *   2000-3999  → rechazado
+     *   4000+      → aceptado con observaciones
+     *
+     * Se saca de acá y no de lo que reporte el microservicio para que el
+     * estado no dependa de que ese repo esté actualizado: el CDR es el
+     * documento firmado por SUNAT y no miente.
+     */
+    private function extraerCodigoRespuestaCdr(string $cdrBase64): ?int
+    {
+        if ($cdrBase64 === '') {
+            return null;
+        }
+
+        $binario = base64_decode($cdrBase64, true);
+        if ($binario === false || $binario === '') {
+            return null;
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'cdr_');
+        if ($tmp === false) {
+            return null;
+        }
+
+        try {
+            file_put_contents($tmp, $binario);
+
+            $zip = new \ZipArchive();
+            if ($zip->open($tmp) !== true) {
+                return null;
+            }
+
+            try {
+                for ($i = 0; $i < $zip->numFiles; $i++) {
+                    $nombre = $zip->getNameIndex($i);
+                    if (! $nombre || ! str_ends_with(strtolower($nombre), '.xml')) {
+                        continue;
+                    }
+
+                    $xml = $zip->getFromIndex($i);
+                    if ($xml === false) {
+                        continue;
+                    }
+
+                    if (preg_match('/<cbc:ResponseCode[^>]*>\s*(?:<!\[CDATA\[)?\s*(\d+)/', $xml, $m)) {
+                        return (int) $m[1];
+                    }
+                }
+            } finally {
+                $zip->close();
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo leer el código de respuesta del CDR', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        } finally {
+            @unlink($tmp);
+        }
     }
 
     /**
