@@ -180,11 +180,50 @@ class GuiaRemisionService
      */
     public function actualizar(GuiaRemision $guia, array $data): GuiaRemision
     {
+        // Con la guía ya declarada en SUNAT no se toca nada: el documento
+        // vigente es el que ella selló (o el que está procesando un ticket).
+        if (in_array($guia->sunat_estado, ['ACEPTADO', 'PENDIENTE'], true)) {
+            throw new \Exception('La guía ya fue enviada a SUNAT y no puede modificarse.');
+        }
+
+        if ($guia->estado === 'ANULADA') {
+            throw new \Exception('Una guía anulada no puede modificarse.');
+        }
+
         if (!$guia->puedeEditarse()) {
-            throw new \Exception('Solo se pueden editar guías en estado BORRADOR');
+            // EMITIDA pero todavía NO declarada en SUNAT. Antes esto se
+            // rechazaba de plano, y dejaba sin salida a las guías emitidas sin
+            // despachador: el chofer y la placa no se podían cargar por ningún
+            // lado, y sin ellos SUNAT rechaza una GRE de transporte privado.
+            //
+            // Se permite editar, pero NUNCA la serie ni el número: identifican
+            // al documento ya impreso, y pisarlos a mano es justamente lo que
+            // generó guías duplicadas (varias T001-1 compartiendo el mismo
+            // archivo XML). El correlativo lo asigna el servidor al crear.
+            unset($data['serie'], $data['numero']);
         }
 
         $guia->update($data);
+        $guia->refresh();
+
+        // Si ya estaba EMITIDA, su XML quedó viejo: fue generado al emitir, con
+        // los datos de antes. Sin esto había que acordarse de apretar
+        // "Regenerar XML" a mano después de cada edición — y si no lo hacías,
+        // el documento electrónico seguía sin el chofer que acabás de cargar.
+        // No aplica a BORRADOR (todavía no tiene XML) ni a FISICA (no lleva).
+        if ($guia->estado === 'EMITIDA' && $guia->tipo_guia !== 'FISICA') {
+            try {
+                $this->generarXml($guia);
+                $guia->refresh();
+            } catch (\Exception $e) {
+                // La edición ya se guardó: no se revierte por un fallo al
+                // regenerar. Queda el botón manual como salida.
+                Log::error('Error al regenerar XML tras editar la guía', [
+                    'guia_id' => $guia->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
 
         return $guia->fresh([
             'venta',
