@@ -109,12 +109,36 @@ class PrestamoController extends Controller
             $query->where('almacen_id', $request->almacen_id);
         }
 
+        // Filtro por contraparte del préstamo.
+        //
+        // Una MISMA empresa suele estar cargada dos veces: como cliente y como
+        // proveedor, con el mismo RUC (ej. FERRETERIA MASUMI S.A.C. = cliente
+        // 301 y proveedor 112). Filtrar solo por `cliente_id` devolvía
+        // únicamente los préstamos donde figura como cliente y escondía los
+        // demás, aunque para el negocio sea la misma contraparte. Se hace
+        // coincidir también por documento contra el otro rol.
         if ($request->has('cliente_id')) {
-            $query->where('cliente_id', $request->cliente_id);
+            $documento = \App\Models\Cliente::where('id', $request->cliente_id)->value('numero_documento');
+
+            $query->where(function ($q) use ($request, $documento) {
+                $q->where('cliente_id', $request->cliente_id);
+
+                if (! empty($documento)) {
+                    $q->orWhereHas('proveedor', fn ($p) => $p->where('ruc', $documento));
+                }
+            });
         }
 
         if ($request->has('proveedor_id')) {
-            $query->where('proveedor_id', $request->proveedor_id);
+            $documento = \App\Models\Proveedor::where('id', $request->proveedor_id)->value('ruc');
+
+            $query->where(function ($q) use ($request, $documento) {
+                $q->where('proveedor_id', $request->proveedor_id);
+
+                if (! empty($documento)) {
+                    $q->orWhereHas('cliente', fn ($c) => $c->where('numero_documento', $documento));
+                }
+            });
         }
 
         if ($request->has('fecha_desde')) {
@@ -125,9 +149,27 @@ class PrestamoController extends Controller
             $query->whereDate('fecha', '<=', $request->fecha_hasta);
         }
 
-        // Búsqueda por número
-        if ($request->has('search')) {
-            $query->where('numero', 'like', '%' . $request->search . '%');
+        // Búsqueda libre. Antes solo miraba `numero`, pero el frontend manda
+        // acá el texto tipeado en el buscador de contacto cuando todavía no se
+        // eligió uno de la lista: buscar "MASUMI" no devolvía nada porque ese
+        // texto jamás va a coincidir con un número de préstamo. Se amplía a la
+        // contraparte (cliente o proveedor), por nombre y por documento.
+        if ($request->has('search') && trim((string) $request->search) !== '') {
+            $texto = trim((string) $request->search);
+
+            $query->where(function ($q) use ($texto) {
+                $q->where('numero', 'like', "%{$texto}%")
+                    ->orWhereHas('cliente', function ($c) use ($texto) {
+                        $c->where('razon_social', 'like', "%{$texto}%")
+                            ->orWhere('nombres', 'like', "%{$texto}%")
+                            ->orWhere('apellidos', 'like', "%{$texto}%")
+                            ->orWhere('numero_documento', 'like', "%{$texto}%");
+                    })
+                    ->orWhereHas('proveedor', function ($p) use ($texto) {
+                        $p->where('razon_social', 'like', "%{$texto}%")
+                            ->orWhere('ruc', 'like', "%{$texto}%");
+                    });
+            });
         }
 
         // Paginación
