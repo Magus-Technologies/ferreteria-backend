@@ -88,24 +88,29 @@
     <div style="padding-top: 4px;">
         <table>
             <thead>
+                <tr>
+                    <th colspan="3" style="text-align:left; font-weight:bold; font-size:6pt; border-bottom: 1px solid #000;">Descripción</th>
+                </tr>
                 <tr style="border-bottom: 1px solid #000;">
-                    <th style="text-align:center; width:20%; font-weight:bold; font-size:6pt;">Cód.</th>
-                    <th style="text-align:center; width:15%; font-weight:bold; font-size:6pt;">Cant</th>
-                    <th style="text-align:center; width:15%; font-weight:bold; font-size:6pt;">U.M</th>
-                    <th style="text-align:left; font-weight:bold; font-size:6pt;">Descripción</th>
+                    <th style="text-align:center; width:34%; font-weight:bold; font-size:6pt;">Cód.</th>
+                    <th style="text-align:center; width:33%; font-weight:bold; font-size:6pt;">Cant</th>
+                    <th style="text-align:center; width:33%; font-weight:bold; font-size:6pt;">U.M</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($productos as $i => $item)
-                <tr style="border-bottom: 1px solid #000;">
-                    <td style="padding:2px 0; text-align:center; font-size:6pt;">{{ $item['codigo'] }}</td>
-                    <td style="padding:2px 0; text-align:center; font-size:6pt;">{{ $item['cantidad'] }}</td>
-                    <td style="padding:2px 0; text-align:center; font-size:6pt;">{{ $item['unidad'] }}</td>
-                    <td style="padding:2px 0; font-size:6pt;">{{ $item['descripcion'] }}</td>
+                @php $bgFila = $i % 2 !== 0 ? ' background-color: #f9f9f9;' : ''; @endphp
+                <tr style="{{ $bgFila }}">
+                    <td colspan="3" style="padding:2px 0 0; font-weight:bold; font-size:6pt;">{{ $item['descripcion'] }}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #000;{{ $bgFila }}">
+                    <td style="padding:0 0 2px; text-align:center; font-size:6pt;">{{ $item['codigo'] }}</td>
+                    <td style="padding:0 0 2px; text-align:center; font-size:6pt;">{{ $item['cantidad'] }}</td>
+                    <td style="padding:0 0 2px; text-align:center; font-size:6pt;">{{ $item['unidad'] }}</td>
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="4" style="padding:4px; text-align:center; font-style:italic; color:#666; font-size:6pt;">Sin productos registrados</td>
+                    <td colspan="3" style="padding:4px; text-align:center; font-style:italic; color:#666; font-size:6pt;">Sin productos registrados</td>
                 </tr>
                 @endforelse
             </tbody>

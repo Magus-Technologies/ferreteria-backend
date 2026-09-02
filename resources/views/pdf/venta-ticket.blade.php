@@ -142,13 +142,21 @@
     {{-- Tabla de productos --}}
     <div style="padding-top: 4px;">
         <table>
+            <colgroup>
+                <col style="width:25%;">
+                <col style="width:25%;">
+                <col style="width:25%;">
+                <col style="width:25%;">
+            </colgroup>
             <thead>
+                <tr>
+                    <th colspan="4" style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:left; border-bottom:1px solid #000;">Descripci&oacute;n</th>
+                </tr>
                 <tr style="border-bottom: 1px solid #000;">
-                    <th style="text-align:left; width:40%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">Descripci&oacute;n</th>
-                    <th style="text-align:center; width:10%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">Cant.</th>
-                    <th style="text-align:center; width:10%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">Unid.</th>
-                    <th style="text-align:right; width:15%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">P.U.</th>
-                    <th style="text-align:right; width:15%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">Subt.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:left;">Cant.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:left;">Unid.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:right;">P.U.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:right;">Subt.</th>
                 </tr>
             </thead>
             <tbody>
@@ -157,7 +165,7 @@
                     @if(!empty($p['paquete_id']) && $p['paquete_id'] !== $paqueteActual)
                         @php $paqueteActual = $p['paquete_id']; @endphp
                         <tr>
-                            <td colspan="5" style="font-size: 6pt; padding: 3px 0; font-weight: bold; background-color: #e8e8e8;">
+                            <td colspan="4" style="font-size: 6pt; padding: 3px 0; font-weight: bold; background-color: #e8e8e8;">
                                 [COMBO] {{ $p['paquete_nombre'] ?? 'COMBO' }}
                             </td>
                         </tr>
@@ -166,8 +174,8 @@
                         @php $paqueteActual = null; @endphp
                     @endif
                 @php
-                    // Fondo compartido por la fila del producto y su sub-linea de
-                    // descuento, para que el rayado alterno se lea como un bloque.
+                    // Fondo compartido por las dos filas del producto (nombre + valores)
+                    // y su sub-linea de descuento, para que el rayado alterno se lea como un bloque.
                     $bgFila = !empty($p['es_gratis'])
                         ? ' background-color: #fff3cd;'
                         : ($i % 2 !== 0 ? ' background-color: #f9f9f9;' : '');
@@ -175,21 +183,23 @@
                     // quedaria una raya separando al producto de su propio descuento.
                     $tieneDscto = ($p['descuento'] ?? 0) > 0 && empty($p['es_gratis']);
                 @endphp
-                <tr style="{{ $tieneDscto ? '' : 'border-bottom: 1px solid #000;' }}{{ $bgFila }}">
-                    <td style="padding:3px 0;{{ !empty($p['paquete_id']) ? ' padding-left:6px;' : '' }} {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">
+                <tr style="{{ $bgFila }}">
+                    <td colspan="4" style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:3px 0 0;{{ !empty($p['paquete_id']) ? ' padding-left:6px;' : '' }} font-weight:bold;">
                         {{ $p['nombre'] }}
                         @if(!empty($p['es_gratis']))
                             <span style="display:inline-block; background:#000; color:#fff; padding:1px 4px; border-radius:2px; font-size:5pt; font-weight:bold; margin-left:2px;">GRATIS</span>
                         @endif
                     </td>
-                    <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
-                    <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ $p['unidad'] }}</td>
-                    <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ !empty($p['es_gratis']) ? '—' : number_format($p['precio'], 2) }}</td>
-                    <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ !empty($p['es_gratis']) ? '0.00' : number_format($p['subtotal'], 2) }}</td>
+                </tr>
+                <tr style="{{ $tieneDscto ? '' : 'border-bottom: 1px solid #000;' }}{{ $bgFila }}">
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:0 0 3px; text-align:left;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:0 0 3px; text-align:left;">{{ $p['unidad'] }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:0 0 3px; text-align:right;">{{ !empty($p['es_gratis']) ? '—' : number_format($p['precio'], 2) }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:0 0 3px; text-align:right;">{{ !empty($p['es_gratis']) ? '0.00' : number_format($p['subtotal'], 2) }}</td>
                 </tr>
                 @if($tieneDscto)
                 <tr style="border-bottom: 1px solid #000;{{ $bgFila }}">
-                    <td colspan="4" style="padding:0 0 3px 6px; color:#666; font-size:5pt;">
+                    <td colspan="3" style="padding:0 0 3px 6px; color:#666; font-size:5pt;">
                         Dscto.@if(($p['descuento_tipo'] ?? 'm') === '%') {{ \App\Helpers\Formato::cantidad($p['descuento_tasa'] ?? 0, 2) }}%@endif
                     </td>
                     <td style="padding:0 0 3px 0; text-align:right; color:#666; font-size:5pt;">-{{ number_format($p['descuento'], 2) }}</td>

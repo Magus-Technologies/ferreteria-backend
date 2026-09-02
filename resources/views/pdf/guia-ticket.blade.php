@@ -146,20 +146,25 @@
     <div style="padding-top: 4px;">
         <table>
             <thead>
+                <tr>
+                    <th colspan="3" style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">Descripci&oacute;n</th>
+                </tr>
                 <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
-                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 40%;">Descripci&oacute;n</th>
-                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 15%;">Cant.</th>
-                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 20%;">Unid.</th>
-                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 25%;">Peso(kg)</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 34%;">Cant.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 33%;">Unid.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; width: 33%;">Peso(kg)</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach($detalles as $i => $d)
-                <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
-                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['nombre'] }}</td>
-                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ \App\Helpers\Formato::cantidad($d['cantidad']) }}</td>
-                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['unidad'] }}</td>
-                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">{{ $d['peso'] > 0 ? number_format($d['peso'], 2) : '-' }}</td>
+                @php $bgFila = $i % 2 !== 0 ? ' background-color: #f9f9f9;' : ''; @endphp
+                <tr style="{{ $bgFila }}">
+                    <td colspan="3" style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-weight: bold; padding: 3px 0 0;">{{ $d['nombre'] }}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};{{ $bgFila }}">
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 0 0 3px;">{{ \App\Helpers\Formato::cantidad($d['cantidad']) }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 0 0 3px;">{{ $d['unidad'] }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 0 0 3px;">{{ $d['peso'] > 0 ? number_format($d['peso'], 2) : '-' }}</td>
                 </tr>
                 @endforeach
             </tbody>

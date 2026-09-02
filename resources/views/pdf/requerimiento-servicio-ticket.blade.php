@@ -105,24 +105,29 @@
     <div style="padding-top: 4px;">
         <table>
             <thead>
+                <tr>
+                    <th colspan="3" style="text-align:left; font-weight:bold; font-size:6pt; border-bottom: 1px solid #000;">Descripción</th>
+                </tr>
                 <tr style="border-bottom: 1px solid #000;">
-                    <th style="text-align:center; width:22%; font-weight:bold; font-size:6pt;">Tipo</th>
-                    <th style="text-align:left; font-weight:bold; font-size:6pt;">Descripción</th>
-                    <th style="text-align:center; width:20%; font-weight:bold; font-size:6pt;">Dur.</th>
-                    <th style="text-align:right; width:25%; font-weight:bold; font-size:6pt;">Presup.</th>
+                    <th style="text-align:center; width:34%; font-weight:bold; font-size:6pt;">Tipo</th>
+                    <th style="text-align:center; width:33%; font-weight:bold; font-size:6pt;">Dur.</th>
+                    <th style="text-align:right; width:33%; font-weight:bold; font-size:6pt;">Presup.</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($servicios as $i => $srv)
-                <tr style="border-bottom: 1px solid #000;">
-                    <td style="padding:2px 0; text-align:center; font-weight:bold; font-size:6pt;">{{ $srv['tipo'] }}</td>
-                    <td style="padding:2px 0; font-size:6pt;">{{ $srv['descripcion'] }}</td>
-                    <td style="padding:2px 0; text-align:center; font-size:6pt;">{{ $srv['duracion'] ?? $srv['horario'] ?? '—' }}</td>
-                    <td style="padding:2px 0; text-align:right; font-weight:bold; font-size:6pt;">{{ $srv['presupuesto'] }}</td>
+                @php $bgFila = $i % 2 !== 0 ? ' background-color: #f9f9f9;' : ''; @endphp
+                <tr style="{{ $bgFila }}">
+                    <td colspan="3" style="padding:2px 0 0; font-weight:bold; font-size:6pt;">{{ $srv['descripcion'] }}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #000;{{ $bgFila }}">
+                    <td style="padding:0 0 2px; text-align:center; font-size:6pt;">{{ $srv['tipo'] }}</td>
+                    <td style="padding:0 0 2px; text-align:center; font-size:6pt;">{{ $srv['duracion'] ?? $srv['horario'] ?? '—' }}</td>
+                    <td style="padding:0 0 2px; text-align:right; font-size:6pt;">{{ $srv['presupuesto'] }}</td>
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="4" style="padding:4px; text-align:center; font-style:italic; color:#666; font-size:6pt;">Sin servicios registrados</td>
+                    <td colspan="3" style="padding:4px; text-align:center; font-style:italic; color:#666; font-size:6pt;">Sin servicios registrados</td>
                 </tr>
                 @endforelse
             </tbody>

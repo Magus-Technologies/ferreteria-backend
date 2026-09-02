@@ -142,22 +142,37 @@
         $colsActivas = array_filter(array_keys($colsTicket), fn($k) => in_array($k, $colsSel));
         if (empty($colsActivas)) $colsActivas = ['producto'];
     @endphp
+    @php
+        $colsResto = array_values(array_filter($colsActivas, fn($c) => $c !== 'producto'));
+        $tieneProducto = in_array('producto', $colsActivas);
+        $colspanResto = max(count($colsResto), 1);
+    @endphp
     <div style="padding-top: 4px;">
         <table>
             <thead>
+                @if($tieneProducto)
+                <tr>
+                    <th colspan="{{ $colspanResto }}" style="{{ $cssTablaHeader }} text-align: left; border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">{!! $colsTicket['producto'] !!}</th>
+                </tr>
+                @endif
                 <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
-                    @foreach($colsActivas as $c)
+                    @foreach($colsResto as $c)
                     <th style="{{ $cssTablaHeader }} text-align: left;">{!! $colsTicket[$c] !!}</th>
                     @endforeach
                 </tr>
             </thead>
             <tbody>
                 @foreach($productos as $i => $p)
-                <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
-                    @foreach($colsActivas as $c)
-                    <td style="{{ $cssTablaFila }} padding: 3px 0;">
-                        @if($c === 'producto'){{ $p['nombre'] }}
-                        @elseif($c === 'cantidad'){{ \App\Helpers\Formato::cantidad($p['cantidad']) }}
+                @php $bgFila = $i % 2 !== 0 ? ' background-color: #f9f9f9;' : ''; @endphp
+                @if($tieneProducto)
+                <tr style="{{ $bgFila }}">
+                    <td colspan="{{ $colspanResto }}" style="{{ $cssTablaFila }} font-weight: bold; padding: 3px 0 0;">{{ $p['nombre'] }}</td>
+                </tr>
+                @endif
+                <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};{{ $bgFila }}">
+                    @foreach($colsResto as $c)
+                    <td style="{{ $cssTablaFila }} padding: {{ $tieneProducto ? '0 0 3px' : '3px 0' }};">
+                        @if($c === 'cantidad'){{ \App\Helpers\Formato::cantidad($p['cantidad']) }}
                         @elseif($c === 'unidad'){{ $p['unidad'] }}
                         @elseif($c === 'costo'){{ number_format($p['costo'], 2) }}
                         @elseif($c === 'importe'){{ number_format($p['subtotal'], 2) }}

@@ -68,21 +68,31 @@
     {{-- Tabla de productos --}}
     <div style="padding-top: 4px;">
         <table>
+            <colgroup>
+                <col style="width:34%;">
+                <col style="width:33%;">
+                <col style="width:33%;">
+            </colgroup>
             <thead>
+                <tr>
+                    <th colspan="3" style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:left; border-bottom:1px solid #000;">Descripci&oacute;n</th>
+                </tr>
                 <tr style="border-bottom: 1px solid #000;">
-                    <th style="text-align:left; width:55%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">Descripci&oacute;n</th>
-                    <th style="text-align:center; width:15%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">Cant.</th>
-                    <th style="text-align:right; width:15%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">P.U.</th>
-                    <th style="text-align:right; width:15%; {{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }}">Subt.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:left;">Cant.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:right;">P.U.</th>
+                    <th style="{{ $bloques['tabla_header']['css'] ?? 'font-weight:bold;font-size:6pt;' }} text-align:right;">Subt.</th>
                 </tr>
             </thead>
             <tbody>
-                @foreach($productos as $p)
-                <tr style="border-bottom: 1px solid #000;">
-                    <td style="padding:3px 0; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ $p['nombre'] }}</td>
-                    <td style="padding:3px 0; text-align:center; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
-                    <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['precio'], 2) }}</td>
-                    <td style="padding:3px 0; text-align:right; {{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }}">{{ number_format($p['subtotal'], 2) }}</td>
+                @foreach($productos as $i => $p)
+                @php $bgFila = $i % 2 !== 0 ? ' background-color: #f9f9f9;' : ''; @endphp
+                <tr style="{{ $bgFila }}">
+                    <td colspan="3" style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:3px 0 0; font-weight:bold;">{{ $p['nombre'] }}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #000;{{ $bgFila }}">
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:0 0 3px;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:0 0 3px; text-align:right;">{{ number_format($p['precio'], 2) }}</td>
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? 'font-size:6pt;' }} padding:0 0 3px; text-align:right;">{{ number_format($p['subtotal'], 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>

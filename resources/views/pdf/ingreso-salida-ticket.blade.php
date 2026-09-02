@@ -121,6 +121,9 @@
     {{-- Tabla productos --}}
     <div class="section-title" style="{{ $bloques['obs_label']['css'] ?? '' }}">PRODUCTOS</div>
     <table style="font-size: 5pt; table-layout: fixed; width: 100%;">
+        <tr>
+            <td colspan="7" style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left; border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">Producto</td>
+        </tr>
         <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
             <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left; width: 12%;">C&oacute;d.</td>
             <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: right; width: 14%;">Cant.</td>

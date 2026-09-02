@@ -103,22 +103,37 @@
         $colsActivas = array_filter(array_keys($colsTicket), fn($k) => in_array($k, $colsSel));
         if (empty($colsActivas)) $colsActivas = ['producto'];
     @endphp
+    @php
+        $colsResto = array_values(array_filter($colsActivas, fn($c) => $c !== 'producto'));
+        $tieneProducto = in_array('producto', $colsActivas);
+        $colspanResto = max(count($colsResto), 1);
+    @endphp
     <div style="padding-top: 4px;">
         <table>
             <thead>
+                @if($tieneProducto)
+                <tr>
+                    <th colspan="{{ $colspanResto }}" style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left; border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">{!! $colsTicket['producto'] !!}</th>
+                </tr>
+                @endif
                 <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
-                    @foreach($colsActivas as $c)
+                    @foreach($colsResto as $c)
                     <th style="{{ $bloques['tabla_header']['css'] ?? '' }} text-align: left;">{!! $colsTicket[$c] !!}</th>
                     @endforeach
                 </tr>
             </thead>
             <tbody>
                 @foreach($productos as $i => $p)
-                <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
-                    @foreach($colsActivas as $c)
-                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: 3px 0;">
+                @php $bgFila = $i % 2 !== 0 ? ' background-color: #f9f9f9;' : ''; @endphp
+                @if($tieneProducto)
+                <tr style="{{ $bgFila }}">
+                    <td colspan="{{ $colspanResto }}" style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-weight: bold; padding: 3px 0 0;">{{ $p['nombre'] }}</td>
+                </tr>
+                @endif
+                <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};{{ $bgFila }}">
+                    @foreach($colsResto as $c)
+                    <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} padding: {{ $tieneProducto ? '0 0 3px' : '3px 0' }};">
                         @if($c === 'codigo'){{ $p['codigo'] }}
-                        @elseif($c === 'producto'){{ $p['nombre'] }}
                         @elseif($c === 'marca'){{ $p['marca'] }}
                         @elseif($c === 'unidad'){{ $p['unidad'] }}
                         @elseif($c === 'cantidad'){{ number_format($p['cantidad'], 2) }}

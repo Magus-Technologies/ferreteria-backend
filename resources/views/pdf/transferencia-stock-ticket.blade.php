@@ -100,18 +100,23 @@
     {{-- Tabla productos --}}
     <div class="section-title" style="{{ $bloques['obs_label']['css'] ?? '' }}">PRODUCTOS</div>
     <table style="font-size: 5pt;">
+        <tr>
+            <td colspan="3" style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left; border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">Producto</td>
+        </tr>
         <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};">
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left; width: 35px;">Cód.</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left;">Producto</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: center; width: 40px;">Unidad</td>
-            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: center; width: 30px;">Cant.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: left; width: 34%;">Cód.</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: center; width: 33%;">Unidad</td>
+            <td style="{{ $bloques['tabla_header']['css'] ?? '' }} font-size: 5pt; text-align: center; width: 33%;">Cant.</td>
         </tr>
         @foreach($productos as $i => $p)
-        <tr style="background-color: {{ $i % 2 === 0 ? '#fff' : '#f9f9f9' }};">
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding-top: 2px;">{{ $p['codigo'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding-top: 2px;">{{ $p['nombre'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-top: 2px;">{{ $p['unidad'] }}</td>
-            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding-top: 2px;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
+        @php $bgFila = $i % 2 !== 0 ? ' background-color: #f9f9f9;' : ''; @endphp
+        <tr style="{{ $bgFila }}">
+            <td colspan="3" style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 6pt; font-weight: bold; padding-top: 3px;">{{ $p['nombre'] }}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid {{ $est['color_borde'] ?? '#000' }};{{ $bgFila }}">
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; padding: 0 0 3px;">{{ $p['codigo'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding: 0 0 3px;">{{ $p['unidad'] }}</td>
+            <td style="{{ $bloques['tabla_fila']['css'] ?? '' }} font-size: 5pt; text-align: center; padding: 0 0 3px;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
         </tr>
         @endforeach
     </table>

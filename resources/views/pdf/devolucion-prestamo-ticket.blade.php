@@ -111,18 +111,23 @@
     <div style="padding-top: 4px;">
         <table>
             <thead>
+                <tr>
+                    <th colspan="2" style="{{ $cssTablaHeader }} text-align: left; border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">Descripci&oacute;n</th>
+                </tr>
                 <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};">
-                    <th style="{{ $cssTablaHeader }} text-align: left;">Descripci&oacute;n</th>
-                    <th style="{{ $cssTablaHeader }} text-align: left;">Unid.</th>
-                    <th style="{{ $cssTablaHeader }} text-align: right;">Cant.</th>
+                    <th style="{{ $cssTablaHeader }} text-align: left; width: 50%;">Unid.</th>
+                    <th style="{{ $cssTablaHeader }} text-align: right; width: 50%;">Cant.</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach($productos as $i => $p)
-                <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};{{ $i % 2 !== 0 ? ' background-color: #f9f9f9;' : '' }}">
-                    <td style="{{ $cssTablaFila }} padding: 3px 0;">{{ $p['nombre'] }}</td>
-                    <td style="{{ $cssTablaFila }} padding: 3px 0;">{{ $p['unidad'] }}</td>
-                    <td style="{{ $cssTablaFila }} padding: 3px 0; text-align: right;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
+                @php $bgFila = $i % 2 !== 0 ? ' background-color: #f9f9f9;' : ''; @endphp
+                <tr style="{{ $bgFila }}">
+                    <td colspan="2" style="{{ $cssTablaFila }} font-weight: bold; padding: 3px 0 0;">{{ $p['nombre'] }}</td>
+                </tr>
+                <tr style="border-bottom: {{ $borderThin }}px solid {{ $colorBorde }};{{ $bgFila }}">
+                    <td style="{{ $cssTablaFila }} padding: 0 0 3px;">{{ $p['unidad'] }}</td>
+                    <td style="{{ $cssTablaFila }} padding: 0 0 3px; text-align: right;">{{ \App\Helpers\Formato::cantidad($p['cantidad']) }}</td>
                 </tr>
                 @endforeach
             </tbody>

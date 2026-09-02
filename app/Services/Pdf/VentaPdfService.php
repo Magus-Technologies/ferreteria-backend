@@ -222,7 +222,7 @@ class VentaPdfService
     {
         $cliente = $venta->cliente;
         $clienteNombre = $cliente?->razon_social
-            ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
+            ?: (trim(explode(' ', trim($cliente?->nombres ?? ''))[0] ?? '') ?: null)
             ?: 'CLIENTES VARIOS';
 
         $formaPago = match($venta->forma_de_pago) {
