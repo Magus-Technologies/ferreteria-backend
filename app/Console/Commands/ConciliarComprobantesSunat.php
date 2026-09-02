@@ -76,15 +76,56 @@ class ConciliarComprobantesSunat extends Command
         if (! $ejecutar) {
             $this->warn('MODO SIMULACIÓN — no se envía nada. Agregá --ejecutar para hacerlo de verdad.');
             $this->newLine();
-            $this->table(
-                ['Serie-Número', 'Tipo', 'Estado actual', 'Emitido'],
-                $pendientes->map(fn ($c) => [
+            // "PENDIENTE" solo dice que no se confirmó, no si llegó o no. El
+            // historial de intentos SÍ lo insinúa, y evita mandar a ciegas:
+            //   - un intento con 1033/2109 es prueba de que SUNAT ya lo tiene
+            //   - sin ningún intento, es casi seguro que nunca salió
+            $filas = $pendientes->map(function ($c) {
+                $intentos = \App\Models\IntentoEnvioSunat::where('comprobante_id', $c->id)
+                    ->orderByDesc('fecha_intento')
+                    ->get();
+
+                $ultimo = $intentos->first();
+                $mensaje = (string) ($ultimo->mensaje_respuesta ?? '');
+
+                if ($intentos->isEmpty()) {
+                    $diagnostico = 'NUNCA SE INTENTÓ';
+                } elseif (str_contains($mensaje, '1033') || str_contains($mensaje, '2109')
+                    || stripos($mensaje, 'ya fue registrado') !== false
+                ) {
+                    $diagnostico = 'YA ESTÁ EN SUNAT';
+                } elseif ($ultimo->resultado === 'exitoso') {
+                    $diagnostico = 'ACEPTADO SIN GUARDAR';
+                } else {
+                    $diagnostico = 'FALLÓ AL ENVIAR';
+                }
+
+                return [
                     $c->serie.'-'.$c->correlativo,
                     $c->tipo_comprobante === '01' ? 'Factura' : 'Boleta',
-                    $c->estado_sunat ?? '(sin estado)',
-                    optional($c->created_at)->format('d/m/Y H:i'),
-                ])->all(),
+                    optional($c->created_at)->format('d/m H:i'),
+                    $intentos->count(),
+                    $diagnostico,
+                    mb_substr(preg_replace('/\s+/', ' ', $mensaje), 0, 45),
+                ];
+            })->all();
+
+            $this->table(
+                ['Serie-Número', 'Tipo', 'Emitido', 'Intentos', 'Diagnóstico', 'Último mensaje de SUNAT'],
+                $filas,
             );
+
+            $resumen = collect($filas)->countBy(4);
+            $this->newLine();
+            $this->line('Qué dice el historial de intentos:');
+            foreach ($resumen as $etiqueta => $cantidad) {
+                $this->line(sprintf('  %-22s %d', $etiqueta, $cantidad));
+            }
+            $this->newLine();
+            $this->line('  YA ESTÁ EN SUNAT      -> el reenvío solo corrige el estado (1033)');
+            $this->line('  ACEPTADO SIN GUARDAR  -> SUNAT respondió OK pero no se persistió');
+            $this->line('  FALLÓ AL ENVIAR       -> mirá el mensaje: puede ser transporte o reglas');
+            $this->line('  NUNCA SE INTENTÓ      -> no salió nunca; el reenvío lo declara por primera vez');
 
             return self::SUCCESS;
         }
