@@ -41,9 +41,25 @@ class ConciliarComprobantesSunat extends Command
         $limite = (int) $this->option('limite');
         $espera = (int) $this->option('espera');
 
-        $pendientes = ComprobanteElectronico::whereNotIn('estado_sunat', ['ACEPTADO', 'ACEPTADO_CON_OBSERVACIONES', 'ANULADO'])
+        // Solo PENDIENTE. Es el único estado que significa "no sabemos si llegó".
+        //
+        // Se usa una lista BLANCA a propósito, no una negra: con whereNotIn
+        // cualquier estado nuevo o no contemplado entra por descarte al reenvío.
+        // Así fue como se colaron las BAJA_ACEPTADA — boletas ANULADAS cuya baja
+        // SUNAT ya aceptó. Reenviar una de esas seria intentar re-declarar un
+        // documento dado de baja: un problema tributario, no un error de estado.
+        //
+        // Los demás estados NO se tocan:
+        //   ACEPTADO / ACEPTADO_CON_OBSERVACIONES -> ya está resuelto
+        //   BAJA_ACEPTADA / ANULADO               -> anulado, no se reenvía
+        //   RECHAZADO                             -> SUNAT lo rechazó por reglas;
+        //                                            hay que corregir el documento,
+        //                                            reenviarlo igual no sirve
+        $pendientes = ComprobanteElectronico::where('estado_sunat', 'PENDIENTE')
             ->whereIn('tipo_comprobante', ['01', '03'])
             ->whereNotNull('venta_id')
+            // Una venta anulada no se declara: se da de baja, que es otro flujo.
+            ->whereHas('venta', fn ($q) => $q->where('estado_de_venta', '!=', 'an'))
             ->orderBy('created_at')
             ->limit($limite)
             ->get();
