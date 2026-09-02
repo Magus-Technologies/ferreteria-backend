@@ -78,6 +78,22 @@ class ComprobanteElectronico extends Model
         'motivo_anulacion',
     ];
 
+    /**
+     * `cdr_xml` guarda el CDR de SUNAT: un ZIP BINARIO, no texto.
+     *
+     * Serializarlo a JSON revienta con "Malformed UTF-8 characters" y tumba
+     * la respuesta completa de cualquier endpoint que devuelva el modelo. El
+     * síntoma es engañoso: la operación se completó bien y solo falla al
+     * armar la respuesta, así que parece que no funcionó — y eso dispara
+     * reenvíos que SUNAT rechaza con 1033.
+     *
+     * No se pierde nada: el CDR se descarga por su endpoint dedicado, y para
+     * saber si existe está `cdr_path`, que sí es texto.
+     */
+    protected $hidden = [
+        'cdr_xml',
+    ];
+
     protected $casts = [
         'fecha_emision' => 'date:Y-m-d',
         'fecha_vencimiento' => 'date:Y-m-d',

@@ -191,7 +191,9 @@ class FacturaService implements FacturaServiceInterface
             ];
 
         } catch (FacturaException $e) {
-            DB::rollBack();
+            if ($transaccionAbierta) {
+                DB::rollBack();
+            }
             Log::error('❌ [FacturaService] FacturaException capturada', [
                 'error' => $e->getMessage(),
                 'code' => $e->getCode(),
@@ -252,10 +254,32 @@ class FacturaService implements FacturaServiceInterface
         return $query->orderBy('fecha_emision', 'desc')->paginate($porPagina);
     }
 
+    /**
+     * ¿SUNAT dice que el comprobante YA está registrado?
+     *
+     * Códigos 1033 y 2109 ("el comprobante fue registrado previamente").
+     * No son un fallo a reintentar: son la confirmación de que el documento
+     * llegó. Insistir solo genera más rechazos.
+     */
+    private function yaRegistradoEnSunat(array $resultado): bool
+    {
+        $texto = ($resultado['codigo_sunat'] ?? '') . ' ' . ($resultado['mensaje_sunat'] ?? '');
+
+        return str_contains($texto, '1033')
+            || str_contains($texto, '2109')
+            || stripos($texto, 'ya fue registrado') !== false
+            || stripos($texto, 'registrado anteriormente') !== false;
+    }
+
     public function enviarASunat(string $ventaId, string $modoEnvio = 'manual'): array
     {
+        // La transacción se cierra ANTES de llamar a SUNAT; esta bandera evita
+        // que los catch intenten revertir algo que ya no está abierto.
+        $transaccionAbierta = false;
+
         try {
             DB::beginTransaction();
+            $transaccionAbierta = true;
 
             $venta = $this->validarYObtenerVenta($ventaId);
             
@@ -276,8 +300,59 @@ class FacturaService implements FacturaServiceInterface
             // Preparar datos para Greenter
             $dataGreenter = $this->prepararDatosParaGreenter($venta, true); // true = validar para SUNAT
 
-            // Generar y enviar a SUNAT
+            // A partir de acá el envío es IRREVERSIBLE del lado de SUNAT: una vez
+            // que acepta el comprobante, ningún rollback local lo deshace. Por eso
+            // la transacción se CIERRA antes de llamar, y el estado resultante se
+            // persiste aparte (ver más abajo).
+            //
+            // Antes el envío ocurría dentro de la transacción y cualquier fallo
+            // POSTERIOR —guardar el XML/CDR a disco, regenerar el QR, el propio
+            // update— disparaba rollBack(): SUNAT quedaba con el comprobante
+            // registrado y el sistema decía "no enviado". El reintento entonces
+            // chocaba con el 1033 ("ya fue registrado") una y otra vez.
+            DB::commit();
+            $transaccionAbierta = false;
+
             $resultado = $this->sunatApiService->generarYEnviarFactura($dataGreenter);
+
+            // 1033 = el comprobante YA está registrado en SUNAT. No es un error a
+            // reintentar: es la prueba de que llegó. Se concilia el estado local
+            // en vez de dejarlo pendiente generando más rechazos.
+            if (! $resultado['success'] && $this->yaRegistradoEnSunat($resultado)) {
+                $this->comprobanteRepository->update($comprobante->id, [
+                    'estado_sunat' => 'ACEPTADO',
+                    'codigo_respuesta_sunat' => $resultado['codigo_sunat'] ?? '1033',
+                    'mensaje_respuesta_sunat' => 'Ya registrado en SUNAT (conciliado): '
+                        . ($resultado['mensaje_sunat'] ?? ''),
+                    'fecha_envio_sunat' => $comprobante->fecha_envio_sunat ?? now(),
+                    'fecha_respuesta_sunat' => now(),
+                ]);
+
+                $this->comprobanteRepository->registrarIntentoEnvio(
+                    $comprobante->id,
+                    true,
+                    $resultado['codigo_sunat'] ?? '1033',
+                    'Conciliado: SUNAT reporta el comprobante como ya registrado',
+                    null,
+                    $modoEnvio
+                );
+
+                Log::warning('Comprobante ya registrado en SUNAT: estado conciliado', [
+                    'comprobante_id' => $comprobante->id,
+                    'venta_id' => $ventaId,
+                    'mensaje' => $resultado['mensaje_sunat'] ?? null,
+                ]);
+
+                return [
+                    'success' => true,
+                    'mensaje' => 'El comprobante ya estaba registrado en SUNAT. Estado actualizado.',
+                    'modo' => $resultado['modo'] ?? 'CONCILIADO',
+                    'codigo_sunat' => $resultado['codigo_sunat'] ?? '1033',
+                    'mensaje_sunat' => $resultado['mensaje_sunat'] ?? null,
+                    'hash_cpe' => null,
+                    'hash_cdr' => null,
+                ];
+            }
 
             if (!$resultado['success']) {
                 // Propagar el detalle real del API en lugar del mensaje genérico
@@ -287,6 +362,25 @@ class FacturaService implements FacturaServiceInterface
                 throw FacturaException::facturaNoEnviable($detalle);
             }
 
+            // SUNAT ACEPTÓ. Se deja constancia YA, en una escritura propia y
+            // mínima, antes de tocar disco o regenerar el QR. Si algo de eso
+            // falla después, el comprobante igual queda ACEPTADO y no se
+            // reenvía: lo que falte (archivos, QR) se completa abajo sin
+            // arrastrar el estado.
+            $this->comprobanteRepository->update($comprobante->id, [
+                'estado_sunat' => 'ACEPTADO',
+                'codigo_respuesta_sunat' => $resultado['codigo_sunat'] ?? null,
+                'mensaje_respuesta_sunat' => $resultado['mensaje_sunat'] ?? null,
+                'fecha_envio_sunat' => now(),
+                'fecha_respuesta_sunat' => now(),
+                'user_envio_id' => auth()->id(),
+            ]);
+
+            // ---- Trabajo SECUNDARIO (mejor esfuerzo) ----
+            // Archivos en disco, QR y XML/CDR en BD. Nada de esto cambia el
+            // hecho de que SUNAT ya aceptó, así que un fallo acá se registra
+            // pero NO revierte el estado ni provoca un reenvío.
+            try {
             // Guardar archivos XML y CDR
             $ruc = \App\Models\Empresa::getRucEmisor();
             $tipoDoc = $venta->tipo_documento === '01' ? '01' : '03';
@@ -319,9 +413,8 @@ class FacturaService implements FacturaServiceInterface
                 $resultado['hash_cpe']
             );
 
-            // Actualizar comprobante
+            // Completar artefactos. El estado ya se persistió arriba.
             $this->comprobanteRepository->update($comprobante->id, [
-                'estado_sunat' => 'ACEPTADO',
                 'xml_firmado' => $resultado['xml'], // ✅ Guardar XML en BD
                 'xml_path' => $xmlPath,
                 'cdr_xml' => $cdrContent, // ✅ Guardar CDR en BD
@@ -335,6 +428,15 @@ class FacturaService implements FacturaServiceInterface
                 'user_envio_id' => auth()->id(),
             ]);
 
+            } catch (\Throwable $e) {
+                // El comprobante SIGUE aceptado: solo faltan artefactos locales.
+                Log::error('Comprobante aceptado por SUNAT pero falló el guardado local', [
+                    'comprobante_id' => $comprobante->id,
+                    'venta_id' => $ventaId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
             // Registrar intento de envío
             $this->comprobanteRepository->registrarIntentoEnvio(
                 $comprobante->id,
@@ -344,8 +446,6 @@ class FacturaService implements FacturaServiceInterface
                 null,
                 $modoEnvio
             );
-
-            DB::commit();
 
 
             // NO devolver XML ni CDR en la respuesta para evitar problemas de encoding
@@ -375,8 +475,10 @@ class FacturaService implements FacturaServiceInterface
 
             throw $e;
         } catch (\Exception $e) {
-            DB::rollBack();
-            
+            if ($transaccionAbierta) {
+                DB::rollBack();
+            }
+
             Log::error('Error al enviar factura a SUNAT', [
                 'venta_id' => $ventaId,
                 'error' => $e->getMessage(),

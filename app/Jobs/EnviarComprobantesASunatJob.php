@@ -185,16 +185,47 @@ class EnviarComprobantesASunatJob implements ShouldQueue
      */
     private function enviarConReintentos(FacturaServiceInterface $facturaService, ComprobanteElectronico $comprobante, string $configKey): void
     {
-        $maxIntentos = 3;
+        $maxIntentos = 2;
         $segundosEntreIntentos = 5;
 
         for ($intento = 1; $intento <= $maxIntentos; $intento++) {
             try {
                 $facturaService->enviarASunat($comprobante->venta_id, 'automatico');
+
                 return;
             } catch (\Exception $e) {
+                $mensaje = $e->getMessage();
+
+                // Si SUNAT ya lo tiene registrado, reintentar solo suma
+                // rechazos. `enviarASunat` concilia el estado por su cuenta;
+                // acá se corta en seco.
+                if (str_contains($mensaje, '1033')
+                    || str_contains($mensaje, '2109')
+                    || stripos($mensaje, 'ya fue registrado') !== false
+                    || stripos($mensaje, 'registrado anteriormente') !== false
+                ) {
+                    Log::warning("{$configKey} {$comprobante->id} ya estaba registrado en SUNAT: no se reintenta", [
+                        'venta_id' => $comprobante->venta_id,
+                        'mensaje' => $mensaje,
+                    ]);
+
+                    return;
+                }
+
+                // Un rechazo por REGLAS de SUNAT (2xxx/3xxx) es determinista:
+                // el mismo XML va a fallar igual las veces que se mande. Solo
+                // tiene sentido reintentar fallos de TRANSPORTE (timeout, red,
+                // HTTP), que sí pueden resolverse solos.
+                if (preg_match('/\[(2\d{3}|3\d{3})\]/', $mensaje)) {
+                    Log::error("{$configKey} {$comprobante->id} rechazado por SUNAT (no se reintenta): {$mensaje}", [
+                        'venta_id' => $comprobante->venta_id,
+                    ]);
+
+                    return;
+                }
+
                 $esUltimoIntento = $intento === $maxIntentos;
-                Log::error("Error enviando {$configKey} {$comprobante->id} (intento {$intento}/{$maxIntentos}): {$e->getMessage()}", [
+                Log::error("Error enviando {$configKey} {$comprobante->id} (intento {$intento}/{$maxIntentos}): {$mensaje}", [
                     'venta_id' => $comprobante->venta_id,
                     'ultimo_intento' => $esUltimoIntento,
                 ]);
