@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\ComprobanteElectronico;
 use App\Services\Interfaces\SunatApiServiceInterface;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Da de baja un comprobante ante SUNAT eligiendo el mecanismo correcto según
@@ -24,6 +25,47 @@ class ComunicacionBajaService
     public function darDeBaja(ComprobanteElectronico $comprobante, string $motivo): array
     {
         $tipoDoc = $comprobante->tipo_comprobante;
+
+        // FACTURA nunca declarada: hay que DECLARARLA antes de anularla.
+        //
+        // SUNAT no puede dar de baja un documento que no tiene: responde
+        // [2663] "El documento indicado no existe". Y como FacturaService
+        // bloquea el envío de una venta anulada, se formaba un candado mutuo
+        // que dejaba el comprobante trabado hasta que vencía el plazo de
+        // envío (3 días calendario) y el correlativo se perdía.
+        //
+        // Las BOLETAS no pasan por acá: su Resumen Diario ya hace los dos
+        // pasos (declarar con estado 1, luego baja con estado 3).
+        if ($tipoDoc === '01' && $comprobante->estado_sunat === 'PENDIENTE' && $comprobante->venta_id) {
+            try {
+                // Se resuelve en el momento y no por constructor para no armar
+                // una dependencia circular entre los dos servicios.
+                app(\App\Services\Interfaces\FacturaServiceInterface::class)
+                    ->enviarASunat($comprobante->venta_id, 'baja-previa', true);
+
+                $comprobante->refresh();
+
+                Log::info('Factura declarada a SUNAT antes de su comunicación de baja', [
+                    'comprobante_id' => $comprobante->id,
+                    'documento' => $comprobante->serie.'-'.$comprobante->correlativo,
+                ]);
+            } catch (\Throwable $e) {
+                // Si no se pudo declarar, la baja tampoco va a prosperar. Se
+                // devuelve el motivo real en vez del 2663 genérico, que no le
+                // dice nada al usuario.
+                Log::error('No se pudo declarar la factura previo a la baja', [
+                    'comprobante_id' => $comprobante->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return [
+                    'success' => false,
+                    'mensaje_sunat' => 'No se pudo declarar el comprobante antes de darlo de baja: '
+                        .$e->getMessage(),
+                    'codigo_sunat' => null,
+                ];
+            }
+        }
 
         $result = $tipoDoc === '01'
             ? $this->sunatApiService->generarYEnviarComunicacionBaja([

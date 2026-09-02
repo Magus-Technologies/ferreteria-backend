@@ -271,7 +271,7 @@ class FacturaService implements FacturaServiceInterface
             || stripos($texto, 'registrado anteriormente') !== false;
     }
 
-    public function enviarASunat(string $ventaId, string $modoEnvio = 'manual'): array
+    public function enviarASunat(string $ventaId, string $modoEnvio = 'manual', bool $permitirVentaAnulada = false): array
     {
         // La transacción se cierra ANTES de llamar a SUNAT; esta bandera evita
         // que los catch intenten revertir algo que ya no está abierto.
@@ -281,7 +281,7 @@ class FacturaService implements FacturaServiceInterface
             DB::beginTransaction();
             $transaccionAbierta = true;
 
-            $venta = $this->validarYObtenerVenta($ventaId);
+            $venta = $this->validarYObtenerVenta($ventaId, $permitirVentaAnulada);
             
             // Buscar comprobante por serie y correlativo
             $comprobante = $this->comprobanteRepository->findBySerieCorrelativo(
@@ -570,7 +570,7 @@ class FacturaService implements FacturaServiceInterface
         ];
     }
 
-    private function validarYObtenerVenta(string $ventaId): Venta
+    private function validarYObtenerVenta(string $ventaId, bool $permitirVentaAnulada = false): Venta
     {
         $venta = Venta::with([
             'cliente',
@@ -618,7 +618,15 @@ class FacturaService implements FacturaServiceInterface
         // dado de baja al anular, así que sin este check el job automático
         // (o el botón manual) la mandaría igual como si fuera una venta
         // válida mientras siguiera PENDIENTE y dentro del plazo configurado.
-        if ($estadoVenta === 'an') {
+        // La excepción es el paso previo de una Comunicación de Baja: SUNAT no
+        // puede dar de baja un documento que nunca recibió (responde 2663), así
+        // que primero hay que DECLARARLO y recién después anularlo.
+        //
+        // Sin esa salida quedaba un candado mutuo: la baja fallaba por no estar
+        // declarado, y declararlo fallaba por estar anulado. El comprobante
+        // quedaba trabado hasta que vencía el plazo de envío (3 días para
+        // factura) y el correlativo se perdía — le pasó a FT01-226 y FT01-301.
+        if ($estadoVenta === 'an' && ! $permitirVentaAnulada) {
             throw FacturaException::ventaNoValida('La venta está Anulada: no se puede enviar a SUNAT como si fuera válida. Si el comprobante nunca se envió, usa Comunicación de Baja (Facturación Electrónica → Comunicación de Baja). Si SUNAT ya lo había aceptado antes de anular, corresponde Nota de Crédito.');
         }
 
