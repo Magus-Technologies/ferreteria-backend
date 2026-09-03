@@ -222,7 +222,7 @@ class VentaPdfService
     {
         $cliente = $venta->cliente;
         $clienteNombre = $cliente?->razon_social
-            ?: (trim(explode(' ', trim($cliente?->nombres ?? ''))[0] ?? '') ?: null)
+            ?: trim(($cliente?->nombres ?? '') . ' ' . ($cliente?->apellidos ?? ''))
             ?: 'CLIENTES VARIOS';
 
         $formaPago = match($venta->forma_de_pago) {
@@ -395,7 +395,7 @@ class VentaPdfService
                 ? PdfService::formatFecha($venta->fecha_vencimiento)
                 : '',
             'numeroGuia' => $venta->numero_guia ?? '',
-            'vendedor' => $venta->user->name,
+            'vendedor' => trim(explode(' ', trim($venta->user->name ?? ''))[0] ?? '') ?: $venta->user->name,
             'recomendadoPor' => $this->getNombreRecomendado($venta),
             'clienteNombre' => $clienteNombre,
             // Placeholder "SN-XXXXXXXX" = cliente registrado sin documento:
