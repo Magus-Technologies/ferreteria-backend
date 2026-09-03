@@ -170,7 +170,19 @@ class DespliegueDePagoController extends Controller
         $item = DespliegueDePago::findOrFail($id);
 
         $validated = $request->validate([
-            'name' => 'sometimes|string|max:191|unique:desplieguedepago,name,' . $id,
+            'name' => [
+                'sometimes',
+                'string',
+                'max:191',
+                // Único solo dentro del mismo banco: bancos distintos legítimamente
+                // comparten nombres de método (ej. "Transferencia", "Izipay") — antes
+                // esto era único GLOBAL y bloqueaba con 422 cualquier edición de un
+                // despliegue cuyo nombre se repitiera en otro banco, sin importar qué
+                // campo se estuviera cambiando.
+                \Illuminate\Validation\Rule::unique('desplieguedepago', 'name')
+                    ->ignore($id)
+                    ->where('metodo_de_pago_id', $item->metodo_de_pago_id),
+            ],
             'requiere_numero_serie' => 'sometimes|boolean',
             'sobrecargo_porcentaje' => 'sometimes|numeric|min:0|max:100',
             'tipo_sobrecargo' => 'sometimes|in:porcentaje,monto_fijo,ninguno',
