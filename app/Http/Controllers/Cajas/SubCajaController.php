@@ -239,6 +239,7 @@ class SubCajaController extends Controller
                         'tipo_sobrecargo' => $despliegue->tipo_sobrecargo ?? 'ninguno',
                         'sobrecargo_porcentaje' => $despliegue->sobrecargo_porcentaje ?? 0,
                         'adicional' => $despliegue->adicional ?? 0,
+                        'requiere_numero_serie' => (bool) $despliegue->requiere_numero_serie,
                     ];
                 }
             }
